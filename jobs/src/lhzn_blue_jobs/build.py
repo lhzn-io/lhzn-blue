@@ -10,8 +10,8 @@ Published layout (under ``<root>/v1/``):
   file and ``live.json``.
 - ``history-salinity.json``, ``history-oxygen.json``: the same hourly record for salinity and dissolved
   oxygen (mg/L), rebuilt with it; the page loads them only when a reader switches to that variable.
-- ``live.json``: the last 45 days, hourly, of every variable, plus the latest raw observation per series;
-  refreshed hourly.
+- ``live.json``: the last 45 days, hourly, of every variable, plus the latest raw observation per series,
+  the buoy weather and waves (100 days; see waves.py); refreshed hourly.
 - ``archive/<STATION>_<DEPTH>.json``: hourly series converted once from our own snapshots of
   datasets the server no longer publishes under their original names. Read by the history build;
   not served to the page.
@@ -83,7 +83,8 @@ MET_RANGES = {
 }
 # Every object the jobs may write. Anything else is refused (see Store.write_json).
 WRITABLE = re.compile(
-    r"v1/(history|history-salinity|history-oxygen|live|shore|shore-history)\.json|v1/archive/[A-Z]{3,5}_(SFC|MID|BTM)\.json"
+    r"v1/(history|history-salinity|history-oxygen|history-waves|live|shore|shore-history)\.json"
+    r"|v1/archive/[A-Z]{3,5}_(SFC|MID|BTM|WAVE)\.json"
 )
 MAX_OBJECT_BYTES = 8 * 1024 * 1024
 STATIONS_FILE = Path(
@@ -290,14 +291,15 @@ def met_hourly(df: pd.DataFrame) -> pd.DataFrame:
     return out.dropna(how="all")
 
 
-def encode_frame(frame: pd.DataFrame) -> dict:
-    """Several hourly columns on one continuous grid, rounded to 0.1; gaps are null."""
+def encode_frame(frame: pd.DataFrame, decimals: dict[str, int] | None = None) -> dict:
+    """Several hourly columns on one continuous grid, rounded to 0.1 (or per column); gaps are null."""
     if frame.empty:
         return {"t0": None, "step": 3600}
     full = frame.reindex(pd.date_range(frame.index[0], frame.index[-1], freq="h"))
     out: dict = {"t0": iso(full.index[0]), "step": 3600}
     for col in full.columns:
-        out[col] = [None if pd.isna(v) else round(float(v), 1) for v in full[col]]
+        places = (decimals or {}).get(col, 1)
+        out[col] = [None if pd.isna(v) else round(float(v), places) for v in full[col]]
     return out
 
 
@@ -539,11 +541,14 @@ def live(store: Store, full: bool = False) -> None:
             out_vars["temp"][key].update({"last_obs": last_obs, "dataset": ds})
             out_datasets[ds] = status
     out_met = live_met(prev.get("met", {}), prev_datasets, out_datasets, end)
+    from . import waves  # imported here: waves builds on this module
+
+    out_waves = waves.live(prev.get("waves", {}), prev_datasets, out_datasets, end, store)
     store.write_json(
         "v1/live.json",
         {"schema": SCHEMA, "generated_at": iso(end), "series": out_vars["temp"]}
         | {var: out_vars[var] for var in EXTRA_VARS}
-        | {"met": out_met, "datasets": out_datasets},
+        | {"met": out_met, "waves": out_waves, "datasets": out_datasets},
         max_age=300,
     )
 

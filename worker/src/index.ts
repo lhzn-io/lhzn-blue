@@ -27,6 +27,7 @@ const FILES: Record<string, number> = {
   "v1/history.json": 300,
   "v1/history-salinity.json": 300,
   "v1/history-oxygen.json": 300,
+  "v1/history-waves.json": 300,
   "v1/shore.json": 300,
   "v1/shore-history.json": 300,
 };

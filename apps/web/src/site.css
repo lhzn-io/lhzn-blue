@@ -132,6 +132,9 @@ a { color: inherit; }
 .topbar .var-switch .tab { padding: 3px 8px 4px; }
 .topbar .var-switch > span { padding-top: 0; }
 .station, .station-group { scroll-margin-top: 40px; }
+/* The wind strip under surface minus bottom: a third of a chart's height, on the same time axis. */
+.plot.strip { height: 62px; margin-top: 2px; }
+.strip-cap { margin-top: 8px; font: 600 8.5px/1.2 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint); }
 /* Phones: the strip takes two lines, freshness above, the switch and Suggestions below. */
 @media (max-width: 640px) {
   .topbar { flex-wrap: wrap; padding-bottom: 4px; }

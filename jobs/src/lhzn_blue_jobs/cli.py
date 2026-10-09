@@ -12,18 +12,18 @@ import sys
 import os
 from pathlib import Path
 
-from . import build, shore
+from . import build, shore, waves
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "import-archive"])
+    parser.add_argument("command", choices=["history", "live", "import-archive", "import-waves"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
         help="local directory or gs://bucket[/prefix] (env LHZN_BLUE_OUT)",
     )
-    parser.add_argument("--archive-dir", type=Path, help="import-archive: directory of <vintage>/<dataset>.h5")
+    parser.add_argument("--archive-dir", type=Path, help="import-archive, import-waves: directory of <vintage>/<dataset>.h5")
     parser.add_argument("--vintage", help="import-archive: fallback snapshot folder when stations.json names none")
     parser.add_argument("--full", action="store_true", help="live: refetch the whole 45-day window")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -35,6 +35,7 @@ def main() -> None:
     store = build.Store(args.out)
     if args.command == "history":
         build.history(store)
+        store.write_json("v1/history-waves.json", waves.history(store), max_age=3600)
         _shore(lambda: store.write_json(
             "v1/shore-history.json", shore.history(store.read_json("v1/shore-history.json"), build.now_utc()), max_age=3600
         ))
@@ -43,6 +44,10 @@ def main() -> None:
         _shore(lambda: store.write_json(
             "v1/shore.json", shore.live(store.read_json("v1/shore.json"), build.now_utc(), full=args.full), max_age=300
         ))
+    elif args.command == "import-waves":
+        if not args.archive_dir:
+            parser.error("import-waves needs --archive-dir")
+        waves.import_waves(store, args.archive_dir)
     else:
         if not args.archive_dir:
             parser.error("import-archive needs --archive-dir")

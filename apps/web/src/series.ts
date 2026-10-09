@@ -54,6 +54,7 @@ export interface Live {
   series: Record<string, LiveSeries>; // water temperature (F), with the latest raw observation
   salinity?: Record<string, Encoded>;
   oxygen?: Record<string, Encoded>; // mg/L
+  waves?: Record<string, WaveLive>;
   met?: Record<string, MetWindow>;
   datasets: Record<string, { last_ok?: string; last_error?: string; rows?: number }>;
 }
@@ -165,6 +166,40 @@ export interface ShoreHistory {
   generated_at: string;
   meta: { qc: string; stations: ShoreMetaStation[] };
   series: Record<string, Encoded>;
+}
+
+/** Waves at a buoy: heights in metres, periods in seconds. */
+export interface WaveObs {
+  time: string;
+  hs_m: number | null; // significant wave height
+  hmax_m: number | null; // highest wave
+  tp_s: number | null; // dominant period
+  ta_s: number | null; // average period
+}
+
+export interface WaveFrame {
+  t0: string | null;
+  step: number;
+  hs_m?: (number | null)[];
+  hmax_m?: (number | null)[];
+  tp_s?: (number | null)[];
+  ta_s?: (number | null)[];
+}
+
+/** The live window: the last 100 days, and whether the server published the dataset at the last check. */
+export interface WaveLive extends WaveFrame {
+  last_obs: WaveObs | null;
+  published: boolean;
+  checked_at: string;
+  dataset: string;
+}
+
+/** The full wave record, with each station's status. */
+export interface WaveHistory {
+  generated_at: string;
+  qc: string;
+  meta: Record<string, { dataset: string; published: boolean; checked_at: string; record_start: string | null; last_obs: WaveObs | null; saved_downloads: number | null }>;
+  stations: Record<string, WaveFrame>;
 }
 
 /** The salinity or oxygen history: the same hourly record, loaded when a reader switches to it. */

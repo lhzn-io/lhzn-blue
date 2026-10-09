@@ -10,7 +10,8 @@ import { wireSuggest } from "./suggest";
 import {
   COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, oxygenStatus, stratStatus, yearLines,
   type Encoded, type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetObs, type MetWindow,
-  type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type VarHistory, type YearLine,
+  type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type VarHistory, type WaveFrame,
+  type WaveHistory, type WaveLive, type WaveObs, type YearLine,
 } from "./series";
 
 const DATA = "/data/v1";
@@ -100,7 +101,7 @@ type State = "live" | "delayed" | "offline";
  * column and surface-minus-bottom charts); temperature is the default. Salinity and oxygen histories
  * load on first use, so the first view costs the same two requests as before.
  */
-type VarKey = "temp" | "salinity" | "oxygen";
+type VarKey = "temp" | "salinity" | "oxygen" | "wind";
 interface WaterVar {
   label: string;
   unit: string; // appended to values on axes and in tooltips
@@ -112,7 +113,10 @@ const WATER_VARS: Record<VarKey, WaterVar> = {
   temp: { label: "Water temperature", unit: "°F", digits: 1, file: "history.json", obs: (o) => (o.temperature_c == null ? null : cToF(o.temperature_c)) },
   salinity: { label: "Salinity", unit: "", digits: 2, file: "history-salinity.json", obs: (o) => o.salinity },
   oxygen: { label: "Dissolved oxygen", unit: " mg/L", digits: 1, file: "history-oxygen.json", obs: (o) => o.oxygen_mg_l },
+  // Not a water variable: the view of weather and waves at the stations (see FIGS and statusGrid).
+  wind: { label: "Wind and waves", unit: "", digits: 1, file: "history-waves.json", obs: () => null },
 };
+const isWater = (k: VarKey) => k !== "wind";
 let VK: VarKey = "temp";
 try {
   const saved = localStorage.getItem("lhzn-blue-water-var");
@@ -153,13 +157,32 @@ interface StationData {
   level: Hourly | null; // shore stations: water level, feet above MLLW
   tides: TideEvent[]; // shore stations: predicted highs and lows
   levelNow: { time: string; ft: number } | null;
+  waves: Waves | null; // buoys with a wave sensor: the live window, then the full record once loaded
 }
+
+/** Hourly waves: heights in metres, periods in seconds. */
+interface Waves {
+  hs: Hourly | null;
+  hmax: Hourly | null;
+  tp: Hourly | null;
+}
+
+function wavesFrom(hist: WaveFrame | undefined, live: WaveFrame | undefined): Waves | null {
+  const col = (k: "hs_m" | "hmax_m" | "tp_s") => Hourly.merge(Hourly.fromArray(hist?.t0, hist?.[k]), Hourly.fromArray(live?.t0, live?.[k]));
+  const w = { hs: col("hs_m"), hmax: col("hmax_m"), tp: col("tp_s") };
+  return w.hs || w.hmax ? w : null;
+}
+
+/** Wave status per buoy: the hourly check in live.json, and the full record's metadata once loaded. */
+let WAVE_LIVE: Record<string, WaveLive> = {};
+let WAVE_META: WaveHistory["meta"] = {};
 
 interface Met {
   wind: Hourly | null; // knots
   gust: Hourly | null; // knots, hourly peak
   dir: Hourly | null; // degrees the wind blows from
   air: Hourly | null; // F
+  pressure: Hourly | null; // mbar
   last: MetObs | null;
 }
 
@@ -172,6 +195,7 @@ function metOf(w: MetWindow | undefined): Met | null {
     gust: Hourly.fromArray(w.t0, w.gust_kt),
     dir: Hourly.fromArray(w.t0, w.dir_deg),
     air: Hourly.fromArray(w.t0, w.air_f),
+    pressure: Hourly.fromArray(w.t0, w.pressure_mb),
     last: w.last_obs,
   };
 }
@@ -201,6 +225,8 @@ try {
   /* private mode: knots */
 }
 const windVal = (kt: number) => kt * WIND_UNITS[WU].factor;
+const waveUnit = () => (WU === "ms" ? { label: "m", factor: 1, digits: 2 } : { label: "ft", factor: 3.28084, digits: 1 });
+const waveFmt = (m: number | null | undefined) => (m == null || !Number.isFinite(m) ? "--" : (m * waveUnit().factor).toFixed(waveUnit().digits));
 const windFmt = (kt: number | null | undefined) =>
   kt == null || !Number.isFinite(kt) ? "--" : windVal(kt).toFixed(WIND_UNITS[WU].digits);
 
@@ -229,6 +255,14 @@ function useVar(d: StationData, k: VarKey): void {
 const loaded = new Set<VarKey>(["temp"]);
 async function ensureVar(k: VarKey, live: Live, stations: StationData[]): Promise<void> {
   if (loaded.has(k)) return;
+  if (k === "wind") {
+    const hist = await getJson<WaveHistory>(`${DATA}/${WATER_VARS.wind.file}`);
+    WAVE_META = hist.meta;
+    for (const d of stations) if (d.kind === "buoy") d.waves = wavesFrom(hist.stations[d.meta.id], live.waves?.[d.meta.id]);
+    $("about-sources").insertAdjacentHTML("beforeend", ` ${hist.qc}`);
+    loaded.add(k);
+    return;
+  }
   const hist = await getJson<VarHistory>(`${DATA}/${WATER_VARS[k].file}`);
   const liveVar = k === "temp" ? live.series : live[k];
   for (const d of stations) d.views[k] = viewOf(d.meta, hist.series, liveVar);
@@ -262,8 +296,10 @@ async function load(): Promise<{ meta: Meta; live: Live; stations: StationData[]
       level: null,
       tides: [],
       levelNow: null,
+      waves: wavesFrom(undefined, live.waves?.[st.id]),
     };
   });
+  WAVE_LIVE = live.waves ?? {};
   return { meta, live, stations };
 }
 
@@ -296,6 +332,7 @@ function shoreStation(st: ShoreMetaStation, frame: ShoreFrame | undefined, hist:
     level: Hourly.fromArray(frame?.t0, frame?.level_ft),
     tides: frame?.tides ?? [],
     levelNow: o && o.level_ft != null ? { time: o.time, ft: o.level_ft } : null,
+    waves: null,
   };
 }
 
@@ -379,7 +416,7 @@ function stratNow(d: StationData): { deltaC: number; status: string } {
 
 /* ---------- Figures: one builder per view, used inline and in the zoom view ---------- */
 
-type Kind = "yoy" | "chg" | "col" | "sb" | "wind" | "air" | "tide";
+type Kind = "yoy" | "chg" | "col" | "sb" | "wind" | "air" | "tide" | "waves" | "pressure";
 
 /**
  * Charts sit in two columns, and a chart shares its time axis with the ones above and below it: the left
@@ -399,6 +436,7 @@ interface Fig {
   title: string;
   sub: string;
   varies: boolean; // follows the selected water variable
+  in: (k: VarKey) => boolean; // the views that show this figure
   depthTabs: boolean;
   seasonal: boolean; // compares years on the same dates (anchored at now); otherwise a recent timeline
   available: (d: StationData) => boolean;
@@ -430,23 +468,30 @@ function lastSeen(d: StationData): number {
 
 /**
  * Waves, stated fairly per buoy: LISICOS lists wave data for Western Sound, Execution Rocks and Central
- * Sound only, so ARTG has no wave sensor rather than an outage. For the others, the wave datasets are not
- * on the data server now; the date given is our last saved copy, not a guess at when they stopped.
+ * Sound only, so ARTG has no wave sensor rather than an outage. For the others the ingest asks the server
+ * for the wave dataset every hour; the status comes from that check, and the date is the last wave reading
+ * we hold (from the server or our saved downloads), so it is when the data stops, not when we looked.
  */
-type Waves = { sensor: boolean; dataset?: string; published?: boolean; last_saved_copy?: string };
-const wavesOf = (id: string): Waves | null =>
-  ((registry.stations as { id: string; waves?: Waves }[]).find((s) => s.id === id)?.waves ?? null);
+type WaveSensor = { sensor: boolean; dataset?: string };
+const wavesOf = (id: string): WaveSensor | null =>
+  ((registry.stations as { id: string; waves?: WaveSensor }[]).find((s) => s.id === id)?.waves ?? null);
+
+/** The last wave reading we hold for a buoy: the live window's, or the full record's once loaded. */
+const lastWave = (id: string): WaveObs | null => WAVE_LIVE[id]?.last_obs ?? WAVE_META[id]?.last_obs ?? null;
 
 function wavesText(id: string, short = false): string {
   const w = wavesOf(id);
   if (!w) return "";
   if (!w.sensor) return short ? "no sensor" : "Waves: no wave sensor on this buoy.";
-  if (w.published) return short ? "published" : "Waves: published on the data server.";
-  // We did not check daily, so the date is when we last saw the waves on the server, not when they stopped.
-  const seen = w.last_saved_copy ? fmtDate.format(new Date(`${w.last_saved_copy}T12:00:00Z`)) : "";
+  const status = WAVE_LIVE[id];
+  const last = lastWave(id);
+  const fresh = last && hoursOld(last.time) < OFFLINE_HOURS;
+  if (status?.published && fresh) return short ? "published" : "Waves: published on the data server.";
+  const when = last ? fmtDate.format(new Date(last.time)) : "";
+  const where = status?.published ? "published but not updating" : "not published on the data server (checked hourly)";
   return short
-    ? `offline${seen ? `, last seen ${seen.replace(/, \d{4}$/, "")}` : ""}`
-    : `Waves: not on the data server now${seen ? `; last seen there ${seen}` : ""}. LISICOS posts a wave panel as an image.`;
+    ? `offline${when ? `, last reading ${when.replace(/, \d{4}$/, "")}` : ""}`
+    : `Waves: ${where}${when ? `; last reading ${when}` : ""}. LISICOS posts a wave panel as an image.`;
 }
 
 /** The strongest hourly gust of each Eastern-time day, with the hour it happened (epoch seconds, knots). */
@@ -562,6 +607,7 @@ const FIGS: Record<Kind, Fig> = {
   yoy: {
     title: "This year against earlier years",
     varies: true,
+    in: (k) => isWater(k),
     sub: "36 h mean, same dates",
     depthTabs: true,
     seasonal: true,
@@ -576,6 +622,7 @@ const FIGS: Record<Kind, Fig> = {
   chg: {
     title: "7-day change",
     varies: true,
+    in: (k) => isWater(k),
     sub: "of the 36 h mean",
     depthTabs: true,
     seasonal: true,
@@ -590,6 +637,7 @@ const FIGS: Record<Kind, Fig> = {
   col: {
     title: "Water column",
     varies: true,
+    in: (k) => isWater(k),
     sub: "hourly and 36 h mean",
     depthTabs: false,
     seasonal: false,
@@ -615,6 +663,7 @@ const FIGS: Record<Kind, Fig> = {
   sb: {
     title: "Surface minus bottom",
     varies: true,
+    in: (k) => isWater(k),
     sub: "hourly and 36 h mean",
     depthTabs: false,
     seasonal: false,
@@ -653,6 +702,7 @@ const FIGS: Record<Kind, Fig> = {
   wind: {
     title: "Wind",
     varies: false,
+    in: (k) => k === "wind",
     sub: "smoothed, with hourly and each day's peak gust",
     depthTabs: false,
     seasonal: false,
@@ -696,11 +746,13 @@ const FIGS: Record<Kind, Fig> = {
   air: {
     title: "Air and water temperature",
     varies: false,
+    in: (k) => k === "temp" || k === "wind",
     sub: "hourly",
     depthTabs: false,
     seasonal: false,
     available: (d) => !!d.met?.air,
-    window: RIGHT,
+    // Under temperature it sits below the water column (left axis); under wind and waves, beside the wind (right).
+    window: (d) => (VK === "wind" ? RIGHT(d) : LEFT(d)),
     maxSpan: 100 * DAY,
     start: (d) => d.met?.air?.t0 ?? d.now,
     build: (d, _depth, x0, x1) => {
@@ -722,6 +774,7 @@ const FIGS: Record<Kind, Fig> = {
     title: "Water level",
     sub: "observed hourly and predicted highs and lows, feet above mean lower low water",
     varies: false,
+    in: () => true,
     depthTabs: false,
     seasonal: false,
     available: (d) => !!d.level,
@@ -753,6 +806,54 @@ const FIGS: Record<Kind, Fig> = {
       };
     },
   },
+  waves: {
+    title: "Waves",
+    sub: "significant wave height hourly, with each hour's highest wave",
+    varies: false,
+    in: (k) => k === "wind",
+    depthTabs: false,
+    seasonal: false,
+    available: (d) => d.kind === "buoy" && !!wavesOf(d.meta.id)?.sensor,
+    window: LEFT,
+    maxSpan: 2 * 366 * DAY,
+    start: (d) => d.waves?.hs?.t0 ?? d.now,
+    build: (d, _depth, x0, x1) => {
+      const xs = grid(x0, x1);
+      const w = d.waves;
+      const u = waveUnit();
+      const val = (m: number) => m * u.factor;
+      const fmt = (v: number) => `${v.toFixed(u.digits)} ${u.label}`;
+      const lines: Line[] = w
+        ? [
+            { ys: xs.map((t) => val(w.hmax?.at(t) ?? NaN)), color: P.contrast, width: 0.7, opacity: 0.35, label: "Highest wave", fmt },
+            { ys: xs.map((t) => val(w.hs?.at(t) ?? NaN)), color: P.depth.BTM, width: 1.6, label: "Significant height", fmt },
+            { ys: xs.map((t) => w.tp?.at(t) ?? NaN), color: P.contrast, label: "Dominant period", hidden: true, fmt: (v) => `${v.toFixed(1)} s` },
+          ]
+        : [];
+      return {
+        opts: { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, empty: `No wave readings in this window. ${wavesText(d.meta.id)} Full record shows what we hold.` },
+        legend: [["Significant height", P.depth.BTM, 1], ["Highest wave", P.contrast, 0.35]],
+        note: "significant height: the mean of the highest third of waves, close to what an observer reports",
+      };
+    },
+  },
+  pressure: {
+    title: "Pressure",
+    sub: "hourly, at the station",
+    varies: false,
+    in: (k) => k === "wind",
+    depthTabs: false,
+    seasonal: false,
+    available: (d) => !!d.met?.pressure && Number.isFinite(d.met.pressure.lastValid()),
+    window: RIGHT,
+    maxSpan: 100 * DAY,
+    start: (d) => d.met?.pressure?.t0 ?? d.now,
+    build: (d, _depth, x0, x1) => {
+      const xs = grid(x0, x1);
+      const lines: Line[] = [{ ys: xs.map((t) => d.met?.pressure?.at(t) ?? NaN), color: P.air, width: 1.5, label: "Pressure" }];
+      return { opts: { xs, lines, unit: " mb", hoverDigits: 1, empty: "No pressure readings in this window." }, legend: [["Pressure", P.air, 1]] };
+    },
+  },
 };
 
 /** A figure's name with the variable it shows, for the zoom title and screen readers. */
@@ -760,7 +861,20 @@ const figName = (f: Fig) => (f.varies && VK !== "temp" ? `${V().label}: ${f.titl
 
 /** Whether a station shows a figure: shore stations measure temperature only, so under salinity or oxygen
  * their variable charts are left out rather than drawn empty. */
-const shows = (d: StationData, k: Kind) => FIGS[k].available(d) && !(FIGS[k].varies && d.kind === "shore" && VK !== "temp");
+const shows = (d: StationData, k: Kind) =>
+  FIGS[k].in(VK) && FIGS[k].available(d) && !(FIGS[k].varies && d.kind === "shore" && VK !== "temp");
+
+/** A thin wind line under surface minus bottom (same time axis), so a blow lines up with the mixing it causes. */
+const hasWind = (d: StationData) => !!d.met?.wind && Number.isFinite(d.met.wind.lastValid());
+const windStripHtml = (id: string) =>
+  `<div class="strip-cap">Wind, smoothed: the blow behind a mixing event</div><div class="plot strip" id="${id}-sb-wind" data-station="${id}" data-fig="wind" title="Wind: click to expand"><svg role="img" aria-label="Wind, smoothed"></svg><div class="plot-labels" aria-hidden="true"></div></div>`;
+
+function drawWindStrip(d: StationData, x0: number, x1: number): void {
+  const strip = document.getElementById(`${d.meta.id}-sb-wind`);
+  if (!strip) return;
+  const b = FIGS.wind.build(d, "", x0, x1, false);
+  renderLines(strip, { ...b.opts, lines: b.opts.lines.filter((l) => l.label.startsWith("Wind, smoothed")), empty: "No wind readings in this window." });
+}
 
 function legendHtml(b: Built): string {
   return (
@@ -858,17 +972,45 @@ function windCell(d: StationData): string {
   const dir = o.dir_deg != null ? compass(o.dir_deg) : "";
   const title = `Wind ${windFmt(o.wind_kt)} ${u}, gusts ${windFmt(o.gust_kt)} ${u}, from ${dir || "--"}; air ${f1(o.air_f ?? NaN)} F; ${ago(o.time)}`;
   const spark = d.met?.wind ? sparklineOf(d.met.wind, P.wind, "kt") : "";
-  return `<td class="${state} wind" title="${title}">${spark}<b>${o.dir_deg != null ? windArrow(o.dir_deg) : ""}${dir} ${windFmt(o.wind_kt)}<small class="g">${u}</small></b><small>gusts ${windFmt(o.gust_kt)} &middot; air ${o.air_f != null ? Math.round(o.air_f) + "&deg;" : "--"} &middot; ${ago(o.time).replace(" ago", "")}</small></td>`;
+  return `<td class="${state} wind" title="${title}">${spark}<b>${o.dir_deg != null ? windArrow(o.dir_deg) : ""}${dir} ${windFmt(o.wind_kt)}<small class="g">${u}</small></b><small>gusts ${windFmt(o.gust_kt)} &middot; ${ago(o.time).replace(" ago", "")}</small></td>`;
 }
 
-/** Waves: an outage where the buoy has a wave sensor, "no sensor" where it does not. */
+/** Waves: the latest significant height and period where published, the outage with its last reading where
+ * not, and "no sensor" where the buoy has none. */
 function wavesCell(d: StationData): string {
   const w = wavesOf(d.meta.id);
   if (!w) return `<td class="na">&middot;</td>`;
   const panel = panelsOf(d.meta.id).waves;
   if (!w.sensor) return `<td class="na" title="${wavesText(d.meta.id)}"><small>no sensor</small></td>`;
+  const last = lastWave(d.meta.id);
+  const state = last ? obsState({ time: last.time } as LastObs) : "offline";
+  if (WAVE_LIVE[d.meta.id]?.published && last && state !== "offline") {
+    const spark = d.waves?.hs ? sparklineOf(d.waves.hs, P.depth.BTM, "m significant height", 2) : "";
+    return `<td class="${state}" title="Significant wave height ${waveFmt(last.hs_m)} ${waveUnit().label}, highest ${waveFmt(last.hmax_m)}, period ${last.tp_s ?? "--"} s; ${ago(last.time)}">${spark}<b>${waveFmt(last.hs_m)}<small class="g"> ${waveUnit().label}</small></b><small>${last.tp_s != null ? last.tp_s.toFixed(0) + " s &middot; " : ""}${ago(last.time).replace(" ago", "")}</small></td>`;
+  }
   const inner = `<b>--</b><small>${wavesText(d.meta.id, true)}</small>`;
   return `<td class="offline waves" title="${wavesText(d.meta.id)}">${panel ? `<a href="${panel}">${inner}</a>` : inner}</td>`;
+}
+
+/** Air temperature at the station, and pressure with its change over the last 3 hours (the forecaster's tendency). */
+function airCell(d: StationData): string {
+  const o = d.met?.last;
+  if (!o || o.air_f == null) return `<td class="na">&middot;</td>`;
+  const state = obsState({ time: o.time } as LastObs);
+  if (state === "offline") return `<td class="offline"><b>--</b></td>`;
+  return `<td class="${state}" title="Air ${f1(o.air_f)} F, ${ago(o.time)}"><b>${Math.round(o.air_f)}&deg;</b><small>${ago(o.time).replace(" ago", "")}</small></td>`;
+}
+
+function pressureCell(d: StationData): string {
+  const o = d.met?.last;
+  const p = d.met?.pressure;
+  if (!o || o.pressure_mb == null) return `<td class="na">&middot;</td>`;
+  const state = obsState({ time: o.time } as LastObs);
+  if (state === "offline") return `<td class="offline"><b>--</b></td>`;
+  const end = p ? p.lastValid() : NaN;
+  const trend = p && Number.isFinite(end) ? p.at(end) - p.at(end - 3 * HOUR) : NaN;
+  const tend = Number.isFinite(trend) ? `${signed(trend)} in 3 h` : "";
+  return `<td class="${state}" title="Pressure ${o.pressure_mb.toFixed(1)} mbar${tend ? `, ${tend}` : ""}; ${ago(o.time)}"><b>${o.pressure_mb.toFixed(0)}<small class="g"> mb</small></b><small>${tend || ago(o.time).replace(" ago", "")}</small></td>`;
 }
 
 /** Shore station cells: the latest water level with a 7-day line (the tides), and the next predicted tide. */
@@ -903,18 +1045,22 @@ function statusGrid(stations: StationData[]): void {
   const name = (d: StationData) => `<th scope="row"><a href="#${d.meta.id}"><i class="dot${d.kind === "shore" ? " shore" : ""} ${overallState(d)}"></i>${d.meta.name}</a></th>`;
   const wind = `wind (${WIND_UNITS[WU].label})`;
   const what = `${V().label.toLowerCase()} (${VK === "temp" ? "&deg;F" : unitName(VK)})`;
+  // Each view has its own columns: water views show the water; Wind and waves shows the weather and the sea.
+  const head = (cols: string[]) => `<thead><tr><th></th>${cols.map((c) => `<th scope="col">${c}</th>`).join("")}</tr></thead>`;
+  const open = (g: Group) => `<table class="status-grid" id="status-panel" role="tabpanel" aria-labelledby="stab-${g}">`;
+  const air = "air (&deg;F), pressure (mbar)";
   const table =
     SG === "buoy"
-      ? `<table class="status-grid" id="status-panel" role="tabpanel" aria-labelledby="stab-buoy">
-      <caption>Latest readings, west to east: ${what} and ${wind}</caption>
-      <thead><tr><th></th>${DEPTHS.map((d) => `<th scope="col">${DEPTH_LABEL[d]}</th>`).join("")}<th scope="col">Wind</th><th scope="col">Waves</th></tr></thead>
-      <tbody>${buoys.map((d) => `<tr>${name(d)}${DEPTHS.map((dep) => cellHtml(d, dep)).join("")}${windCell(d)}${wavesCell(d)}</tr>`).join("")}</tbody>
-    </table>`
-      : `<table class="status-grid" id="status-panel" role="tabpanel" aria-labelledby="stab-shore">
-      <caption>Latest readings, west to east: ${VK === "temp" ? "water temperature (&deg;F)" : "water temperature only (shore stations measure no " + V().label.toLowerCase() + ")"}, water level and ${wind}</caption>
-      <thead><tr><th></th><th scope="col">Water</th><th scope="col">Level</th><th scope="col">Next tide</th><th scope="col">Wind</th></tr></thead>
-      <tbody>${shore.map((d) => `<tr>${name(d)}${cellHtml(d, "SFC")}${levelCell(d)}${tideCell(d)}${windCell(d)}</tr>`).join("")}</tbody>
-    </table>`;
+      ? isWater(VK)
+        ? `${open("buoy")}<caption>Latest readings, west to east: ${what}</caption>${head(DEPTHS.map((d) => DEPTH_LABEL[d]))}
+      <tbody>${buoys.map((d) => `<tr>${name(d)}${DEPTHS.map((dep) => cellHtml(d, dep)).join("")}</tr>`).join("")}</tbody></table>`
+        : `${open("buoy")}<caption>Latest readings, west to east: ${wind}, ${air} and waves (${waveUnit().label})</caption>${head(["Wind", "Air", "Pressure", "Waves"])}
+      <tbody>${buoys.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${wavesCell(d)}</tr>`).join("")}</tbody></table>`
+      : isWater(VK)
+        ? `${open("shore")}<caption>Latest readings, west to east: ${VK === "temp" ? "water temperature (&deg;F)" : `water temperature only (no ${V().label.toLowerCase()} sensors)`} and water level</caption>${head(["Water", "Level", "Next tide"])}
+      <tbody>${shore.map((d) => `<tr>${name(d)}${cellHtml(d, "SFC")}${levelCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`
+        : `${open("shore")}<caption>Latest readings, west to east: ${wind}, ${air} and the next tide</caption>${head(["Wind", "Air", "Pressure", "Next tide"])}
+      <tbody>${shore.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`;
   const tab = (g: Group, label: string, n: number) =>
     `<button type="button" role="tab" class="stab" id="stab-${g}" data-group="${g}" aria-selected="${SG === g}" aria-controls="status-panel" tabindex="${SG === g ? 0 : -1}">${label}<small>${n}</small></button>`;
   const key =
@@ -1001,7 +1147,7 @@ function sectionHtml(d: StationData): string {
     <figure>
       <figcaption><span class="cap-label">${f.title}</span><span class="cap-sub">${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}</span>${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
         <span class="fig-actions"><button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button><button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
-      <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}" title="Click to expand"><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>
+      <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}" title="Click to expand"><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
     </figure>`;
   };
@@ -1097,6 +1243,7 @@ function drawInline(d: StationData, key: Kind): void {
   const b = FIGS[key].build(d, activeDepth(d, key), x0, x1, false);
   renderLines($(`${d.meta.id}-${key}`), b.opts);
   $(`${d.meta.id}-${key}-legend`).innerHTML = legendHtml(b);
+  if (key === "sb") drawWindStrip(d, x0, x1);
 }
 
 /* ---------- Zoom view: wheel or pinch to zoom, drag to pan, tooltips throughout ---------- */
@@ -1305,7 +1452,12 @@ function about(meta: Meta): void {
     `defines them, and under ${DO_LEVELS.growth} mg/L, EPA's criterion for continuous exposure that protects growth in the coastal waters from Cape Cod to Cape Hatteras ` +
     `(<a href="https://www.epa.gov/sites/default/files/2018-10/documents/ambient-al-wqc-dissolved-oxygen-cape-code.pdf">EPA-822-R-00-012</a>, 2000). ` +
     `They are reference levels for reading the charts, not a regulatory assessment. Surface minus bottom is drawn for salinity and oxygen too, without thresholds; ` +
-    `the stratification readout stays a temperature measure.`;
+    `the stratification readout stays a temperature measure.` +
+    `<br><br>Wind and waves (the last view on the switch): wind, air temperature and pressure at each station, and waves at the three buoys ` +
+    `with a wave sensor. Significant wave height is the mean of the highest third of waves; the faint line is each hour's highest single wave. ` +
+    `Heights follow the wind unit: feet with knots or mph, metres with m/s. The wave datasets have been unpublished on the data server for long ` +
+    `stretches; the ingest asks for them every hour, so they return to the page on their own, and the record before the outage comes from our ` +
+    `own saved downloads. Pressure tendency is the change over the last 3 hours.`;
   const src = meta.stations
     .flatMap((st) =>
       st.series.map((s: MetaSeries) => {

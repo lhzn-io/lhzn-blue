@@ -15,12 +15,13 @@ import pandas as pd
 KEEP = ["time", "depth", "sea_water_temperature", "sea_water_salinity", "oxygen_concentration_in_sea_water"]
 
 
-def read_snapshot(path: Path) -> pd.DataFrame:
-    """Return the snapshot's observation columns with a UTC ``time`` column."""
+def read_snapshot(path: Path, keep: list[str] | None = None) -> pd.DataFrame:
+    """Return the snapshot's observation columns (water quality unless ``keep`` names others) with a UTC
+    ``time`` column."""
     df = pd.read_hdf(path, key="data")
     if "time" not in df.columns:
         df = df.reset_index()
-    df = df[[c for c in KEEP if c in df.columns]].copy()
+    df = df[[c for c in (keep or KEEP) if c in df.columns]].copy()
     df["time"] = pd.to_datetime(df["time"], utc=True)
     return df.sort_values("time").reset_index(drop=True)
 

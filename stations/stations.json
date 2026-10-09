@@ -1,7 +1,9 @@
 {
   "waterway": {
     "id": "long-island-sound",
-    "name": "Long Island Sound"
+    "name": "Long Island Sound",
+    "qc_ranges": { "sea_water_salinity": [18, 35] },
+    "qc_note": "Salinity at these open-water buoys stays above about 22 even after heavy rain (lowest 1% of clean readings, 2013 to 2026); readings below 18 have come only from failed or fouled conductivity cells."
   },
   "stations": [
     {

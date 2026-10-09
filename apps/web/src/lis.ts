@@ -4,11 +4,13 @@ import "./site.css";
 
 import promptTemplate from "../../../configs/prompts/visitor_prompt.txt?raw";
 import registry from "../../../stations/stations.json";
+import shoreRegistry from "../../../stations/shore.json";
 import { highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
 import { wireSuggest } from "./suggest";
 import {
-  COVERAGE_MIN, DAY, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, stratStatus, yearLines,
-  type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetObs, type MetWindow, type YearLine,
+  COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, oxygenStatus, stratStatus, yearLines,
+  type Encoded, type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetObs, type MetWindow,
+  type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type VarHistory, type YearLine,
 } from "./series";
 
 const DATA = "/data/v1";
@@ -27,6 +29,7 @@ interface Palette {
   wind: string;
   air: string;
   bands: [string, string]; // surface-minus-bottom threshold shading: outer, inner
+  oxygen: [string, string, string]; // dissolved oxygen shading: anoxic, hypoxic, below the growth criterion
   yearStops: { t: number; L: number; C: number; h: number }[];
 }
 
@@ -39,6 +42,7 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     wind: "#9fd3c7", // a pale sea green, distinct from the water depths
     air: "#c4a7e7", // lavender, distinct from every water line
     bands: ["rgba(255,255,255,0.04)", "rgba(127,184,216,0.12)"],
+    oxygen: ["rgba(240,177,53,0.26)", "rgba(240,177,53,0.14)", "rgba(240,177,53,0.05)"],
     yearStops: [
       { t: 0, L: 0.6, C: 0.085, h: 195 }, // deep blue-green
       { t: 0.22, L: 0.56, C: 0.1, h: 265 }, // blue-violet
@@ -53,6 +57,7 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     wind: "#23786f",
     air: "#7e4d8a",
     bands: ["rgba(28,42,72,0.04)", "rgba(58,120,161,0.12)"],
+    oxygen: ["rgba(163,90,0,0.22)", "rgba(163,90,0,0.12)", "rgba(163,90,0,0.045)"],
     yearStops: [
       { t: 0, L: 0.42, C: 0.13, h: 262 }, // deep cobalt
       { t: 0.35, L: 0.52, C: 0.11, h: 256 },
@@ -90,19 +95,64 @@ const cToF = (c: number) => (c * 9) / 5 + 32;
 
 type State = "live" | "delayed" | "offline";
 
-interface StationData {
-  meta: MetaStation;
-  depths: string[]; // depths this station has, top to bottom
+/**
+ * Water variables. The reader picks one for the whole page (status grid and the year, change, water
+ * column and surface-minus-bottom charts); temperature is the default. Salinity and oxygen histories
+ * load on first use, so the first view costs the same two requests as before.
+ */
+type VarKey = "temp" | "salinity" | "oxygen";
+interface WaterVar {
+  label: string;
+  unit: string; // appended to values on axes and in tooltips
+  digits: number;
+  file: string;
+  obs: (o: LastObs) => number | null; // the latest raw reading, in this variable's units
+}
+const WATER_VARS: Record<VarKey, WaterVar> = {
+  temp: { label: "Water temperature", unit: "°F", digits: 1, file: "history.json", obs: (o) => (o.temperature_c == null ? null : cToF(o.temperature_c)) },
+  salinity: { label: "Salinity", unit: "", digits: 2, file: "history-salinity.json", obs: (o) => o.salinity },
+  oxygen: { label: "Dissolved oxygen", unit: " mg/L", digits: 1, file: "history-oxygen.json", obs: (o) => o.oxygen_mg_l },
+};
+let VK: VarKey = "temp";
+try {
+  const saved = localStorage.getItem("lhzn-blue-water-var");
+  if (saved && saved in WATER_VARS) VK = saved as VarKey;
+} catch {
+  /* private mode: temperature */
+}
+const V = () => WATER_VARS[VK];
+/** Axis label for the variable: salinity has no unit (practical salinity scale), so it is named instead. */
+const unitName = (k: VarKey) => (k === "temp" ? "°F" : k === "salinity" ? "practical salinity" : "mg/L");
+
+/** One variable's series for a station, per depth, with its derived views. */
+interface VarView {
   hourly: Record<string, Hourly | null>;
   m36: Record<string, Hourly | null>;
   chg: Record<string, Hourly | null>;
-  delta: Hourly | null; // surface minus bottom, hourly (F)
+  delta: Hourly | null; // surface minus bottom, hourly
   delta36: Hourly | null;
+}
+
+interface StationData {
+  kind: "buoy" | "shore";
+  meta: MetaStation;
+  depths: string[]; // depths this station has, top to bottom
+  // The selected variable's views (see useVar); `temp` always holds temperature, for stratification and air.
+  hourly: Record<string, Hourly | null>;
+  m36: Record<string, Hourly | null>;
+  chg: Record<string, Hourly | null>;
+  delta: Hourly | null; // surface minus bottom, hourly
+  delta36: Hourly | null;
+  temp: VarView;
+  views: Partial<Record<VarKey, VarView>>;
   obs: Record<string, LastObs | null>; // latest reading per depth (live, or the last one we hold)
   live: boolean; // any series still published by the server
   now: number; // the current hour: year comparisons are always about this time of year
   anchor: number; // end of the recent timelines: now for live stations, the last reading otherwise
-  met: Met | null; // buoy weather, recent window only
+  met: Met | null; // weather at the station, recent window only
+  level: Hourly | null; // shore stations: water level, feet above MLLW
+  tides: TideEvent[]; // shore stations: predicted highs and lows
+  levelNow: { time: string; ft: number } | null;
 }
 
 interface Met {
@@ -154,6 +204,37 @@ const windVal = (kt: number) => kt * WIND_UNITS[WU].factor;
 const windFmt = (kt: number | null | undefined) =>
   kt == null || !Number.isFinite(kt) ? "--" : windVal(kt).toFixed(WIND_UNITS[WU].digits);
 
+/** A variable's views for one station: history overlaid with the live window, then the derived series. */
+function viewOf(st: MetaStation, hist: Record<string, Encoded>, live: Record<string, Encoded> | undefined): VarView {
+  const hourly: Record<string, Hourly | null> = {};
+  const m36: Record<string, Hourly | null> = {};
+  const chg: Record<string, Hourly | null> = {};
+  for (const s of st.series) {
+    const h = Hourly.merge(Hourly.decode(hist[s.key]), Hourly.decode(live?.[s.key]));
+    hourly[s.depth] = h;
+    m36[s.depth] = h ? h.rolling(36, 24) : null;
+    chg[s.depth] = m36[s.depth]?.change(168) ?? null;
+  }
+  const delta = hourly.SFC && hourly.BTM ? hourly.SFC.minus(hourly.BTM) : null;
+  return { hourly, m36, chg, delta, delta36: delta ? delta.rolling(36, 24) : null };
+}
+
+/** Show a variable: its views become the station's current series. */
+function useVar(d: StationData, k: VarKey): void {
+  const v = d.views[k] ?? (k === "temp" ? d.temp : { hourly: {}, m36: {}, chg: {}, delta: null, delta36: null });
+  Object.assign(d, { hourly: v.hourly, m36: v.m36, chg: v.chg, delta: v.delta, delta36: v.delta36 });
+}
+
+/** Load a variable's history (once) and build its views for every station. */
+const loaded = new Set<VarKey>(["temp"]);
+async function ensureVar(k: VarKey, live: Live, stations: StationData[]): Promise<void> {
+  if (loaded.has(k)) return;
+  const hist = await getJson<VarHistory>(`${DATA}/${WATER_VARS[k].file}`);
+  const liveVar = k === "temp" ? live.series : live[k];
+  for (const d of stations) d.views[k] = viewOf(d.meta, hist.series, liveVar);
+  loaded.add(k);
+}
+
 async function load(): Promise<{ meta: Meta; live: Live; stations: StationData[] }> {
   const [hist, live] = await Promise.all([getJson<History>(`${DATA}/history.json`), getJson<Live>(`${DATA}/live.json`)]);
   const meta = hist.meta;
@@ -161,33 +242,69 @@ async function load(): Promise<{ meta: Meta; live: Live; stations: StationData[]
   meta.stations.sort((a, b) => a.lon - b.lon);
   const now = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
   const stations = meta.stations.map((st) => {
-    const hourly: Record<string, Hourly | null> = {};
-    const m36: Record<string, Hourly | null> = {};
-    const chg: Record<string, Hourly | null> = {};
+    const temp = viewOf(st, hist.series, live.series);
     const obs: Record<string, LastObs | null> = {};
-    for (const s of st.series) {
-      const h = Hourly.merge(Hourly.decode(hist.series[s.key]), Hourly.decode(live.series[s.key]));
-      hourly[s.depth] = h;
-      m36[s.depth] = h ? h.rolling(36, 24) : null;
-      chg[s.depth] = m36[s.depth]?.change(168) ?? null;
-      obs[s.depth] = live.series[s.key]?.last_obs ?? s.archived_last_obs ?? null;
-    }
-    const delta = hourly.SFC && hourly.BTM ? hourly.SFC.minus(hourly.BTM) : null;
+    for (const s of st.series) obs[s.depth] = live.series[s.key]?.last_obs ?? s.archived_last_obs ?? null;
     const isLive = st.series.some((s) => s.live);
-    const lastData = Math.max(...Object.values(hourly).map((h) => (h ? h.lastValid() : -Infinity)));
+    const lastData = Math.max(...Object.values(temp.hourly).map((h) => (h ? h.lastValid() : -Infinity)));
     return {
+      kind: "buoy" as const,
       meta: st,
       depths: DEPTHS.filter((d) => st.series.some((s) => s.depth === d)),
-      hourly, m36, chg, obs,
-      delta, delta36: delta ? delta.rolling(36, 24) : null,
+      ...temp,
+      temp,
+      views: { temp },
+      obs,
       live: isLive,
       now,
       anchor: isLive || !Number.isFinite(lastData) ? now : lastData,
       met: metOf(live.met?.[st.id]),
+      level: null,
+      tides: [],
+      levelNow: null,
     };
   });
   return { meta, live, stations };
 }
+
+/**
+ * A shore station as a one-depth station: water temperature (history from shore-history.json once it
+ * arrives, overlaid with the live window), the station's weather, and water level with tide predictions.
+ */
+function shoreStation(st: ShoreMetaStation, frame: ShoreFrame | undefined, hist: Encoded | undefined): StationData {
+  const series: MetaSeries = {
+    key: st.id, depth: "SFC", label: "Water", depth_m: [], record_start: hist?.t0 ?? st.record_start,
+    hours: hist?.values.length ?? 0, sources: [], live: true, archived_last_obs: null,
+  };
+  const meta: MetaStation = { id: st.id, name: st.name, operator: st.operator, lat: st.lat, lon: st.lon, note: st.note ?? null, info_url: st.info_url, series: [series] };
+  const liveWater: Encoded | undefined = frame?.t0 ? { t0: frame.t0, step: 3600, unit: "degF", values: frame.water_f ?? [] } : undefined;
+  const temp = viewOf(meta, hist ? { [st.id]: hist } : {}, liveWater ? { [st.id]: liveWater } : undefined);
+  const o = frame?.last_obs ?? null;
+  const now = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
+  return {
+    kind: "shore",
+    meta,
+    depths: ["SFC"],
+    ...temp,
+    temp,
+    views: { temp },
+    obs: { SFC: o && o.water_f != null ? { time: o.time, depth_m: null, temperature_c: fToC(o.water_f), salinity: null, oxygen_mg_l: null } : null },
+    live: true,
+    now,
+    anchor: now,
+    met: frame ? metOf({ ...frame, last_obs: o, dataset: frame.coops_id } as MetWindow) : null,
+    level: Hourly.fromArray(frame?.t0, frame?.level_ft),
+    tides: frame?.tides ?? [],
+    levelNow: o && o.level_ft != null ? { time: o.time, ft: o.level_ft } : null,
+  };
+}
+
+/** The next predicted high or low after now. */
+const nextTide = (d: StationData): TideEvent | undefined => d.tides.find((e) => Date.parse(e.t) > Date.now());
+const fmtClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+/** Feet to one decimal, with a true minus sign and no "-0.0". */
+const feet = (v: number) => (Math.abs(v) < 0.05 ? "0.0" : `${v < 0 ? "−" : ""}${Math.abs(v).toFixed(1)}`);
+const tideText = (e: TideEvent) => `${e.type === "H" ? "high" : "low"} ${fmtClock.format(new Date(e.t)).toLowerCase()}, ${feet(e.ft)} ft`;
 
 /* ---------- State and derived values ---------- */
 
@@ -252,15 +369,17 @@ function yearStyle(offset: number, maxOffset: number): Pick<Line, "color" | "wid
   };
 }
 
+/** Stratification is a temperature measure, whichever variable is shown. */
 function stratNow(d: StationData): { deltaC: number; status: string } {
-  const end = d.delta ? d.delta.lastValid() : NaN;
-  const deltaC = d.delta && Number.isFinite(end) ? (d.delta.mean(end - 23 * HOUR, end) * 5) / 9 : NaN;
+  const delta = d.temp.delta;
+  const end = delta ? delta.lastValid() : NaN;
+  const deltaC = delta && Number.isFinite(end) ? (delta.mean(end - 23 * HOUR, end) * 5) / 9 : NaN;
   return { deltaC, status: stratStatus(deltaC) };
 }
 
 /* ---------- Figures: one builder per view, used inline and in the zoom view ---------- */
 
-type Kind = "yoy" | "chg" | "col" | "sb" | "wind" | "air";
+type Kind = "yoy" | "chg" | "col" | "sb" | "wind" | "air" | "tide";
 
 /**
  * Charts sit in two columns, and a chart shares its time axis with the ones above and below it: the left
@@ -279,6 +398,7 @@ interface Built {
 interface Fig {
   title: string;
   sub: string;
+  varies: boolean; // follows the selected water variable
   depthTabs: boolean;
   seasonal: boolean; // compares years on the same dates (anchored at now); otherwise a recent timeline
   available: (d: StationData) => boolean;
@@ -288,8 +408,10 @@ interface Fig {
   build: (d: StationData, depth: string, x0: number, x1: number, full: boolean) => Built;
 }
 
-const recordStart = (d: StationData) =>
-  Math.min(...Object.values(d.hourly).filter((h): h is Hourly => !!h).map((h) => h.t0));
+const recordStart = (d: StationData) => {
+  const t = Math.min(...Object.values(d.hourly).filter((h): h is Hourly => !!h).map((h) => h.t0));
+  return Number.isFinite(t) ? t : d.now - 2 * DAY;
+};
 
 /** Every chart of a view shares one time axis across stations (now), so an outage shows as an empty
  * stretch rather than a chart that quietly ends early. */
@@ -344,6 +466,7 @@ function dailyPeaks(gust: Hourly | null): [number, number][] {
 
 /** Why a recent chart is empty, with where to look instead. */
 function emptyNote(d: StationData): string {
+  if (d.kind === "shore" && VK !== "temp") return `${d.meta.name} measures water temperature only; ${V().label.toLowerCase()} comes from the buoys.`;
   const p = panelsOf(d.meta.id);
   const t = lastSeen(d);
   const last = Number.isFinite(t) ? `Last reading: ${fmtDate.format(new Date(t * 1000))}. ` : "";
@@ -379,9 +502,27 @@ function coverageNote(d: StationData, depth: string): string {
   return `${s.label}: ${start} to ${end}, ${have.toLocaleString()} hourly values, ${Math.round((100 * have) / h.v.length)}% of the span; gaps are periods with no data${archived}.`;
 }
 
+/** Axis unit and tooltip precision for the selected variable; for oxygen, the reference levels as shading
+ * (with the axis reaching down to the hypoxia level, so it is always in view). */
+function varOpts(levels = true): Partial<ChartOptions> & { unit: string } {
+  const base = { unit: V().unit, hoverDigits: V().digits };
+  if (VK !== "oxygen" || !levels) return base;
+  return {
+    ...base,
+    floor: DO_LEVELS.hypoxic - 0.5,
+    bands: [
+      { y0: -1, y1: DO_LEVELS.anoxic, fill: P.oxygen[0] },
+      { y0: DO_LEVELS.anoxic, y1: DO_LEVELS.hypoxic, fill: P.oxygen[1] },
+      { y0: DO_LEVELS.hypoxic, y1: DO_LEVELS.growth, fill: P.oxygen[2] },
+    ],
+  };
+}
+
+const OXYGEN_NOTE = `shading: under ${DO_LEVELS.anoxic} mg/L anoxic, under ${DO_LEVELS.hypoxic} hypoxic (Long Island Sound Partnership), under ${DO_LEVELS.growth} below EPA's growth criterion`;
+
 /** The whole record as one timeline, each year's stretch in that year's color. */
 function timelineBuilt(d: StationData, series: Hourly | null, depth: string, xs: number[], extra: Partial<ChartOptions>): Built {
-  if (!series) return { opts: { xs, lines: [], unit: "°F", ...extra }, legend: [] };
+  if (!series) return { opts: { xs, lines: [], ...varOpts(), unit: V().unit, ...extra }, legend: [] };
   const current = new Date(d.now * 1000).getUTCFullYear();
   const first = new Date(series.t0 * 1000).getUTCFullYear();
   const maxOffset = Math.max(1, current - first);
@@ -394,9 +535,9 @@ function timelineBuilt(d: StationData, series: Hourly | null, depth: string, xs:
     }))
     .filter((l) => l.ys.some((v) => Number.isFinite(v)));
   return {
-    opts: { xs, lines, unit: "°F", empty: emptyNote(d), ...extra },
+    opts: { xs, lines, ...varOpts(), unit: V().unit, empty: emptyNote(d), ...extra },
     legend: lines.map((l) => [l.label, l.color, l.opacity ?? 1]),
-    note: coverageNote(d, depth),
+    note: [coverageNote(d, depth), VK === "oxygen" && extra.bands === undefined ? OXYGEN_NOTE : ""].filter(Boolean).join(" "),
   };
 }
 
@@ -406,18 +547,21 @@ function yearBuilt(d: StationData, series: Hourly | null, xs: number[], extra: P
   // Scale the ramp to the whole record, so a year keeps its color when another is hidden or the view pans.
   const maxOffset = Math.max(1, ...all.map((l) => l.offset));
   const lines = [...shown].reverse().map((l) => ({ ys: l.values, label: String(l.year), ...yearStyle(l.offset, maxOffset) }));
+  const notes = [
+    hidden.length ? `not drawn (under ${COVERAGE_MIN * 100}% coverage in this window): ${hidden.map((l) => l.year).join(", ")}` : "",
+    VK === "oxygen" && extra.bands === undefined ? OXYGEN_NOTE : "",
+  ].filter(Boolean);
   return {
-    opts: { xs, lines, unit: "°F", empty: emptyNote(d), ...extra },
+    opts: { xs, lines, ...varOpts(), unit: V().unit, empty: emptyNote(d), ...extra },
     legend: shown.map((l) => [String(l.year), yearStyle(l.offset, maxOffset).color, yearStyle(l.offset, maxOffset).opacity ?? 1]),
-    note: hidden.length
-      ? `not drawn (under ${COVERAGE_MIN * 100}% coverage in this window): ${hidden.map((l) => l.year).join(", ")}`
-      : undefined,
+    note: notes.length ? notes.join("; ") : undefined,
   };
 }
 
 const FIGS: Record<Kind, Fig> = {
   yoy: {
     title: "This year against earlier years",
+    varies: true,
     sub: "36 h mean, same dates",
     depthTabs: true,
     seasonal: true,
@@ -431,6 +575,7 @@ const FIGS: Record<Kind, Fig> = {
   },
   chg: {
     title: "7-day change",
+    varies: true,
     sub: "of the 36 h mean",
     depthTabs: true,
     seasonal: true,
@@ -438,10 +583,13 @@ const FIGS: Record<Kind, Fig> = {
     window: RIGHT,
     maxSpan: 366 * DAY,
     build: (d, depth, x0, x1, full) =>
-      full ? timelineBuilt(d, d.chg[depth], depth, grid(x0, x1), { zero: true }) : yearBuilt(d, d.chg[depth], grid(x0, x1), { zero: true }),
+      full
+        ? timelineBuilt(d, d.chg[depth], depth, grid(x0, x1), { zero: true, bands: [], floor: undefined })
+        : yearBuilt(d, d.chg[depth], grid(x0, x1), { zero: true, bands: [], floor: undefined }),
   },
   col: {
     title: "Water column",
+    varies: true,
     sub: "hourly and 36 h mean",
     depthTabs: false,
     seasonal: false,
@@ -461,12 +609,13 @@ const FIGS: Record<Kind, Fig> = {
         lines.push({ ys: xs.map((t) => m.at(t)), color, width: 1.8, opacity: 1, label: `${s.label} 36 h` });
         legend.unshift([s.label, color, 1]);
       }
-      return { opts: { xs, lines, unit: "°F", empty: emptyNote(d) }, legend };
+      return { opts: { xs, lines, ...varOpts(), empty: emptyNote(d) }, legend, note: VK === "oxygen" ? OXYGEN_NOTE : undefined };
     },
   },
   sb: {
     title: "Surface minus bottom",
-    sub: "shading marks the working thresholds",
+    varies: true,
+    sub: "hourly and 36 h mean",
     depthTabs: false,
     seasonal: false,
     available: (d) => !!d.delta,
@@ -482,6 +631,11 @@ const FIGS: Record<Kind, Fig> = {
               { ys: xs.map((t) => delta36.at(t)), color: P.now, width: 1.8, label: "36 h mean" },
             ]
           : [];
+      const legend: [string, string, number][] = [["hourly", P.contrast, 0.5], ["36 h mean", P.now, 1]];
+      if (VK !== "temp") {
+        // Salinity and oxygen differences have no working thresholds here; the stratification bands are thermal.
+        return { opts: { xs, lines, ...varOpts(false), zero: true, hoverDigits: 2, empty: emptyNote(d) }, legend };
+      }
       const [mx, st] = [dF(STRAT.mixed), dF(STRAT.stratified)];
       return {
         opts: {
@@ -491,17 +645,18 @@ const FIGS: Record<Kind, Fig> = {
             { y0: -mx, y1: mx, fill: P.bands[1] },
           ],
         },
-        legend: [["hourly", P.contrast, 0.5], ["36 h mean", P.now, 1]],
-        note: `inner band: mixed (under ${STRAT.mixed} °C, ${dF(STRAT.mixed).toFixed(2)} °F); outer band: weakly stratified (to ${STRAT.stratified} °C)`,
+        legend,
+        note: `shading marks the working thresholds: inner band mixed (under ${STRAT.mixed} °C, ${dF(STRAT.mixed).toFixed(2)} °F), outer band weakly stratified (to ${STRAT.stratified} °C)`,
       };
     },
   },
   wind: {
     title: "Wind",
+    varies: false,
     sub: "smoothed, with hourly and each day's peak gust",
     depthTabs: false,
     seasonal: false,
-    available: (d) => !!d.met?.wind,
+    available: (d) => !!d.met?.wind && Number.isFinite(d.met.wind.lastValid()),
     window: LEFT,
     maxSpan: 100 * DAY,
     start: (d) => d.met?.wind?.t0 ?? d.now,
@@ -540,6 +695,7 @@ const FIGS: Record<Kind, Fig> = {
   },
   air: {
     title: "Air and water temperature",
+    varies: false,
     sub: "hourly",
     depthTabs: false,
     seasonal: false,
@@ -550,7 +706,7 @@ const FIGS: Record<Kind, Fig> = {
     build: (d, _depth, x0, x1) => {
       const xs = grid(x0, x1);
       const top = d.depths[0];
-      const water = d.hourly[top];
+      const water = d.temp.hourly[top];
       const label = `Water, ${DEPTH_LABEL[top].toLowerCase()}`;
       const lines: Line[] = [
         { ys: xs.map((t) => water?.at(t) ?? NaN), color: P.depth[top], width: 1.6, label },
@@ -562,7 +718,49 @@ const FIGS: Record<Kind, Fig> = {
       };
     },
   },
+  tide: {
+    title: "Water level",
+    sub: "observed hourly and predicted highs and lows, feet above mean lower low water",
+    varies: false,
+    depthTabs: false,
+    seasonal: false,
+    available: (d) => !!d.level,
+    window: (d) => [d.now - 7 * DAY, d.now + 2 * DAY],
+    maxSpan: 100 * DAY,
+    start: (d) => d.level?.t0 ?? d.now,
+    build: (d, _depth, x0, x1) => {
+      const xs = grid(x0, x1);
+      const step = xs.length > 1 ? xs[1] - xs[0] : HOUR;
+      // Each predicted high and low on the grid point nearest its minute.
+      const events = xs.map(() => NaN);
+      const kinds = xs.map(() => "");
+      for (const e of d.tides) {
+        const i = Math.round((Date.parse(e.t) / 1000 - xs[0]) / step);
+        if (i >= 0 && i < xs.length) {
+          events[i] = e.ft;
+          kinds[i] = e.type === "H" ? "high" : "low";
+        }
+      }
+      const ft = (v: number) => `${v.toFixed(2)} ft`;
+      const lines: Line[] = [
+        { ys: xs.map((t) => d.level?.at(t) ?? NaN), color: P.depth.SFC, width: 1.6, label: "Observed", fmt: ft },
+        { ys: events, color: P.contrast, opacity: 0.8, label: "Predicted high or low", dots: true, fmt: (v) => `${ft(v)}` },
+      ];
+      return {
+        opts: { xs, lines, unit: " ft", marker: { x: d.now, label: "now" }, empty: "No water level in this window." },
+        legend: [["Observed", P.depth.SFC, 1], ["Predicted high or low", P.contrast, 0.8]],
+        note: d.tides.length ? `predictions held from ${fmtDate.format(new Date(d.tides[0].t))}; observations are preliminary until NOAA verifies them` : undefined,
+      };
+    },
+  },
 };
+
+/** A figure's name with the variable it shows, for the zoom title and screen readers. */
+const figName = (f: Fig) => (f.varies && VK !== "temp" ? `${V().label}: ${f.title.charAt(0).toLowerCase()}${f.title.slice(1)}` : f.title);
+
+/** Whether a station shows a figure: shore stations measure temperature only, so under salinity or oxygen
+ * their variable charts are left out rather than drawn empty. */
+const shows = (d: StationData, k: Kind) => FIGS[k].available(d) && !(FIGS[k].varies && d.kind === "shore" && VK !== "temp");
 
 function legendHtml(b: Built): string {
   return (
@@ -601,10 +799,10 @@ function wireLegend(legend: HTMLElement, plot: HTMLElement): void {
  */
 function sparkline(d: StationData, depth: string, color: string): string {
   const h = d.hourly[depth];
-  return h ? sparklineOf(h, color, "F") : "";
+  return h ? sparklineOf(h, color, unitName(VK), V().digits) : "";
 }
 
-function sparklineOf(h: Hourly, color: string, unit: string): string {
+function sparklineOf(h: Hourly, color: string, unit: string, digits = 1): string {
   const end = h.lastValid();
   const xs = grid(end - 7 * DAY, end, 170);
   const ys = xs.map((t) => h.at(t));
@@ -626,21 +824,27 @@ function sparklineOf(h: Hourly, color: string, unit: string): string {
     path += `${pen ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
     pen = true;
   });
-  const title = `last 7 days: ${lo.toFixed(1)} to ${hi.toFixed(1)} ${unit} (scaled to this range)`;
+  const title = `last 7 days: ${lo.toFixed(digits)} to ${hi.toFixed(digits)} ${unit} (scaled to this range)`;
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${title}"><title>${title}</title><path d="${path}" fill="none" stroke="${color}" stroke-width="1.3" stroke-linejoin="round"/></svg>`;
 }
 
 function cellHtml(d: StationData, depth: string): string {
+  if (d.kind === "shore" && VK !== "temp") return `<td class="na" title="Not measured at this station">&middot;</td>`;
   if (!d.depths.includes(depth)) return `<td class="na" title="No ${DEPTH_LABEL[depth].toLowerCase()} sensor published">&middot;</td>`;
   const o = d.obs[depth];
   const state = obsState(o);
-  if (!o || o.temperature_c == null) return `<td class="offline">--</td>`;
+  const value = o ? V().obs(o) : null;
+  if (!o || value == null) return `<td class="offline">--</td>`;
   if (state === "offline") {
     // An old reading is not a current condition: show the outage, not the value.
     const since = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", year: "numeric" }).format(new Date(o.time));
     return `<td class="offline" title="${DEPTH_LABEL[depth]}: last reading ${fmtUtc(o.time)}"><b>--</b><small>since ${since}</small></td>`;
   }
-  return `<td class="${state}" title="${DEPTH_LABEL[depth]}: ${f1(cToF(o.temperature_c))} F, ${ago(o.time)}">${sparkline(d, depth, state === "live" ? P.now : P.delayed)}<b>${f1(cToF(o.temperature_c))}&deg;</b><small>${ago(o.time).replace(" ago", "")}</small></td>`;
+  const shown = value.toFixed(V().digits) + (VK === "temp" ? "&deg;" : "");
+  // Oxygen under the hypoxia level is marked in the cell, not only by color.
+  const low = VK === "oxygen" && value < DO_LEVELS.hypoxic;
+  const status = VK === "oxygen" ? `, ${oxygenStatus(value)}` : "";
+  return `<td class="${state}${low ? " low" : ""}" title="${DEPTH_LABEL[depth]}: ${value.toFixed(V().digits)} ${unitName(VK)}${status}, ${ago(o.time)}">${sparkline(d, depth, state === "live" ? P.now : P.delayed)}<b>${shown}</b><small>${low ? oxygenStatus(value) + " &middot; " : ""}${ago(o.time).replace(" ago", "")}</small></td>`;
 }
 
 /** Latest buoy wind: mean and gust in the chosen unit, a downwind arrow with the compass point it comes
@@ -667,21 +871,83 @@ function wavesCell(d: StationData): string {
   return `<td class="offline waves" title="${wavesText(d.meta.id)}">${panel ? `<a href="${panel}">${inner}</a>` : inner}</td>`;
 }
 
+/** Shore station cells: the latest water level with a 7-day line (the tides), and the next predicted tide. */
+function levelCell(d: StationData): string {
+  const lv = d.levelNow;
+  if (!lv) return `<td class="na">&middot;</td>`;
+  const state = obsState({ time: lv.time } as LastObs);
+  if (state === "offline") return `<td class="offline"><b>--</b><small>no recent level</small></td>`;
+  const spark = d.level ? sparklineOf(d.level, P.depth.SFC, "ft above MLLW") : "";
+  return `<td class="${state}" title="Water level ${feet(lv.ft)} ft above MLLW (preliminary), ${ago(lv.time)}">${spark}<b>${feet(lv.ft)}<small class="g"> ft</small></b><small>${ago(lv.time).replace(" ago", "")}</small></td>`;
+}
+
+function tideCell(d: StationData): string {
+  const e = nextTide(d);
+  if (!e) return `<td class="na">&middot;</td>`;
+  return `<td class="tide" title="Next predicted ${tideText(e)} above MLLW"><b>${e.type === "H" ? "High" : "Low"}</b><small>${fmtClock.format(new Date(e.t)).toLowerCase()} &middot; ${feet(e.ft)} ft</small></td>`;
+}
+
+/** Which table the overview shows: buoys or shore stations (remembered in this browser only). */
+type Group = StationData["kind"];
+let SG: Group = "buoy";
+try {
+  if (localStorage.getItem("lhzn-blue-status-tab") === "shore") SG = "shore";
+} catch {
+  /* private mode: buoys */
+}
+
 function statusGrid(stations: StationData[]): void {
-  const rows = stations
-    .map((d) => {
-      const st = overallState(d);
-      return `<tr><th scope="row"><a href="#${d.meta.id}"><i class="dot ${st}"></i>${d.meta.name}</a></th>${DEPTHS.map((dep) => cellHtml(d, dep)).join("")}${windCell(d)}${wavesCell(d)}</tr>`;
-    })
-    .join("");
-  $("status").innerHTML = `
-    <table class="status-grid">
-      <caption>Latest readings, west to east: water temperature (&deg;F) and wind (${WIND_UNITS[WU].label})</caption>
+  const buoys = stations.filter((d) => d.kind === "buoy");
+  const shore = stations.filter((d) => d.kind === "shore");
+  if (!shore.length) SG = "buoy";
+  const name = (d: StationData) => `<th scope="row"><a href="#${d.meta.id}"><i class="dot${d.kind === "shore" ? " shore" : ""} ${overallState(d)}"></i>${d.meta.name}</a></th>`;
+  const wind = `wind (${WIND_UNITS[WU].label})`;
+  const what = `${V().label.toLowerCase()} (${VK === "temp" ? "&deg;F" : unitName(VK)})`;
+  const table =
+    SG === "buoy"
+      ? `<table class="status-grid" id="status-panel" role="tabpanel" aria-labelledby="stab-buoy">
+      <caption>Latest readings, west to east: ${what} and ${wind}</caption>
       <thead><tr><th></th>${DEPTHS.map((d) => `<th scope="col">${DEPTH_LABEL[d]}</th>`).join("")}<th scope="col">Wind</th><th scope="col">Waves</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <p class="status-key"><i class="dot live"></i>under ${DELAYED_HOURS} h old <i class="dot delayed"></i>under ${OFFLINE_HOURS} h <i class="dot partial"></i>weather only <i class="dot offline"></i>offline
-      &middot; lines: last 7 days, each stretched to its own range</p>`;
+      <tbody>${buoys.map((d) => `<tr>${name(d)}${DEPTHS.map((dep) => cellHtml(d, dep)).join("")}${windCell(d)}${wavesCell(d)}</tr>`).join("")}</tbody>
+    </table>`
+      : `<table class="status-grid" id="status-panel" role="tabpanel" aria-labelledby="stab-shore">
+      <caption>Latest readings, west to east: ${VK === "temp" ? "water temperature (&deg;F)" : "water temperature only (shore stations measure no " + V().label.toLowerCase() + ")"}, water level and ${wind}</caption>
+      <thead><tr><th></th><th scope="col">Water</th><th scope="col">Level</th><th scope="col">Next tide</th><th scope="col">Wind</th></tr></thead>
+      <tbody>${shore.map((d) => `<tr>${name(d)}${cellHtml(d, "SFC")}${levelCell(d)}${tideCell(d)}${windCell(d)}</tr>`).join("")}</tbody>
+    </table>`;
+  const tab = (g: Group, label: string, n: number) =>
+    `<button type="button" role="tab" class="stab" id="stab-${g}" data-group="${g}" aria-selected="${SG === g}" aria-controls="status-panel" tabindex="${SG === g ? 0 : -1}">${label}<small>${n}</small></button>`;
+  const key =
+    SG === "buoy"
+      ? `<i class="dot live"></i>under ${DELAYED_HOURS} h old <i class="dot delayed"></i>under ${OFFLINE_HOURS} h <i class="dot partial"></i>weather only <i class="dot offline"></i>offline`
+      : `<i class="dot shore live"></i>under ${DELAYED_HOURS} h old <i class="dot shore delayed"></i>under ${OFFLINE_HOURS} h <i class="dot shore offline"></i>offline &middot; levels in feet above mean lower low water, preliminary; tides are NOAA predictions`;
+  $("status").innerHTML = `
+    ${shore.length ? `<div class="status-tabs" role="tablist" aria-label="Stations">${tab("buoy", "Buoys", buoys.length)}${tab("shore", "Shore stations", shore.length)}</div>` : ""}
+    ${table}
+    <p class="status-key">${key} &middot; lines: last 7 days, each stretched to its own range</p>`;
+}
+
+/** Tab clicks and arrow keys on the overview table (wired once; the table itself is redrawn often). */
+function wireStatusTabs(stations: StationData[]): void {
+  const box = $("status");
+  const pick = (g: Group) => {
+    SG = g;
+    try {
+      localStorage.setItem("lhzn-blue-status-tab", g);
+    } catch {
+      /* private mode: the choice lasts for this page only */
+    }
+    statusGrid(stations);
+    box.querySelector<HTMLButtonElement>(`#stab-${g}`)?.focus();
+  };
+  box.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>(".stab");
+    if (b) pick(b.dataset.group as Group);
+  });
+  box.addEventListener("keydown", (e) => {
+    if (!(e.target as HTMLElement).closest(".stab") || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    pick(SG === "buoy" ? "shore" : "buoy");
+  });
 }
 
 async function overviewMap(stations: StationData[]): Promise<void> {
@@ -703,8 +969,9 @@ async function overviewMap(stations: StationData[]): Promise<void> {
               ? `${DEPTH_LABEL[dep]} ${f1(cToF(o.temperature_c))}&deg;F, ${ago(o.time)}${wind ? `<br>${wind}` : ""}`
               : "no reading";
         const waves = wavesText(d.meta.id, true);
-        const label = waves ? `${reading}<br>Waves: ${waves}` : reading;
-        return { id: d.meta.id, name: d.meta.name, lat: d.meta.lat, lon: d.meta.lon, state, label };
+        const label = waves ? `${reading}<br>Waves: ${waves}` : reading.replace(/^Surface /, d.kind === "shore" ? "Water " : "Surface ");
+        const tide = d.kind === "shore" && nextTide(d) ? `<br>Next ${tideText(nextTide(d)!)}` : "";
+        return { id: d.meta.id, name: d.meta.name, lat: d.meta.lat, lon: d.meta.lon, state, label: label + tide, kind: d.kind };
       }),
       (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }),
       currentTheme(),
@@ -725,15 +992,16 @@ function depthTabsHtml(d: StationData, key: string, active: string): string {
 function sectionHtml(d: StationData): string {
   const st = d.meta;
   const id = st.id;
-  const rec = st.series.map((s) => `${s.label.toLowerCase()} from ${s.record_start?.slice(0, 4) ?? "--"}`).join(", ");
-  const kinds = (Object.keys(FIGS) as Kind[]).filter((k) => FIGS[k].available(d));
+  const startOf = (s: MetaSeries) => (VK === "temp" ? s.record_start : s.vars?.[VK]?.record_start);
+  const rec = st.series.map((s) => `${s.label.toLowerCase()} from ${startOf(s)?.slice(0, 4) ?? "--"}`).join(", ");
+  const kinds = (Object.keys(FIGS) as Kind[]).filter((k) => shows(d, k));
   const fig = (key: Kind) => {
     const f = FIGS[key];
     return `
     <figure>
-      <figcaption><span class="cap-label">${f.title}</span><span class="cap-sub">${f.sub}</span>${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
-        <span class="fig-actions"><button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${f.title}, ${st.name}">Full record</button><button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${f.title}, ${st.name}">Expand</button></span></figcaption>
-      <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}" title="Click to expand"><svg role="img" aria-label="${f.title}"></svg><div class="plot-labels" aria-hidden="true"></div></div>
+      <figcaption><span class="cap-label">${f.title}</span><span class="cap-sub">${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}</span>${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
+        <span class="fig-actions"><button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button><button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
+      <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}" title="Click to expand"><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>
       <div class="legend" id="${id}-${key}-legend"></div>
     </figure>`;
   };
@@ -742,6 +1010,7 @@ function sectionHtml(d: StationData): string {
   const quiet = stationState(d) === "offline";
   const notes = [
     st.note,
+    d.kind === "shore" && VK !== "temp" ? `This station measures water temperature only; ${V().label.toLowerCase()} comes from the buoys.` : "",
     wavesText(id),
     !d.live && st.outage_note ? st.outage_note : "",
     quiet
@@ -755,10 +1024,10 @@ function sectionHtml(d: StationData): string {
       <div class="station-head">
         <h2 id="${id}-title"><i class="dot ${overallState(d)}"></i>${st.name}</h2>
         <span class="sid">${id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W</span>
-        <span class="rec">Record: ${rec}</span>
+        <span class="rec">${VK === "temp" ? "Record" : `${V().label} record`}: ${rec}</span>
       </div>
-      <p class="station-links"><span>At LISICOS:</span>${[
-        st.info_url ? `<a href="${st.info_url}">About this buoy</a>` : "",
+      <p class="station-links"><span>${d.kind === "shore" ? "At NOAA:" : "At LISICOS:"}</span>${[
+        st.info_url ? `<a href="${st.info_url}">${d.kind === "shore" ? "Station page" : "About this buoy"}</a>` : "",
         panelsOf(id).weather ? `<a href="${panelsOf(id).weather}">Weather panel</a>` : "",
         panelsOf(id).water_quality ? `<a href="${panelsOf(id).water_quality}">Water quality panel</a>` : "",
         panelsOf(id).waves ? `<a href="${panelsOf(id).waves}">Wave panel</a>` : "",
@@ -787,7 +1056,7 @@ function readouts(d: StationData): void {
   };
   const items = d.depths.filter((dep) => dep !== "MID").map(tempItem);
   const offline = stationState(d) === "offline";
-  if (d.delta) {
+  if (d.temp.delta) {
     const sb = stratNow(d);
     items.push(
       offline
@@ -797,13 +1066,21 @@ function readouts(d: StationData): void {
       <span class="sub">${sb.status} (alpha definition) &middot; 24 h mean</span></div>`,
     );
   }
+  if (d.kind === "shore") {
+    const e = nextTide(d);
+    const lv = d.levelNow;
+    items.push(`<div class="readout"><div class="num">${lv ? lv.ft.toFixed(1) : "--"}<small>ft</small></div><span class="lab">Water level</span>
+      <span class="sub">above MLLW${lv ? ` &middot; ${ago(lv.time)}` : ""}${e ? ` &middot; next ${tideText(e)}` : ""}</span></div>`);
+    $(`${d.meta.id}-readouts`).innerHTML = items.join("");
+    return;
+  }
   const deep = d.obs.BTM ?? d.obs[d.depths[d.depths.length - 1]];
   const where = d.obs.BTM ? "Bottom" : "Surface";
   const doNow = deep?.oxygen_mg_l != null && obsState(deep) !== "offline";
   items.push(`<div class="readout"><div class="num">${doNow ? deep!.oxygen_mg_l!.toFixed(1) : "--"}<small>mg/L</small></div><span class="lab">${where} dissolved oxygen</span>
       <span class="sub${doNow ? "" : " offline"}">${
         doNow
-          ? `salinity ${deep!.salinity != null ? deep!.salinity.toFixed(1) : "--"} &middot; ${ago(deep!.time)}`
+          ? `${oxygenStatus(deep!.oxygen_mg_l!)} &middot; salinity ${deep!.salinity != null ? deep!.salinity.toFixed(1) : "--"} &middot; ${ago(deep!.time)}`
           : deep?.oxygen_mg_l != null
             ? `no current reading &middot; last ${deep.oxygen_mg_l.toFixed(1)} mg/L, ${fmtDate.format(new Date(deep.time))}`
             : "no recent reading"
@@ -815,7 +1092,7 @@ const activeDepth = (d: StationData, key: Kind) =>
   document.querySelector<HTMLButtonElement>(`#${d.meta.id} .tab[data-fig="${key}"][aria-pressed="true"]`)?.dataset.depth ?? d.depths[0];
 
 function drawInline(d: StationData, key: Kind): void {
-  if (!FIGS[key].available(d)) return;
+  if (!shows(d, key)) return;
   const [x0, x1] = FIGS[key].window(d);
   const b = FIGS[key].build(d, activeDepth(d, key), x0, x1, false);
   renderLines($(`${d.meta.id}-${key}`), b.opts);
@@ -854,7 +1131,7 @@ function setFull(full: boolean): void {
   const toggle = $("zoom-full");
   toggle.textContent = full ? (f.seasonal ? "Same dates by year" : "Recent") : "Full record";
   toggle.setAttribute("aria-pressed", String(full));
-  $("zoom-sub").textContent = full ? "everything we hold, each year in its color; gaps are periods with no data" : f.sub;
+  $("zoom-sub").textContent = full ? "everything we hold, each year in its color; gaps are periods with no data" : `${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}`;
   requestZoomDraw();
 }
 
@@ -885,7 +1162,7 @@ function openZoom(d: StationData, key: Kind, full = false): void {
   const f = FIGS[key];
   const [x0, x1] = f.window(d);
   zoom = { d, key, depth: activeDepth(d, key), x0, x1, full: false };
-  $("zoom-title").textContent = `${f.title} · ${d.meta.name}`;
+  $("zoom-title").textContent = `${figName(f)} · ${d.meta.name}`;
   $("zoom-tabs").innerHTML = f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, "zoom", zoom.depth) : "";
   ($("zoom") as HTMLDialogElement).showModal();
   setFull(full); // draws after layout, so the axis labels fit the dialog's width
@@ -1003,6 +1280,7 @@ function updatedStrip(meta: Meta, live: Live): void {
     ];
     if (failing.length) parts.push(`<span class="warn">last fetch failed for ${failing.join(", ")}; showing the last good values</span>`);
     $("updated").innerHTML = parts.join(`<span class="sep">&middot;</span>`);
+    $("updated").title = $("updated").textContent ?? "";
   };
   draw();
   window.setInterval(draw, 60_000);
@@ -1020,7 +1298,14 @@ function about(meta: Meta): void {
     `backward, so peaks are not delayed; at the latest hour it uses past data only, and it restarts after a gap rather ` +
     `than bridging it). Its half-life is a display parameter that follows the time span on screen, about 0.11 days per ` +
     `day shown, between 1 and 12 hours, so zooming in sharpens the line; the value in use is shown with each plot. The ` +
-    `faint line is the hourly mean and the dots are each day's strongest gust. Buoy weather is kept for the last 100 days so far.`;
+    `faint line is the hourly mean and the dots are each day's strongest gust. Buoy weather is kept for the last 100 days so far.` +
+    `<br><br>Salinity and dissolved oxygen (the Water switch at the top) use the same hourly means, 36-hour means and year comparison. ` +
+    `Salinity is on the practical salinity scale, which has no unit. Oxygen shading marks reference levels: under ${DO_LEVELS.anoxic} mg/L anoxic ` +
+    `and under ${DO_LEVELS.hypoxic} mg/L hypoxic, as the <a href="https://lispartnership.org/ecosystem-target-indicators/hypoxia/">Long Island Sound Partnership</a> ` +
+    `defines them, and under ${DO_LEVELS.growth} mg/L, EPA's criterion for continuous exposure that protects growth in the coastal waters from Cape Cod to Cape Hatteras ` +
+    `(<a href="https://www.epa.gov/sites/default/files/2018-10/documents/ambient-al-wqc-dissolved-oxygen-cape-code.pdf">EPA-822-R-00-012</a>, 2000). ` +
+    `They are reference levels for reading the charts, not a regulatory assessment. Surface minus bottom is drawn for salinity and oxygen too, without thresholds; ` +
+    `the stratification readout stays a temperature measure.`;
   const src = meta.stations
     .flatMap((st) =>
       st.series.map((s: MetaSeries) => {
@@ -1038,6 +1323,17 @@ function about(meta: Meta): void {
   $("about-sources").innerHTML = `Sources: ${src}`;
 }
 
+/** Shore station sources, added to the notes once their data loads. */
+function aboutShore(qc: string): void {
+  const names = SHORE.map((s) => `${s.name} (${s.coops_id}, water temperature from ${s.record_start?.slice(0, 4)})`).join(", ");
+  $("about-sources").insertAdjacentHTML(
+    "beforeend",
+    ` Shore stations: <a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a> water level stations at ${names}. ` +
+      `Their water temperature history is the reading at the top of each hour; the recent window, air temperature, wind, pressure and ` +
+      `water level are hourly means of 6-minute readings, and tides are NOAA predictions. Water levels are preliminary until NOAA verifies them. ${qc}`,
+  );
+}
+
 /* ---------- Bring your own AI ---------- */
 
 function promptData(stations: StationData[]): string {
@@ -1048,12 +1344,12 @@ function promptData(stations: StationData[]): string {
     out.push(`Station ${st.id}, ${st.name} (${st.operator}), ${st.lat.toFixed(2)} N, ${Math.abs(st.lon).toFixed(2)} W.${st.note ? " " + st.note : ""}${!d.live && st.outage_note ? " " + st.outage_note : ""}`);
     for (const s of st.series) {
       const o = d.obs[s.depth];
-      const m = d.m36[s.depth];
+      const m = d.temp.m36[s.depth];
       out.push(`  ${s.label} (sensor depth ${s.depth_m.join(" and ")} m; hourly record from ${s.record_start?.slice(0, 10) ?? "unknown"}${s.live ? "" : "; not published on the server now"}):`);
       if (o && o.temperature_c != null) {
         const extra = [
           o.salinity != null ? `salinity ${o.salinity.toFixed(2)}` : "",
-          o.oxygen_mg_l != null ? `dissolved oxygen ${o.oxygen_mg_l.toFixed(2)} mg/L` : "",
+          o.oxygen_mg_l != null ? `dissolved oxygen ${o.oxygen_mg_l.toFixed(2)} mg/L (${oxygenStatus(o.oxygen_mg_l)})` : "",
         ].filter(Boolean);
         out.push(`    ${s.live ? "latest" : "last"} observation ${fmtUtc(o.time)} (${ago(o.time)}): ${f1(cToF(o.temperature_c))} F (${o.temperature_c.toFixed(2)} C)${extra.length ? "; " + extra.join("; ") : ""}.`);
       } else out.push(`    no recent observation.`);
@@ -1066,7 +1362,7 @@ function promptData(stations: StationData[]): string {
       const { shown, hidden } = visibleYears(yearLines(m, xs, d.now));
       if (recent) {
         const cur = m.at(tLast);
-        const chg = d.chg[s.depth]?.at(tLast) ?? NaN;
+        const chg = d.temp.chg[s.depth]?.at(tLast) ?? NaN;
         out.push(`    36 h mean as of ${fmtUtc(new Date(tLast * 1000).toISOString())}: ${f1(cur)} F (${f1(fToC(cur))} C); 7-day change: ${signed(chg)} F.`);
       } else {
         out.push(`    no data in the last 96 days (last 36 h mean ${fmtUtc(new Date(tLast * 1000).toISOString())}); comparisons below are for this date and hour in earlier years.`);
@@ -1075,7 +1371,7 @@ function promptData(stations: StationData[]): string {
       if (past.length) out.push(`    36 h mean at the same date and hour in earlier years: ${past.join("; ")}.`);
       if (hidden.length) out.push(`    years left out of the comparison because under ${COVERAGE_MIN * 100}% of the 110-day window has data: ${hidden.map((l) => l.year).join(", ")}.`);
     }
-    if (d.delta) {
+    if (d.temp.delta) {
       const sb = stratNow(d);
       out.push(`  Surface minus bottom, mean of the last 24 hours with data: ${signed(sb.deltaC, 2)} C, ${sb.status}.`);
     }
@@ -1083,12 +1379,17 @@ function promptData(stations: StationData[]): string {
     if (w && w.wind_kt != null) {
       const dir = w.dir_deg != null ? `from ${compass(w.dir_deg)} (${Math.round(w.dir_deg)} degrees)` : "direction unknown";
       out.push(
-        `  Weather at the buoy, ${fmtUtc(w.time)} (${ago(w.time)}): wind ${f1(w.wind_kt)} kt ${dir}, gusts ${f1(w.gust_kt ?? NaN)} kt` +
+        `  Weather at the ${d.kind === "shore" ? "station" : "buoy"}, ${fmtUtc(w.time)} (${ago(w.time)}): wind ${f1(w.wind_kt)} kt ${dir}, gusts ${f1(w.gust_kt ?? NaN)} kt` +
           (WU === "kt" ? "; " : ` (wind ${windFmt(w.wind_kt)} ${WIND_UNITS[WU].label}, gusts ${windFmt(w.gust_kt)} ${WIND_UNITS[WU].label}); `) +
           `air ${f1(w.air_f ?? NaN)} F; pressure ${w.pressure_mb != null ? w.pressure_mb.toFixed(1) : "--"} mbar.`,
       );
     }
     if (wavesOf(st.id)) out.push(`  ${wavesText(st.id)}`);
+    if (d.kind === "shore") {
+      const e = nextTide(d);
+      if (d.levelNow) out.push(`  Water level ${d.levelNow.ft.toFixed(2)} ft above MLLW at ${fmtUtc(d.levelNow.time)} (preliminary).`);
+      if (e) out.push(`  Next predicted tide: ${tideText(e)} above MLLW (${fmtUtc(e.t)}).`);
+    }
   }
   return out.join("\n");
 }
@@ -1147,6 +1448,85 @@ function wireUnits(redraw: () => void): void {
   );
 }
 
+/**
+ * Keep the reader's place across a re-render of the station sections. Sections change height when the
+ * variable changes (shore stations drop their salinity and oxygen charts, notes come and go), so without this
+ * the page would slide under the reader. The anchor is what the reader is looking at: a station heading in the
+ * top third of the screen (they have just gone to that station), otherwise the chart nearest the middle. It
+ * ends up exactly where it was; if a chart is gone after the change, its station's heading is used instead.
+ *
+ * The place is taken once and kept until the reader scrolls, so switching back and forth (temperature to
+ * oxygen and back) always returns to the same spot, even when the first switch removed the chart.
+ */
+let place: { id: string; y: number }[] | null = null;
+let placedAt = NaN; // scroll position after our own correction, to tell it from the reader's scrolling
+
+function takePlace(): { id: string; y: number }[] | null {
+  const h = window.innerHeight;
+  const heads = [...document.querySelectorAll<HTMLElement>("#stations .station")].filter((el) => {
+    const t = el.getBoundingClientRect().top;
+    return t >= 0 && t < h / 3;
+  });
+  const plots = [...document.querySelectorAll<HTMLElement>("#stations .plot")].filter((el) => {
+    const b = el.getBoundingClientRect();
+    return b.bottom > 0 && b.top < h;
+  });
+  if (!heads.length && !plots.length) return null; // the stations are off screen: nothing above the reader moves
+  const dist = (el: HTMLElement) => {
+    const b = el.getBoundingClientRect();
+    return Math.abs((b.top + b.bottom) / 2 - h / 2);
+  };
+  const anchor = heads[0] ?? plots.reduce((a, b) => (dist(b) < dist(a) ? b : a));
+  return [anchor, anchor.closest<HTMLElement>(".station")]
+    .filter((el): el is HTMLElement => !!el?.id)
+    .map((el) => ({ id: el.id, y: el.getBoundingClientRect().top }));
+}
+
+function keepPlace(render: () => void): void {
+  if (!place || Math.abs(window.scrollY - placedAt) > 2) place = takePlace();
+  render();
+  if (!place) return;
+  for (const m of place) {
+    const el = document.getElementById(m.id);
+    if (el) {
+      window.scrollBy(0, el.getBoundingClientRect().top - m.y);
+      break;
+    }
+  }
+  placedAt = window.scrollY;
+}
+
+/** The Water switch (temperature, salinity, oxygen): temperature by default; remembered in this browser only.
+ * A variable's history loads on first use; the button dims while it loads and the page keeps working. */
+function wireWater(live: Live, stations: StationData[], rebuild: () => void): void {
+  const buttons = document.querySelectorAll<HTMLButtonElement>(".var-switch [data-var]");
+  const mark = () => buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.var === VK)));
+  mark();
+  buttons.forEach((b) =>
+    b.addEventListener("click", async () => {
+      const k = b.dataset.var as VarKey;
+      if (k === VK) return;
+      b.classList.add("loading");
+      try {
+        await ensureVar(k, live, stations);
+      } catch {
+        b.title = "Could not load this variable; please try again shortly.";
+        return;
+      } finally {
+        b.classList.remove("loading");
+      }
+      VK = k;
+      try {
+        localStorage.setItem("lhzn-blue-water-var", VK);
+      } catch {
+        /* private mode: the choice lasts for this page only */
+      }
+      mark();
+      rebuild();
+    }),
+  );
+}
+
 /** The Light/Dark toggle: dark by default; the choice is remembered in this browser only. */
 function wireTheme(redraw: () => void): void {
   const btn = $("theme-toggle");
@@ -1177,14 +1557,21 @@ function wireTheme(redraw: () => void): void {
   });
 }
 
+/** Shore stations from the registry, west to east (their record start years until the history arrives). */
+const SHORE: ShoreMetaStation[] = shoreRegistry.stations
+  .map((s) => ({ ...s, note: (s as { note?: string }).note ?? null, record_start: `${s.record_start_year}-01-01T00:00:00Z` }))
+  .sort((a, b) => a.lon - b.lon);
+
 async function main(): Promise<void> {
   P = PALETTES[currentTheme()];
+  // Shore data loads alongside the buoys but never holds them up; its history (the larger file) last.
+  const shoreLive = getJson<ShoreLive>(`${DATA}/shore.json`).catch(() => null);
+  const shoreHist = getJson<ShoreHistory>(`${DATA}/shore-history.json`).catch(() => null);
   try {
     const { meta, live, stations } = await load();
-    const byId = Object.fromEntries(stations.map((d) => [d.meta.id, d]));
-    $("stations").innerHTML = stations.map(sectionHtml).join("");
-    statusGrid(stations);
-    void overviewMap(stations);
+    const byId = (id: string) => stations.find((d) => d.meta.id === id)!;
+    // A remembered salinity or oxygen choice loads its history first; if that fails, show temperature.
+    if (VK !== "temp") await ensureVar(VK, live, stations).catch(() => (VK = "temp"));
     const drawAll = () => {
       for (const d of stations) {
         readouts(d);
@@ -1192,13 +1579,50 @@ async function main(): Promise<void> {
       }
       if (zoom) drawZoom();
     };
-    drawAll();
-    for (const d of stations) {
-      for (const k of Object.keys(FIGS) as Kind[]) {
-        const legend = document.getElementById(`${d.meta.id}-${k}-legend`);
-        if (legend) wireLegend(legend, $(`${d.meta.id}-${k}`));
+    /** Station sections for the selected variable (captions and record lines name it), buoys then shore. */
+    const renderSections = () => {
+      stations.forEach((d) => useVar(d, VK));
+      const group = (kind: StationData["kind"], title: string) => {
+        const list = stations.filter((d) => d.kind === kind);
+        const grouped = stations.some((d) => d.kind === "shore");
+        return list.length ? (grouped ? `<h2 class="station-group">${title}</h2>` : "") + list.map(sectionHtml).join("") : "";
+      };
+      $("stations").innerHTML = group("buoy", "Buoys, LISICOS") + group("shore", "Shore stations, NOAA tide gauges");
+      drawAll();
+      for (const d of stations) {
+        for (const k of Object.keys(FIGS) as Kind[]) {
+          const legend = document.getElementById(`${d.meta.id}-${k}-legend`);
+          if (legend) wireLegend(legend, $(`${d.meta.id}-${k}`));
+        }
       }
+    };
+    renderSections();
+    statusGrid(stations);
+    wireStatusTabs(stations);
+    // Shore stations join once their live file arrives; the map waits for them so every pin is placed once.
+    const sl = await shoreLive;
+    if (sl) {
+      stations.push(...SHORE.map((st) => shoreStation(st, sl.stations[st.id], undefined)));
+      renderSections();
+      statusGrid(stations);
+      aboutShore(sl.qc);
     }
+    void overviewMap(stations);
+    void shoreHist.then((sh) => {
+      if (!sh || !sl) return;
+      for (const st of SHORE) {
+        const i = stations.findIndex((d) => d.meta.id === st.id);
+        if (i >= 0) stations[i] = shoreStation(st, sl.stations[st.id], sh.series[st.id]);
+      }
+      keepPlace(renderSections);
+    });
+    wireWater(live, stations, () => {
+      ($("zoom") as HTMLDialogElement).close();
+      keepPlace(() => {
+        renderSections();
+        statusGrid(stations);
+      });
+    });
 
     // Depth tabs, expand buttons, and a click on any inline chart opens the zoom view.
     $("stations").addEventListener("click", (e) => {
@@ -1209,11 +1633,11 @@ async function main(): Promise<void> {
         const section = tab.closest<HTMLElement>(".station")!;
         const key = tab.dataset.fig as Kind;
         section.querySelectorAll(`.tab[data-fig="${key}"]`).forEach((b) => b.setAttribute("aria-pressed", String(b === tab)));
-        drawInline(byId[section.id], key);
+        drawInline(byId(section.id), key);
         return;
       }
       const opener = target.closest<HTMLElement>(".expand, .plot");
-      if (opener?.dataset.station) openZoom(byId[opener.dataset.station], opener.dataset.fig as Kind, opener.dataset.full === "1");
+      if (opener?.dataset.station) openZoom(byId(opener.dataset.station), opener.dataset.fig as Kind, opener.dataset.full === "1");
     });
     wireZoom();
     updatedStrip(meta, live);

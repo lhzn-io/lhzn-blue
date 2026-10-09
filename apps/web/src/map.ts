@@ -1,5 +1,6 @@
-/** Locator map: OpenFreeMap basemaps (OpenStreetMap data, no API key) with a bright pin per buoy, dark or
- * light to match the page theme. Loaded on demand so the rest of the page does not wait for MapLibre. */
+/** Locator map: OpenFreeMap basemaps (OpenStreetMap data, no API key) with a bright pin per buoy (round) and
+ * per shore station (square), dark or light to match the page theme. Loaded on demand so the rest of the page
+ * does not wait for MapLibre. */
 import "maplibre-gl/dist/maplibre-gl.css";
 import maplibregl from "maplibre-gl";
 
@@ -9,6 +10,7 @@ export interface Pin {
   lat: number;
   lon: number;
   state: "live" | "delayed" | "offline" | "partial"; // partial: weather live, water sensors offline
+  kind?: "buoy" | "shore";
   label: string; // short reading for the popup, e.g. "Surface 66.3 F, 1 h ago"
 }
 
@@ -54,7 +56,7 @@ export function drawMap(container: HTMLElement, pins: Pin[], onSelect: (id: stri
   for (const p of pins) {
     const el = document.createElement("button");
     el.type = "button";
-    el.className = `pin pin-${p.state}`;
+    el.className = `pin pin-${p.state}${p.kind === "shore" ? " pin-shore" : ""}`;
     el.setAttribute("aria-label", `${p.name}: ${p.label.replace(/<br>/g, "; ")}`);
     el.innerHTML = `<span class="pin-dot"></span><span class="pin-id">${p.id}</span>`;
     const popup = new maplibregl.Popup({ offset: 14, closeButton: false, className: "pin-pop" }).setHTML(

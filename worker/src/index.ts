@@ -1,5 +1,5 @@
 /**
- * longhorizon.blue edge: serves the static site and the page's two data files from Workers KV, where
+ * longhorizon.blue edge: serves the static site and the page's data files from Workers KV, where
  * the ingest jobs write them. This Worker does no data processing.
  *
  * The data files exist for this site's pages; they are not a supported public API yet. They are
@@ -25,6 +25,10 @@ interface Env {
 const FILES: Record<string, number> = {
   "v1/live.json": 300,
   "v1/history.json": 300,
+  "v1/history-salinity.json": 300,
+  "v1/history-oxygen.json": 300,
+  "v1/shore.json": 300,
+  "v1/shore-history.json": 300,
 };
 
 async function data(req: Request, env: Env, path: string): Promise<Response> {

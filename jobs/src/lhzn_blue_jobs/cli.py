@@ -1,13 +1,18 @@
-"""Command line: ``lhzn-blue-jobs {history,live,import-archive} --out <dir or gs://bucket/prefix>``."""
+"""Command line: ``lhzn-blue-jobs {history,live,import-archive} --out <dir, kv:// or gs:// store>``.
+
+``live`` and ``history`` also refresh the shore stations (``shore.json``, ``shore-history.json``) after the
+buoys; a shore failure is logged and never stops the buoy files from publishing.
+"""
 
 from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import os
 from pathlib import Path
 
-from . import build
+from . import build, shore
 
 
 def main() -> None:
@@ -30,12 +35,26 @@ def main() -> None:
     store = build.Store(args.out)
     if args.command == "history":
         build.history(store)
+        _shore(lambda: store.write_json(
+            "v1/shore-history.json", shore.history(store.read_json("v1/shore-history.json"), build.now_utc()), max_age=3600
+        ))
     elif args.command == "live":
         build.live(store, full=args.full)
+        _shore(lambda: store.write_json(
+            "v1/shore.json", shore.live(store.read_json("v1/shore.json"), build.now_utc(), full=args.full), max_age=300
+        ))
     else:
         if not args.archive_dir:
             parser.error("import-archive needs --archive-dir")
         build.import_archive(store, args.archive_dir, args.vintage)
+
+
+def _shore(step) -> None:
+    try:
+        step()
+    except Exception:  # the buoy files are already written; report and exit non-zero so the run shows failed
+        logging.getLogger("lhzn_blue_jobs.shore").exception("shore stations not refreshed")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

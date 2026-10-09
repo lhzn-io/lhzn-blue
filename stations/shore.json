@@ -1,0 +1,49 @@
+{
+  "stations": [
+    {
+      "id": "KPTN",
+      "coops_id": "8516945",
+      "name": "Kings Point",
+      "operator": "NOAA CO-OPS",
+      "lat": 40.8103,
+      "lon": -73.7649,
+      "info_url": "https://tidesandcurrents.noaa.gov/stationhome.html?id=8516945",
+      "products": ["water_temperature", "air_temperature", "wind", "air_pressure", "water_level", "predictions"],
+      "record_start_year": 1998
+    },
+    {
+      "id": "BRPT",
+      "coops_id": "8467150",
+      "name": "Bridgeport",
+      "operator": "NOAA CO-OPS",
+      "lat": 41.17582,
+      "lon": -73.18397,
+      "info_url": "https://tidesandcurrents.noaa.gov/stationhome.html?id=8467150",
+      "products": ["water_temperature", "air_temperature", "wind", "air_pressure", "water_level", "predictions"],
+      "record_start_year": 1997
+    },
+    {
+      "id": "NWHV",
+      "coops_id": "8465705",
+      "name": "New Haven",
+      "operator": "NOAA CO-OPS",
+      "lat": 41.2833,
+      "lon": -72.9083,
+      "info_url": "https://tidesandcurrents.noaa.gov/stationhome.html?id=8465705",
+      "products": ["water_temperature", "air_temperature", "wind", "air_pressure", "water_level", "predictions"],
+      "record_start_year": 1999
+    },
+    {
+      "id": "NLON",
+      "coops_id": "8461490",
+      "name": "New London",
+      "operator": "NOAA CO-OPS",
+      "lat": 41.371666,
+      "lon": -72.09556,
+      "info_url": "https://tidesandcurrents.noaa.gov/stationhome.html?id=8461490",
+      "products": ["water_temperature", "air_temperature", "air_pressure", "water_level", "predictions"],
+      "record_start_year": 1995,
+      "note": "No wind sensor."
+    }
+  ]
+}

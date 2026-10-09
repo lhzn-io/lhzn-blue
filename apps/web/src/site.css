@@ -120,9 +120,27 @@ a { color: inherit; }
   font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.02em; color: var(--strip-ink);
   background: var(--strip-bg); border-bottom: 1px solid var(--accent-line);
 }
-/* On a waterway page the strip also carries the Suggestions tab at its right end. */
-.topbar { display: flex; align-items: flex-start; background: var(--strip-bg); border-bottom: 1px solid var(--accent-line); }
-.topbar .updated { flex: 1 1 auto; min-width: 0; background: none; border-bottom: 0; }
+/* On a waterway page the strip also carries the Water switch and the Suggestions tab, and stays pinned to the
+   top while the page scrolls, so the variable can be changed from any station section. It keeps to one line:
+   the freshness text is cut short on narrow screens (its full text is in the tooltip). */
+.topbar {
+  position: sticky; top: 0; z-index: 30; display: flex; align-items: center;
+  background: var(--strip-bg); background-color: var(--bg); border-bottom: 1px solid var(--accent-line);
+}
+.topbar .updated { flex: 1 1 auto; min-width: 0; background: none; border-bottom: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar .var-switch { flex: none; align-items: center; margin-right: 14px; }
+.topbar .var-switch .tab { padding: 3px 8px 4px; }
+.topbar .var-switch > span { padding-top: 0; }
+.station, .station-group { scroll-margin-top: 40px; }
+/* Phones: the strip takes two lines, freshness above, the switch and Suggestions below. */
+@media (max-width: 640px) {
+  .topbar { flex-wrap: wrap; padding-bottom: 4px; }
+  .topbar .updated { flex-basis: 100%; }
+  .topbar .var-switch { margin-left: var(--gutter); }
+  .topbar .var-switch > span { display: none; }
+  .topbar .suggest { margin-left: auto; }
+  .station, .station-group { scroll-margin-top: 64px; }
+}
 .updated b { font-family: var(--sans); font-size: 9px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); margin-right: 6px; }
 .updated .ago { color: var(--strip-mute); }
 .updated .sep { margin: 0 8px; color: var(--strip-mute); }
@@ -148,6 +166,8 @@ a { color: inherit; }
 .prefs { align-self: flex-start; margin-left: auto; display: flex; gap: 14px; align-items: flex-start; }
 .prefs .theme-toggle { margin-left: 0; }
 .unit-switch { display: flex; gap: 2px; align-items: flex-start; }
+.var-switch .tab.loading { opacity: 0.55; cursor: progress; }
+.status-grid td.low b, .status-grid td.low small { color: var(--delayed); }
 .unit-switch > span { padding-top: 6px; margin-right: 4px; font: 700 8.5px/1 var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--faint); }
 .status-grid .wind-arrow { width: 12px; height: 12px; margin-right: 4px; vertical-align: -1px; color: var(--accent); }
 
@@ -196,6 +216,22 @@ main { padding: 0 var(--gutter) 40px; }
 :root[data-theme="light"] .pin-partial .pin-dot { border-color: #1c2a48; }
 .pin-delayed .pin-dot { background: var(--delayed); box-shadow: 0 0 0 3px rgba(240, 177, 53, 0.3); }
 .pin-offline .pin-dot { background: var(--pin-offline); border-color: var(--faint); }
+/* Shore stations: square, smaller, and without the glow, so the buoys stay the brightest marks. */
+.pin-shore .pin-dot { width: 11px; height: 11px; border-radius: 1px; }
+.pin-shore.pin-live .pin-dot { box-shadow: 0 0 0 2px rgba(222, 207, 3, 0.3); }
+.pin-shore .pin-id { font-size: 9px; opacity: 0.85; }
+.dot.shore { border-radius: 1px; }
+/* Overview tabs: buoys or shore stations, in the masthead's hanging-tab style. */
+.status-tabs { display: flex; gap: 2px; margin-bottom: 10px; border-bottom: 1px solid var(--rule); }
+.stab {
+  cursor: pointer; padding: 6px 12px 7px; margin-bottom: -1px; background: none; border: 1px solid transparent; border-bottom: 0;
+  font: 700 9.5px/1 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim);
+}
+.stab small { margin-left: 6px; font: 400 9px/1 var(--mono); letter-spacing: 0; color: var(--faint); }
+.stab:hover { color: var(--ink); }
+.stab[aria-selected="true"] { color: var(--accent); border-color: var(--rule); background: var(--bg); }
+.stab:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; }
+.station-group { margin: 34px 0 0; padding-top: 14px; border-top: 1px solid var(--rule); font: 700 10.5px/1.2 var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); }
 .pin-id { font: 700 10px/1 var(--sans); letter-spacing: 0.16em; color: var(--ink); text-shadow: var(--pin-shadow); }
 .pin-pop .maplibregl-popup-content { background: var(--pop-bg); color: var(--ink); font: 11px/1.5 var(--mono); border-left: 2px solid var(--accent); border-radius: 0; padding: 8px 10px; }
 .pin-pop .maplibregl-popup-tip { display: none; }
@@ -369,7 +405,7 @@ body.landing {
 /* Suggestions drawer: a tab at the right end of the freshness strip, dropping a one-box form. */
 .suggest { position: relative; flex: none; margin-right: var(--gutter); font-family: var(--sans); }
 .suggest > summary {
-  list-style: none; cursor: pointer; padding: 3px 12px 5px; margin-top: 2px; border-radius: 999px;
+  list-style: none; cursor: pointer; padding: 3px 12px 5px; border-radius: 999px;
   font: 700 9px/1.2 var(--sans); letter-spacing: 0.22em; text-transform: uppercase;
   color: var(--accent); border: 1px solid var(--accent-line);
 }

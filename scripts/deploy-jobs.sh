@@ -18,7 +18,7 @@ trap 'rm -rf "$CTX"' EXIT
 mkdir -p "$CTX/jobs" "$CTX/stations"
 cp -R "$REPO/jobs/pyproject.toml" "$REPO/jobs/src" "$CTX/jobs/"
 [ -f "$REPO/jobs/README.md" ] && cp "$REPO/jobs/README.md" "$CTX/jobs/"
-cp "$REPO/stations/stations.json" "$CTX/stations/"
+cp "$REPO/stations/stations.json" "$REPO/stations/shore.json" "$CTX/stations/"
 cp "$REPO/jobs/Dockerfile" "$CTX/Dockerfile"
 
 IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/lhzn-blue/ingest:$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || date +%s)"

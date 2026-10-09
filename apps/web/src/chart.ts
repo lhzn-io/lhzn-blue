@@ -45,6 +45,7 @@ export interface ChartOptions {
   bands?: Band[];
   marker?: { x: number; label: string }; // a vertical rule, e.g. "now"
   hoverDigits?: number;
+  floor?: number; // the value axis reaches at least down to this (keeps a reference level in view)
   empty?: string; // message (HTML) when the window holds no data
 }
 
@@ -143,7 +144,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
         .join("") + `<span class="axis"></span><span class="empty">${o.empty ?? "No data in this window"}</span>`;
     return rendered;
   }
-  let lo = Math.min(...all);
+  let lo = Math.min(...all, o.floor ?? Infinity);
   let hi = Math.max(...all);
   const pad = Math.max(0.5, (hi - lo) * 0.08);
   lo -= pad;
@@ -170,7 +171,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
 
   // Value rules.
   const ys = niceStep(hi - lo);
-  const digits = ys < 1 ? 1 : 0;
+  const digits = Math.min(2, (String(+ys.toPrecision(3)).split(".")[1] ?? "").length); // 2.5 keeps its half
   for (let v = Math.ceil(lo / ys) * ys; v <= hi; v += ys) {
     const yy = py(v);
     const isZero = o.zero && Math.abs(v) < ys / 1000;

@@ -51,7 +51,9 @@ export interface MetWindow {
 
 export interface Live {
   generated_at: string;
-  series: Record<string, LiveSeries>;
+  series: Record<string, LiveSeries>; // water temperature (F), with the latest raw observation
+  salinity?: Record<string, Encoded>;
+  oxygen?: Record<string, Encoded>; // mg/L
   met?: Record<string, MetWindow>;
   datasets: Record<string, { last_ok?: string; last_error?: string; rows?: number }>;
 }
@@ -75,6 +77,7 @@ export interface MetaSeries {
   sources: MetaSource[];
   live: boolean; // has a current server source
   archived_last_obs: LastObs | null; // final reading, for archive-only series
+  vars?: Record<string, { record_start: string | null; hours: number }>; // salinity and oxygen records
 }
 
 export interface MetaStation {
@@ -100,6 +103,75 @@ export interface Meta {
 /** The daily history bundle: metadata plus the full hourly record of every series. */
 export interface History {
   meta: Meta;
+  series: Record<string, Encoded>;
+}
+
+/** Shore stations (NOAA CO-OPS): the latest 6-minute readings, in the page's units. */
+export interface ShoreObs {
+  time: string;
+  water_f: number | null;
+  air_f: number | null;
+  wind_kt: number | null;
+  gust_kt: number | null;
+  dir_deg: number | null;
+  pressure_mb: number | null;
+  level_ft: number | null; // above MLLW
+}
+
+export interface TideEvent {
+  t: string;
+  ft: number;
+  type: "H" | "L";
+}
+
+/** A shore station's last 100 days, hourly; the weather columns match MetWindow. */
+export interface ShoreFrame {
+  t0: string | null;
+  step: number;
+  water_f?: (number | null)[];
+  air_f?: (number | null)[];
+  wind_kt?: (number | null)[];
+  gust_kt?: (number | null)[];
+  dir_deg?: (number | null)[];
+  pressure_mb?: (number | null)[];
+  level_ft?: (number | null)[];
+  last_obs: ShoreObs | null;
+  tides: TideEvent[];
+  datum: string;
+  coops_id: string;
+}
+
+export interface ShoreLive {
+  generated_at: string;
+  qc: string;
+  stations: Record<string, ShoreFrame>;
+  datasets: Record<string, { last_ok?: string; last_error?: string }>;
+}
+
+export interface ShoreMetaStation {
+  id: string;
+  name: string;
+  operator: string;
+  lat: number;
+  lon: number;
+  info_url: string | null;
+  coops_id: string;
+  note?: string | null;
+  record_start: string | null;
+}
+
+/** Shore water temperature, the full record: the top-of-hour readings CO-OPS publishes. */
+export interface ShoreHistory {
+  generated_at: string;
+  meta: { qc: string; stations: ShoreMetaStation[] };
+  series: Record<string, Encoded>;
+}
+
+/** The salinity or oxygen history: the same hourly record, loaded when a reader switches to it. */
+export interface VarHistory {
+  generated_at: string;
+  var: string;
+  unit: string;
   series: Record<string, Encoded>;
 }
 
@@ -291,6 +363,21 @@ export function stratStatus(deltaC: number): string {
   if (a < STRAT.mixed) return "mixed";
   if (a <= STRAT.stratified) return "weakly stratified";
   return deltaC > 0 ? "stratified" : "inverted";
+}
+
+/**
+ * Dissolved oxygen reference levels, mg/L. Hypoxia under 3 and anoxia under 1 are the Long Island Sound
+ * Partnership's definitions (lispartnership.org, hypoxia indicator). 4.8 is EPA's Virginian Province
+ * criterion for continuous exposure, protecting growth (EPA-822-R-00-012, 2000).
+ */
+export const DO_LEVELS = { anoxic: 1, hypoxic: 3, growth: 4.8 };
+
+export function oxygenStatus(mgL: number): string {
+  if (!Number.isFinite(mgL)) return "unknown";
+  if (mgL < DO_LEVELS.anoxic) return "anoxic";
+  if (mgL < DO_LEVELS.hypoxic) return "hypoxic";
+  if (mgL < DO_LEVELS.growth) return "below the growth criterion";
+  return "above the growth criterion";
 }
 
 export async function getJson<T>(url: string): Promise<T> {

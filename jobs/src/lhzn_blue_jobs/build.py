@@ -6,8 +6,12 @@ Everything is binned in UTC. An hourly value is the mean of the observations tha
 Published layout (under ``<root>/v1/``):
 
 - ``history.json``: metadata (stations, sources, record starts, QC rules) and the full hourly record
-  of every series in degrees F, rebuilt daily. One file, so a page view costs one request.
-- ``live.json``: the last 45 days, hourly, plus the latest raw observation per series; refreshed hourly.
+  of every series' water temperature in degrees F, rebuilt daily. The page's first view needs only this
+  file and ``live.json``.
+- ``history-salinity.json``, ``history-oxygen.json``: the same hourly record for salinity and dissolved
+  oxygen (mg/L), rebuilt with it; the page loads them only when a reader switches to that variable.
+- ``live.json``: the last 45 days, hourly, of every variable, plus the latest raw observation per series;
+  refreshed hourly.
 - ``archive/<STATION>_<DEPTH>.json``: hourly series converted once from our own snapshots of
   datasets the server no longer publishes under their original names. Read by the history build;
   not served to the page.
@@ -15,6 +19,7 @@ Published layout (under ``<root>/v1/``):
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -34,6 +39,14 @@ SCHEMA = 1
 LIVE_WINDOW_HOURS = 45 * 24
 LIVE_FETCH_HOURS = 72
 MET_WINDOW_HOURS = 100 * 24
+# Water variables: published name, server column, unit, decimals. Temperature is converted to F; the
+# others are published in their own units (salinity on the practical scale, oxygen in mg/L).
+VARS = {
+    "temp": ("sea_water_temperature", "degF", 1),
+    "salinity": ("sea_water_salinity", "psu", 2),
+    "oxygen": ("oxygen_concentration_in_sea_water", "mg/L", 2),
+}
+EXTRA_VARS = [v for v in VARS if v != "temp"]
 # Gross-range QC (alpha). Values outside these bounds are dropped before averaging.
 QC_RANGES = {
     "sea_water_temperature": (-2.0, 35.0),
@@ -51,9 +64,11 @@ SPIKE_LIMITS = {
     "oxygen_concentration_in_sea_water": 2.0,
 }
 QC_DESCRIPTION = (
-    "Gross-range checks (temperature -2 to 35 C, salinity 5 to 36, dissolved oxygen 0 to 20 mg/L) and a spike "
-    "test (a reading more than 1.5 C, 1.5 salinity or 2 mg/L from the median of the 13 readings around it, "
-    "about 3 hours, is dropped). Flat-line tests are not yet applied."
+    "Gross-range checks (temperature -2 to 35 C, salinity 5 to 36, dissolved oxygen 0 to 20 mg/L), narrowed "
+    "where the waterway sets its own range ({local}); a spike test (a reading more than 1.5 C, 1.5 salinity or "
+    "2 mg/L from the median of the 13 readings around it, about 3 hours, is dropped); and a placeholder test (a "
+    "run of whole-number readings across those 13 is dropped: real sensor values carry decimals, and the server "
+    "has published day counts in a salinity column). Flat-line tests are not yet applied."
 )
 # Buoy weather (the *_MET datasets): named columns only (CLIS_MET fails when its dew point column is
 # requested). Wind is in knots; air temperature in C; pressure in mbar. Gross-range checks only: a spike
@@ -67,7 +82,9 @@ MET_RANGES = {
     "wind_direction": (0.0, 360.0),
 }
 # Every object the jobs may write. Anything else is refused (see Store.write_json).
-WRITABLE = re.compile(r"v1/(history|live)\.json|v1/archive/[A-Z]{3,5}_(SFC|MID|BTM)\.json")
+WRITABLE = re.compile(
+    r"v1/(history|history-salinity|history-oxygen|live|shore|shore-history)\.json|v1/archive/[A-Z]{3,5}_(SFC|MID|BTM)\.json"
+)
 MAX_OBJECT_BYTES = 8 * 1024 * 1024
 STATIONS_FILE = Path(
     os.environ.get("LHZN_BLUE_STATIONS", Path(__file__).resolve().parents[3] / "stations" / "stations.json")
@@ -161,14 +178,30 @@ def iso(ts: datetime | pd.Timestamp) -> str:
     return pd.Timestamp(ts).tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+@functools.lru_cache(maxsize=1)
+def local_ranges() -> dict[str, tuple[float, float]]:
+    """The waterway's own ranges (stations.json ``waterway.qc_ranges``), where narrower than the gross ones."""
+    return {k: (float(lo), float(hi)) for k, (lo, hi) in load_stations()["waterway"].get("qc_ranges", {}).items()}
+
+
+def qc_description() -> str:
+    local = "; ".join(f"{k.replace('sea_water_', '').replace('_', ' ')} {lo:g} to {hi:g}" for k, (lo, hi) in local_ranges().items())
+    return QC_DESCRIPTION.format(local=local or "none")
+
+
 def qc(df: pd.DataFrame) -> pd.DataFrame:
-    """Gross-range test, then a rolling-median spike test, per variable (values failing become NaN)."""
+    """Range tests, a rolling-median spike test and a placeholder test, per variable (failures become NaN)."""
     df = df.sort_values("time").drop_duplicates("time").reset_index(drop=True)
+    local = local_ranges()
     for col, (lo, hi) in QC_RANGES.items():
         if col not in df.columns:
             continue
+        lo, hi = local.get(col, (lo, hi))
         x = pd.to_numeric(df[col], errors="coerce")
         x[(x < lo) | (x > hi)] = np.nan
+        # Placeholders: every reading in the window a whole number.
+        whole = (x == x.round()).astype(float).where(x.notna())
+        x[whole.rolling(SPIKE_WINDOW, center=True, min_periods=5).min() == 1] = np.nan
         med = x.rolling(SPIKE_WINDOW, center=True, min_periods=5).median()
         x[(x - med).abs() > SPIKE_LIMITS[col]] = np.nan
         df[col] = x
@@ -189,14 +222,21 @@ def c_to_f(values: pd.Series) -> pd.Series:
     return values * 9.0 / 5.0 + 32.0
 
 
-def encode(series_c: pd.Series, unit: str = "degF") -> dict:
-    """Continuous hourly array from the first to the last valid hour; gaps are null."""
+def encode(series_c: pd.Series, unit: str = "degF", decimals: int | None = None) -> dict:
+    """Continuous hourly array from the first to the last valid hour; gaps are null. Temperatures arrive
+    in C and are converted when ``unit`` is degF; other units are written as given."""
     if series_c.empty:
         return {"t0": None, "step": 3600, "unit": unit, "values": []}
     full = series_c.reindex(pd.date_range(series_c.index[0], series_c.index[-1], freq="h"))
     vals = c_to_f(full) if unit == "degF" else full
-    out = [None if pd.isna(v) else round(float(v), 1 if unit == "degF" else 3) for v in vals]
+    places = decimals if decimals is not None else (1 if unit == "degF" else 3)
+    out = [None if pd.isna(v) else round(float(v), places) for v in vals]
     return {"t0": iso(full.index[0]), "step": 3600, "unit": unit, "values": out}
+
+
+def encode_var(series: pd.Series, var: str) -> dict:
+    _, unit, places = VARS[var]
+    return encode(series, unit=unit, decimals=places)
 
 
 def decode(obj: dict | None, to_c: bool = True) -> pd.Series:
@@ -301,6 +341,9 @@ def import_archive(store: Store, archive_dir: Path, vintage: str | None = None) 
                     raise ValueError(f"no snapshot for {src['dataset']}; set it in stations.json or pass --vintage")
                 df = read_snapshot(archive_dir / snap / f"{src['dataset']}.h5")
                 obj = encode(hourly(df), unit="degC")
+                # Salinity and oxygen ride along in the same file, one hourly array each.
+                for var in EXTRA_VARS:
+                    obj[var] = encode(hourly(df, VARS[var][0]), unit=VARS[var][1], decimals=3)
                 obj.update(
                     {
                         "schema": SCHEMA,
@@ -315,21 +358,27 @@ def import_archive(store: Store, archive_dir: Path, vintage: str | None = None) 
                 store.write_json(f"v1/archive/{st['id']}_{ser['depth']}.json", obj, max_age=86400)
 
 
+def history_file(var: str) -> str:
+    return "v1/history.json" if var == "temp" else f"v1/history-{var}.json"
+
+
 def history(store: Store, first_year: int = 2010) -> None:
-    """Rebuild every series from the server plus archived history, and write meta.json."""
+    """Rebuild every series, for every water variable, from the server plus archived history."""
     end = now_utc()
     stations = load_stations()
     meta_stations = []
-    all_series: dict = {}
+    out: dict[str, dict] = {var: {} for var in VARS}  # var -> key -> encoded series
     prev = store.read_json("v1/history.json") or {}
-    prev_series = prev.get("series", {})
+    prev_series = {"temp": prev.get("series", {})}
+    for var in EXTRA_VARS:
+        prev_series[var] = (store.read_json(history_file(var)) or {}).get("series", {})
     prev_meta = {s["key"]: s for st in prev.get("meta", {}).get("stations", []) for s in st.get("series", [])}
     prev_live = (store.read_json("v1/live.json") or {}).get("series", {})
     for st in stations["stations"]:
         meta_series = []
         for ser in st["series"]:
             key = f"{st['id']}_{ser['depth']}"
-            parts: list[pd.Series] = []  # in source order; later sources win where they overlap
+            parts: dict[str, list[pd.Series]] = {var: [] for var in VARS}  # source order; later sources win
             sources_meta = []
             depth_m: set[float] = set()
             archived_last = None
@@ -340,7 +389,9 @@ def history(store: Store, first_year: int = 2010) -> None:
                     if obj is None:
                         log.warning("no archive file for %s; run import-archive first", key)
                         continue
-                    parts.append(decode(obj))
+                    parts["temp"].append(decode(obj))
+                    for var in EXTRA_VARS:
+                        parts[var].append(decode(obj.get(var)))
                     depth_m.update(obj.get("depth_m", []))
                     archived_last = obj.get("last_values")
                     sources_meta.append(
@@ -356,7 +407,7 @@ def history(store: Store, first_year: int = 2010) -> None:
                     # Keep asking for every listed dataset, so a series the server stops publishing is picked
                     # up again automatically if it returns.
                     try:
-                        df = merlin.fetch_years(src["dataset"], first_year, end, ["sea_water_temperature"])
+                        df = merlin.fetch_years(src["dataset"], first_year, end, merlin_columns(src["dataset"]))
                     except merlin.DatasetMissing:
                         log.warning("%s is not published on the server", src["dataset"])
                         sources_meta.append({"kind": "merlin", "dataset": src["dataset"], "published": False})
@@ -367,7 +418,8 @@ def history(store: Store, first_year: int = 2010) -> None:
                         published = True
                         continue
                     published = True
-                    parts.append(hourly(df))
+                    for var, (col, _, _) in VARS.items():
+                        parts[var].append(hourly(df, col))
                     depth_m.update(depths(df))
                     sources_meta.append(
                         {
@@ -378,17 +430,24 @@ def history(store: Store, first_year: int = 2010) -> None:
                             "last_obs": iso(df["time"].max()) if not df.empty else None,
                         }
                     )
-            combined = pd.Series(dtype=float)
-            for part in parts:
-                combined = part.combine_first(combined) if not combined.empty else part
-            # Never lose an hour we already hold: what the server serves today wins, and anything it no
-            # longer serves (a dropped or renamed dataset, a failed fetch) is kept from the previous build.
-            before = decode(prev_series.get(key))
-            if not before.empty:
-                combined = combined.combine_first(before) if not combined.empty else before
-            obj = encode(combined.sort_index())
-            obj.update({"schema": SCHEMA, "station": st["id"], "depth": ser["depth"], "generated_at": iso(end)})
-            all_series[key] = obj
+            var_meta = {}
+            for var in VARS:
+                combined = pd.Series(dtype=float)
+                for part in parts[var]:
+                    if part.empty:
+                        continue
+                    combined = part.combine_first(combined) if not combined.empty else part
+                # Never lose an hour we already hold: what the server serves today wins, and anything it no
+                # longer serves (a dropped or renamed dataset, a failed fetch) is kept from the previous build.
+                before = decode(prev_series[var].get(key))
+                if not before.empty:
+                    combined = combined.combine_first(before) if not combined.empty else before
+                enc = encode_var(combined.sort_index(), var)
+                enc.update({"schema": SCHEMA, "station": st["id"], "depth": ser["depth"], "generated_at": iso(end)})
+                out[var][key] = enc
+                if var != "temp":
+                    var_meta[var] = {"record_start": enc["t0"], "hours": len(enc["values"])}
+            obj = out["temp"][key]
             # The last reading of a series that is not published now: from the live window if we saw it
             # there, else from the previous build or the archive.
             last_obs = None
@@ -409,6 +468,7 @@ def history(store: Store, first_year: int = 2010) -> None:
                     "sources": sources_meta,
                     "live": published,  # the server publishes this series now
                     "archived_last_obs": last_obs,
+                    "vars": var_meta,  # record start and length of salinity and oxygen
                 }
             )
         meta_stations.append(
@@ -421,10 +481,18 @@ def history(store: Store, first_year: int = 2010) -> None:
         "generated_at": iso(end),
         "waterway": stations["waterway"],
         "stations": meta_stations,
-        "qc": QC_DESCRIPTION,
+        "qc": qc_description(),
         "server": merlin.BASE_URL,
     }
-    store.write_json("v1/history.json", {"schema": SCHEMA, "meta": meta, "series": all_series}, max_age=3600)
+    # The variable files first: a reader who sees the new history.json can always load the matching ones.
+    for var in EXTRA_VARS:
+        _, unit, _ = VARS[var]
+        store.write_json(
+            history_file(var),
+            {"schema": SCHEMA, "generated_at": iso(end), "var": var, "unit": unit, "series": out[var]},
+            max_age=3600,
+        )
+    store.write_json("v1/history.json", {"schema": SCHEMA, "meta": meta, "series": out["temp"]}, max_age=3600)
 
 
 def live(store: Store, full: bool = False) -> None:
@@ -434,11 +502,10 @@ def live(store: Store, full: bool = False) -> None:
     """
     end = now_utc()
     prev = {} if full else (store.read_json("v1/live.json") or {})
-    prev_series = prev.get("series", {})
+    prev_vars = {"temp": prev.get("series", {})} | {var: prev.get(var, {}) for var in EXTRA_VARS}
     prev_datasets = prev.get("datasets", {})
     window_start = pd.Timestamp(end).floor("h") - pd.Timedelta(hours=LIVE_WINDOW_HOURS)
-    fetch_hours = LIVE_FETCH_HOURS if prev_series else LIVE_WINDOW_HOURS
-    out_series: dict = {}
+    out_vars: dict[str, dict] = {var: {} for var in VARS}
     out_datasets: dict = {}
     for st in load_stations()["stations"]:
         for ser in st["series"]:
@@ -446,32 +513,37 @@ def live(store: Store, full: bool = False) -> None:
             server = [s for s in ser["sources"] if s["kind"] == "merlin"]
             if not server:  # archive only: nothing to refresh
                 continue
-            before = prev_series.get(key, {})
-            window = decode(before)
-            last_obs = before.get("last_obs")
+            windows = {var: decode(prev_vars[var].get(key)) for var in VARS}
+            last_obs = prev_vars["temp"].get(key, {}).get("last_obs")
             ds = server[-1]["dataset"]
             status = dict(prev_datasets.get(ds, {}))
+            # The short fetch only when every variable already has a window (a new variable starts full).
+            held = key in prev_vars["temp"] and all(key in prev_vars[var] for var in EXTRA_VARS)
+            fetch_hours = LIVE_FETCH_HOURS if held else LIVE_WINDOW_HOURS
             try:
                 cols = merlin_columns(ds)
                 df = merlin.fetch(ds, end - timedelta(hours=fetch_hours), end + timedelta(hours=1), cols)
-                fresh = hourly(df)
-                window = fresh.combine_first(window) if not window.empty else fresh
+                for var, (col, _, _) in VARS.items():
+                    fresh = hourly(df, col)
+                    if not fresh.empty:
+                        windows[var] = fresh.combine_first(windows[var]) if not windows[var].empty else fresh
                 last_obs = last_observation(df) or last_obs
                 status.update({"last_ok": iso(end), "rows": int(len(df))})
                 status.pop("last_error", None)
             except Exception as exc:  # keep the last good values; record the failure
                 log.warning("live fetch failed for %s: %s", ds, exc)
                 status.update({"last_error": f"{iso(end)} {exc.__class__.__name__}: {str(exc)[:200]}"})
-            window = window[window.index >= window_start]
-            obj = encode(window)
-            obj["last_obs"] = last_obs
-            obj["dataset"] = ds
-            out_series[key] = obj
+            for var, window in windows.items():
+                window = window[window.index >= window_start]
+                out_vars[var][key] = encode_var(window, var)
+            out_vars["temp"][key].update({"last_obs": last_obs, "dataset": ds})
             out_datasets[ds] = status
     out_met = live_met(prev.get("met", {}), prev_datasets, out_datasets, end)
     store.write_json(
         "v1/live.json",
-        {"schema": SCHEMA, "generated_at": iso(end), "series": out_series, "met": out_met, "datasets": out_datasets},
+        {"schema": SCHEMA, "generated_at": iso(end), "series": out_vars["temp"]}
+        | {var: out_vars[var] for var in EXTRA_VARS}
+        | {"met": out_met, "datasets": out_datasets},
         max_age=300,
     )
 

@@ -211,7 +211,15 @@ export interface RiverLive {
 /** Rivers: daily mean flow from 1990 and the day-of-year percentiles (366 values each, Feb 29 included). */
 export interface RiverHistory {
   generated_at: string;
-  meta: { qc: string; gauges: { id: string; usgs_id: string; river: string; name: string; lat: number; lon: number; drainage_sqmi: number; mouth: string; turbidity?: boolean; record_start: string | null }[] };
+  meta: {
+    qc: string;
+    gauges: {
+      id: string; usgs_id: string; river: string; name: string; lat: number; lon: number; drainage_sqmi: number; mouth: string;
+      turbidity?: boolean; record_start: string | null;
+      discontinued?: string; // date USGS stopped publishing flow for the gauge
+      status_note?: string;
+    }[];
+  };
   daily: Record<string, { t0: string | null; step: number; flow_cfs: (number | null)[] }>;
   normals: Record<string, { p5: (number | null)[]; p10: (number | null)[]; p25: (number | null)[]; p50: (number | null)[]; p75: (number | null)[]; p90: (number | null)[]; p95: (number | null)[]; sample_count: number | null } | null>;
 }

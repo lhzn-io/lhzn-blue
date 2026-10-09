@@ -135,7 +135,6 @@ a { color: inherit; }
 /* The wind strip under surface minus bottom: a third of a chart's height, on the same time axis. */
 .plot.strip { height: 62px; margin-top: 2px; }
 /* Rivers: the flow class reads as a word; color only marks the ends of the range. */
-.status-grid td.river-class { text-align: left; }
 .status-grid td.river-class.much-below-normal b, .status-grid td.river-class.much-above-normal b { color: var(--delayed); }
 .status-grid tr.total th, .status-grid tr.total td { border-bottom: 0; font-weight: 600; }
 figure.wide { grid-column: 1 / -1; }
@@ -183,7 +182,8 @@ main { padding: 0 var(--gutter) 40px; }
 
 /* Overview: locator map and status grid */
 .overview { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 22px 30px; padding: 22px 0 6px; }
-.map { position: relative; height: 300px; border: 1px solid var(--rule); background: var(--map-bg); }
+/* Beside the table the map takes the table's height (the grid row stretches it); stacked, it is fixed. */
+.map { position: relative; min-height: 300px; border: 1px solid var(--rule); background: var(--map-bg); }
 .status { align-self: start; }
 .status-grid { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
 .status-grid caption { text-align: left; margin-bottom: 8px; font: 700 10px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
@@ -224,6 +224,13 @@ main { padding: 0 var(--gutter) 40px; }
 :root[data-theme="light"] .pin-partial .pin-dot { border-color: #1c2a48; }
 .pin-delayed .pin-dot { background: var(--delayed); box-shadow: 0 0 0 3px rgba(240, 177, 53, 0.3); }
 .pin-offline .pin-dot { background: var(--pin-offline); border-color: var(--faint); }
+/* River gauges (Rivers view): small triangles in the basin color. */
+.pin-gauge .pin-dot, .pin-gauge.pin-live .pin-dot, .pin-gauge.pin-delayed .pin-dot {
+  width: 12px; height: 11px; border: 0; border-radius: 0; box-shadow: none; background: #7fb8d8; clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+:root[data-theme="light"] .pin-gauge .pin-dot { background: #133c8b; }
+.pin-gauge.pin-offline .pin-dot { background: var(--pin-offline); }
+.pin-gauge .pin-id { font-size: 8.5px; opacity: 0.8; }
 /* Shore stations: square, smaller, and without the glow, so the buoys stay the brightest marks. */
 .pin-shore .pin-dot { width: 11px; height: 11px; border-radius: 1px; }
 .pin-shore.pin-live .pin-dot { box-shadow: 0 0 0 2px rgba(222, 207, 3, 0.3); }
@@ -397,6 +404,7 @@ body.landing {
 /* The status grid needs about 420 px for its five columns: stack it under the map before it gets squeezed. */
 @media (max-width: 1180px) {
   .overview { grid-template-columns: 1fr; }
+  .map { height: 300px; min-height: 0; }
 }
 
 @media (max-width: 900px) {

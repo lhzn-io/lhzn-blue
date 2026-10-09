@@ -202,6 +202,40 @@ export interface WaveHistory {
   stations: Record<string, WaveFrame>;
 }
 
+/** Rivers (USGS stream gauges): the hourly window and the latest reading. */
+export interface RiverLive {
+  generated_at: string;
+  gauges: Record<string, { t0: string | null; step: number; flow_cfs?: (number | null)[]; turb_fnu?: (number | null)[]; last_obs: { time: string; flow_cfs: number | null; turb_fnu: number | null } | null; usgs_id: string }>;
+}
+
+/** Rivers: daily mean flow from 1990 and the day-of-year percentiles (366 values each, Feb 29 included). */
+export interface RiverHistory {
+  generated_at: string;
+  meta: { qc: string; gauges: { id: string; usgs_id: string; river: string; name: string; lat: number; lon: number; drainage_sqmi: number; mouth: string; turbidity?: boolean; record_start: string | null }[] };
+  daily: Record<string, { t0: string | null; step: number; flow_cfs: (number | null)[] }>;
+  normals: Record<string, { p5: (number | null)[]; p10: (number | null)[]; p25: (number | null)[]; p50: (number | null)[]; p75: (number | null)[]; p90: (number | null)[]; p95: (number | null)[]; sample_count: number | null } | null>;
+}
+
+/** A dense daily series: value for the day starting at `t0 + i * 86400` seconds; NaN where missing. */
+export class Daily {
+  constructor(
+    readonly t0: number,
+    readonly v: Float64Array,
+  ) {}
+
+  at(t: number): number {
+    const i = Math.floor((t - this.t0) / DAY);
+    return i >= 0 && i < this.v.length ? this.v[i] : NaN;
+  }
+
+  static fromArray(t0: string | null | undefined, values: (number | null)[] | undefined): Daily | null {
+    if (!t0 || !values || !values.length) return null;
+    const v = new Float64Array(values.length);
+    values.forEach((x, i) => (v[i] = x == null ? NaN : x));
+    return new Daily(Date.parse(t0) / 1000, v);
+  }
+}
+
 /** The salinity or oxygen history: the same hourly record, loaded when a reader switches to it. */
 export interface VarHistory {
   generated_at: string;
@@ -367,7 +401,7 @@ export interface YearLine {
 }
 
 /** Each year's values over the current window, mapped onto the current calendar. */
-export function yearLines(s: Hourly, xs: number[], now: number): YearLine[] {
+export function yearLines(s: { t0: number; at(t: number): number }, xs: number[], now: number): YearLine[] {
   const current = new Date(now * 1000).getUTCFullYear();
   const first = new Date(s.t0 * 1000).getUTCFullYear();
   const lines: YearLine[] = [];

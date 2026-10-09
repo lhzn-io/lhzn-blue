@@ -1,0 +1,76 @@
+{
+  "note": "USGS stream gauges on the main rivers into Long Island Sound, west to east. Drainage areas are the gauged area, in square miles. The Naugatuck joins the Housatonic below the Stevenson gauge, so the two add without double counting.",
+  "gauges": [
+    {
+      "id": "HOUS",
+      "usgs_id": "01205500",
+      "river": "Housatonic",
+      "name": "Housatonic River at Stevenson",
+      "lat": 41.3838,
+      "lon": -73.1666,
+      "drainage_sqmi": 1544,
+      "mouth": "Stratford and Milford"
+    },
+    {
+      "id": "NAUG",
+      "usgs_id": "01208500",
+      "river": "Naugatuck",
+      "name": "Naugatuck River at Beacon Falls",
+      "lat": 41.4423,
+      "lon": -73.0623,
+      "drainage_sqmi": 260,
+      "mouth": "Stratford and Milford, by way of the Housatonic at Derby"
+    },
+    {
+      "id": "QUIN",
+      "usgs_id": "01196500",
+      "river": "Quinnipiac",
+      "name": "Quinnipiac River at Wallingford",
+      "lat": 41.4503,
+      "lon": -72.8413,
+      "drainage_sqmi": 115,
+      "mouth": "New Haven Harbor"
+    },
+    {
+      "id": "CONN",
+      "usgs_id": "01184000",
+      "river": "Connecticut",
+      "name": "Connecticut River at Thompsonville",
+      "lat": 41.9872,
+      "lon": -72.6053,
+      "drainage_sqmi": 9660,
+      "mouth": "Old Saybrook and Old Lyme",
+      "turbidity": true
+    },
+    {
+      "id": "SHET",
+      "usgs_id": "01122500",
+      "river": "Shetucket",
+      "name": "Shetucket River near Willimantic",
+      "lat": 41.7003,
+      "lon": -72.182,
+      "drainage_sqmi": 404,
+      "mouth": "New London, by way of the Thames at Norwich"
+    },
+    {
+      "id": "YANT",
+      "usgs_id": "01127500",
+      "river": "Yantic",
+      "name": "Yantic River at Yantic",
+      "lat": 41.5586,
+      "lon": -72.1214,
+      "drainage_sqmi": 89.3,
+      "mouth": "New London, by way of the Thames at Norwich"
+    },
+    {
+      "id": "QNBG",
+      "usgs_id": "01127000",
+      "river": "Quinebaug",
+      "name": "Quinebaug River at Jewett City",
+      "lat": 41.5975,
+      "lon": -71.9841,
+      "drainage_sqmi": 713,
+      "mouth": "New London, by way of the Thames at Norwich"
+    }
+  ]
+}

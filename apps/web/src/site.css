@@ -134,6 +134,11 @@ a { color: inherit; }
 .station, .station-group { scroll-margin-top: 40px; }
 /* The wind strip under surface minus bottom: a third of a chart's height, on the same time axis. */
 .plot.strip { height: 62px; margin-top: 2px; }
+/* Rivers: the flow class reads as a word; color only marks the ends of the range. */
+.status-grid td.river-class { text-align: left; }
+.status-grid td.river-class.much-below-normal b, .status-grid td.river-class.much-above-normal b { color: var(--delayed); }
+.status-grid tr.total th, .status-grid tr.total td { border-bottom: 0; font-weight: 600; }
+figure.wide { grid-column: 1 / -1; }
 .strip-cap { margin-top: 8px; font: 600 8.5px/1.2 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint); }
 /* Phones: the strip takes two lines, freshness above, the switch and Suggestions below. */
 @media (max-width: 640px) {

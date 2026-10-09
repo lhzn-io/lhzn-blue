@@ -1,7 +1,8 @@
 """Command line: ``lhzn-blue-jobs {history,live,import-archive} --out <dir, kv:// or gs:// store>``.
 
-``live`` and ``history`` also refresh the shore stations (``shore.json``, ``shore-history.json``) after the
-buoys; a shore failure is logged and never stops the buoy files from publishing.
+``live`` and ``history`` also refresh the shore stations (``shore.json``, ``shore-history.json``) and the
+rivers (``rivers.json``, ``rivers-history.json``) after the buoys; a failure there is logged and never stops
+the buoy files from publishing.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import sys
 import os
 from pathlib import Path
 
-from . import build, shore, waves
+from . import build, rivers, shore, waves
 
 
 def main() -> None:
@@ -39,11 +40,15 @@ def main() -> None:
         _shore(lambda: store.write_json(
             "v1/shore-history.json", shore.history(store.read_json("v1/shore-history.json"), build.now_utc()), max_age=3600
         ))
+        _shore(lambda: store.write_json(
+            "v1/rivers-history.json", rivers.history(store.read_json("v1/rivers-history.json")), max_age=3600
+        ), "rivers")
     elif args.command == "live":
         build.live(store, full=args.full)
         _shore(lambda: store.write_json(
             "v1/shore.json", shore.live(store.read_json("v1/shore.json"), build.now_utc(), full=args.full), max_age=300
         ))
+        _shore(lambda: store.write_json("v1/rivers.json", rivers.live(store.read_json("v1/rivers.json")), max_age=300), "rivers")
     elif args.command == "import-waves":
         if not args.archive_dir:
             parser.error("import-waves needs --archive-dir")
@@ -52,14 +57,20 @@ def main() -> None:
         if not args.archive_dir:
             parser.error("import-archive needs --archive-dir")
         build.import_archive(store, args.archive_dir, args.vintage)
+    if _failed:  # the run shows as failed, though everything that could be written was
+        sys.exit(1)
 
 
-def _shore(step) -> None:
+_failed: list[str] = []
+
+
+def _shore(step, what: str = "shore") -> None:
+    """Run a secondary step; on failure log it, carry on with the rest, and exit non-zero at the end."""
     try:
         step()
-    except Exception:  # the buoy files are already written; report and exit non-zero so the run shows failed
-        logging.getLogger("lhzn_blue_jobs.shore").exception("shore stations not refreshed")
-        sys.exit(1)
+    except Exception:  # the buoy files are already written
+        logging.getLogger(f"lhzn_blue_jobs.{what}").exception("%s not refreshed", what)
+        _failed.append(what)
 
 
 if __name__ == "__main__":

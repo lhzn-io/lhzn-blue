@@ -11,7 +11,7 @@ import {
   COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, oxygenStatus, stratStatus, yearLines,
   type Encoded, type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetObs, type MetWindow,
   type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type VarHistory, type WaveFrame,
-  type WaveHistory, type WaveLive, type WaveObs, type YearLine,
+  type WaveHistory, type WaveLive, type WaveObs, type YearLine, Daily, type RiverHistory, type RiverLive,
 } from "./series";
 
 const DATA = "/data/v1";
@@ -101,7 +101,7 @@ type State = "live" | "delayed" | "offline";
  * column and surface-minus-bottom charts); temperature is the default. Salinity and oxygen histories
  * load on first use, so the first view costs the same two requests as before.
  */
-type VarKey = "temp" | "salinity" | "oxygen" | "wind";
+type VarKey = "temp" | "salinity" | "oxygen" | "wind" | "rivers";
 interface WaterVar {
   label: string;
   unit: string; // appended to values on axes and in tooltips
@@ -115,8 +115,10 @@ const WATER_VARS: Record<VarKey, WaterVar> = {
   oxygen: { label: "Dissolved oxygen", unit: " mg/L", digits: 1, file: "history-oxygen.json", obs: (o) => o.oxygen_mg_l },
   // Not a water variable: the view of weather and waves at the stations (see FIGS and statusGrid).
   wind: { label: "Wind and waves", unit: "", digits: 1, file: "history-waves.json", obs: () => null },
+  // The rivers into the Sound (see RIVER_FIGS, riverTable): not a buoy variable either.
+  rivers: { label: "Rivers", unit: " cfs", digits: 0, file: "rivers-history.json", obs: () => null },
 };
-const isWater = (k: VarKey) => k !== "wind";
+const isWater = (k: VarKey) => k === "temp" || k === "salinity" || k === "oxygen";
 let VK: VarKey = "temp";
 try {
   const saved = localStorage.getItem("lhzn-blue-water-var");
@@ -138,7 +140,7 @@ interface VarView {
 }
 
 interface StationData {
-  kind: "buoy" | "shore";
+  kind: "buoy" | "shore" | "rivers" | "river"; // rivers: the all-rivers summary; river: one gauge
   meta: MetaStation;
   depths: string[]; // depths this station has, top to bottom
   // The selected variable's views (see useVar); `temp` always holds temperature, for stratification and air.
@@ -158,7 +160,127 @@ interface StationData {
   tides: TideEvent[]; // shore stations: predicted highs and lows
   levelNow: { time: string; ft: number } | null;
   waves: Waves | null; // buoys with a wave sensor: the live window, then the full record once loaded
+  river?: RiverData; // the rivers sections
+  gauge?: Gauge; // a river section's gauge
 }
+
+/* ---------- Rivers ---------- */
+
+type Gauge = RiverHistory["meta"]["gauges"][number];
+interface RiverData {
+  gauges: Gauge[]; // west to east
+  flow: Record<string, Hourly | null>; // cfs, hourly, last 100 days
+  daily: Record<string, Daily | null>; // cfs, daily means from 1990
+  normals: RiverHistory["normals"];
+  turb: Hourly | null; // Connecticut at Thompsonville, FNU
+  last: Record<string, { time: string; flow_cfs: number | null; turb_fnu: number | null } | null>;
+}
+
+/** Index of a time's Eastern calendar date in a leap year (0 to 365), for the day-of-year percentiles. */
+const etMonthDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric" });
+function dayOfYear(t: number): number {
+  const p = Object.fromEntries(etMonthDay.formatToParts(new Date(t * 1000)).map((x) => [x.type, x.value]));
+  return Math.round((Date.UTC(2024, Number(p.month) - 1, Number(p.day)) - Date.UTC(2024, 0, 1)) / 86400000);
+}
+
+/** Flow at a time: the hourly window where it reaches, the daily means before it. */
+const riverFlow = (r: RiverData, id: string, t: number) => {
+  const h = r.flow[id]?.at(t) ?? NaN;
+  return Number.isFinite(h) ? h : (r.daily[id]?.at(t) ?? NaN);
+};
+type Pct = "p5" | "p10" | "p25" | "p50" | "p75" | "p90" | "p95";
+const pct = (r: RiverData, id: string, p: Pct, t: number) => r.normals[id]?.[p]?.[dayOfYear(t)] ?? NaN;
+
+/**
+ * Where a flow sits among the date's percentiles (5th to 95th), interpolated between them in log flow (flow
+ * spreads by ratios). Below the 5th it reads 2.5 and above the 95th 97.5: beyond those the record says only
+ * that the flow is rarer than one year in twenty for the date.
+ */
+const PCTS: [number, Pct][] = [[5, "p5"], [10, "p10"], [25, "p25"], [50, "p50"], [75, "p75"], [90, "p90"], [95, "p95"]];
+function percentileOf(r: RiverData, id: string, t: number, flow: number): number {
+  if (!Number.isFinite(flow) || flow <= 0) return NaN;
+  const pts = PCTS.map(([q, k]) => [q, pct(r, id, k, t)] as [number, number]).filter(([, v]) => Number.isFinite(v) && v > 0);
+  if (pts.length < 2) return NaN;
+  if (flow <= pts[0][1]) return 2.5;
+  if (flow >= pts[pts.length - 1][1]) return 97.5;
+  for (let i = 1; i < pts.length; i++) {
+    const [qa, va] = pts[i - 1];
+    const [qb, vb] = pts[i];
+    if (flow <= vb) return vb === va ? qb : qa + ((qb - qa) * Math.log(flow / va)) / Math.log(vb / va);
+  }
+  return NaN;
+}
+
+/** USGS's flow classes against the day-of-year percentiles of the gauge's approved record. */
+function riverClass(r: RiverData, id: string, t: number, flow: number): string {
+  if (!Number.isFinite(flow)) return "";
+  const at = (p: "p10" | "p25" | "p75" | "p90") => pct(r, id, p, t);
+  if (!Number.isFinite(at("p25"))) return "";
+  if (flow < at("p10")) return "much below normal";
+  if (flow < at("p25")) return "below normal";
+  if (flow <= at("p75")) return "normal";
+  if (flow <= at("p90")) return "above normal";
+  return "much above normal";
+}
+/** A percentile for a readout: beyond the 5th and 95th the record says only that it is rarer than that. */
+const pctText = (v: number) => (!Number.isFinite(v) ? "--" : v <= 2.5 ? "<5<small>th</small>" : v >= 97.5 ? "&gt;95<small>th</small>" : ordinal(v).replace(/(\D+)$/, "<small>$1</small>"));
+
+/** 1st, 2nd, 3rd, 4th, 11th, 12th, 13th, 21st... */
+const ordinal = (n: number) => {
+  const r = Math.round(n);
+  const s = r % 100 >= 11 && r % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[r % 10] ?? "th";
+  return `${r}${s}`;
+};
+const cfs = (v: number) => (Number.isFinite(v) ? Math.round(v).toLocaleString("en-US") : "--");
+
+let RIVER_SECTIONS: StationData[] = [];
+
+/** The Rivers view's sections: an all-rivers summary, then one section per gauge, west to east. */
+function riverSections(rl: RiverLive, rh: RiverHistory): StationData[] {
+  const gauges = [...rh.meta.gauges].sort((a, b) => a.lon - b.lon);
+  const river: RiverData = {
+    gauges,
+    flow: Object.fromEntries(gauges.map((g) => [g.id, Hourly.fromArray(rl.gauges[g.id]?.t0, rl.gauges[g.id]?.flow_cfs)])),
+    daily: Object.fromEntries(gauges.map((g) => [g.id, Daily.fromArray(rh.daily[g.id]?.t0, rh.daily[g.id]?.flow_cfs)])),
+    normals: rh.normals,
+    turb: Hourly.fromArray(rl.gauges.CONN?.t0, rl.gauges.CONN?.turb_fnu),
+    last: Object.fromEntries(gauges.map((g) => [g.id, rl.gauges[g.id]?.last_obs ?? null])),
+  };
+  const now = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
+  const area = gauges.reduce((a, g) => a + g.drainage_sqmi, 0);
+  const empty = { hourly: {}, m36: {}, chg: {}, delta: null, delta36: null };
+  const obsOf = (g: Gauge): LastObs | null =>
+    river.last[g.id] ? { time: river.last[g.id]!.time, depth_m: null, temperature_c: null, salinity: null, oxygen_mg_l: null } : null;
+  const base = { ...empty, temp: empty, views: {}, live: true, now, anchor: now, met: null, level: null, tides: [], levelNow: null, waves: null, river };
+  const summary: StationData = {
+    ...base,
+    kind: "rivers",
+    meta: {
+      id: "RIVERS", name: "All rivers", operator: "USGS", lat: 41.5, lon: -72.6, info_url: null, series: [],
+      note: `${gauges.length} USGS stream gauges draining ${Math.round(area).toLocaleString("en-US")} square miles, about three quarters of it the Connecticut River above Thompsonville.`,
+    },
+    depths: gauges.map((g) => g.id),
+    obs: Object.fromEntries(gauges.map((g) => [g.id, obsOf(g)])),
+  };
+  const sections = gauges.map(
+    (g): StationData => ({
+      ...base,
+      kind: "river",
+      gauge: g,
+      meta: {
+        id: g.id, name: `${g.river} River`, operator: "USGS", lat: g.lat, lon: g.lon, info_url: `https://waterdata.usgs.gov/monitoring-location/USGS-${g.usgs_id}/`,
+        note: `${g.name}, draining ${g.drainage_sqmi.toLocaleString("en-US")} square miles; reaches the Sound at ${g.mouth}. Values are provisional until USGS approves them.`,
+        series: [{ key: g.id, depth: "SFC", label: "Flow", depth_m: [], record_start: g.record_start, hours: 0, sources: [], live: true, archived_last_obs: null }],
+      },
+      depths: ["SFC"],
+      obs: { SFC: obsOf(g) },
+    }),
+  );
+  return [summary, ...sections];
+}
+
+/** A river's daily mean flow, as a series for the year comparison (a value per day, the same at every hour). */
+const dailyFlow = (d: StationData): Series | null => (d.gauge && d.river?.daily[d.gauge.id]) || null;
 
 /** Hourly waves: heights in metres, periods in seconds. */
 interface Waves {
@@ -255,6 +377,18 @@ function useVar(d: StationData, k: VarKey): void {
 const loaded = new Set<VarKey>(["temp"]);
 async function ensureVar(k: VarKey, live: Live, stations: StationData[]): Promise<void> {
   if (loaded.has(k)) return;
+  if (k === "rivers") {
+    const [rl, rh] = await Promise.all([getJson<RiverLive>(`${DATA}/rivers.json`), getJson<RiverHistory>(`${DATA}/${WATER_VARS.rivers.file}`)]);
+    RIVER_SECTIONS = riverSections(rl, rh);
+    $("about-sources").insertAdjacentHTML(
+      "beforeend",
+      ` Rivers: <a href="https://waterdata.usgs.gov/">USGS</a> stream gauges (${rh.meta.gauges.map((g) => `${g.name}, ${g.usgs_id}`).join("; ")}). ` +
+        `Recent flow is hourly means of 15-minute readings; earlier flow is daily means; the ranges for each date are percentiles of daily mean ` +
+        `flow over each gauge's approved record, computed by USGS. ${rh.meta.qc}`,
+    );
+    loaded.add(k);
+    return;
+  }
   if (k === "wind") {
     const hist = await getJson<WaveHistory>(`${DATA}/${WATER_VARS.wind.file}`);
     WAVE_META = hist.meta;
@@ -416,7 +550,7 @@ function stratNow(d: StationData): { deltaC: number; status: string } {
 
 /* ---------- Figures: one builder per view, used inline and in the zoom view ---------- */
 
-type Kind = "yoy" | "chg" | "col" | "sb" | "wind" | "air" | "tide" | "waves" | "pressure";
+type Kind = "yoy" | "chg" | "col" | "sb" | "wind" | "air" | "tide" | "waves" | "pressure" | "flow" | "share" | "rturb" | "ryoy" | "rpct";
 
 /**
  * Charts sit in two columns, and a chart shares its time axis with the ones above and below it: the left
@@ -437,6 +571,7 @@ interface Fig {
   sub: string;
   varies: boolean; // follows the selected water variable
   in: (k: VarKey) => boolean; // the views that show this figure
+  wide?: boolean; // spans both columns
   depthTabs: boolean;
   seasonal: boolean; // compares years on the same dates (anchored at now); otherwise a recent timeline
   available: (d: StationData) => boolean;
@@ -566,7 +701,10 @@ function varOpts(levels = true): Partial<ChartOptions> & { unit: string } {
 const OXYGEN_NOTE = `shading: under ${DO_LEVELS.anoxic} mg/L anoxic, under ${DO_LEVELS.hypoxic} hypoxic (Long Island Sound Partnership), under ${DO_LEVELS.growth} below EPA's growth criterion`;
 
 /** The whole record as one timeline, each year's stretch in that year's color. */
-function timelineBuilt(d: StationData, series: Hourly | null, depth: string, xs: number[], extra: Partial<ChartOptions>): Built {
+/** Anything with a start and a value at a time: an hourly series, or a river's daily flow. */
+type Series = { t0: number; at(t: number): number };
+
+function timelineBuilt(d: StationData, series: Series | null, depth: string, xs: number[], extra: Partial<ChartOptions>): Built {
   if (!series) return { opts: { xs, lines: [], ...varOpts(), unit: V().unit, ...extra }, legend: [] };
   const current = new Date(d.now * 1000).getUTCFullYear();
   const first = new Date(series.t0 * 1000).getUTCFullYear();
@@ -586,7 +724,7 @@ function timelineBuilt(d: StationData, series: Hourly | null, depth: string, xs:
   };
 }
 
-function yearBuilt(d: StationData, series: Hourly | null, xs: number[], extra: Partial<ChartOptions>): Built {
+function yearBuilt(d: StationData, series: Series | null, xs: number[], extra: Partial<ChartOptions>): Built {
   const all = series ? yearLines(series, xs, d.now) : [];
   const { shown, hidden } = visibleYears(all);
   // Scale the ramp to the whole record, so a year keeps its color when another is hidden or the view pans.
@@ -774,7 +912,7 @@ const FIGS: Record<Kind, Fig> = {
     title: "Water level",
     sub: "observed hourly and predicted highs and lows, feet above mean lower low water",
     varies: false,
-    in: () => true,
+    in: (k) => k !== "rivers",
     depthTabs: false,
     seasonal: false,
     available: (d) => !!d.level,
@@ -854,7 +992,148 @@ const FIGS: Record<Kind, Fig> = {
       return { opts: { xs, lines, unit: " mb", hoverDigits: 1, empty: "No pressure readings in this window." }, legend: [["Pressure", P.air, 1]] };
     },
   },
+  flow: {
+    title: "Flow against normal",
+    sub: "with the median and the usual ranges for each date",
+    varies: false,
+    in: (k) => k === "rivers",
+    depthTabs: false,
+    seasonal: false,
+    available: (d) => d.kind === "river",
+    window: LEFT,
+    maxSpan: Infinity,
+    start: (d) => dailyFlow(d)?.t0 ?? d.now,
+    build: (d, _depth, x0, x1) => {
+      const xs = grid(x0, x1);
+      const r = d.river!;
+      const id = d.gauge!.id;
+      const band = (p: "p10" | "p25" | "p50" | "p75" | "p90") => xs.map((t) => pct(r, id, p, t));
+      const fmt = (v: number) => `${cfs(v)} cfs`;
+      const g = r.gauges.find((x) => x.id === id);
+      const lines: Line[] = [
+        { ys: band("p10"), color: P.contrast, width: 0.8, opacity: 0.18, label: "10th to 90th percentile", fmt },
+        { ys: band("p90"), color: P.contrast, width: 0.8, opacity: 0.18, label: "10th to 90th percentile (90th)", fmt },
+        { ys: band("p25"), color: P.contrast, width: 0.9, opacity: 0.38, label: "Normal, 25th to 75th", fmt },
+        { ys: band("p75"), color: P.contrast, width: 0.9, opacity: 0.38, label: "Normal, 25th to 75th (75th)", fmt },
+        { ys: band("p50"), color: P.contrast, width: 1.1, opacity: 0.7, label: "Median for the date", fmt },
+        { ys: xs.map((t) => riverFlow(r, id, t)), color: P.depth.SFC, width: 1.8, label: `${g?.river ?? id} flow`, fmt },
+      ];
+      return {
+        opts: { xs, lines, unit: " cfs", hoverDigits: 0, zero: true, marker: { x: d.now, label: "now" }, empty: "No flow readings in this window." },
+        legend: [[`${g?.river ?? id} flow`, P.depth.SFC, 1], ["Median for the date", P.contrast, 0.7], ["Normal, 25th to 75th", P.contrast, 0.38], ["10th to 90th percentile", P.contrast, 0.18]],
+        note: `percentiles of daily flow for each date, from ${r.normals[id]?.sample_count ?? "--"} years of approved record (USGS)`,
+      };
+    },
+  },
+  share: {
+    title: "All rivers against normal",
+    sub: "each river's flow as a percentile for its date; 25 to 75 is normal",
+    varies: false,
+    in: (k) => k === "rivers",
+    wide: true,
+    depthTabs: false,
+    seasonal: false,
+    available: (d) => d.kind === "rivers",
+    window: LEFT,
+    maxSpan: 2 * 366 * DAY,
+    start: (d) => Math.min(...Object.values(d.river?.daily ?? {}).map((s) => s?.t0 ?? Infinity)),
+    build: (d, _id, x0, x1) => {
+      const xs = grid(x0, x1);
+      const r = d.river!;
+      const colors = [P.depth.SFC, P.depth.MID, P.depth.BTM, P.wind, P.air, P.delayed, P.contrast];
+      const fmt = (v: number) => (v <= 2.5 ? "under the 5th percentile" : v >= 97.5 ? "over the 95th percentile" : `${ordinal(v)} percentile`);
+      const lines: Line[] = r.gauges.map((g, i) => ({
+        ys: xs.map((t) => percentileOf(r, g.id, t, riverFlow(r, g.id, t))),
+        color: colors[i % colors.length],
+        width: g.id === "CONN" ? 2 : 1.1,
+        opacity: g.id === "CONN" ? 1 : 0.8,
+        label: g.river,
+        fmt,
+      }));
+      return {
+        opts: {
+          xs, lines, unit: "", hoverDigits: 0, floor: 0, empty: "No flow readings in this window.",
+          bands: [
+            { y0: 10, y1: 90, fill: P.bands[0] },
+            { y0: 25, y1: 75, fill: P.bands[1] },
+          ],
+        },
+        legend: r.gauges.map((g, i) => [g.river, colors[i % colors.length], g.id === "CONN" ? 1 : 0.8] as [string, string, number]),
+        note: "inner band: normal (25th to 75th percentile for the date); outer band: 10th to 90th. A storm shows as the rivers rising together",
+      };
+    },
+  },
+  rturb: {
+    title: "Turbidity",
+    sub: "hourly, formazin nephelometric units",
+    varies: false,
+    in: (k) => k === "rivers",
+    depthTabs: false,
+    seasonal: false,
+    available: (d) => d.kind === "river" && !!d.gauge?.turbidity && !!d.river?.turb && Number.isFinite(d.river.turb.lastValid()),
+    window: RIGHT,
+    maxSpan: 100 * DAY,
+    start: (d) => d.river?.turb?.t0 ?? d.now,
+    build: (d, _id, x0, x1) => {
+      const xs = grid(x0, x1);
+      const lines: Line[] = [{ ys: xs.map((t) => d.river?.turb?.at(t) ?? NaN), color: P.air, width: 1.5, label: "Turbidity" }];
+      return {
+        opts: { xs, lines, unit: " FNU", hoverDigits: 1, zero: true, empty: "No turbidity readings in this window." },
+        legend: [["Turbidity", P.air, 1]],
+        note: "a USGS sensor, serviced and reviewed; muddy runoff raises it within hours of a storm",
+      };
+    },
+  },
+  ryoy: {
+    title: "This year against earlier years",
+    sub: "daily mean flow, same dates",
+    varies: false,
+    in: (k) => k === "rivers",
+    depthTabs: false,
+    seasonal: true,
+    available: (d) => d.kind === "river" && !!dailyFlow(d),
+    window: LEFT,
+    maxSpan: 366 * DAY,
+    start: (d) => dailyFlow(d)?.t0 ?? d.now,
+    build: (d, _depth, x0, x1, full) =>
+      full
+        ? timelineBuilt(d, dailyFlow(d), "SFC", grid(x0, x1), { marker: { x: d.now, label: "now" }, zero: true, empty: "No flow in this window." })
+        : yearBuilt(d, dailyFlow(d), grid(x0, x1), { marker: { x: d.now, label: "now" }, zero: true, empty: "No flow in this window." }),
+  },
+  rpct: {
+    title: "Percentile for the date",
+    sub: "25 to 75 is normal",
+    varies: false,
+    in: (k) => k === "rivers",
+    depthTabs: false,
+    seasonal: false,
+    available: (d) => d.kind === "river",
+    window: RIGHT,
+    maxSpan: 2 * 366 * DAY,
+    start: (d) => dailyFlow(d)?.t0 ?? d.now,
+    build: (d, _depth, x0, x1) => {
+      const xs = grid(x0, x1);
+      const r = d.river!;
+      const id = d.gauge!.id;
+      const fmt = (v: number) => (v <= 2.5 ? "under the 5th percentile" : v >= 97.5 ? "over the 95th percentile" : `${ordinal(v)} percentile`);
+      return {
+        opts: {
+          xs, lines: [{ ys: xs.map((t) => percentileOf(r, id, t, riverFlow(r, id, t))), color: P.depth.SFC, width: 1.6, label: "Percentile", fmt }],
+          unit: "", hoverDigits: 0, floor: 0, empty: "No flow readings in this window.",
+          bands: [
+            { y0: 10, y1: 90, fill: P.bands[0] },
+            { y0: 25, y1: 75, fill: P.bands[1] },
+          ],
+        },
+        legend: [["Percentile", P.depth.SFC, 1]],
+        note: "inner band: normal (25th to 75th); outer band: 10th to 90th",
+      };
+    },
+  },
 };
+
+/** Figure order in a section, left column then right, row by row. */
+const ORDER: Kind[] = ["yoy", "chg", "col", "sb", "wind", "air", "tide", "waves", "pressure", "share", "flow", "rpct", "ryoy", "rturb"];
 
 /** A figure's name with the variable it shows, for the zoom title and screen readers. */
 const figName = (f: Fig) => (f.varies && VK !== "temp" ? `${V().label}: ${f.title.charAt(0).toLowerCase()}${f.title.slice(1)}` : f.title);
@@ -1038,7 +1317,46 @@ try {
   /* private mode: buoys */
 }
 
+/** The Rivers view's overview: each gauge's flow, where it sits for the date, and river turbidity. */
+function riverTable(): string {
+  const d = RIVER_SECTIONS[0];
+  if (!d?.river) return `<p class="note">River data could not load.</p>`;
+  const r = d.river;
+  let total = 0;
+  let medians = 0;
+  let complete = true;
+  const rows = r.gauges.map((g) => {
+    const o = r.last[g.id];
+    if (!o || o.flow_cfs == null) {
+      complete = false;
+      return `<tr><th scope="row">${g.river}</th><td class="offline">--</td><td class="na">&middot;</td><td class="na">&middot;</td></tr>`;
+    }
+    const t = Date.parse(o.time) / 1000;
+    const state = obsState({ time: o.time } as LastObs);
+    const cls = riverClass(r, g.id, t, o.flow_cfs);
+    const med = pct(r, g.id, "p50", t);
+    total += o.flow_cfs;
+    medians += Number.isFinite(med) ? med : NaN;
+    const spark = r.flow[g.id] ? sparklineOf(r.flow[g.id]!, P.depth.SFC, "cfs", 0) : "";
+    const turb = g.turbidity && o.turb_fnu != null ? `<td title="River turbidity at Thompsonville, ${ago(o.time)}"><b>${o.turb_fnu.toFixed(1)}<small class="g"> FNU</small></b></td>` : `<td class="na">&middot;</td>`;
+    return `<tr><th scope="row" title="${g.name} (USGS ${g.usgs_id})"><a href="#${g.id}"><i class="dot ${state}"></i>${g.river}</a></th>
+      <td class="${state}" title="${cfs(o.flow_cfs)} cfs, ${ago(o.time)}">${spark}<b>${cfs(o.flow_cfs)}<small class="g"> cfs</small></b><small>${ago(o.time).replace(" ago", "")}</small></td>
+      <td class="river-class ${cls.replace(/ /g, "-")}" title="Median for the date ${cfs(med)} cfs"><b>${cls || "--"}</b><small>median ${cfs(med)}</small></td>${turb}</tr>`;
+  });
+  const share = complete && Number.isFinite(medians) && medians > 0 ? `${Math.round((100 * total) / medians)}% of the summed medians for the date` : "";
+  return `<table class="status-grid" id="status-panel">
+    <caption>Latest river flow, west to east: cubic feet per second, against normal for the date</caption>
+    <thead><tr><th></th><th scope="col">Flow</th><th scope="col">For the date</th><th scope="col">Turbidity</th></tr></thead>
+    <tbody>${rows.join("")}<tr class="total"><th scope="row">All ${r.gauges.length}</th><td>${complete ? `<b>${cfs(total)}<small class="g"> cfs</small></b>` : "--"}</td><td colspan="2"><small>${share}</small></td></tr></tbody>
+  </table>
+  <p class="status-key">USGS classes: normal is the 25th to 75th percentile of daily flow for the date; much below and much above are under the 10th and over the 90th. Values are provisional.</p>`;
+}
+
 function statusGrid(stations: StationData[]): void {
+  if (VK === "rivers") {
+    $("status").innerHTML = riverTable();
+    return;
+  }
   const buoys = stations.filter((d) => d.kind === "buoy");
   const shore = stations.filter((d) => d.kind === "shore");
   if (!shore.length) SG = "buoy";
@@ -1117,7 +1435,7 @@ async function overviewMap(stations: StationData[]): Promise<void> {
         const waves = wavesText(d.meta.id, true);
         const label = waves ? `${reading}<br>Waves: ${waves}` : reading.replace(/^Surface /, d.kind === "shore" ? "Water " : "Surface ");
         const tide = d.kind === "shore" && nextTide(d) ? `<br>Next ${tideText(nextTide(d)!)}` : "";
-        return { id: d.meta.id, name: d.meta.name, lat: d.meta.lat, lon: d.meta.lon, state, label: label + tide, kind: d.kind };
+        return { id: d.meta.id, name: d.meta.name, lat: d.meta.lat, lon: d.meta.lon, state, label: label + tide, kind: d.kind === "shore" ? ("shore" as const) : ("buoy" as const) };
       }),
       (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }),
       currentTheme(),
@@ -1130,13 +1448,15 @@ async function overviewMap(stations: StationData[]): Promise<void> {
 /* ---------- Station sections ---------- */
 
 function depthTabsHtml(d: StationData, key: string, active: string): string {
-  return `<span class="tabs" role="group" aria-label="Depth">${d.meta.series
+  return `<span class="tabs" role="group" aria-label="${d.kind === "rivers" ? "River" : "Depth"}">${d.meta.series
     .map((s) => `<button class="tab" type="button" data-fig="${key}" data-depth="${s.depth}" aria-pressed="${s.depth === active}">${s.label}</button>`)
     .join("")}</span>`;
 }
 
 /** The heading's record line: per depth for the water views; the wave record (or the weather window) for wind. */
 function recordLine(d: StationData, perDepth: string): string {
+  if (d.kind === "rivers") return "Daily flow from 1990; recent flow hourly";
+  if (d.kind === "river") return `Daily flow from ${d.gauge?.record_start?.slice(0, 4) ?? "--"}; recent flow hourly`;
   if (isWater(VK)) return `${VK === "temp" ? "Record" : `${V().label} record`}: ${perDepth}`;
   const id = d.meta.id;
   if (!wavesOf(id)?.sensor) return "Weather: the last 100 days";
@@ -1150,11 +1470,11 @@ function sectionHtml(d: StationData): string {
   const id = st.id;
   const startOf = (s: MetaSeries) => (VK === "temp" ? s.record_start : s.vars?.[VK]?.record_start);
   const rec = st.series.map((s) => `${s.label.toLowerCase()} from ${startOf(s)?.slice(0, 4) ?? "--"}`).join(", ");
-  const kinds = (Object.keys(FIGS) as Kind[]).filter((k) => shows(d, k));
+  const kinds = ORDER.filter((k) => shows(d, k));
   const fig = (key: Kind) => {
     const f = FIGS[key];
     return `
-    <figure>
+    <figure${f.wide ? ' class="wide"' : ""}>
       <figcaption><span class="cap-label">${f.title}</span><span class="cap-sub">${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}</span>${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
         <span class="fig-actions"><button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button><button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
       <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}" title="Click to expand"><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
@@ -1179,11 +1499,12 @@ function sectionHtml(d: StationData): string {
     <section class="station" id="${id}" aria-labelledby="${id}-title">
       <div class="station-head">
         <h2 id="${id}-title"><i class="dot ${overallState(d)}"></i>${st.name}</h2>
-        <span class="sid">${id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W</span>
+        <span class="sid">${d.kind === "rivers" ? "USGS stream gauges" : d.kind === "river" ? `USGS ${d.gauge!.usgs_id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W` : `${id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W`}</span>
         <span class="rec">${recordLine(d, rec)}</span>
       </div>
-      <p class="station-links"><span>${d.kind === "shore" ? "At NOAA:" : "At LISICOS:"}</span>${[
-        st.info_url ? `<a href="${st.info_url}">${d.kind === "shore" ? "Station page" : "About this buoy"}</a>` : "",
+      <p class="station-links"><span>${d.kind === "rivers" || d.kind === "river" ? "At USGS:" : d.kind === "shore" ? "At NOAA:" : "At LISICOS:"}</span>${[
+        ...(d.kind === "rivers" ? (d.river?.gauges ?? []).map((g) => `<a href="#${g.id}">${g.river}</a>`) : []),
+        st.info_url ? `<a href="${st.info_url}">${d.kind === "river" ? "Gauge page" : d.kind === "shore" ? "Station page" : "About this buoy"}</a>` : "",
         panelsOf(id).weather ? `<a href="${panelsOf(id).weather}">Weather panel</a>` : "",
         panelsOf(id).water_quality ? `<a href="${panelsOf(id).water_quality}">Water quality panel</a>` : "",
         panelsOf(id).waves ? `<a href="${panelsOf(id).waves}">Wave panel</a>` : "",
@@ -1197,6 +1518,41 @@ function sectionHtml(d: StationData): string {
 }
 
 function readouts(d: StationData): void {
+  if (d.kind === "river") {
+    const r = d.river!;
+    const g = d.gauge!;
+    const o = r.last[g.id];
+    const t = o ? Date.parse(o.time) / 1000 : NaN;
+    const items = [
+      o?.flow_cfs != null
+        ? `<div class="readout"><div class="num">${cfs(o.flow_cfs)}<small>cfs</small></div><span class="lab">Flow</span><span class="sub ${obsState({ time: o.time } as LastObs)}">${ago(o.time)}</span></div>`
+        : `<div class="readout"><div class="num">--</div><span class="lab">Flow</span><span class="sub offline">no recent reading</span></div>`,
+      o?.flow_cfs != null
+        ? `<div class="readout"><div class="num">${pctText(percentileOf(r, g.id, t, o.flow_cfs))}</div><span class="lab">Percentile for the date</span><span class="sub">${riverClass(r, g.id, t, o.flow_cfs)} &middot; median ${cfs(pct(r, g.id, "p50", t))} cfs</span></div>`
+        : "",
+      g.turbidity && o?.turb_fnu != null
+        ? `<div class="readout"><div class="num">${o.turb_fnu.toFixed(1)}<small>FNU</small></div><span class="lab">Turbidity</span><span class="sub">${ago(o.time)}</span></div>`
+        : "",
+    ];
+    $(`${d.meta.id}-readouts`).innerHTML = items.join("");
+    return;
+  }
+  if (d.kind === "rivers") {
+    const r = d.river!;
+    const conn = r.last.CONN;
+    const t = conn ? Date.parse(conn.time) / 1000 : NaN;
+    const total = r.gauges.reduce((a, g) => a + (r.last[g.id]?.flow_cfs ?? NaN), 0);
+    $(`${d.meta.id}-readouts`).innerHTML = [
+      `<div class="readout"><div class="num">${cfs(total)}<small>cfs</small></div><span class="lab">All ${r.gauges.length} gauges</span><span class="sub">the sum of the latest readings</span></div>`,
+      conn?.flow_cfs != null
+        ? `<div class="readout"><div class="num">${cfs(conn.flow_cfs)}<small>cfs</small></div><span class="lab">Connecticut River</span><span class="sub">${riverClass(r, "CONN", t, conn.flow_cfs)} for the date &middot; ${ago(conn.time)}</span></div>`
+        : "",
+      conn?.turb_fnu != null
+        ? `<div class="readout"><div class="num">${conn.turb_fnu.toFixed(1)}<small>FNU</small></div><span class="lab">Connecticut turbidity</span><span class="sub">at Thompsonville &middot; ${ago(conn.time)}</span></div>`
+        : "",
+    ].join("");
+    return;
+  }
   const tempItem = (depth: string) => {
     const o = d.obs[depth];
     const label = d.meta.series.find((s) => s.depth === depth)?.label ?? depth;
@@ -1244,7 +1600,7 @@ function readouts(d: StationData): void {
   $(`${d.meta.id}-readouts`).innerHTML = items.join("");
 }
 
-const activeDepth = (d: StationData, key: Kind) =>
+const activeDepth = (d: StationData, key: Kind): string =>
   document.querySelector<HTMLButtonElement>(`#${d.meta.id} .tab[data-fig="${key}"][aria-pressed="true"]`)?.dataset.depth ?? d.depths[0];
 
 function drawInline(d: StationData, key: Kind): void {
@@ -1732,11 +2088,13 @@ async function main(): Promise<void> {
   const shoreHist = getJson<ShoreHistory>(`${DATA}/shore-history.json`).catch(() => null);
   try {
     const { meta, live, stations } = await load();
-    const byId = (id: string) => stations.find((d) => d.meta.id === id)!;
+    const byId = (id: string) => [...stations, ...RIVER_SECTIONS].find((d) => d.meta.id === id)!;
     // A remembered salinity or oxygen choice loads its history first; if that fails, show temperature.
     if (VK !== "temp") await ensureVar(VK, live, stations).catch(() => (VK = "temp"));
+    /** The stations on screen: the rivers section in the Rivers view, the buoys and shore stations otherwise. */
+    const shown = () => (VK === "rivers" ? RIVER_SECTIONS : stations);
     const drawAll = () => {
-      for (const d of stations) {
+      for (const d of shown()) {
         readouts(d);
         (Object.keys(FIGS) as Kind[]).forEach((k) => drawInline(d, k));
       }
@@ -1750,9 +2108,12 @@ async function main(): Promise<void> {
         const grouped = stations.some((d) => d.kind === "shore");
         return list.length ? (grouped ? `<h2 class="station-group">${title}</h2>` : "") + list.map(sectionHtml).join("") : "";
       };
-      $("stations").innerHTML = group("buoy", "Buoys, LISICOS") + group("shore", "Shore stations, NOAA tide gauges");
+      $("stations").innerHTML =
+        VK === "rivers"
+          ? `<h2 class="station-group">Rivers into the Sound, USGS stream gauges</h2>${RIVER_SECTIONS.map(sectionHtml).join("")}`
+          : group("buoy", "Buoys, LISICOS") + group("shore", "Shore stations, NOAA tide gauges");
       drawAll();
-      for (const d of stations) {
+      for (const d of shown()) {
         for (const k of Object.keys(FIGS) as Kind[]) {
           const legend = document.getElementById(`${d.meta.id}-${k}-legend`);
           if (legend) wireLegend(legend, $(`${d.meta.id}-${k}`));

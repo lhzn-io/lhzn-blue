@@ -30,6 +30,8 @@ const FILES: Record<string, number> = {
   "v1/history-waves.json": 300,
   "v1/shore.json": 300,
   "v1/shore-history.json": 300,
+  "v1/rivers.json": 300,
+  "v1/rivers-history.json": 300,
 };
 
 async function data(req: Request, env: Env, path: string): Promise<Response> {

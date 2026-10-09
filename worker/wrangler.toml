@@ -6,6 +6,15 @@ main = "src/index.ts"
 compatibility_date = "2025-09-01"
 workers_dev = true
 
+# The site's homes: Cloudflare creates and manages the DNS records for these custom domains. Both names
+# serve the site; pages declare longhorizon.blue as canonical.
+routes = [
+  { pattern = "longhorizon.blue", custom_domain = true },
+  { pattern = "www.longhorizon.blue", custom_domain = true },
+  { pattern = "lhzn.blue", custom_domain = true },
+  { pattern = "www.lhzn.blue", custom_domain = true },
+]
+
 [assets]
 directory = "../apps/web/dist"
 binding = "ASSETS"

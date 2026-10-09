@@ -1,0 +1,27 @@
+# Job output (published to Workers KV, never committed)
+out/
+
+# Node
+node_modules/
+apps/web/dist/
+.wrangler/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Local settings and secrets
+.env
+.env.*
+*.h5
+
+# Agent planning files live in the internal agent lab, not here
+task.md
+implementation_plan.md
+walkthrough.md
+
+# OS
+.DS_Store
+Thumbs.db

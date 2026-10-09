@@ -1,0 +1,132 @@
+{
+  "waterway": {
+    "id": "long-island-sound",
+    "name": "Long Island Sound"
+  },
+  "stations": [
+    {
+      "id": "WLIS",
+      "name": "Western Sound",
+      "operator": "LISICOS, University of Connecticut",
+      "info_url": "https://lisicos.uconn.edu/about_wlis.php",
+      "met": { "dataset": "WLIS_MET" },
+      "waves": { "sensor": true, "dataset": "WLIS_WAVE", "published": false, "last_saved_copy": "2026-05-21" },
+      "panels": {
+        "weather": "https://lisicos.uconn.edu/stn_wlis.php?id=wlis_wx_panel",
+        "water_quality": "https://lisicos.uconn.edu/stn_wlis.php?id=wlis_wq_panel",
+        "waves": "https://lisicos.uconn.edu/stn_wlis.php?id=wlis_wv_panel"
+      },
+      "lat": 40.96,
+      "lon": -73.58,
+      "series": [
+        { "depth": "SFC", "label": "Surface", "sources": [{ "kind": "merlin", "dataset": "WLIS_WQ_SFC" }] },
+        { "depth": "MID", "label": "Mid-depth", "sources": [{ "kind": "merlin", "dataset": "WLIS_WQ_MID" }] },
+        { "depth": "BTM", "label": "Bottom", "sources": [{ "kind": "merlin", "dataset": "WLIS_WQ_BTM" }] }
+      ]
+    },
+    {
+      "id": "EXRX",
+      "name": "Execution Rocks",
+      "operator": "LISICOS, University of Connecticut",
+      "info_url": "https://lisicos.uconn.edu/about_exrx.php",
+      "met": { "dataset": "EXRX_MET" },
+      "waves": { "sensor": true, "dataset": "EXRX_WAVE", "published": false, "last_saved_copy": "2026-05-21" },
+      "panels": {
+        "weather": "https://lisicos.uconn.edu/stn_exrx.php?id=exrx_wx_panel",
+        "water_quality": "https://lisicos.uconn.edu/stn_exrx.php?id=exrx_wq_panel",
+        "waves": "https://lisicos.uconn.edu/stn_exrx.php?id=exrx_wv_panel"
+      },
+      "lat": 40.88,
+      "lon": -73.73,
+      "series": [
+        {
+          "depth": "SFC",
+          "label": "Surface",
+          "sources": [
+            {
+              "kind": "archive",
+              "dataset": "EXRX_WQ_SFC",
+              "snapshot": "20260521-140940",
+              "note": "renamed on the server in 2026; earlier history kept from our own saved download of 2026-05-21"
+            },
+            { "kind": "merlin", "dataset": "XRX_WQ_SFC" }
+          ]
+        },
+        {
+          "depth": "MID",
+          "label": "Mid-depth",
+          "sources": [
+            {
+              "kind": "archive",
+              "dataset": "EXRX_WQ_MID",
+              "snapshot": "20260521-140940",
+              "note": "renamed on the server in 2026; earlier history kept from our own saved download of 2026-05-21"
+            },
+            { "kind": "merlin", "dataset": "XRX_WQ_MID" }
+          ]
+        },
+        { "depth": "BTM", "label": "Bottom", "sources": [{ "kind": "merlin", "dataset": "EXRX_WQ_BTM" }] }
+      ]
+    },
+    {
+      "id": "ARTG",
+      "name": "ARTG buoy",
+      "operator": "LISICOS, University of Connecticut",
+      "info_url": "https://lisicos.uconn.edu/about_artg.php",
+      "met": { "dataset": "ARTG_MET" },
+      "waves": { "sensor": false },
+      "panels": {
+        "weather": "https://lisicos.uconn.edu/stn_artg.php?id=artg_wx_panel",
+        "water_quality": "https://lisicos.uconn.edu/stn_artg.php?id=artg_wq_panel"
+      },
+      "lat": 41.01,
+      "lon": -73.29,
+      "note": "Bottom sensor only.",
+      "series": [{ "depth": "BTM", "label": "Bottom", "sources": [{ "kind": "merlin", "dataset": "ARTG_WQ_BTM" }] }]
+    },
+    {
+      "id": "CLIS",
+      "name": "Central Sound",
+      "operator": "LISICOS, University of Connecticut",
+      "info_url": "https://lisicos.uconn.edu/about_clis.php",
+      "met": { "dataset": "CLIS_MET" },
+      "waves": { "sensor": true, "dataset": "CLIS_WAVE", "published": false, "last_saved_copy": "2026-05-21" },
+      "panels": {
+        "weather": "https://lisicos.uconn.edu/stn_clis.php?id=clis_wx_panel",
+        "water_quality": "https://lisicos.uconn.edu/stn_clis.php?id=clis_wq_panel",
+        "waves": "https://lisicos.uconn.edu/stn_clis.php?id=clis_wv_panel"
+      },
+      "lat": 41.14,
+      "lon": -72.66,
+      "outage_note": "The server has not published water quality for this buoy since August 2024 (its weather sensors still report). The record shown is our own saved download; we check every hour and will resume automatically if publication returns.",
+      "series": [
+        {
+          "depth": "SFC",
+          "label": "Surface",
+          "sources": [
+            {
+              "kind": "archive",
+              "dataset": "CLIS_WQ_SFC",
+              "snapshot": "20260304-175012",
+              "note": "no longer published; kept from our own saved download of 2026-03-04"
+            },
+            { "kind": "merlin", "dataset": "CLIS_WQ_SFC" }
+          ]
+        },
+        {
+          "depth": "BTM",
+          "label": "Bottom",
+          "sources": [
+            {
+              "kind": "archive",
+              "dataset": "CLIS_WQ_BTM",
+              "snapshot": "20260304-175012",
+              "note": "no longer published; kept from our own saved download of 2026-03-04"
+            },
+            { "kind": "merlin", "dataset": "CLIS_WQ_BTM" }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>longhorizon.blue (alpha)</title>
+    <meta name="description" content="Public marine measurements, one waterway at a time, with their age and source. Long Island Sound first." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Josefin+Sans:wght@300;400;600;700&family=Martian+Mono:wght@300;400;500&display=swap"
+    />
+  </head>
+  <body class="landing">
+    <header class="mast">
+      <a class="wordmark" href="/" aria-label="longhorizon.blue home">
+        <span class="wm-top">LONGHORIZON</span>
+        <span class="wm-bottom">.BLUE</span>
+      </a>
+      <span class="stage">Alpha</span>
+    </header>
+    <main>
+      <p class="prose">
+        Measurements from the water, made public: what each waterway reads now, how that compares with the same dates in earlier years,
+        and where every number comes from. One page per waterway, each built with the people who care about it.
+      </p>
+      <a class="card" href="/long-island-sound/">
+        <span class="card-tag">Long Island Sound</span>
+        <span class="card-text">Water temperature through the water column, with wind and air temperature, at four buoys from Execution Rocks to the Central Sound, set against the same dates in every earlier year on record, and the record we keep when a buoy goes quiet.</span>
+        <span class="card-go">Open</span>
+      </a>
+      <footer class="credits">
+        <p>
+          Data from <a href="https://lisicos.uconn.edu/">LISICOS</a> (University of Connecticut); regional context at the
+          <a href="https://mariners.neracoos.org/">NERACOOS Mariners' Dashboard</a>. Not for navigation.
+        </p>
+        <p>By Long Horizon Observatory. Open source: <a href="https://github.com/lhzn-io/lhzn-blue">github.com/lhzn-io/lhzn-blue</a>.</p>
+      </footer>
+    </main>
+    <script type="module" src="./src/landing.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Dark by default; a saved choice is applied before first paint so the page never flashes.
+      try {
+        if (localStorage.getItem("lhzn-blue-theme") === "light") document.documentElement.dataset.theme = "light";
+      } catch (e) {}
+    </script>
+    <title>Long Island Sound (alpha) | longhorizon.blue</title>
+    <meta name="description" content="Water temperature in Long Island Sound from the LISICOS buoys, compared with every earlier year on record. Observed data with its age and source; not for navigation." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Josefin+Sans:wght@300;400;600;700&family=Martian+Mono:wght@300;400;500&display=swap"
+    />
+  </head>
+  <body>
+    <p class="updated" id="updated" aria-live="polite"><b>Loading</b>reading the latest buoy data</p>
+    <header class="mast">
+      <a class="wordmark" href="/" aria-label="longhorizon.blue home">
+        <span class="wm-top">CONDITIONS</span>
+        <span class="wm-bottom">LONG ISLAND SOUND</span>
+      </a>
+      <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span>
+      <p class="mast-note">
+        Measurements from the <a href="https://lisicos.uconn.edu/">LISICOS</a> buoys of the University of Connecticut, set against the
+        same dates in every earlier year on record. Observed data with its age and source. Not for navigation.
+      </p>
+      <div class="prefs">
+        <div class="unit-switch" role="group" aria-label="Wind units">
+          <span aria-hidden="true">Wind</span>
+          <button class="tab" type="button" data-unit="kt" aria-pressed="true">kt</button>
+          <button class="tab" type="button" data-unit="mph" aria-pressed="false">mph</button>
+          <button class="tab" type="button" data-unit="ms" aria-pressed="false">m/s</button>
+        </div>
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false">Light</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="overview" aria-label="Buoys at a glance">
+        <div class="map" id="map" role="region" aria-label="Map of the buoys"></div>
+        <div class="status" id="status" aria-live="polite"></div>
+      </section>
+      <div id="stations"></div>
+
+      <section class="ask" aria-labelledby="ask-title">
+        <h2 id="ask-title">Ask your own AI</h2>
+        <p class="prose">
+          Copy a prompt that holds the numbers on this page, as text, with their ages and definitions, then paste it into the assistant you
+          already use. The answer comes from your assistant, not from us.
+        </p>
+        <button class="button" id="copy" type="button">Copy prompt + data</button>
+        <span class="copy-status" id="copy-status" aria-live="polite"></span>
+        <textarea class="prompt-box" id="prompt-box" readonly hidden aria-label="Prompt and data"></textarea>
+      </section>
+
+      <section class="about" aria-labelledby="about-title">
+        <h2 id="about-title">About these numbers</h2>
+        <p class="prose" id="about-method"></p>
+        <p class="note" id="about-sources"></p>
+      </section>
+
+      <footer class="credits">
+        <p>
+          <b>Data:</b> <a href="https://lisicos.uconn.edu/">LISICOS</a>, Department of Marine Sciences, University of Connecticut, through its
+          <a href="http://merlin.dms.uconn.edu:8080/erddap/">ERDDAP server</a>. For the regional picture, see the
+          <a href="https://mariners.neracoos.org/">NERACOOS Mariners' Dashboard</a>. Both are the source and the inspiration for this page; thank you.
+        </p>
+        <p>
+          <b>Not for navigation.</b> These are observations with their age shown, not forecasts or safety advice. Values pass only basic range checks.
+        </p>
+        <p>
+          A <a href="/">longhorizon.blue</a> page by Long Horizon Observatory. Open source under the MIT license:
+          <a href="https://github.com/lhzn-io/lhzn-blue">code</a>. This site does not offer a public data API yet; to work with the
+          numbers, use the copy button above or the <a href="http://merlin.dms.uconn.edu:8080/erddap/">LISICOS ERDDAP server</a> directly.
+        </p>
+      </footer>
+    </main>
+
+    <dialog class="zoom" id="zoom" aria-labelledby="zoom-title">
+      <div class="zoom-head">
+        <div>
+          <h2 id="zoom-title"></h2>
+          <span class="cap-sub" id="zoom-sub"></span>
+        </div>
+        <span id="zoom-tabs"></span>
+        <div class="zoom-controls">
+          <button class="tab" type="button" id="zoom-out" aria-label="Zoom out">&minus;</button>
+          <button class="tab" type="button" id="zoom-in" aria-label="Zoom in">+</button>
+          <button class="tab" type="button" id="zoom-full" aria-pressed="false">Full record</button>
+          <button class="tab" type="button" id="zoom-reset">Reset</button>
+          <button class="tab" type="button" id="zoom-close" aria-label="Close">Close</button>
+        </div>
+      </div>
+      <div class="plot" id="zoom-plot"><svg role="img" aria-label="Zoomable chart"></svg><div class="plot-labels" aria-hidden="true"></div></div>
+      <div class="legend" id="zoom-legend"></div>
+      <p class="note zoom-hint">Scroll or pinch to zoom, drag to pan, double-click to reset. Arrow keys pan; + and &minus; zoom.</p>
+    </dialog>
+
+    <script type="module" src="../src/lis.ts"></script>
+  </body>
+</html>

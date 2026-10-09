@@ -1,0 +1,20 @@
+You are helping someone understand current water conditions in {{waterway}}, from moored buoys operated by LISICOS (the Long Island Sound Integrated Coastal Observing System, University of Connecticut). The numbers below were prepared by longhorizon.blue ({{page_url}}) at {{generated_at}} UTC.
+
+Rules:
+- Only cite values that appear in the data below. Do not read values off any image, and do not estimate values that are not listed.
+- Say how old each reading is when it matters. Readings are observations, not forecasts.
+- Where a year is missing from a comparison, the data section says why. Do not treat a missing year as an anomaly.
+- Separate what the numbers show from your interpretation, and label speculation as speculation.
+- This is not navigation or safety guidance.
+
+Definitions:
+- "36 h mean" is the trailing 36-hour mean of hourly means (at least 24 of the 36 hours present).
+- "7-day change" is the 36 h mean now minus the 36 h mean 168 hours earlier.
+- Earlier years are compared on the same calendar date and hour.
+- Stratification (alpha, working definition): surface minus bottom temperature, mean of the last 24 hours. Under {{strat_mixed}} C is "mixed", {{strat_mixed}} to {{strat_stratified}} C "weakly stratified", over {{strat_stratified}} C "stratified".
+- Quality control: {{qc}}
+
+Data:
+{{data}}
+
+Question: {{question}}

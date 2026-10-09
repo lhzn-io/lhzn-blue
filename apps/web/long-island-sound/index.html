@@ -21,7 +21,17 @@
     />
   </head>
   <body>
-    <p class="updated" id="updated" aria-live="polite"><b>Loading</b>reading the latest buoy data</p>
+    <div class="topbar">
+      <p class="updated" id="updated" aria-live="polite"><b>Loading</b>reading the latest buoy data</p>
+      <details class="suggest" id="suggest" data-to="long-island-sound@longhorizon.blue" data-page="Long Island Sound">
+        <summary>Suggestions</summary>
+        <form class="suggest-form" id="suggest-form">
+          <textarea id="suggest-text" required aria-label="Your suggestion" placeholder="A correction, an idea, local knowledge"></textarea>
+          <button class="button" type="submit">Send</button>
+          <a class="suggest-to" href="mailto:long-island-sound@longhorizon.blue">long-island-sound@longhorizon.blue</a>
+        </form>
+      </details>
+    </div>
     <header class="mast">
       <a class="wordmark" href="/" aria-label="longhorizon.blue home">
         <span class="wm-top">CONDITIONS</span>

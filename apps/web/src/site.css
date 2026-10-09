@@ -120,6 +120,9 @@ a { color: inherit; }
   font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.02em; color: var(--strip-ink);
   background: var(--strip-bg); border-bottom: 1px solid var(--accent-line);
 }
+/* On a waterway page the strip also carries the Suggestions tab at its right end. */
+.topbar { display: flex; align-items: flex-start; background: var(--strip-bg); border-bottom: 1px solid var(--accent-line); }
+.topbar .updated { flex: 1 1 auto; min-width: 0; background: none; border-bottom: 0; }
 .updated b { font-family: var(--sans); font-size: 9px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); margin-right: 6px; }
 .updated .ago { color: var(--strip-mute); }
 .updated .sep { margin: 0 8px; color: var(--strip-mute); }
@@ -362,3 +365,26 @@ body.landing {
   .readout .num { font-size: 32px; }
   .plot { height: 170px; }
 }
+
+/* Suggestions drawer: a tab at the right end of the freshness strip, dropping a one-box form. */
+.suggest { position: relative; flex: none; margin-right: var(--gutter); font-family: var(--sans); }
+.suggest > summary {
+  list-style: none; cursor: pointer; padding: 3px 12px 5px; margin-top: 2px; border-radius: 999px;
+  font: 700 9px/1.2 var(--sans); letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--accent); border: 1px solid var(--accent-line);
+}
+.suggest > summary::-webkit-details-marker { display: none; }
+.suggest > summary:hover, .suggest[open] > summary { color: var(--accent-hi); border-color: var(--accent-hi); }
+.suggest > summary:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; }
+.suggest-form {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; width: min(340px, calc(100vw - 32px)); display: grid; gap: 10px;
+  padding: 14px; background: var(--panel); border: 1px solid var(--rule); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+.suggest-form textarea {
+  min-height: 110px; resize: vertical; padding: 8px; font: 13px/1.45 var(--sans); color: var(--ink);
+  background: var(--bg); border: 1px solid var(--rule);
+}
+.suggest-form textarea:focus { outline: 1px solid var(--accent-line); }
+.suggest-form .button { justify-self: start; }
+.suggest-to { font-size: 12px; color: var(--dim); text-decoration-color: var(--rule); text-underline-offset: 2px; }
+.suggest-to:hover { color: var(--accent-hi); }

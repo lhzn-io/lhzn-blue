@@ -5,6 +5,7 @@ import "./site.css";
 import promptTemplate from "../../../configs/prompts/visitor_prompt.txt?raw";
 import registry from "../../../stations/stations.json";
 import { highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
+import { wireSuggest } from "./suggest";
 import {
   COVERAGE_MIN, DAY, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, stratStatus, yearLines,
   type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetObs, type MetWindow, type YearLine,
@@ -1239,4 +1240,5 @@ async function main(): Promise<void> {
   }
 }
 
+wireSuggest();
 void main();

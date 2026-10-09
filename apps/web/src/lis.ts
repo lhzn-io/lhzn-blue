@@ -1135,6 +1135,16 @@ function depthTabsHtml(d: StationData, key: string, active: string): string {
     .join("")}</span>`;
 }
 
+/** The heading's record line: per depth for the water views; the wave record (or the weather window) for wind. */
+function recordLine(d: StationData, perDepth: string): string {
+  if (isWater(VK)) return `${VK === "temp" ? "Record" : `${V().label} record`}: ${perDepth}`;
+  const id = d.meta.id;
+  if (!wavesOf(id)?.sensor) return "Weather: the last 100 days";
+  const start = WAVE_META[id]?.record_start;
+  const last = lastWave(id);
+  return start ? `Waves record: ${fmtDate.format(new Date(start))} to ${last ? fmtDate.format(new Date(last.time)) : "--"}` : "Waves record: loading";
+}
+
 function sectionHtml(d: StationData): string {
   const st = d.meta;
   const id = st.id;
@@ -1170,7 +1180,7 @@ function sectionHtml(d: StationData): string {
       <div class="station-head">
         <h2 id="${id}-title"><i class="dot ${overallState(d)}"></i>${st.name}</h2>
         <span class="sid">${id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W</span>
-        <span class="rec">${VK === "temp" ? "Record" : `${V().label} record`}: ${rec}</span>
+        <span class="rec">${recordLine(d, rec)}</span>
       </div>
       <p class="station-links"><span>${d.kind === "shore" ? "At NOAA:" : "At LISICOS:"}</span>${[
         st.info_url ? `<a href="${st.info_url}">${d.kind === "shore" ? "Station page" : "About this buoy"}</a>` : "",
@@ -1278,7 +1288,8 @@ function setFull(full: boolean): void {
   const toggle = $("zoom-full");
   toggle.textContent = full ? (f.seasonal ? "Same dates by year" : "Recent") : "Full record";
   toggle.setAttribute("aria-pressed", String(full));
-  $("zoom-sub").textContent = full ? "everything we hold, each year in its color; gaps are periods with no data" : `${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}`;
+  const whole = f.seasonal ? "everything we hold, each year in its color; gaps are periods with no data" : "everything we hold; gaps are periods with no data";
+  $("zoom-sub").textContent = full ? whole : `${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}`;
   requestZoomDraw();
 }
 

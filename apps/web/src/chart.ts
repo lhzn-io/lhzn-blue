@@ -60,26 +60,50 @@ export function niceStep(span: number, target = 4): number {
   return 10 * p;
 }
 
-/** Time rules for the span: days, weeks (Mondays), or months, each with a label. */
+/** Year, month (0-based) and day of an instant on the Eastern calendar. */
+const etParts = new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric", month: "numeric", day: "numeric" });
+function etDate(t: number): [number, number, number] {
+  const p = Object.fromEntries(etParts.formatToParts(new Date(t * 1000)).map((x) => [x.type, x.value]));
+  return [Number(p.year), Number(p.month) - 1, Number(p.day)];
+}
+
+/** Epoch seconds of midnight, Eastern time, on a calendar date (month 0-based; days may overflow). */
+const etHour = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
+function etMidnight(y: number, m: number, d: number): number {
+  const guess = Date.UTC(y, m, d, 5); // midnight in standard time (UTC-5)
+  const h = Number(etHour.format(new Date(guess))); // 0 in standard time, 1 in daylight time
+  return guess / 1000 - h * 3600;
+}
+
+/**
+ * Time rules at Eastern midnights, labelled on the Eastern calendar: years, months, weeks (Mondays) or days by
+ * span. The rules sit where their labels say (a rule at midnight UTC on the 1st would fall on the evening
+ * before in New York, and a month label there would name the previous month).
+ */
 function timeRules(x0: number, x1: number): [number, string][] {
   const span = x1 - x0;
   const out: [number, string][] = [];
-  const start = new Date(x0 * 1000);
+  const [y0, m0, d0] = etDate(x0);
   if (span > 3 * 366 * DAY) {
-    for (let y = start.getUTCFullYear() + 1; Date.UTC(y, 0, 1) / 1000 < x1; y++) out.push([Date.UTC(y, 0, 1) / 1000, String(y)]);
+    for (let y = y0 + 1; etMidnight(y, 0, 1) < x1; y++) out.push([etMidnight(y, 0, 1), String(y)]);
     return out;
   }
   if (span > 150 * DAY) {
-    for (let m = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1)); m.getTime() / 1000 < x1; m.setUTCMonth(m.getUTCMonth() + 1)) {
-      const t = m.getTime() / 1000;
-      out.push([t, m.getUTCMonth() === 0 ? fmtMonth.format(m) : fmtDay.format(m).split(" ")[0]]);
+    for (let k = 1; ; k++) {
+      const t = etMidnight(y0, m0 + k, 1);
+      if (t >= x1) break;
+      const [, m] = etDate(t);
+      out.push([t, m === 0 ? fmtMonth.format(new Date(t * 1000)) : fmtDay.format(new Date(t * 1000)).split(" ")[0]]);
     }
     return out;
   }
-  const step = span > 12 * DAY ? 7 * DAY : DAY;
-  let t = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + 1) / 1000;
-  if (step > DAY) while (new Date(t * 1000).getUTCDay() !== 1) t += DAY;
-  for (; t < x1; t += step) out.push([t, fmtDay.format(new Date(t * 1000))]);
+  const weekly = span > 12 * DAY;
+  for (let k = 1; ; k++) {
+    const t = etMidnight(y0, m0, d0 + k);
+    if (t >= x1) break;
+    if (weekly && new Date(t * 1000).getUTCDay() !== 1) continue; // Mondays (the UTC day of an ET midnight is the same date)
+    out.push([t, fmtDay.format(new Date(t * 1000))]);
+  }
   return out;
 }
 

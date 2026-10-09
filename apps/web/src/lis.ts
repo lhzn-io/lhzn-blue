@@ -12,7 +12,7 @@ import {
   COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, oxygenStatus, stratStatus, yearLines,
   type Encoded, type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetObs, type MetWindow,
   type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type VarHistory, type WaveFrame,
-  type WaveHistory, type WaveLive, type WaveObs, type YearLine, Daily, type RiverHistory, type RiverLive,
+  type WaveHistory, type WaveLive, type WaveObs, type YearLine, Daily, type RiverHistory, type RiverLive, type TurbHistory, type TurbFrame,
 } from "./series";
 
 const DATA = "/data/v1";
@@ -141,7 +141,7 @@ interface VarView {
 }
 
 interface StationData {
-  kind: "buoy" | "shore" | "rivers" | "river"; // rivers: the all-rivers summary; river: one gauge
+  kind: "buoy" | "shore" | "rivers" | "river" | "turbidity"; // rivers: the all-rivers summary; river: one gauge
   meta: MetaStation;
   depths: string[]; // depths this station has, top to bottom
   // The selected variable's views (see useVar); `temp` always holds temperature, for stratification and air.
@@ -163,6 +163,64 @@ interface StationData {
   waves: Waves | null; // buoys with a wave sensor: the live window, then the full record once loaded
   river?: RiverData; // the rivers sections
   gauge?: Gauge; // a river section's gauge
+  turb?: TurbData; // the buoy turbidity section
+}
+
+/** Buoy turbidity: hourly median and fouling flag per buoy, the latest reading, and the recent share flagged. */
+interface TurbData {
+  buoys: { id: string; name: string }[];
+  ntu: Record<string, Hourly | null>;
+  suspect: Record<string, Hourly | null>;
+  last: Record<string, { time: string; turb_ntu: number | null } | null>;
+  share30: Record<string, number | null>;
+  qc: string;
+}
+
+function turbSection(stations: StationData[], live: Live, hist: TurbHistory | null): StationData | null {
+  const lt = live.turbidity ?? {};
+  const buoys = stations.filter((d) => d.kind === "buoy" && lt[d.meta.id]).map((d) => ({ id: d.meta.id, name: d.meta.name }));
+  if (!buoys.length) return null;
+  const col = (f: TurbFrame | undefined, l: TurbFrame | undefined, k: "turb_ntu" | "suspect") =>
+    Hourly.merge(Hourly.fromArray(f?.t0, f?.[k]), Hourly.fromArray(l?.t0, l?.[k]));
+  const turb: TurbData = {
+    buoys,
+    ntu: Object.fromEntries(buoys.map((b) => [b.id, col(hist?.stations[b.id], lt[b.id], "turb_ntu")])),
+    suspect: Object.fromEntries(buoys.map((b) => [b.id, col(hist?.stations[b.id], lt[b.id], "suspect")])),
+    last: Object.fromEntries(buoys.map((b) => [b.id, lt[b.id]?.last_obs ?? null])),
+    share30: Object.fromEntries(buoys.map((b) => [b.id, lt[b.id]?.suspect_30d ?? null])),
+    qc: hist?.qc ?? "",
+  };
+  const now = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
+  const empty = { hourly: {}, m36: {}, chg: {}, delta: null, delta36: null };
+  return {
+    kind: "turbidity",
+    meta: {
+      id: "TURB", name: "Turbidity at the buoys", operator: "LISICOS", lat: 41, lon: -73, info_url: null, series: [],
+      note:
+        "Optical turbidity sensors 1 m below each buoy. In warm water the sensor's window fouls within weeks: a film of algae, then barnacles, " +
+        "scatters light back into the sensor, so the reading climbs steadily (from 1 to 2 NTU after servicing to tens of NTU by late summer) " +
+        "though the water has not changed, and servicing drops it back to baseline in one step. Readings that repeat one value for 2 hours or more " +
+        "are dropped as stuck. A day whose quietest tenth of readings sits above 5 NTU is flagged as likely fouling and drawn faintly: clean open " +
+        "water in the Sound sits near 1 NTU between storms, and a storm stirring up the bottom leaves a day's quietest readings low, while a fouled " +
+        "window lifts them all. This is a working rule, to be checked against the operator's servicing dates; early in a fouling climb it can " +
+        "miss days. For river runoff, the USGS sensor on the Connecticut River is serviced and reviewed. NTU (these buoys) and FNU (the USGS sensor) " +
+        "are close but not identical units.",
+    },
+    depths: buoys.map((b) => b.id),
+    ...empty,
+    temp: empty,
+    views: {},
+    obs: Object.fromEntries(buoys.map((b) => [b.id, turb.last[b.id] ? { time: turb.last[b.id]!.time, depth_m: 1, temperature_c: null, salinity: null, oxygen_mg_l: null } : null])),
+    live: true,
+    now,
+    anchor: now,
+    met: null,
+    level: null,
+    tides: [],
+    levelNow: null,
+    waves: null,
+    turb,
+  };
 }
 
 /* ---------- Rivers ---------- */
@@ -384,6 +442,9 @@ async function ensureVar(k: VarKey, live: Live, stations: StationData[]): Promis
   if (k === "rivers") {
     const [rl, rh] = await Promise.all([getJson<RiverLive>(`${DATA}/rivers.json`), getJson<RiverHistory>(`${DATA}/${WATER_VARS.rivers.file}`)]);
     RIVER_SECTIONS = riverSections(rl, rh);
+    const th = await getJson<TurbHistory>(`${DATA}/history-turbidity.json`).catch(() => null); // the live 100 days still show
+    const ts = turbSection(stations, live, th);
+    if (ts) RIVER_SECTIONS.splice(1, 0, ts);
     $("about-sources").insertAdjacentHTML(
       "beforeend",
       ` Rivers: <a href="https://waterdata.usgs.gov/">USGS</a> stream gauges (${rh.meta.gauges.map((g) => `${g.name}, ${g.usgs_id}`).join("; ")}). ` +
@@ -554,7 +615,7 @@ function stratNow(d: StationData): { deltaC: number; status: string } {
 
 /* ---------- Figures: one builder per view, used inline and in the zoom view ---------- */
 
-type Kind = "yoy" | "chg" | "col" | "sb" | "wind" | "air" | "tide" | "waves" | "pressure" | "flow" | "share" | "rturb" | "ryoy" | "rpct";
+type Kind = "yoy" | "chg" | "col" | "sb" | "wind" | "air" | "tide" | "waves" | "pressure" | "flow" | "share" | "rturb" | "ryoy" | "rpct" | "bturb";
 
 /**
  * Charts sit in two columns, and a chart shares its time axis with the ones above and below it: the left
@@ -1104,6 +1165,47 @@ const FIGS: Record<Kind, Fig> = {
         ? timelineBuilt(d, dailyFlow(d), "SFC", grid(x0, x1), { marker: { x: d.now, label: "now" }, zero: true, empty: "No flow in this window." })
         : yearBuilt(d, dailyFlow(d), grid(x0, x1), { marker: { x: d.now, label: "now" }, zero: true, empty: "No flow in this window." }),
   },
+  bturb: {
+    title: "Turbidity at the buoys",
+    sub: "hourly median at 1 m; faint where the day is flagged as likely sensor fouling",
+    varies: false,
+    in: (k) => k === "rivers",
+    wide: true,
+    depthTabs: false,
+    seasonal: false,
+    available: (d) => d.kind === "turbidity",
+    window: LEFT,
+    maxSpan: Infinity,
+    start: (d) => Math.min(...Object.values(d.turb?.ntu ?? {}).map((s) => s?.t0 ?? Infinity)),
+    build: (d, _depth, x0, x1) => {
+      const xs = grid(x0, x1);
+      const t = d.turb!;
+      const colors = [P.depth.SFC, P.depth.MID, P.depth.BTM, P.wind, P.air];
+      const fmt = (v: number) => `${v.toFixed(1)} NTU`;
+      const lines: Line[] = [];
+      const cleanVals: number[] = [];
+      t.buoys.forEach((b, i) => {
+        const ntu = t.ntu[b.id];
+        const sus = t.suspect[b.id];
+        const clean = xs.map((x) => (sus?.at(x) === 0 ? (ntu?.at(x) ?? NaN) : NaN));
+        const flagged = xs.map((x) => (sus?.at(x) === 1 ? (ntu?.at(x) ?? NaN) : NaN));
+        clean.forEach((v) => Number.isFinite(v) && cleanVals.push(v));
+        const color = colors[i % colors.length];
+        lines.push({ ys: flagged, color, width: 0.9, opacity: 0.28, label: `${b.name}, likely fouled`, fmt });
+        lines.push({ ys: clean, color, width: 1.5, label: b.name, fmt });
+      });
+      // The axis follows the bulk of the clean readings (twice their 90th percentile, at least 10 NTU), so a stray
+      // unflagged spike does not flatten them; anything above runs along the top edge, with its true value on hover.
+      cleanVals.sort((a, b) => a - b);
+      const p90 = cleanVals.length ? cleanVals[Math.floor(0.9 * (cleanVals.length - 1))] : 5;
+      const cap = Math.max(10, Math.ceil(p90 * 2));
+      return {
+        opts: { xs, lines, unit: " NTU", hoverDigits: 1, zero: true, ceil: cap, empty: "No turbidity readings in this window." },
+        legend: t.buoys.map((b, i) => [b.name, colors[i % colors.length], 1] as [string, string, number]),
+        note: `faint: likely fouled; the axis stops at ${cap} NTU and readings above it run along the top edge (hover for the value)`,
+      };
+    },
+  },
   rpct: {
     title: "Percentile for the date",
     sub: "25 to 75 is normal",
@@ -1137,7 +1239,7 @@ const FIGS: Record<Kind, Fig> = {
 };
 
 /** Figure order in a section, left column then right, row by row. */
-const ORDER: Kind[] = ["yoy", "chg", "col", "sb", "wind", "air", "tide", "waves", "pressure", "share", "flow", "rpct", "ryoy", "rturb"];
+const ORDER: Kind[] = ["yoy", "chg", "col", "sb", "wind", "air", "tide", "waves", "pressure", "share", "bturb", "flow", "rpct", "ryoy", "rturb"];
 
 /** A figure's name with the variable it shows, for the zoom title and screen readers. */
 const figName = (f: Fig) => (f.varies && VK !== "temp" ? `${V().label}: ${f.title.charAt(0).toLowerCase()}${f.title.slice(1)}` : f.title);
@@ -1469,6 +1571,10 @@ function depthTabsHtml(d: StationData, key: string, active: string): string {
 /** The heading's record line: per depth for the water views; the wave record (or the weather window) for wind. */
 function recordLine(d: StationData, perDepth: string): string {
   if (d.kind === "rivers") return "Daily flow from 1990; recent flow hourly";
+  if (d.kind === "turbidity") {
+    const first = Math.min(...Object.values(d.turb?.ntu ?? {}).map((s) => s?.t0 ?? Infinity));
+    return Number.isFinite(first) ? `Hourly from ${new Date(first * 1000).getUTCFullYear()}` : "Hourly, last 100 days";
+  }
   if (d.kind === "river") return `Daily flow from ${d.gauge?.record_start?.slice(0, 4) ?? "--"}; recent flow hourly`;
   if (isWater(VK)) return `${VK === "temp" ? "Record" : `${V().label} record`}: ${perDepth}`;
   const id = d.meta.id;
@@ -1514,11 +1620,12 @@ function sectionHtml(d: StationData): string {
     <section class="station" id="${id}" aria-labelledby="${id}-title">
       <div class="station-head">
         <h2 id="${id}-title"><i class="dot ${overallState(d)}"></i>${st.name}</h2>
-        <span class="sid">${d.kind === "rivers" ? "USGS stream gauges" : d.kind === "river" ? `USGS ${d.gauge!.usgs_id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W` : `${id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W`}</span>
+        <span class="sid">${d.kind === "turbidity" ? "LISICOS buoys, optical sensors at 1 m" : d.kind === "rivers" ? "USGS stream gauges" : d.kind === "river" ? `USGS ${d.gauge!.usgs_id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W` : `${id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W`}</span>
         <span class="rec">${recordLine(d, rec)}</span>
       </div>
-      <p class="station-links"><span>${d.kind === "rivers" || d.kind === "river" ? "At USGS:" : d.kind === "shore" ? "At NOAA:" : "At LISICOS:"}</span>${[
+      <p class="station-links"><span>${d.kind === "turbidity" ? "Buoys:" : d.kind === "rivers" || d.kind === "river" ? "At USGS:" : d.kind === "shore" ? "At NOAA:" : "At LISICOS:"}</span>${[
         ...(d.kind === "rivers" ? (d.river?.gauges ?? []).map((g) => `<a href="#${g.id}">${g.river}</a>`) : []),
+        ...(d.kind === "turbidity" ? (d.turb?.buoys ?? []).map((b) => `<a href="${(registry.stations as { id: string; info_url?: string }[]).find((s) => s.id === b.id)?.info_url ?? "#"}">${b.name}</a>`) : []),
         st.info_url ? `<a href="${st.info_url}">${d.kind === "river" ? "Gauge page" : d.kind === "shore" ? "Station page" : "About this buoy"}</a>` : "",
         panelsOf(id).weather ? `<a href="${panelsOf(id).weather}">Weather panel</a>` : "",
         panelsOf(id).water_quality ? `<a href="${panelsOf(id).water_quality}">Water quality panel</a>` : "",
@@ -1533,6 +1640,25 @@ function sectionHtml(d: StationData): string {
 }
 
 function readouts(d: StationData): void {
+  if (d.kind === "turbidity") {
+    const t = d.turb!;
+    $(`${d.meta.id}-readouts`).innerHTML = t.buoys
+      .map((b) => {
+        const o = t.last[b.id];
+        const state = o ? obsState({ time: o.time } as LastObs) : "offline";
+        const sus = t.suspect[b.id];
+        const end = sus ? sus.lastValid() : NaN;
+        const fouled = Number.isFinite(end) && sus!.at(end) === 1;
+        const share = t.share30[b.id];
+        const sub = [
+          state === "offline" ? "no current reading" : fouled ? "likely fouled today" : "clean by the check",
+          share != null ? `${Math.round(share * 100)}% of the last 30 days flagged` : "",
+        ].filter(Boolean).join(" &middot; ");
+        return `<div class="readout"><div class="num${fouled ? " faint" : ""}">${o?.turb_ntu != null && state !== "offline" ? o.turb_ntu.toFixed(1) : "--"}<small>NTU</small></div><span class="lab">${b.name}</span><span class="sub ${fouled ? "delayed" : state}">${sub}</span></div>`;
+      })
+      .join("");
+    return;
+  }
   if (d.kind === "river") {
     const r = d.river!;
     const g = d.gauge!;

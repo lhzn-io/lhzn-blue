@@ -12,6 +12,7 @@
       "operator": "LISICOS, University of Connecticut",
       "info_url": "https://lisicos.uconn.edu/about_wlis.php",
       "met": { "dataset": "WLIS_MET" },
+      "turbidity": { "dataset": "WLIS_ECO_NTU", "depth_m": 1, "first_year": 2021 },
       "waves": { "sensor": true, "dataset": "WLIS_WAVE" },
       "panels": {
         "weather": "https://lisicos.uconn.edu/stn_wlis.php?id=wlis_wx_panel",
@@ -32,6 +33,7 @@
       "operator": "LISICOS, University of Connecticut",
       "info_url": "https://lisicos.uconn.edu/about_exrx.php",
       "met": { "dataset": "EXRX_MET" },
+      "turbidity": { "dataset": "EXRX_ECO_NTU", "depth_m": 1, "first_year": 2019 },
       "waves": { "sensor": true, "dataset": "EXRX_WAVE" },
       "panels": {
         "weather": "https://lisicos.uconn.edu/stn_exrx.php?id=exrx_wx_panel",
@@ -76,6 +78,7 @@
       "operator": "LISICOS, University of Connecticut",
       "info_url": "https://lisicos.uconn.edu/about_artg.php",
       "met": { "dataset": "ARTG_MET" },
+      "turbidity": { "dataset": "ARTG_ECO_NTU", "depth_m": 1, "first_year": 2025 },
       "waves": { "sensor": false },
       "panels": {
         "weather": "https://lisicos.uconn.edu/stn_artg.php?id=artg_wx_panel",
@@ -92,6 +95,7 @@
       "operator": "LISICOS, University of Connecticut",
       "info_url": "https://lisicos.uconn.edu/about_clis.php",
       "met": { "dataset": "CLIS_MET" },
+      "turbidity": { "dataset": "CLIS_ECO_NTU", "depth_m": 1, "first_year": 2026 },
       "waves": { "sensor": true, "dataset": "CLIS_WAVE" },
       "panels": {
         "weather": "https://lisicos.uconn.edu/stn_clis.php?id=clis_wx_panel",

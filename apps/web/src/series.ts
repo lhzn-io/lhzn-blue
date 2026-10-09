@@ -55,6 +55,7 @@ export interface Live {
   salinity?: Record<string, Encoded>;
   oxygen?: Record<string, Encoded>; // mg/L
   waves?: Record<string, WaveLive>;
+  turbidity?: Record<string, TurbLive>;
   met?: Record<string, MetWindow>;
   datasets: Record<string, { last_ok?: string; last_error?: string; rows?: number }>;
 }
@@ -200,6 +201,25 @@ export interface WaveHistory {
   qc: string;
   meta: Record<string, { dataset: string; published: boolean; checked_at: string; record_start: string | null; last_obs: WaveObs | null; saved_downloads: number | null }>;
   stations: Record<string, WaveFrame>;
+}
+
+/** Buoy turbidity: hourly median (NTU) and the day's fouling flag (1 = likely fouled). */
+export interface TurbFrame {
+  t0: string | null;
+  step: number;
+  turb_ntu?: (number | null)[];
+  suspect?: (number | null)[];
+}
+export interface TurbLive extends TurbFrame {
+  last_obs: { time: string; turb_ntu: number | null } | null;
+  dataset: string;
+  suspect_30d: number | null;
+}
+export interface TurbHistory {
+  generated_at: string;
+  qc: string;
+  meta: Record<string, { dataset: string; depth_m: number | null; record_start: string | null; hours: number; suspect_share: number | null }>;
+  stations: Record<string, TurbFrame>;
 }
 
 /** Rivers (USGS stream gauges): the hourly window and the latest reading. */

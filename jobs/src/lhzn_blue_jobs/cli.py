@@ -13,7 +13,7 @@ import sys
 import os
 from pathlib import Path
 
-from . import build, rivers, shore, waves
+from . import build, rivers, shore, turbidity, waves
 
 
 def main() -> None:
@@ -37,6 +37,7 @@ def main() -> None:
     if args.command == "history":
         build.history(store)
         store.write_json("v1/history-waves.json", waves.history(store), max_age=3600)
+        _shore(lambda: store.write_json("v1/history-turbidity.json", turbidity.history(store), max_age=3600), "turbidity")
         _shore(lambda: store.write_json(
             "v1/shore-history.json", shore.history(store.read_json("v1/shore-history.json"), build.now_utc()), max_age=3600
         ))

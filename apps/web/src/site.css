@@ -278,6 +278,8 @@ main { padding: 0 var(--gutter) 40px; }
 }
 .readout .num { font-family: var(--figures); font-size: 38px; font-weight: 300; line-height: 0.95; letter-spacing: 0.04em; font-variant-numeric: lining-nums; }
 .readout .num small { font-size: 16px; margin-left: 4px; color: var(--band-sub); letter-spacing: 0.02em; }
+/* A reading the checks flag (for example a fouled turbidity sensor): shown, but dimmed. */
+.readout .num.faint { opacity: 0.55; }
 .readout .lab { display: block; margin-top: 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
 .readout .sub { display: block; margin-top: 2px; font-size: 12px; color: var(--band-sub); }
 .readout .sub.delayed { color: var(--delayed); }

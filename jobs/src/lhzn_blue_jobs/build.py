@@ -11,7 +11,7 @@ Published layout (under ``<root>/v1/``):
 - ``history-salinity.json``, ``history-oxygen.json``: the same hourly record for salinity and dissolved
   oxygen (mg/L), rebuilt with it; the page loads them only when a reader switches to that variable.
 - ``live.json``: the last 45 days, hourly, of every variable, plus the latest raw observation per series,
-  the buoy weather and waves (100 days; see waves.py); refreshed hourly.
+  the buoy weather, waves and turbidity (100 days; see waves.py and turbidity.py); refreshed hourly.
 - ``archive/<STATION>_<DEPTH>.json``: hourly series converted once from our own snapshots of
   datasets the server no longer publishes under their original names. Read by the history build;
   not served to the page.
@@ -83,7 +83,7 @@ MET_RANGES = {
 }
 # Every object the jobs may write. Anything else is refused (see Store.write_json).
 WRITABLE = re.compile(
-    r"v1/(history|history-salinity|history-oxygen|history-waves|live|shore|shore-history|rivers|rivers-history)\.json"
+    r"v1/(history|history-salinity|history-oxygen|history-waves|history-turbidity|live|shore|shore-history|rivers|rivers-history)\.json"
     r"|v1/archive/[A-Z]{3,5}_(SFC|MID|BTM|WAVE)\.json"
 )
 MAX_OBJECT_BYTES = 8 * 1024 * 1024
@@ -541,14 +541,15 @@ def live(store: Store, full: bool = False) -> None:
             out_vars["temp"][key].update({"last_obs": last_obs, "dataset": ds})
             out_datasets[ds] = status
     out_met = live_met(prev.get("met", {}), prev_datasets, out_datasets, end)
-    from . import waves  # imported here: waves builds on this module
+    from . import turbidity, waves  # imported here: both build on this module
 
     out_waves = waves.live(prev.get("waves", {}), prev_datasets, out_datasets, end, store)
+    out_turb = turbidity.live(prev.get("turbidity", {}), prev_datasets, out_datasets, end)
     store.write_json(
         "v1/live.json",
         {"schema": SCHEMA, "generated_at": iso(end), "series": out_vars["temp"]}
         | {var: out_vars[var] for var in EXTRA_VARS}
-        | {"met": out_met, "waves": out_waves, "datasets": out_datasets},
+        | {"met": out_met, "waves": out_waves, "turbidity": out_turb, "datasets": out_datasets},
         max_age=300,
     )
 

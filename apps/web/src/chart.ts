@@ -46,6 +46,7 @@ export interface ChartOptions {
   marker?: { x: number; label: string }; // a vertical rule, e.g. "now"
   hoverDigits?: number;
   floor?: number; // the value axis reaches at least down to this (keeps a reference level in view)
+  ceil?: number; // the value axis stops here; higher values run along the top edge (the tooltip keeps the true value)
   empty?: string; // message (HTML) when the window holds no data
 }
 
@@ -170,6 +171,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   }
   let lo = Math.min(...all, o.floor ?? Infinity);
   let hi = Math.max(...all);
+  if (o.ceil !== undefined) hi = Math.min(hi, o.ceil);
   const pad = Math.max(0.5, (hi - lo) * 0.08);
   lo -= pad;
   hi += pad;
@@ -224,7 +226,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
       // Zero-length segments with round caps: true dots under preserveAspectRatio="none" (circles would stretch).
       let d = "";
       line.ys.forEach((v, i) => {
-        if (Number.isFinite(v)) d += `M${px(xs[i]).toFixed(1)},${py(v).toFixed(2)}l0,0.001`;
+        if (Number.isFinite(v)) d += `M${px(xs[i]).toFixed(1)},${py(Math.min(v, hi)).toFixed(2)}l0,0.001`;
       });
       if (d) {
         svg.append(
@@ -244,7 +246,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
         pen = false;
         return;
       }
-      d += `${pen ? "L" : "M"}${px(xs[i]).toFixed(1)},${py(v).toFixed(2)}`;
+      d += `${pen ? "L" : "M"}${px(xs[i]).toFixed(1)},${py(Math.min(v, hi)).toFixed(2)}`;
       pen = true;
     });
     if (!d) continue;

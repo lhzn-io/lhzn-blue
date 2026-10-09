@@ -33,13 +33,13 @@ What `longhorizon.blue` does next, in rough order. Status as of 2026-10-09.
 - [x] Wind and waves view: wind, air, pressure tendency, and waves from our saved downloads, with the wave datasets
       checked hourly so they return on their own
 - [x] Rivers view: nine USGS gauges, flow against normal for the date, year comparisons, and a watershed map
+- [x] Turbidity view: the buoys' point observations with a stuck-value test and a fouling flag, the biofouling
+      explained, and the Connecticut River's serviced USGS sensor as the river input
 
 ## Next
 
-1. **Buoy turbidity, with its reliability.** The buoys' optical turbidity sensors foul within weeks in warm water: a
-   1 to 2 NTU baseline after servicing climbs to tens of NTU by late summer, and some stretches stick at one value.
-   Publish every reading with a stuck-value test and a fouling flag, draw flagged stretches faintly with the reason,
-   and explain biofouling and servicing on the page.
+1. **Surface turbidity map.** The Turbidity view's first field: satellite turbidity (NOAA CoastWatch VIIRS) on the
+   map, with the buoys and the river sensor as points over it, and clouds and gaps shown as gaps.
 2. **Tide-averaged flow at Middle Haddam.** The lowest Connecticut River gauge with a tide-free record is
    Thompsonville, above Hartford (about 86% of the watershed). Below it USGS publishes only tidal flow at Middle
    Haddam, which reverses with the tide. Add a 25-hour mean of that flow as our own derived series, labelled as such,
@@ -55,9 +55,9 @@ What `longhorizon.blue` does next, in rough order. Status as of 2026-10-09.
    Hell Gate). Higher-resolution model runs of our own later.
 2. **Forecast against observed.** Wind (and later waves) from GFS or ECMWF over the observed record at each station,
    with the forecast's running error.
-3. **Gridded turbidity.** A turbidity map and short forecast from river discharge, wind and waves, and currents,
-   validated against the USGS river sensor and satellite turbidity (NOAA CoastWatch VIIRS) rather than the fouling
-   buoy sensors.
+3. **Turbidity field.** A modelled turbidity field and short forecast from river discharge, wind and waves, and
+   currents, first at the surface and then through the water column, validated against the USGS river sensor and
+   satellite turbidity rather than the fouling buoy sensors.
 4. **Weather history.** The full record of buoy weather (the server holds it from 2021 at Execution Rocks), and year
    comparisons for wind and air temperature.
 5. **Quality control.** Flat-line test; evaluate IOOS `ioos_qc` (QARTOD) for all tests; use the operator's own QC
@@ -81,8 +81,9 @@ What `longhorizon.blue` does next, in rough order. Status as of 2026-10-09.
 
 - **LISICOS:** credit on every view; restoring the series missing from the public server (Central Sound water
   quality, the ARTG surface sensor, the wave datasets); correcting the 2023 placeholder values in the Western Sound
-  mid-depth salinity column; buoy sensor servicing dates, to mark fouling honestly; and operational help getting the
-  full historical record into public catalogs.
+  mid-depth salinity column; servicing dates for the ECO FLNTU turbidity sensors, to mark fouling honestly; the
+  current profiler (ADCP) records from the buoys' surface packages, for the currents view; and operational help
+  getting the full historical record into public catalogs.
 - **NERACOOS:** regional context and the Mariners' Dashboard.
 - **USGS:** the Nissequogue River gauge, discontinued in October 2022 after a record from 1943.
 - **Open Waters:** tides, chart tiles, and AIS contribution.

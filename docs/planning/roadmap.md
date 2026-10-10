@@ -35,24 +35,37 @@ What `longhorizon.blue` does next, in rough order. Status as of 2026-10-09.
 - [x] Rivers view: nine USGS gauges, flow against normal for the date, year comparisons, and a watershed map
 - [x] Turbidity view: the buoys' point observations with a stuck-value test and a fouling flag, the biofouling
       explained, and the Connecticut River's serviced USGS sensor as the river input
+- [x] Surface fields on the map, chosen from a layers control: satellite sea surface temperature (NASA JPL MUR),
+      chlorophyll-a and water clarity (Kd490, NOAA CoastWatch VIIRS, merged across sensors with each pixel's age), and
+      modelled surface currents (NECOFS FVCOM, UMass Dartmouth) on the model's own triangles, 24h back to 72h ahead;
+      fetched through `forcingkit` by a daily job that keeps no cache
+- [x] A page timeline (24h back to 72h ahead) that moves the currents and a rule on every chart; values shown on the
+      chart lines at the cursor
 
 ## Next
 
-1. **Surface turbidity map.** The Turbidity view's first field: satellite turbidity (NOAA CoastWatch VIIRS) on the
-   map, with the buoys and the river sensor as points over it, and clouds and gaps shown as gaps.
-2. **Tide-averaged flow at Middle Haddam.** The lowest Connecticut River gauge with a tide-free record is
+1. **Satellite history as a movie.** Play the recent past of SST, chlorophyll-a and Kd490 on the map, with the page
+   timeline stretched to weeks (30 to 90 days) in a history mode. One frame a day: SST as published (gap-free);
+   chlorophyll and Kd490 as rolling 7-day composites with each pixel's age, so clouds do not blank the frames, or the
+   gap-filled 2 km DINEOF products once their archive depth is checked. Published as one fixed rolling-window file per
+   field, overwritten daily, so storage cannot grow; the daily job adds one day and drops the oldest, after a one-off
+   backfill. Needs a compact binary frame format (8-bit values on the field's scale plus 1 byte of age per pixel,
+   about 30 to 60 KB a frame) in place of today's JSON integers, and the same format for the currents.
+2. **Station values at the timeline's time.** Map pins and the overview table follow the timeline cursor, marked
+   observed or forecast, with "--" where nothing covers the time.
+3. **Tide-averaged flow at Middle Haddam.** The lowest Connecticut River gauge with a tide-free record is
    Thompsonville, above Hartford (about 86% of the watershed). Below it USGS publishes only tidal flow at Middle
    Haddam, which reverses with the tide. Add a 25-hour mean of that flow as our own derived series, labelled as such,
    without normals (USGS publishes none for it).
-3. **Mobile formatting.** A pass over the phone layout: masthead, map height, status grid, chart heights, legend
+4. **Mobile formatting.** A pass over the phone layout: masthead, map height, status grid, chart heights, legend
    wrapping, zoom view controls, and tap targets (the page is wider than a phone screen today).
-4. **Rate limiting** on the data files at the edge, then retire the `workers.dev` address.
+5. **Rate limiting** on the data files at the edge, then retire the `workers.dev` address.
 
 ## After that
 
-1. **Currents.** Modelled currents across the Sound (NECOFS, UMass Dartmouth) drawn on the map faithfully to the
-   model's own unstructured grid, with tidal current predictions at the CO-OPS current stations (The Race, Plum Gut,
-   Hell Gate). Higher-resolution model runs of our own later.
+1. **Currents, continued.** Tidal current predictions at the CO-OPS current stations (The Race, Plum Gut, Hell Gate)
+   beside the modelled field, and the modelled currents checked against them. Higher-resolution model runs of our own
+   later.
 2. **Forecast against observed.** Wind (and later waves) from GFS or ECMWF over the observed record at each station,
    with the forecast's running error.
 3. **Turbidity field.** A modelled turbidity field and short forecast from river discharge, wind and waves, and

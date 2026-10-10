@@ -117,6 +117,26 @@ export function highlight(plot: HTMLElement, label: string | null): void {
   });
 }
 
+let asOfT: number | null = null;
+
+function placeAsOf(rule: SVGLineElement): void {
+  const x0 = Number(rule.dataset.x0);
+  const x1 = Number(rule.dataset.x1);
+  const inside = asOfT != null && asOfT >= x0 && asOfT <= x1;
+  rule.setAttribute("visibility", inside ? "visible" : "hidden");
+  if (inside) {
+    const xx = ((asOfT! - x0) / (x1 - x0)) * 1000;
+    rule.setAttribute("x1", String(xx));
+    rule.setAttribute("x2", String(xx));
+  }
+}
+
+/** Move the page timeline's rule on every chart (null hides it: the cursor is at now). */
+export function markAsOf(t: number | null): void {
+  asOfT = t;
+  document.querySelectorAll<SVGLineElement>("line.asof").forEach(placeAsOf);
+}
+
 export interface Rendered {
   x0: number;
   x1: number;
@@ -135,6 +155,14 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     tip.hidden = true;
     plot.append(tip);
   }
+  let marks = plot.querySelector<HTMLElement>(".cursor-vals");
+  if (!marks) {
+    marks = document.createElement("div");
+    marks.className = "cursor-vals";
+    marks.setAttribute("aria-hidden", "true");
+    plot.append(marks);
+  }
+  marks.replaceChildren();
   const theme = {
     grid: cssVar("--chart-grid"),
     rule: cssVar("--chart-rule"),
@@ -219,6 +247,13 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     labels.push(`<span class="arriving" style="left:${(100 * xx) / W}%">${o.marker.label}</span>`);
   }
 
+  // The page timeline's time, drawn under the lines.
+  const asof = el("line", { x1: 0, x2: 0, y1: 0, y2: H, class: "asof", stroke: theme.now, "stroke-width": 1.5, "vector-effect": "non-scaling-stroke" });
+  asof.dataset.x0 = String(x0);
+  asof.dataset.x1 = String(x1);
+  placeAsOf(asof);
+  svg.append(asof);
+
   // Lines last, so the highlighted one sits on top (callers pass it last).
   for (const line of o.lines) {
     if (line.hidden) continue;
@@ -275,22 +310,43 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     cursor.setAttribute("x1", String(xx));
     cursor.setAttribute("x2", String(xx));
     cursor.setAttribute("visibility", "visible");
-    const rows = tipLines
-      .filter((l) => Number.isFinite(l.ys[i]))
-      .slice(0, 10)
-      .map(
-        (l) =>
-          `<div><i style="background:${l.hidden ? "transparent" : l.color};opacity:${Math.max(0.5, l.opacity ?? 1)}"></i>${l.label}<b>${l.fmt ? l.fmt(l.ys[i]) : l.ys[i].toFixed(hd) + o.unit}</b></div>`,
-      );
-    tip!.innerHTML = `<span class="tip-time">${fmtHour.format(new Date(xs[i] * 1000))}</span>${rows.join("") || "<div>no data</div>"}`;
-    tip!.hidden = false;
+    const value = (l: Line) => (l.fmt ? l.fmt(l.ys[i]) : l.ys[i].toFixed(hd) + o.unit);
+    const have = tipLines.filter((l) => Number.isFinite(l.ys[i])).slice(0, 12);
     const frac = xx / W;
-    tip!.style.left = frac > 0.6 ? "" : `calc(${frac * 100}% + 10px)`;
-    tip!.style.right = frac > 0.6 ? `calc(${(1 - frac) * 100}% + 10px)` : "";
+    // On-line values, in pixels within the plot. Labels go right of the cursor, or left near the right edge.
+    // Measured from the drawing area, not the plot box (which also holds the value axis on the right).
+    const box = svg.getBoundingClientRect();
+    const outer = plot.getBoundingClientRect();
+    const top = box.top - outer.top;
+    const x = box.left - outer.left + frac * box.width;
+    const pts = have
+      .filter((l) => !l.hidden)
+      .map((l) => ({ l, y: top + (py(Math.min(l.ys[i], hi)) / H) * box.height, at: 0 }))
+      .sort((a, b) => a.y - b.y);
+    // Spread the labels: push each below the one above it, then pull the stack back up if it runs off the bottom.
+    const gap = 13;
+    const floor = top + box.height - gap / 2;
+    pts.forEach((p, k) => (p.at = Math.max(p.y, k ? pts[k - 1].at + gap : top + gap / 2)));
+    for (let k = pts.length - 1; k >= 0; k--) pts[k].at = Math.min(pts[k].at, k === pts.length - 1 ? floor : pts[k + 1].at - gap);
+    const side = frac > 0.6 ? "left" : "right";
+    marks!.innerHTML = pts
+      .map(
+        ({ l, y, at }) =>
+          `<i class="cv-dot" style="left:${x}px;top:${y}px;background:${l.color}"></i>` +
+          `<span class="cv-lab ${side}" style="left:${x}px;top:${at}px"><i style="background:${l.color};opacity:${Math.max(0.5, l.opacity ?? 1)}"></i>${l.label}<b>${value(l)}</b></span>`,
+      )
+      .join("");
+    // The box: the time, and values with no line of their own; on the other side of the cursor from the labels.
+    const extra = have.filter((l) => l.hidden).map((l) => `<div>${l.label}<b>${value(l)}</b></div>`);
+    tip!.innerHTML = `<span class="tip-time">${fmtHour.format(new Date(xs[i] * 1000))}</span>${extra.join("")}${have.length ? "" : "<div>no data</div>"}`;
+    tip!.hidden = false;
+    tip!.style.left = side === "left" ? `${x + 10}px` : "";
+    tip!.style.right = side === "left" ? "" : `${outer.width - x + 10}px`;
   };
   const hide = () => {
     cursor.setAttribute("visibility", "hidden");
     tip!.hidden = true;
+    marks!.replaceChildren();
   };
   svg.onpointermove = (e) => {
     if (e.pointerType === "mouse" || plot.dataset.zoom === "1") show(e.clientX);

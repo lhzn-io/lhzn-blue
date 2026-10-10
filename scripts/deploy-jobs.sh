@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the ingest image and (re)deploy the two Cloud Run jobs: `live` (hourly) and `history` (daily).
+# Build the ingest image and (re)deploy the Cloud Run jobs: `live` (hourly), `history` and `fields` (daily).
 # Settings come from ~/.config/lhzn-blue/env (never committed):
 #   GCP_PROJECT      Google Cloud project id
 #   GCP_REGION       e.g. us-central1
@@ -38,12 +38,15 @@ gcloud builds submit "$CTX" --project "$GCP_PROJECT" --region "$GCP_REGION" \
 SECRETS="CLOUDFLARE_API_TOKEN=${CF_TOKEN_SECRET}:latest"
 [ -n "${USGS_KEY_SECRET:-}" ] && SECRETS="${SECRETS},USGS_API_KEY=${USGS_KEY_SECRET}:latest"
 
-for mode in live history; do
+# Per job: timeout and memory. `fields` reads the model mesh and satellite grids, so it gets the most memory.
+declare -A TIMEOUT=([live]=10m [history]=30m [fields]=20m)
+declare -A MEMORY=([live]=512Mi [history]=1Gi [fields]=2Gi)
+for mode in live history fields; do
   gcloud run jobs deploy "lhzn-blue-${mode}" \
     --project "$GCP_PROJECT" --region "$GCP_REGION" --image "$IMAGE" \
     --service-account "$JOB_SA" --args "$mode" \
     --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE}" \
     --set-secrets "$SECRETS" \
-    --tasks 1 --max-retries 1 --task-timeout "$([ "$mode" = live ] && echo 10m || echo 30m)" \
-    --cpu 1 --memory "$([ "$mode" = live ] && echo 512Mi || echo 1Gi)"
+    --tasks 1 --max-retries 1 --task-timeout "${TIMEOUT[$mode]}" \
+    --cpu 1 --memory "${MEMORY[$mode]}"
 done

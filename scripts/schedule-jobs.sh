@@ -1,5 +1,6 @@
 #!/bin/bash
-# Create or update the Cloud Scheduler triggers: `live` at 20 minutes past each hour, `history` daily.
+# Create or update the Cloud Scheduler triggers: `live` at 20 minutes past each hour, `history` and `fields` daily.
+# Three triggers are the free allowance per billing account; a fourth would cost $0.10 a month.
 # Uses the same ~/.config/lhzn-blue/env as deploy-jobs.sh, plus:
 #   SCHEDULER_SA  service account allowed to run the jobs (roles/run.invoker)
 set -euo pipefail
@@ -15,7 +16,7 @@ trigger() { # name, cron, job
     --oauth-service-account-email "$SCHEDULER_SA" --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform"
 }
 
-for job in lhzn-blue-live lhzn-blue-history; do
+for job in lhzn-blue-live lhzn-blue-history lhzn-blue-fields; do
   gcloud run jobs add-iam-policy-binding "$job" --project "$GCP_PROJECT" --region "$GCP_REGION" \
     --member "serviceAccount:$SCHEDULER_SA" --role roles/run.invoker >/dev/null
 done
@@ -24,3 +25,5 @@ done
 # for 36-hour means and gentle on the server.
 trigger lhzn-blue-live "20 * * * *" lhzn-blue-live
 trigger lhzn-blue-history "15 3 * * *" lhzn-blue-history
+# Surface fields once a day, after the morning NECOFS forecast (posted by about 07:00) and the daily MUR analysis.
+trigger lhzn-blue-fields "30 8 * * *" lhzn-blue-fields

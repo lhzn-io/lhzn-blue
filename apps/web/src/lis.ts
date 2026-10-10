@@ -7,6 +7,7 @@ import registry from "../../../stations/stations.json";
 import shoreRegistry from "../../../stations/shore.json";
 import { highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
 import type { Pin } from "./map";
+import type { FieldData, FieldKind } from "./fields";
 import { wireSuggest } from "./suggest";
 import {
   COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, oxygenStatus, stratStatus, yearLines,
@@ -79,16 +80,32 @@ const DEPTH_LABEL: Record<string, string> = { SFC: "Surface", MID: "Mid", BTM: "
 const DELAYED_HOURS = 3; // older than this: delayed
 const OFFLINE_HOURS = 24; // older than this: offline
 const fmtUtc = (iso: string) => iso.slice(0, 16).replace("T", " ") + " UTC";
+const etClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+const etDayClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const etKey = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+/** New York time, short: "2:20 PM" today, "Oct 8, 3:15 AM" otherwise. */
+function fmtEt(iso: string): string {
+  const d = new Date(iso);
+  return etKey.format(d) === etKey.format(new Date()) ? etClock.format(d) : etDayClock.format(d);
+}
+/** A short span between two times: "12m", "3h 5m", "4d". */
+function span(fromMs: number, toMs: number): string {
+  const min = Math.max(0, Math.round((toMs - fromMs) / 60000));
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 48) return min % 60 ? `${h}h ${min % 60}m` : `${h}h`;
+  return `${Math.round(h / 24)}d`;
+}
 const fmtDate = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "short", day: "numeric" });
 
 function ago(iso: string | number): string {
   const t = typeof iso === "number" ? iso * 1000 : Date.parse(iso);
   const min = Math.max(0, Math.round((Date.now() - t) / 60000));
-  if (min < 60) return `${min} min ago`;
+  if (min < 60) return `${min}m ago`;
   const h = Math.floor(min / 60);
-  if (h < 48) return `${h} h ${min % 60} min ago`;
+  if (h < 48) return `${h}h ${min % 60}m ago`;
   const days = Math.round(h / 24);
-  return days < 120 ? `${days} days ago` : `since ${fmtDate.format(new Date(t))}`;
+  return days < 120 ? `${days}d ago` : `since ${fmtDate.format(new Date(t))}`;
 }
 const hoursOld = (iso: string) => (Date.now() - Date.parse(iso)) / 3.6e6;
 const f1 = (v: number) => (Number.isFinite(v) ? v.toFixed(1) : "--");
@@ -399,7 +416,7 @@ function windArrow(fromDeg: number): string {
   return `<svg class="wind-arrow" viewBox="-6 -6 12 12" width="12" height="12" role="img" aria-label="from ${compass(fromDeg)}"><title>from ${compass(fromDeg)} (${Math.round(fromDeg)}°), blowing toward ${compass(to)}</title><g transform="rotate(${to.toFixed(0)})"><path d="M0 -5 L3.2 2.6 L0 1 L-3.2 2.6 Z" fill="currentColor"/></g></svg>`;
 }
 
-/** Wind units: buoy data arrives in knots; the reader picks how it is shown (remembered per browser). */
+/** Speed units for wind and currents: buoy data arrives in knots; the reader picks how it is shown (remembered per browser). */
 const WIND_UNITS = {
   kt: { factor: 1, label: "kt", name: "knots", digits: 0 },
   mph: { factor: 1.150779, label: "mph", name: "miles per hour", digits: 0 },
@@ -414,6 +431,8 @@ try {
   /* private mode: knots */
 }
 const windVal = (kt: number) => kt * WIND_UNITS[WU].factor;
+/** The current speed unit for the map's currents (stored in cm/s): 1 cm/s is 0.0194384 kt. */
+const currentSpeed = () => ({ label: WIND_UNITS[WU].label, perCms: 0.0194384 * WIND_UNITS[WU].factor, digits: 1 });
 const waveUnit = () => (WU === "ms" ? { label: "m", factor: 1, digits: 2 } : { label: "ft", factor: 3.28084, digits: 1 });
 const waveFmt = (m: number | null | undefined) => (m == null || !Number.isFinite(m) ? "--" : (m * waveUnit().factor).toFixed(waveUnit().digits));
 const windFmt = (kt: number | null | undefined) =>
@@ -823,7 +842,7 @@ const FIGS: Record<Kind, Fig> = {
     title: "This year against earlier years",
     varies: true,
     in: (k) => isWater(k),
-    sub: "36 h mean, same dates",
+    sub: "36h mean, same dates",
     depthTabs: true,
     seasonal: true,
     available: () => true,
@@ -838,7 +857,7 @@ const FIGS: Record<Kind, Fig> = {
     title: "7-day change",
     varies: true,
     in: (k) => isWater(k),
-    sub: "of the 36 h mean",
+    sub: "of the 36h mean",
     depthTabs: true,
     seasonal: true,
     available: () => true,
@@ -853,7 +872,7 @@ const FIGS: Record<Kind, Fig> = {
     title: "Water column",
     varies: true,
     in: (k) => isWater(k),
-    sub: "hourly and 36 h mean",
+    sub: "hourly and 36h mean",
     depthTabs: false,
     seasonal: false,
     available: (d) => d.depths.length >= 2,
@@ -869,7 +888,7 @@ const FIGS: Record<Kind, Fig> = {
         if (!h || !m) continue;
         const color = P.depth[s.depth];
         lines.push({ ys: xs.map((t) => h.at(t)), color, width: 0.8, opacity: 0.22, label: `${s.label} hourly`, tip: false });
-        lines.push({ ys: xs.map((t) => m.at(t)), color, width: 1.8, opacity: 1, label: `${s.label} 36 h` });
+        lines.push({ ys: xs.map((t) => m.at(t)), color, width: 1.8, opacity: 1, label: `${s.label} 36h` });
         legend.unshift([s.label, color, 1]);
       }
       return { opts: { xs, lines, ...varOpts(), empty: emptyNote(d) }, legend, note: VK === "oxygen" ? OXYGEN_NOTE : undefined };
@@ -879,7 +898,7 @@ const FIGS: Record<Kind, Fig> = {
     title: "Surface minus bottom",
     varies: true,
     in: (k) => isWater(k),
-    sub: "hourly and 36 h mean",
+    sub: "hourly and 36h mean",
     depthTabs: false,
     seasonal: false,
     available: (d) => !!d.delta,
@@ -892,10 +911,10 @@ const FIGS: Record<Kind, Fig> = {
         delta && delta36
           ? [
               { ys: xs.map((t) => delta.at(t)), color: P.contrast, width: 0.9, opacity: 0.5, label: "hourly" },
-              { ys: xs.map((t) => delta36.at(t)), color: P.now, width: 1.8, label: "36 h mean" },
+              { ys: xs.map((t) => delta36.at(t)), color: P.now, width: 1.8, label: "36h mean" },
             ]
           : [];
-      const legend: [string, string, number][] = [["hourly", P.contrast, 0.5], ["36 h mean", P.now, 1]];
+      const legend: [string, string, number][] = [["hourly", P.contrast, 0.5], ["36h mean", P.now, 1]];
       if (VK !== "temp") {
         // Salinity and oxygen differences have no working thresholds here; the stratification bands are thermal.
         return { opts: { xs, lines, ...varOpts(false), zero: true, hoverDigits: 2, empty: emptyNote(d) }, legend };
@@ -928,11 +947,11 @@ const FIGS: Record<Kind, Fig> = {
     build: (d, _depth, x0, x1) => {
       const xs = grid(x0, x1);
       const m = d.met;
-      // Smoothing follows the zoom: a half-life of about a tenth of a day per day shown, from 1 h (a few
-      // days in view) to 12 h (the default 110 days), so the line keeps a readable density at any span.
+      // Smoothing follows the zoom: a half-life of about a tenth of a day per day shown, from 1h (a few
+      // days in view) to 12h (the default 110 days), so the line keeps a readable density at any span.
       const halfLife = Math.min(12, Math.max(1, Math.round(((x1 - x0) / DAY) * 0.11)));
       const smooth = m?.wind?.ema(halfLife);
-      const smoothLabel = `Wind, smoothed (${halfLife} h half-life)`; // the parameter travels with the plot
+      const smoothLabel = `Wind, smoothed (${halfLife}h half-life)`; // the parameter travels with the plot
       const peaks = dailyPeaks(m?.gust ?? null);
       const u = WIND_UNITS[WU];
       const fmtU = (v: number) => `${v.toFixed(u.digits)} ${u.label}`;
@@ -1409,7 +1428,7 @@ function pressureCell(d: StationData): string {
   if (state === "offline") return `<td class="offline"><b>--</b></td>`;
   const end = p ? p.lastValid() : NaN;
   const trend = p && Number.isFinite(end) ? p.at(end) - p.at(end - 3 * HOUR) : NaN;
-  const tend = Number.isFinite(trend) ? `${signed(trend)} in 3 h` : "";
+  const tend = Number.isFinite(trend) ? `${signed(trend)} in 3h` : "";
   return `<td class="${state}" title="Pressure ${o.pressure_mb.toFixed(1)} mbar${tend ? `, ${tend}` : ""}; ${ago(o.time)}"><b>${o.pressure_mb.toFixed(0)}<small class="g"> mb</small></b><small>${tend || ago(o.time).replace(" ago", "")}</small></td>`;
 }
 
@@ -1550,8 +1569,8 @@ function statusGrid(stations: StationData[]): void {
     `<button type="button" role="tab" class="stab" id="stab-${g}" data-group="${g}" aria-selected="${SG === g}" aria-controls="status-panel" tabindex="${SG === g ? 0 : -1}">${label}<small>${n}</small></button>`;
   const key =
     SG === "buoy"
-      ? `<i class="dot live"></i>under ${DELAYED_HOURS} h old <i class="dot delayed"></i>under ${OFFLINE_HOURS} h <i class="dot partial"></i>weather only <i class="dot offline"></i>offline`
-      : `<i class="dot shore live"></i>under ${DELAYED_HOURS} h old <i class="dot shore delayed"></i>under ${OFFLINE_HOURS} h <i class="dot shore offline"></i>offline &middot; levels in feet above mean lower low water, preliminary; tides are NOAA predictions`;
+      ? `<i class="dot live"></i>under ${DELAYED_HOURS}h old <i class="dot delayed"></i>under ${OFFLINE_HOURS}h <i class="dot partial"></i>weather only <i class="dot offline"></i>offline`
+      : `<i class="dot shore live"></i>under ${DELAYED_HOURS}h old <i class="dot shore delayed"></i>under ${OFFLINE_HOURS}h <i class="dot shore offline"></i>offline &middot; levels in feet above mean lower low water, preliminary; tides are NOAA predictions`;
   $("status").innerHTML = `
     ${shore.length ? `<div class="status-tabs" role="tablist" aria-label="Stations">${tab("buoy", "Buoys", buoys.length)}${tab("shore", "Shore stations", shore.length)}</div>` : ""}
     ${table}
@@ -1581,8 +1600,22 @@ function wireStatusTabs(stations: StationData[]): void {
   });
 }
 
+/** The time bar along the map's foot moves the currents and a rule on every chart (wired once). */
+let timelineWired = false;
+async function wireTimeline(box: HTMLElement): Promise<void> {
+  if (timelineWired) return;
+  timelineWired = true;
+  const [tl, chart] = await Promise.all([import("./timeline"), import("./chart")]);
+  tl.mountTimeline(box);
+  tl.onAsOf((t) => {
+    chart.markAsOf(t);
+    import("./fields").then((f) => f.setFieldTime(t)).catch(() => undefined);
+  });
+}
+
 async function overviewMap(stations: StationData[]): Promise<void> {
   const box = $("map");
+  void wireTimeline(box);
   try {
     const { drawMap } = await import("./map");
     drawMap(
@@ -1607,7 +1640,7 @@ async function overviewMap(stations: StationData[]): Promise<void> {
       (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }),
       currentTheme(),
     );
-    if (VK === "rivers") void syncMap();
+    void syncMap();
   } catch {
     box.innerHTML = `<p class="note">The map could not load.</p>`;
   }
@@ -1769,7 +1802,7 @@ function readouts(d: StationData): void {
         ? `<div class="readout"><div class="num">--</div><span class="lab">Surface minus bottom</span>
       <span class="sub offline">no current reading &middot; last ${signed(sb.deltaC, 2)}&deg;C, ${sb.status}</span></div>`
         : `<div class="readout"><div class="num">${signed(sb.deltaC, 2)}&deg;C</div><span class="lab">Surface minus bottom</span>
-      <span class="sub">${sb.status} (alpha definition) &middot; 24 h mean</span></div>`,
+      <span class="sub">${sb.status} (alpha definition) &middot; 24h mean</span></div>`,
     );
   }
   if (d.kind === "shore") {
@@ -1981,14 +2014,20 @@ function updatedStrip(meta: Meta, live: Live): void {
     .filter(([, s]) => s.last_error && s.last_ok && s.last_error.slice(0, 20) > s.last_ok)
     .map(([k]) => k);
   const draw = () => {
+    // How stale the buoys were when the data was fetched, as a delta, rather than a second timestamp.
+    const fetched = Date.parse(live.generated_at);
     const parts = [
-      `<b>Updated</b>${fmtUtc(live.generated_at)} <span class="ago">(${ago(live.generated_at)})</span>`,
-      latest ? `latest buoy reading ${fmtUtc(latest)} <span class="ago">(${ago(latest)})</span>` : "no recent buoy reading",
-      `history rebuilt ${fmtUtc(meta.generated_at)}`,
+      `<b>Updated</b>${fmtEt(live.generated_at)} <span class="ago">(${span(fetched, Date.now())} ago)</span>`,
+      latest ? `buoys ${span(Date.parse(latest), fetched)} behind` : "no recent buoy reading",
     ];
-    if (failing.length) parts.push(`<span class="warn">last fetch failed for ${failing.join(", ")}; showing the last good values</span>`);
+    if (failing.length) parts.push(`<span class="warn">fetch failed: ${failing.join(", ")}</span>`);
     $("updated").innerHTML = parts.join(`<span class="sep">&middot;</span>`);
-    $("updated").title = $("updated").textContent ?? "";
+    $("updated").title =
+      `Fetched ${fmtEt(live.generated_at)}` +
+      (latest ? `; latest buoy reading ${fmtEt(latest)}` : "") +
+      `; history rebuilt ${fmtEt(meta.generated_at)} (New York time)` +
+      (failing.length ? `; the last fetch failed for ${failing.join(", ")}, so those show the last good values` : "") +
+      ".";
   };
   draw();
   window.setInterval(draw, 60_000);
@@ -2070,7 +2109,7 @@ function promptData(stations: StationData[]): string {
         out.push(`    ${s.live ? "latest" : "last"} observation ${fmtUtc(o.time)} (${ago(o.time)}): ${f1(cToF(o.temperature_c))} F (${o.temperature_c.toFixed(2)} C)${extra.length ? "; " + extra.join("; ") : ""}.`);
       } else out.push(`    no recent observation.`);
       if (!m) continue;
-      // Anchor to the latest hour with a 36 h mean (the server runs about an hour behind the clock). With no
+      // Anchor to the latest hour with a 36h mean (the server runs about an hour behind the clock). With no
       // recent data (an outage), anchor the comparison to now: "this time of year in the years we hold".
       const tLast = m.lastValid();
       const recent = xs.indexOf(tLast) >= 0;
@@ -2079,12 +2118,12 @@ function promptData(stations: StationData[]): string {
       if (recent) {
         const cur = m.at(tLast);
         const chg = d.temp.chg[s.depth]?.at(tLast) ?? NaN;
-        out.push(`    36 h mean as of ${fmtUtc(new Date(tLast * 1000).toISOString())}: ${f1(cur)} F (${f1(fToC(cur))} C); 7-day change: ${signed(chg)} F.`);
+        out.push(`    36h mean as of ${fmtUtc(new Date(tLast * 1000).toISOString())}: ${f1(cur)} F (${f1(fToC(cur))} C); 7-day change: ${signed(chg)} F.`);
       } else {
-        out.push(`    no data in the last 96 days (last 36 h mean ${fmtUtc(new Date(tLast * 1000).toISOString())}); comparisons below are for this date and hour in earlier years.`);
+        out.push(`    no data in the last 96 days (last 36h mean ${fmtUtc(new Date(tLast * 1000).toISOString())}); comparisons below are for this date and hour in earlier years.`);
       }
       const past = shown.filter((l) => l.offset > 0 && Number.isFinite(l.values[iAt])).map((l) => `${l.year} ${f1(l.values[iAt])} F`);
-      if (past.length) out.push(`    36 h mean at the same date and hour in earlier years: ${past.join("; ")}.`);
+      if (past.length) out.push(`    36h mean at the same date and hour in earlier years: ${past.join("; ")}.`);
       if (hidden.length) out.push(`    years left out of the comparison because under ${COVERAGE_MIN * 100}% of the 110-day window has data: ${hidden.map((l) => l.year).join(", ")}.`);
     }
     if (d.temp.delta) {
@@ -2145,7 +2184,7 @@ function wireCopy(meta: Meta, live: Live, stations: StationData[]): void {
 
 /* ---------- Main ---------- */
 
-/** Wind units (kt, mph, m/s): knots by default; the choice is remembered in this browser only. */
+/** Units (kt, mph, m/s; waves in ft, or m with m/s): knots by default; the choice is remembered in this browser only. */
 function wireUnits(redraw: () => void): void {
   const buttons = document.querySelectorAll<HTMLButtonElement>(".unit-switch [data-unit]");
   const mark = () => buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.unit === WU)));
@@ -2160,6 +2199,7 @@ function wireUnits(redraw: () => void): void {
       }
       mark();
       redraw();
+      void syncField(); // the currents key follows the unit
     }),
   );
 }
@@ -2223,12 +2263,86 @@ function gaugePins(): Pin[] {
   });
 }
 
-/** The map follows the view: basins and gauges in Rivers, the Sound otherwise. */
+/** The map follows the view: basins and gauges in Rivers, the Sound otherwise; and the view's surface field. */
 async function syncMap(): Promise<void> {
   try {
     (await import("./map")).setRiverMode(VK === "rivers", VK === "rivers" ? gaugePins() : []);
   } catch {
     /* map not loaded */
+  }
+  void syncField();
+}
+
+/* ---------- Surface fields on the map ---------- */
+
+const FIELD_CHOICES: { kind: FieldKind | "none"; label: string }[] = [
+  { kind: "none", label: "No layer" },
+  { kind: "sst", label: "Sea surface temperature" },
+  { kind: "chl", label: "Chlorophyll-a" },
+  { kind: "kd490", label: "Water clarity (Kd490)" },
+  { kind: "currents", label: "Surface currents (model)" },
+];
+let fieldPick: FieldKind | "none" = "none"; // no field until one is picked from the layers button; kept across views
+let mapWide = false;
+try {
+  mapWide = localStorage.getItem("lhzn-blue-map-wide") === "1";
+} catch {
+  /* private mode: the normal map */
+}
+const fieldCache = new Map<FieldKind, Promise<FieldData>>();
+
+function fieldData(kind: FieldKind): Promise<FieldData> {
+  if (!fieldCache.has(kind)) {
+    const load: Promise<FieldData> =
+      kind === "currents"
+        ? Promise.all([getJson<FieldData["mesh"]>(`${DATA}/fields/currents-mesh.json`), getJson<FieldData["currents"]>(`${DATA}/fields/currents.json`)]).then(([mesh, currents]) => ({ mesh, currents }))
+        : getJson<FieldData["raster"]>(`${DATA}/fields/${kind}.json`).then((raster) => ({ raster }));
+    fieldCache.set(kind, load.catch((err) => {
+      fieldCache.delete(kind); // try again next time
+      throw err;
+    }));
+  }
+  return fieldCache.get(kind)!;
+}
+
+function applyWide(): void {
+  document.querySelector(".overview")?.classList.toggle("map-wide", mapWide);
+}
+
+async function syncField(): Promise<void> {
+  applyWide();
+  const kind = fieldPick;
+  let payload: FieldData = {};
+  if (kind !== "none") {
+    try {
+      payload = await fieldData(kind);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  const shown = kind !== "none" && (payload.raster || payload.currents) ? kind : null;
+  try {
+    (await import("./fields")).showField(shown, payload, {
+      choices: FIELD_CHOICES,
+      chosen: shown ?? "none",
+      onPick: (k) => {
+        fieldPick = k;
+        void syncField();
+      },
+      wide: mapWide,
+      speed: currentSpeed(),
+      onWide: (w) => {
+        mapWide = w;
+        try {
+          localStorage.setItem("lhzn-blue-map-wide", w ? "1" : "0");
+        } catch {
+          /* private mode */
+        }
+        void syncField();
+      },
+    });
+  } catch (err) {
+    console.error(err);
   }
 }
 
@@ -2390,6 +2504,17 @@ async function main(): Promise<void> {
         statusGrid(stations);
       });
       void syncMap();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && mapWide && !document.querySelector("dialog[open]")) {
+        mapWide = false;
+        try {
+          localStorage.setItem("lhzn-blue-map-wide", "0");
+        } catch {
+          /* private mode */
+        }
+        void syncField();
+      }
     });
     wireRiverHover();
 

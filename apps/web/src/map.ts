@@ -16,7 +16,7 @@ export interface Pin {
   lon: number;
   state: PinState;
   kind?: "buoy" | "shore" | "gauge";
-  label: string; // short reading for the popup, e.g. "Surface 66.3 F, 1 h ago"
+  label: string; // short reading for the popup, e.g. "Surface 66.3 F, 1h ago"
 }
 
 const STYLES = {
@@ -34,6 +34,24 @@ const BASIN_COLOR: Record<Theme, string> = { dark: "#7fb8d8", light: "#133c8b" }
 
 let current: maplibregl.Map | null = null;
 let theme: Theme = "dark";
+
+// Other modules (the surface fields) add layers too: they register here to be called whenever a style is loaded,
+// since a theme switch replaces the style and drops every custom layer, source and image.
+const styleHooks: ((map: maplibregl.Map, theme: Theme) => void)[] = [];
+let resolveReady: (map: maplibregl.Map) => void = () => {};
+const ready = new Promise<maplibregl.Map>((r) => (resolveReady = r));
+
+/** The map, once its first style has loaded. */
+export const mapReady = (): Promise<maplibregl.Map> => ready;
+
+/** Run `hook` on every style load (and now, if a style is already loaded). */
+export function onStyle(hook: (map: maplibregl.Map, theme: Theme) => void): void {
+  styleHooks.push(hook);
+  if (current?.isStyleLoaded()) hook(current, theme);
+}
+
+/** The page theme the map is drawn in. */
+export const mapTheme = (): Theme => theme;
 let select: (id: string) => void = () => {};
 
 // Rivers: the basins (loaded once), the gauge markers while the view is on, and the highlighted basin.
@@ -106,8 +124,12 @@ export function drawMap(container: HTMLElement, pins: Pin[], onSelect: (id: stri
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   // The box takes the table's height, which changes with the view: redraw at the new size.
   new ResizeObserver(() => map.resize()).observe(container);
-  // A new style (theme switch) drops custom layers: add the basins back.
-  map.on("style.load", () => addBasinLayers(map));
+  // A new style (theme switch) drops custom layers: add the basins and the registered layers back.
+  map.on("style.load", () => {
+    addBasinLayers(map);
+    for (const hook of styleHooks) hook(map, theme);
+  });
+  map.once("load", () => resolveReady(map));
   for (const p of pins) marker(map, p, "Go to station");
   if (riverMode) applyRiverMode(map);
 }

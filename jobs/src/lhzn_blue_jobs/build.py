@@ -85,6 +85,7 @@ MET_RANGES = {
 WRITABLE = re.compile(
     r"v1/(history|history-salinity|history-oxygen|history-waves|history-turbidity|live|shore|shore-history|rivers|rivers-history)\.json"
     r"|v1/archive/[A-Z]{3,5}_(SFC|MID|BTM|WAVE)\.json"
+    r"|v1/fields/(sst|chl|kd490|currents|currents-mesh)\.json"
 )
 MAX_OBJECT_BYTES = 8 * 1024 * 1024
 STATIONS_FILE = Path(

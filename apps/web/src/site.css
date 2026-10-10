@@ -138,6 +138,69 @@ a { color: inherit; }
 .status-grid td.river-class.much-below-normal b, .status-grid td.river-class.much-above-normal b { color: var(--delayed); }
 .status-grid tr.total th, .status-grid tr.total td { border-bottom: 0; font-weight: 600; }
 figure.wide { grid-column: 1 / -1; }
+/* Full-width map: the table moves below and the map takes most of the screen. */
+.overview.map-wide { grid-template-columns: 1fr; }
+.overview.map-wide .map { min-height: 70vh; }
+/* Surface field panel, over the map's lower left. */
+.field-panel {
+  position: absolute; left: 8px; bottom: 56px; z-index: 3; width: min(230px, calc(100% - 60px)); padding: 5px 8px 6px;
+  background: var(--pop-bg); border-left: 2px solid var(--accent); font: 10.5px/1.35 var(--sans); color: var(--ink);
+}
+.overview.map-wide .field-panel { width: min(300px, calc(100% - 60px)); }
+/* Expand and layer buttons under the zoom controls, in MapLibre's control style; the layer drawer beside them. */
+.field-ctrls button { display: grid; place-items: center; color: var(--ink); }
+.field-ctrls button[aria-pressed="true"], .field-ctrls button[aria-expanded="true"] { color: var(--accent); }
+.layers-drawer {
+  position: absolute; top: 10px; right: 48px; z-index: 4; min-width: 200px; padding: 8px 6px 6px;
+  background: var(--pop-bg); border-left: 2px solid var(--accent); font: 11px/1.3 var(--sans);
+}
+.layers-title { margin: 0 6px 4px; font: 700 9px/1.2 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
+.layers-choice { display: block; width: 100%; text-align: left; cursor: pointer; padding: 5px 6px; color: var(--ink); background: none; border: 0; font: 12px/1.3 var(--sans); }
+.layers-choice:hover, .layers-choice:focus-visible { color: var(--accent-hi); outline: none; }
+.layers-choice[aria-pressed="true"] { color: var(--accent); font-weight: 600; }
+.layers-choice[aria-pressed="true"]::before { content: "\2022"; margin-right: 6px; }
+.field-key { display: flex; align-items: baseline; gap: 6px; }
+.field-name { font: 700 9px/1.2 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.field-when { font: 9.5px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
+.field-info {
+  margin-left: auto; flex: none; width: 15px; height: 15px; padding: 0; cursor: pointer; border-radius: 50%;
+  font: italic 700 9.5px/13px Georgia, serif; text-align: center; color: var(--dim); background: none; border: 1px solid var(--rule);
+}
+.field-info[aria-expanded="true"] { color: var(--accent); border-color: var(--accent-line); }
+.field-scale { display: flex; align-items: center; gap: 5px; margin-top: 4px; font: 9.5px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
+.field-bar { flex: 1; min-width: 40px; height: 6px; }
+/* The page timeline: a hairline on the map's foot in the page's greys (no accent), the past solid and the forecast
+   dotted, ticks every 6h (taller at midnight), and a needle for the time. */
+.timeline {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; display: flex; align-items: center; gap: 10px;
+  height: 28px; padding: 0 10px; font: 10px/1.2 var(--mono); color: var(--dim);
+}
+.tl-play, .tl-now { flex: none; cursor: pointer; color: var(--dim); background: none; border: 0; padding: 0; }
+.tl-play { display: grid; place-items: center; width: 16px; height: 16px; }
+.tl-play:hover, .tl-now:hover { color: var(--ink); }
+.tl-now { font: 10px/1.2 var(--sans); text-decoration: underline; text-underline-offset: 2px; }
+.tl-track { position: relative; flex: 1; min-width: 80px; align-self: stretch; }
+.tl-track::before, .tl-track::after { content: ""; position: absolute; top: 50%; pointer-events: none; }
+.tl-track::before { left: 0; width: var(--tl-now); height: 1px; background: var(--dim); }
+.tl-track::after { left: var(--tl-now); right: 0; border-top: 1px dotted var(--faint); }
+.tl-ticks { position: absolute; inset: 0; pointer-events: none; }
+.tl-tick { position: absolute; top: 50%; width: 1px; height: 4px; margin-top: -2px; background: var(--faint); }
+.tl-tick.day { height: 9px; margin-top: -4.5px; background: var(--dim); }
+.tl-tick.now { height: 13px; margin-top: -6.5px; background: var(--dim); }
+.tl-tick.ahead { opacity: 0.6; }
+.tl-range { -webkit-appearance: none; appearance: none; position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; background: none; cursor: pointer; }
+.tl-range::-webkit-slider-runnable-track { height: 100%; background: none; }
+.tl-range::-moz-range-track { background: none; }
+.tl-range::-webkit-slider-thumb { -webkit-appearance: none; width: 2px; height: 14px; margin-top: 7px; background: var(--ink); border: 0; }
+.tl-range::-moz-range-thumb { width: 2px; height: 14px; background: var(--ink); border: 0; border-radius: 0; }
+.tl-range:focus-visible { outline: 1px dotted var(--dim); outline-offset: -3px; }
+.tl-label { flex: none; min-width: 7.5em; text-align: right; white-space: nowrap; }
+/* Keep the map's own controls and the field key clear of the time bar. */
+.map .maplibregl-ctrl-bottom-left, .map .maplibregl-ctrl-bottom-right { bottom: 30px; }
+@media (max-width: 560px) { .tl-label { min-width: 0; } }
+.field-note { margin: 5px 0 0; font-size: 10px; line-height: 1.4; color: var(--dim); }
+.field-note b { font-weight: 600; color: var(--ink); }
+.field-credit { display: block; margin-top: 2px; font-size: 9.5px; color: var(--faint); }
 .strip-cap { margin-top: 8px; font: 600 8.5px/1.2 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint); }
 /* Phones: the strip takes two lines, freshness above, the switch and Suggestions below. */
 @media (max-width: 640px) {
@@ -319,14 +382,26 @@ figcaption { display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wra
 
 /* Tooltip */
 .tip {
-  position: absolute; top: 4px; z-index: 3; pointer-events: none; min-width: 150px; max-width: 260px; padding: 7px 9px;
+  position: absolute; top: 4px; z-index: 3; pointer-events: none; max-width: 260px; padding: 4px 8px 5px;
   font-family: var(--mono); font-size: 10px; line-height: 1.55; color: var(--ink);
   background: var(--pop-bg); border-left: 2px solid var(--accent);
 }
-.tip .tip-time { display: block; margin-bottom: 3px; color: var(--dim); font-size: 9.5px; }
+.tip .tip-time { display: block; color: var(--dim); font-size: 9.5px; }
+.tip div:first-of-type { margin-top: 3px; }
 .tip div { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .tip i { display: inline-block; width: 10px; height: 2px; flex: none; }
 .tip b { margin-left: auto; padding-left: 10px; font-weight: 500; }
+
+/* Values on the lines at the cursor: a dot on each line and its value beside it, spread so they never overlap. */
+.cursor-vals { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.cv-dot { position: absolute; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--bg); }
+.cv-lab {
+  position: absolute; display: flex; align-items: center; gap: 5px; transform: translate(9px, -50%); padding: 0 4px;
+  font: 9.5px/12px var(--mono); white-space: nowrap; color: var(--dim); background: color-mix(in srgb, var(--bg) 82%, transparent);
+}
+.cv-lab.left { transform: translate(calc(-100% - 9px), -50%); }
+.cv-lab i { display: inline-block; width: 8px; height: 2px; flex: none; }
+.cv-lab b { font-weight: 500; color: var(--ink); }
 
 /* Zoom view */
 .zoom {

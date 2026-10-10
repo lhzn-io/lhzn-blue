@@ -18,7 +18,7 @@ from . import build, rivers, shore, turbidity, waves
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "import-archive", "import-waves"])
+    parser.add_argument("command", choices=["history", "live", "fields", "import-archive", "import-waves"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
@@ -50,6 +50,10 @@ def main() -> None:
             "v1/shore.json", shore.live(store.read_json("v1/shore.json"), build.now_utc(), full=args.full), max_age=300
         ))
         _shore(lambda: store.write_json("v1/rivers.json", rivers.live(store.read_json("v1/rivers.json")), max_age=300), "rivers")
+    elif args.command == "fields":
+        from . import fields  # forcingkit is needed only here
+
+        _failed.extend(fields.publish(store))
     elif args.command == "import-waves":
         if not args.archive_dir:
             parser.error("import-waves needs --archive-dir")

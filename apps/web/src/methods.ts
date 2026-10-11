@@ -194,18 +194,21 @@ export const METHODS: Record<string, Method> = {
 METHODS.trends = {
   title: "Trends and %iles",
   shows:
-    "Under each reading, which way it is heading and how unusual it is for the time of year: for example \"↑ 0.6°F in 24h " +
-    "· 74th %ile\".",
+    "Under each reading, which way it is heading and how unusual it is for the time of year. The arrow's angle gives the " +
+    "rate: flat for no change, a gentle slope for a slow change, 45 degrees for a steady one, steep for a sudden one; up for " +
+    "rising, down for falling, with the signed change beside it. For wind, \u21bb is veering (the wind shifting clockwise) and " +
+    "\u21ba backing (counterclockwise), with the degrees. The %ile ranks the value against the same dates in earlier years.",
   method:
     "Direction compares two adjacent windows sized to how fast each quantity moves: 3 hours for wind, waves and pressure " +
-    "(the last 3 hours' mean against the 3 before for wind and waves); 24 hours for air and water. Changes smaller than a " +
-    "dead band read as steady: 2 kt of wind, 0.1 m of waves, 1 mb of pressure, 2°F of air, 0.2°F of water, 0.05 salinity, " +
-    "0.2 mg/L of oxygen. Pressure falling or rising by 3 mb or more in 3 hours reads as quickly. The %ile ranks the value " +
-    "(the 36-hour mean for water; the last 3 days' mean for wind and waves; the last day's for air) against the same dates, " +
-    "a week either side, in every earlier year with data for at least half that fortnight.",
+    "(the last 3 hours' mean against the 3 before for wind and waves); 24 hours for air and water. Thresholds (no change, then " +
+    "slow, steady and sudden): wind 2, 5 and 10 kt; waves 0.1, 0.3 and 0.6 m; pressure 1, 2 and 3 mb; air 2, 6 and 12\u00b0F; " +
+    "water temperature 0.2, 0.8 and 2\u00b0F; salinity 0.05, 0.2 and 0.6; oxygen 0.2, 0.8 and 2 mg/L. A wind shift is shown " +
+    "when the mean direction of the last 3 hours differs from the 3 before by 20 degrees or more, in wind of 5 kt or more. " +
+    "The %ile ranks the value (the 36-hour mean for water; the last 3 days' mean for wind and waves; the last day's for air) " +
+    "against the same dates, a week either side, in every earlier year with data for at least half that fortnight.",
   caveats:
     "A %ile needs at least three earlier years. Buoy weather is kept for the last 100 days so far, so wind, air and pressure " +
-    "show \"record too short for a %ile\" until the full weather record is added.",
+    "show \"-- %ile\" until the full weather record is added.",
 };
 
 /** Readout labels open the entry for the plot they summarise. */

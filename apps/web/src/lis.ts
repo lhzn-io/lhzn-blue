@@ -6,8 +6,9 @@ import promptTemplate from "../../../configs/prompts/visitor_prompt.txt?raw";
 import registry from "../../../stations/stations.json";
 import shoreRegistry from "../../../stations/shore.json";
 import { highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
-import { METHODS, methodHtml } from "./methods";
-import { percentileText, SEASONS, seasonalPercentile, smoothByAge, trend, trendText, TRENDS } from "./trends";
+import { METHODS, methodHtml, REF_LABELS } from "./methods";
+import { mountCollect } from "./collect";
+import { percentileText, SEASONS, seasonalPercentile, smoothByAge, trend, trendText, TRENDS, veerText } from "./trends";
 import type { Pin } from "./map";
 import type { FieldData, FieldKind, RasterHistory } from "./fields";
 import { wireSuggest } from "./suggest";
@@ -1688,7 +1689,7 @@ function sectionHtml(d: StationData): string {
     return `
     <figure${f.wide ? ' class="wide"' : ""}>
       <figcaption><span class="cap-label">${f.label?.(d) ?? f.title}</span><span class="cap-sub">${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}</span>${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
-        <span class="fig-actions"><button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button><button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button><button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
+        <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button><button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button><button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button><button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
       <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}" title="Click to expand"><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
     </figure>`;
@@ -1789,7 +1790,9 @@ function readouts(d: StationData): void {
   }
   $(`${d.meta.id}-readouts`).innerHTML =
     stationReadouts(d).join("") +
-    `<button class="fig-info band-info" type="button" data-about="trends" aria-label="About the readouts' trends and %iles" title="About the trends and %iles">i</button>`;
+    `<span class="band-actions"><button class="collect-btn" type="button" data-collect="${d.meta.id}-readouts" data-title="Readouts: ${d.meta.name}" data-kind="readout row" aria-pressed="false">+</button>` +
+    `<button class="fig-info band-info" type="button" data-about="trends" aria-label="About the readouts' trends and %iles" title="About the trends and %iles">i</button></span>`;
+  $(`${d.meta.id}-readouts`).classList.add("readouts-row");
 }
 
 /** One readout: the big figure, its label (which opens the plot's explanation) and a line of small print. */
@@ -1872,7 +1875,9 @@ function weatherReadouts(d: StationData): string[] {
   if (o?.wind_kt != null && state !== "offline") {
     const dir = o.dir_deg != null ? `from ${compass(o.dir_deg)}` : "";
     out.push(readoutHtml(`${windFmt(o.wind_kt)}<small>${u}</small>`, "Wind", "wind", `${dir}${dir ? " &middot; " : ""}gusts ${windFmt(o.gust_kt)} ${u} &middot; ${ago(o.time)}`, state,
-      contextLine(d.met?.wind, "wind", (v) => `${windFmt(v)} ${u}`, { key: "wind", what: "last 3 days" })));
+      [contextLine(d.met?.wind, "wind", (v) => `${windFmt(v)} ${u}`), veerText(d.met?.dir, d.met?.wind), percentileText(seasonalPercentile(d.met?.wind, SEASONS.wind), "last 3 days")]
+        .filter(Boolean)
+        .join(" &middot; ")));
   } else out.push(readoutHtml("--", "Wind", "wind", "no recent reading", "offline"));
   if (d.kind === "buoy" && wavesOf(d.meta.id)?.sensor) {
     const w = lastWave(d.meta.id);
@@ -1885,9 +1890,7 @@ function weatherReadouts(d: StationData): string[] {
     );
   }
   if (o?.pressure_mb != null && state !== "offline") {
-    const t = trend(d.met?.pressure, TRENDS.pressure);
-    const quick = t && Math.abs(t.delta) >= 3 ? " quickly" : ""; // past 3 mb in 3h
-    const ctx = contextLine(d.met?.pressure, "pressure", (v) => `${v.toFixed(1)} mb`).replace(/^(rising|falling)/, `$1${quick}`);
+    const ctx = contextLine(d.met?.pressure, "pressure", (v) => `${v.toFixed(1)} mb`);
     out.push(readoutHtml(`${o.pressure_mb.toFixed(0)}<small>mb</small>`, "Pressure", "pressure", ago(o.time), state, ctx));
   }
   if (o?.air_f != null && state !== "offline")
@@ -2279,24 +2282,61 @@ function buildPrompt(meta: Meta, live: Live, stations: StationData[]): string {
   return promptTemplate.replace(/\{\{(\w+)\}\}/g, (_, k: string) => fill[k] ?? "");
 }
 
-function wireCopy(meta: Meta, live: Live, stations: StationData[]): void {
-  const status = $("copy-status");
-  const box = $("prompt-box") as HTMLTextAreaElement;
-  $("copy").addEventListener("click", async () => {
-    const text = buildPrompt(meta, live, stations);
-    box.value = text;
-    try {
-      await navigator.clipboard.writeText(text);
-      status.textContent = `Copied ${text.length.toLocaleString()} characters. Paste it into your assistant and edit the question at the end.`;
-      box.hidden = true;
-    } catch {
-      box.hidden = false;
-      box.focus();
-      box.select();
-      status.textContent = "Clipboard access was blocked; the prompt is selected below, ready to copy.";
-    }
+/** Plain text of a method entry for the prompt: citations become the references' short labels. */
+function methodText(key: string): string {
+  const m = METHODS[key];
+  if (!m) return "";
+  const plain = (t?: string) => (t ?? "").replace(/\[\[([a-z0-9_]+)\]\]/g, (_, k: string) => `(${REF_LABELS[k] ?? k})`).replace(/\{variable\}/g, isWater(VK) ? V().label.toLowerCase() : "the reading").replace(/\{station\}/g, "the station");
+  return [`- ${m.title}: ${plain(m.shows)}`, m.method ? `  Method: ${plain(m.method)}` : "", m.caveats ? `  Caveats: ${plain(m.caveats)}` : ""].filter(Boolean).join("\n");
+}
+
+/** The prompt for the collected items: the data of their stations (all stations when nothing is collected), the
+ * methods of the collected plots, the readouts and the map as shown, and the visitor's question. */
+function collectPrompt(meta: Meta, live: Live, stations: StationData[], ids: string[], question: string): string {
+  const scoped = ids.length ? stations.filter((d) => ids.some((id) => id.startsWith(`${d.meta.id}-`))) : stations;
+  let text = buildPrompt(meta, live, scoped.length ? scoped : stations);
+  const extra: string[] = [];
+  const keys = [...new Set(ids.map((id) => id.split("-").slice(1).join("-")).filter((k) => k in FIGS))];
+  if (keys.length) extra.push(`Methods for the collected plots:\n${keys.map(methodText).join("\n")}`);
+  const rows = ids.filter((id) => id.endsWith("-readouts")).map((id) => {
+    const el = document.getElementById(id);
+    const station = stations.find((d) => `${d.meta.id}-readouts` === id)?.meta.name ?? id;
+    const lines = el ? [...el.querySelectorAll<HTMLElement>(".readout")].map((r) => `  ${r.innerText.replace(/\s*\n\s*/g, "; ")}`) : [];
+    return `Readouts at ${station}, as shown (value; label; trend and %ile against the same dates in earlier years; depth and age):\n${lines.join("\n")}`;
+  });
+  if (rows.length) extra.push(rows.join("\n"));
+  if (ids.includes("map")) {
+    const key = document.querySelector<HTMLElement>(".field-panel")?.innerText.replace(/\s*\n\s*/g, " ") ?? "";
+    const when = document.querySelector<HTMLElement>(".tl-label")?.textContent ?? "now";
+    extra.push(`Map as shown: layer ${fieldPick === "none" ? "none (stations only)" : `${fieldPick} (${key})`}, time ${when}.${fieldPick !== "none" ? `\n${methodText(`map-${fieldPick}`)}` : ""}`);
+  }
+  if (extra.length) text = text.replace("\nQuestion:", `\n${extra.join("\n\n")}\n\nQuestion:`);
+  return text.replace(/Question: [\s\S]*$/, `Question: ${question || "[Write your question here]"}`);
+}
+
+function wireCollect(meta: Meta, live: Live, stations: StationData[]): void {
+  mountCollect({
+    elementFor: (id) =>
+      id === "map"
+        ? document.querySelector<HTMLElement>(".map-col")
+        : id.endsWith("-readouts")
+          ? document.getElementById(id)
+          : (document.getElementById(id)?.closest<HTMLElement>("figure") ?? null),
+    prompt: (ids, question) => collectPrompt(meta, live, stations, ids, question),
+    titleFor: (id, stored) => {
+      if (id !== "map") return stored;
+      const layer = fieldPick === "none" ? "stations" : (FIELD_CHOICES.find((c) => c.kind === fieldPick)?.label ?? fieldPick);
+      const when = document.querySelector<HTMLElement>(".tl-label")?.textContent ?? "now";
+      return `Map: ${layer} \u00b7 ${when}`;
+    },
+    linkFor: (id) => (id === "map" ? linkUrl() : id.endsWith("-readouts") ? linkUrl(id.replace(/-readouts$/, "")) : linkUrl(id)),
+    header: () => `${meta.waterway.name} \u00b7 longhorizon.blue \u00b7 ${fmtEt(new Date().toISOString())} New York time`,
+    credit: "Long Horizon Observatory \u00b7 longhorizon.blue \u00b7 CC BY-NC 4.0 \u00b7 data: LISICOS (UConn), NOAA, USGS, NASA; map \u00a9 OpenStreetMap contributors",
+    mailTo: "long-island-sound@longhorizon.blue",
+    pageName: meta.waterway.name,
   });
 }
+
 
 /* ---------- Main ---------- */
 
@@ -2743,7 +2783,7 @@ async function main(): Promise<void> {
     window.setTimeout(revealLinked, 300); // after the sections draw
     updatedStrip(meta, live);
     about(meta);
-    wireCopy(meta, live, stations);
+    wireCollect(meta, live, stations);
     const redraw = () => {
       drawAll();
       statusGrid(stations);

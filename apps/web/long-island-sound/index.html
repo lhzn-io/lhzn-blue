@@ -43,18 +43,12 @@
             temperature, chlorophyll-a and water clarity (NASA, NOAA) and modelled currents (NECOFS, UMass Dartmouth). Values that fail
             a quality check are flagged with the reason.
           </p>
-          <p class="info-meta">An early public version, curated locally. All data are provisional and may be revised.</p>
+          <p class="info-meta">Collect plots with + to ask your own AI about them or send us a suggestion. An early public version, curated locally.
+            All data are provisional and may be revised.</p>
           <p class="info-links"><a href="#about-title">Method and sources</a> &middot; <a href="/terms/">Terms</a> &middot; <a href="/references/">References</a> &middot; <a href="https://longhorizon.eco/field-notes/the-recent-past">Motivation</a></p>
         </div>
       </details>
-      <details class="suggest" id="suggest" data-to="long-island-sound@longhorizon.blue" data-page="Long Island Sound">
-        <summary>Suggestions</summary>
-        <form class="suggest-form" id="suggest-form">
-          <textarea id="suggest-text" required aria-label="Your suggestion" placeholder="A correction, an idea, local knowledge"></textarea>
-          <button class="button" type="submit">Send</button>
-          <a class="suggest-to" href="mailto:long-island-sound@longhorizon.blue">long-island-sound@longhorizon.blue</a>
-        </form>
-      </details>
+      <button class="collect-open" type="button" id="collect-open" aria-expanded="false" aria-controls="collect-tray" title="Collect plots to ask your own AI about them or send us a suggestion">Collect<span id="collect-count"></span></button>
     </div>
     <header class="mast">
       <a class="wordmark" href="/" aria-label="longhorizon.blue home">
@@ -77,23 +71,11 @@
       <section class="overview" aria-label="Buoys at a glance">
         <div class="map-col">
           <div class="map" id="map" role="region" aria-label="Map of the buoys"></div>
-          <div class="map-foot" id="map-foot"></div>
+          <div class="map-foot" id="map-foot"><span class="map-actions"><button class="collect-btn" type="button" data-collect="map" data-title="Map" data-kind="map" aria-pressed="false">+</button></span></div>
         </div>
         <div class="status" id="status" aria-live="polite"></div>
       </section>
       <div id="stations"></div>
-
-      <section class="ask" aria-labelledby="ask-title">
-        <h2 id="ask-title">Ask your own AI</h2>
-        <p class="prose">
-          Copy a prompt that holds the numbers on this page, as text, with their ages and definitions, then paste it into the assistant you
-          already use. The answer comes from your assistant, not from us.
-        </p>
-        <button class="button" id="copy" type="button">Copy prompt + data</button>
-        <span class="copy-status" id="copy-status" aria-live="polite"></span>
-        <textarea class="prompt-box" id="prompt-box" readonly hidden aria-label="Prompt and data"></textarea>
-      </section>
-
       <section class="about" aria-labelledby="about-title">
         <h2 id="about-title">About these numbers</h2>
         <p class="prose" id="about-method"></p>

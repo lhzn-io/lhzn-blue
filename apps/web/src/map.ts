@@ -103,6 +103,7 @@ export function drawMap(container: HTMLElement, pins: Pin[], onSelect: (id: stri
     style: STYLES[initial],
     bounds: HOME,
     fitBoundsOptions: { padding: 24 },
+    canvasContextAttributes: { preserveDrawingBuffer: true }, // Collect paints the map into its image
     // Credits behind the (i) button; set explicitly so they never depend on the style loading.
     attributionControl: {
       compact: true,

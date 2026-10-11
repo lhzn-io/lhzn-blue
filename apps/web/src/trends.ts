@@ -13,23 +13,28 @@ export interface TrendSpec {
   window: number;
   /** "mean": the windows' means; "point": the latest value against the value one window earlier. */
   mode: "mean" | "point";
-  /** Changes smaller than this (in the series' own units) read as steady. */
+  /** Changes smaller than this (in the series' own units) read as no change (a flat arrow). */
   dead: number;
-  /** Words for rising, falling and steady; arrows when absent. */
+  /** Changes from `dead` up to `rates[0]` are slow, up to `rates[1]` steady, beyond it sudden. */
+  rates: [number, number];
+  /** Words for rising, falling and no change (for hover text and screen readers). */
   words?: [string, string, string];
 }
 
 /** Per quantity, in the series' stored units (°F, practical salinity, mg/L, knots, metres, mbar). */
 export const TRENDS: Record<string, TrendSpec> = {
-  temp: { window: 24, mode: "point", dead: 0.2 },
-  salinity: { window: 24, mode: "point", dead: 0.05 },
-  oxygen: { window: 24, mode: "point", dead: 0.2 },
-  wind: { window: 3, mode: "mean", dead: 2, words: ["building", "subsiding", "steady"] },
-  waves: { window: 3, mode: "mean", dead: 0.1, words: ["building", "subsiding", "steady"] },
-  pressure: { window: 3, mode: "point", dead: 1, words: ["rising", "falling", "steady"] },
-  air: { window: 24, mode: "point", dead: 2, words: ["warmer", "cooler", "steady"] },
-  stratification: { window: 24, mode: "mean", dead: 0.18, words: ["stratifying", "mixing", "steady"] },
+  temp: { window: 24, mode: "point", dead: 0.2, rates: [0.8, 2] },
+  salinity: { window: 24, mode: "point", dead: 0.05, rates: [0.2, 0.6] },
+  oxygen: { window: 24, mode: "point", dead: 0.2, rates: [0.8, 2] },
+  wind: { window: 3, mode: "mean", dead: 2, rates: [5, 10], words: ["building", "subsiding", "steady"] },
+  waves: { window: 3, mode: "mean", dead: 0.1, rates: [0.3, 0.6], words: ["building", "subsiding", "steady"] },
+  pressure: { window: 3, mode: "point", dead: 1, rates: [2, 3], words: ["rising", "falling", "steady"] },
+  air: { window: 24, mode: "point", dead: 2, rates: [6, 12], words: ["warming", "cooling", "steady"] },
+  stratification: { window: 24, mode: "mean", dead: 0.18, rates: [0.7, 1.8], words: ["stratifying", "mixing", "steady"] },
 };
+
+/** Wind direction: shifts under this many degrees (or in wind under `minKt`) are not shown. */
+export const VEER = { window: 3, dead: 20, minKt: 5 };
 
 /** How a seasonal percentile is taken: the value averaged over `span` hours, compared across years. */
 export interface SeasonSpec {
@@ -104,19 +109,74 @@ export function ordinal(n: number): string {
   return `${n}${s}`;
 }
 
-/** "↑ 0.6°F in 24h", "building, +5 kt in 3h", "steady over 24h". `fmt` formats the change in display units. */
-export function trendText(t: Trend | null, spec: TrendSpec, fmt: (v: number) => string): string {
-  if (!t) return "";
-  const span = `${spec.window}h`;
-  if (t.dir === 0) return `${spec.words?.[2] ?? "steady"} over ${span}`;
-  const signed = `${t.delta > 0 ? "+" : "−"}${fmt(Math.abs(t.delta))}`;
-  if (spec.words) return `${spec.words[t.dir > 0 ? 0 : 1]}, ${signed} in ${span}`;
-  return `${t.dir > 0 ? "↑" : "↓"} ${fmt(Math.abs(t.delta))} in ${span}`;
+const ARROW_ANGLE = { flat: 0, slow: 20, steady: 45, sudden: 70 };
+type Rate = keyof typeof ARROW_ANGLE;
+
+/** A thin arrow at an angle: up and to the right for rising, down for falling; the steeper, the faster. The
+ * rotation is inside the SVG, so it survives being painted into an image. */
+function arrowSvg(rate: Rate, dir: 1 | -1 | 0): string {
+  const deg = -ARROW_ANGLE[rate] * (dir || 0);
+  return (
+    `<svg class="trend-arrow" viewBox="-8 -8 16 16" width="13" height="13" aria-hidden="true">` +
+    `<g transform="rotate(${deg})"><path d="M-6 0H5M1.5-3.5L5 0L1.5 3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`
+  );
 }
 
-/** "74th %ile", "74th %ile (last 3 days)", or a short reason when the record is too short. */
+function rateOf(t: Trend, spec: TrendSpec): Rate {
+  const a = Math.abs(t.delta);
+  return t.dir === 0 ? "flat" : a < spec.rates[0] ? "slow" : a < spec.rates[1] ? "steady" : "sudden";
+}
+
+const ADVERB: Record<Rate, string> = { flat: "", slow: "slowly", steady: "steadily", sudden: "quickly" };
+
+/** An arrow at the rate's angle and the signed change: "↗ +0.6°F in 24h". The words ("rising slowly") are in the
+ * hover text and in a hidden span for screen readers and the AI prompt. `fmt` formats a size in display units. */
+export function trendText(t: Trend | null, spec: TrendSpec, fmt: (v: number) => string): string {
+  if (!t) return "";
+  const rate = rateOf(t, spec);
+  const size = fmt(Math.abs(t.delta));
+  const zero = !/[1-9]/.test(size.replace(/<[^>]+>/g, "")); // rounds to zero: no sign
+  const signed = `${zero ? "" : t.delta >= 0 ? "+" : "\u2212"}${size}`;
+  const [up, down, none] = spec.words ?? ["rising", "falling", "no change"];
+  const words = t.dir === 0 ? none : `${t.dir > 0 ? up : down} ${ADVERB[rate]}`;
+  return `<span class="trend-part" title="${words}, ${signed.replace(/<[^>]+>/g, "")} in ${spec.window}h">${arrowSvg(rate, t.dir)}<span class="sr-only">${words}</span> ${signed} in ${spec.window}h</span>`;
+}
+
+/** Mean direction (degrees) of the wind over [a, b], as a vector mean so 350 and 10 average to 0. */
+function meanDirection(dir: Hourly, a: number, b: number): number {
+  let x = 0;
+  let y = 0;
+  let n = 0;
+  for (let t = a; t <= b; t += HOUR) {
+    const d = dir.at(t);
+    if (!Number.isFinite(d)) continue;
+    x += Math.sin((d * Math.PI) / 180);
+    y += Math.cos((d * Math.PI) / 180);
+    n++;
+  }
+  return n ? ((Math.atan2(x, y) * 180) / Math.PI + 360) % 360 : NaN;
+}
+
+/** Veering (the wind shifting clockwise, ↻) or backing (counterclockwise, ↺) over the last window against the one
+ * before; empty in light wind or when the shift is small. */
+export function veerText(dir: Hourly | null | undefined, speed: Hourly | null | undefined): string {
+  if (!dir || !speed) return "";
+  const end = dir.lastValid();
+  if (!Number.isFinite(end)) return "";
+  const w = VEER.window * HOUR;
+  if (!(speed.mean(end - w + HOUR, end) >= VEER.minKt)) return "";
+  const now = meanDirection(dir, end - w + HOUR, end);
+  const before = meanDirection(dir, end - 2 * w + HOUR, end - w);
+  if (!Number.isFinite(now) || !Number.isFinite(before)) return "";
+  const shift = ((now - before + 540) % 360) - 180; // -180..180, clockwise positive
+  if (Math.abs(shift) < VEER.dead) return "";
+  const words = shift > 0 ? "veering" : "backing";
+  return `<span class="trend-part" title="${words} ${Math.round(Math.abs(shift))}\u00b0 in ${VEER.window}h">${shift > 0 ? "\u21bb" : "\u21ba"}<span class="sr-only">${words}</span> ${Math.round(Math.abs(shift))}\u00b0</span>`;
+}
+
+/** "74th %ile", "74th %ile (last 3 days)", or "-- %ile" when there are fewer than three earlier years. */
 export function percentileText(p: { pct: number; years: number } | null, what = ""): string {
-  if (!p) return "record too short for a %ile";
+  if (!p) return `<span title="Fewer than three earlier years on record">-- %ile</span>`;
   return `${ordinal(p.pct)} %ile${what ? ` (${what})` : ""}`;
 }
 

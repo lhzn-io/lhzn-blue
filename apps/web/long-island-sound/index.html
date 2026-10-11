@@ -97,8 +97,19 @@
       <section class="about" aria-labelledby="about-title">
         <h2 id="about-title">About these numbers</h2>
         <p class="prose" id="about-method"></p>
-        <p class="note" id="about-sources"></p>
+        <details class="about-sources-box">
+          <summary>Sources by series</summary>
+          <p class="note" id="about-sources"></p>
+        </details>
       </section>
+
+      <dialog class="about-dialog" id="about-dialog" aria-labelledby="about-dialog-title">
+        <div class="about-head">
+          <h2 id="about-dialog-title"></h2>
+          <button class="tab" type="button" id="about-close" aria-label="Close">Close</button>
+        </div>
+        <div id="about-dialog-body"></div>
+      </dialog>
 
       <footer class="credits">
         <p>

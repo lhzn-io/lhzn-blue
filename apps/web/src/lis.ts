@@ -6,6 +6,7 @@ import promptTemplate from "../../../configs/prompts/visitor_prompt.txt?raw";
 import registry from "../../../stations/stations.json";
 import shoreRegistry from "../../../stations/shore.json";
 import { highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
+import { METHODS, methodHtml } from "./methods";
 import type { Pin } from "./map";
 import type { FieldData, FieldKind, RasterHistory } from "./fields";
 import { wireSuggest } from "./suggest";
@@ -1287,7 +1288,7 @@ const shows = (d: StationData, k: Kind) =>
 /** A thin wind line under surface minus bottom (same time axis), so a blow lines up with the mixing it causes. */
 const hasWind = (d: StationData) => !!d.met?.wind && Number.isFinite(d.met.wind.lastValid());
 const windStripHtml = (id: string) =>
-  `<div class="strip-cap">Wind, smoothed: the blow behind a mixing event</div><div class="plot strip" id="${id}-sb-wind" data-station="${id}" data-fig="wind" title="Wind: click to expand"><svg role="img" aria-label="Wind, smoothed"></svg><div class="plot-labels" aria-hidden="true"></div></div>`;
+  `<div class="strip-cap">Wind, smoothed: the blow behind a mixing event <button class="fig-info" type="button" data-about="wind" aria-label="About this plot: wind" title="About this plot">i</button></div><div class="plot strip" id="${id}-sb-wind" data-station="${id}" data-fig="wind" title="Wind: click to expand"><svg role="img" aria-label="Wind, smoothed"></svg><div class="plot-labels" aria-hidden="true"></div></div>`;
 
 function drawWindStrip(d: StationData, x0: number, x1: number): void {
   const strip = document.getElementById(`${d.meta.id}-sb-wind`);
@@ -1682,7 +1683,7 @@ function sectionHtml(d: StationData): string {
     return `
     <figure${f.wide ? ' class="wide"' : ""}>
       <figcaption><span class="cap-label">${f.label?.(d) ?? f.title}</span><span class="cap-sub">${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}</span>${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
-        <span class="fig-actions"><button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button><button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
+        <span class="fig-actions"><button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button><button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button><button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
       <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}" title="Click to expand"><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
     </figure>`;
@@ -1781,51 +1782,105 @@ function readouts(d: StationData): void {
     ].join("");
     return;
   }
-  const tempItem = (depth: string) => {
-    const o = d.obs[depth];
-    const label = d.meta.series.find((s) => s.depth === depth)?.label ?? depth;
-    if (!o || o.temperature_c == null) return `<div class="readout"><div class="num">--</div><span class="lab">${label}</span><span class="sub">no recent reading</span></div>`;
-    const state = obsState(o);
-    if (state === "offline") {
-      // An old reading is not a current condition: keep it out of the big figure.
-      return `<div class="readout"><div class="num">--</div><span class="lab">${label}</span>
-        <span class="sub offline">no current reading &middot; last ${f1(cToF(o.temperature_c))}&deg;F at ${o.depth_m ?? "--"} m, ${fmtDate.format(new Date(o.time))}</span></div>`;
-    }
-    return `<div class="readout"><div class="num">${f1(cToF(o.temperature_c))}&deg;F<small>${o.temperature_c.toFixed(1)}&deg;C</small></div>
-      <span class="lab">${label}</span><span class="sub ${state}">${o.depth_m ?? "--"} m &middot; ${ago(o.time)}</span></div>`;
-  };
-  const items = d.depths.filter((dep) => dep !== "MID").map(tempItem);
+  $(`${d.meta.id}-readouts`).innerHTML = stationReadouts(d).join("");
+}
+
+/** One readout: the big figure, its label (which opens the plot's explanation) and a line of small print. */
+function readoutHtml(num: string, label: string, about: string, sub: string, state = ""): string {
+  return `<div class="readout"><div class="num">${num}</div><span class="lab"><button type="button" class="ro-about" data-about="${about}" title="About: ${label}">${label}</button></span><span class="sub${state ? ` ${state}` : ""}">${sub}</span></div>`;
+}
+
+/** A reading at one depth, or why there is none. */
+function depthReadout(d: StationData, depth: string, value: (o: LastObs) => number | null | undefined, fmt: (v: number) => string, labelFor: (depthLabel: string) => string, about: string, extra?: (o: LastObs, v: number) => string): string {
+  const o = d.obs[depth];
+  const depthLabel = d.meta.series.find((s) => s.depth === depth)?.label ?? depth;
+  const label = labelFor(depthLabel);
+  const v = o ? value(o) : null;
+  if (!o || v == null || !Number.isFinite(v)) return readoutHtml("--", label, about, "no recent reading");
+  const state = obsState(o);
+  // An old reading is not a current condition: keep it out of the big figure.
+  if (state === "offline") return readoutHtml("--", label, about, `no current reading &middot; last ${fmt(v).replace(/<[^>]+>/g, " ")}, ${fmtDate.format(new Date(o.time))}`, "offline");
+  return readoutHtml(fmt(v), label, about, `${o.depth_m ?? "--"} m &middot; ${extra ? extra(o, v) + " &middot; " : ""}${ago(o.time)}`, state);
+}
+
+/** Surface minus bottom of the view's variable, as its latest 36h mean. */
+function deltaReadout(d: StationData, fmt: (v: number) => string): string {
   const offline = stationState(d) === "offline";
-  if (d.temp.delta) {
+  if (VK === "temp") {
     const sb = stratNow(d);
-    items.push(
-      offline
-        ? `<div class="readout"><div class="num">--</div><span class="lab">Surface minus bottom</span>
-      <span class="sub offline">no current reading &middot; last ${signed(sb.deltaC, 2)}&deg;C, ${sb.status}</span></div>`
-        : `<div class="readout"><div class="num">${signed(sb.deltaC, 2)}&deg;C</div><span class="lab">Surface minus bottom</span>
-      <span class="sub">${sb.status} (alpha definition) &middot; 24h mean</span></div>`,
+    if (!Number.isFinite(sb.deltaC)) return readoutHtml("--", "Surface minus bottom", "sb", "no recent reading");
+    return offline
+      ? readoutHtml("--", "Surface minus bottom", "sb", `no current reading &middot; last ${signed(sb.deltaC, 2)}&deg;C, ${sb.status}`, "offline")
+      : readoutHtml(`${signed(sb.deltaC, 2)}&deg;C`, "Surface minus bottom", "sb", `${sb.status} (alpha definition) &middot; 24h mean`);
+  }
+  const s = d.delta36;
+  const end = s ? s.lastValid() : NaN;
+  if (!s || !Number.isFinite(end)) return readoutHtml("--", "Surface minus bottom", "sb", "no recent reading");
+  const v = s.at(end);
+  return offline
+    ? readoutHtml("--", "Surface minus bottom", "sb", `no current reading &middot; last ${fmt(v)}`, "offline")
+    : readoutHtml(fmt(v), "Surface minus bottom", "sb", "36h mean");
+}
+
+const fmtTempF = (c: number) => `${f1(cToF(c))}&deg;F<small>${c.toFixed(1)}&deg;C</small>`;
+const fmtSal = (v: number) => v.toFixed(2);
+const fmtDo = (v: number) => `${v.toFixed(1)}<small>mg/L</small>`;
+
+/** Wind, waves, pressure and air at the station (the Wind and waves view). */
+function weatherReadouts(d: StationData): string[] {
+  const out: string[] = [];
+  const o = d.met?.last;
+  const state = o ? obsState({ time: o.time } as LastObs) : "offline";
+  const u = WIND_UNITS[WU].label;
+  if (o?.wind_kt != null && state !== "offline") {
+    const dir = o.dir_deg != null ? `from ${compass(o.dir_deg)}` : "";
+    out.push(readoutHtml(`${windFmt(o.wind_kt)}<small>${u}</small>`, "Wind", "wind", `${dir}${dir ? " &middot; " : ""}gusts ${windFmt(o.gust_kt)} ${u} &middot; ${ago(o.time)}`, state));
+  } else out.push(readoutHtml("--", "Wind", "wind", "no recent reading", "offline"));
+  if (d.kind === "buoy" && wavesOf(d.meta.id)?.sensor) {
+    const w = lastWave(d.meta.id);
+    const live = WAVE_LIVE[d.meta.id]?.published && w && obsState({ time: w.time } as LastObs) !== "offline";
+    out.push(
+      live
+        ? readoutHtml(`${waveFmt(w!.hs_m)}<small>${waveUnit().label}</small>`, "Waves", "waves", `${w!.tp_s != null ? `${w!.tp_s.toFixed(0)} s period &middot; ` : ""}${ago(w!.time)}`)
+        : readoutHtml("--", "Waves", "waves", wavesText(d.meta.id, true), "offline"),
     );
   }
-  if (d.kind === "shore") {
-    const e = nextTide(d);
-    const lv = d.levelNow;
-    items.push(`<div class="readout"><div class="num">${lv ? lv.ft.toFixed(1) : "--"}<small>ft</small></div><span class="lab">Water level</span>
-      <span class="sub">above MLLW${lv ? ` &middot; ${ago(lv.time)}` : ""}${e ? ` &middot; next ${tideText(e)}` : ""}</span></div>`);
-    $(`${d.meta.id}-readouts`).innerHTML = items.join("");
-    return;
+  if (o?.pressure_mb != null && state !== "offline") {
+    const p = d.met?.pressure;
+    const end = p ? p.lastValid() : NaN;
+    const trend = p && Number.isFinite(end) ? p.at(end) - p.at(end - 3 * HOUR) : NaN;
+    out.push(readoutHtml(`${o.pressure_mb.toFixed(0)}<small>mb</small>`, "Pressure", "pressure", `${Number.isFinite(trend) ? `${signed(trend)} in 3h &middot; ` : ""}${ago(o.time)}`, state));
   }
-  const deep = d.obs.BTM ?? d.obs[d.depths[d.depths.length - 1]];
-  const where = d.obs.BTM ? "Bottom" : "Surface";
-  const doNow = deep?.oxygen_mg_l != null && obsState(deep) !== "offline";
-  items.push(`<div class="readout"><div class="num">${doNow ? deep!.oxygen_mg_l!.toFixed(1) : "--"}<small>mg/L</small></div><span class="lab">${where} dissolved oxygen</span>
-      <span class="sub${doNow ? "" : " offline"}">${
-        doNow
-          ? `${oxygenStatus(deep!.oxygen_mg_l!)} &middot; salinity ${deep!.salinity != null ? deep!.salinity.toFixed(1) : "--"} &middot; ${ago(deep!.time)}`
-          : deep?.oxygen_mg_l != null
-            ? `no current reading &middot; last ${deep.oxygen_mg_l.toFixed(1)} mg/L, ${fmtDate.format(new Date(deep.time))}`
-            : "no recent reading"
-      }</span></div>`);
-  $(`${d.meta.id}-readouts`).innerHTML = items.join("");
+  if (o?.air_f != null && state !== "offline") out.push(readoutHtml(`${f1(o.air_f)}&deg;F`, "Air", "air", ago(o.time), state));
+  return out;
+}
+
+function levelReadout(d: StationData): string {
+  const e = nextTide(d);
+  const lv = d.levelNow;
+  return readoutHtml(`${lv ? lv.ft.toFixed(1) : "--"}<small>ft</small>`, "Water level", "tide", `above MLLW${lv ? ` &middot; ${ago(lv.time)}` : ""}${e ? ` &middot; next ${tideText(e)}` : ""}`);
+}
+
+/** The readouts at the top of a buoy or shore station section follow the view, mirroring the plots below them.
+ * Mid-depth stays out: the water-column plot carries it. */
+function stationReadouts(d: StationData): string[] {
+  const depths = d.depths.filter((dep) => dep !== "MID");
+  if (d.kind === "shore") {
+    if (VK === "wind") return [...weatherReadouts(d), levelReadout(d)];
+    return [depthReadout(d, d.depths[0], (o) => o.temperature_c, fmtTempF, () => "Water temperature", "col"), levelReadout(d)];
+  }
+  if (VK === "wind") return weatherReadouts(d);
+  if (VK === "salinity") {
+    const items = depths.map((dep) => depthReadout(d, dep, (o) => o.salinity, fmtSal, (l) => `${l} salinity`, "col"));
+    return d.delta ? [...items, deltaReadout(d, (v) => signed(v, 2))] : items;
+  }
+  if (VK === "oxygen") {
+    const bottomFirst = [...depths].reverse();
+    const items = bottomFirst.map((dep) => depthReadout(d, dep, (o) => o.oxygen_mg_l, fmtDo, (l) => `${l} dissolved oxygen`, "col", (_o, v) => oxygenStatus(v)));
+    return d.delta ? [...items, deltaReadout(d, (v) => `${signed(v, 1)}<small>mg/L</small>`)] : items;
+  }
+  const items = depths.map((dep) => depthReadout(d, dep, (o) => o.temperature_c, fmtTempF, (l) => l, "col"));
+  return d.temp.delta ? [...items, deltaReadout(d, () => "")] : items;
 }
 
 const activeDepth = (d: StationData, key: Kind): string =>
@@ -2034,39 +2089,37 @@ function updatedStrip(meta: Meta, live: Live): void {
   window.setInterval(draw, 60_000);
 }
 
+/** The About dialog: one entry from methods.ts, for a plot, a readout or a map layer. */
+function openAbout(key: string, d: StationData | null): void {
+  const m = METHODS[key];
+  if (!m) return;
+  const dialog = $("about-dialog") as HTMLDialogElement;
+  $("about-dialog-title").textContent = d && !key.startsWith("map-") ? `${m.title}: ${d.meta.name}` : m.title;
+  $("about-dialog-body").innerHTML = methodHtml(key, {
+    variable: isWater(VK) ? V().label.toLowerCase() : "the reading",
+    varKey: VK,
+    station: d?.meta.name ?? "the station",
+    stationId: d?.meta.id ?? "",
+    kind: d?.kind ?? "",
+  });
+  if (!dialog.open) dialog.showModal();
+}
+
+function wireAbout(): void {
+  const dialog = $("about-dialog") as HTMLDialogElement;
+  $("about-close").addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close(); // a click on the backdrop
+  });
+  // The map key's (i) (fields.ts) asks for its layer's entry.
+  document.addEventListener("lhzn-about", (e) => openAbout((e as CustomEvent<{ key: string }>).detail.key, null));
+}
+
 function about(meta: Meta): void {
   $("about-method").innerHTML =
-    `Each line is a trailing 36-hour mean of hourly means (at least 24 of the 36 hours present; gaps are left as gaps). Earlier years are drawn ` +
-    `on the same calendar dates, in muted colors from deep blue-green (last year) through purples (oldest), so this year's yellow line stands alone, and a year is drawn only when at least ${COVERAGE_MIN * 100}% ` +
-    `of the window has data, so a partial deployment year does not read as an anomaly. The 7-day change is the 36-hour mean now minus the same ` +
-    `mean 168 hours earlier. Stratification uses a working definition for this alpha: surface minus bottom temperature over the last 24 hours, ` +
-    `mixed under ${STRAT.mixed} &deg;C, weakly stratified to ${STRAT.stratified} &deg;C, stratified above. Quality control: ${meta.qc} ` +
-    `Times are stored in UTC and labelled in Eastern time.` +
-    `<br><br>Wind: the bold line is a two-sided exponential moving average of the hourly wind (run forward and then ` +
-    `backward, so peaks are not delayed; at the latest hour it uses past data only, and it restarts after a gap rather ` +
-    `than bridging it). Its half-life is a display parameter that follows the time span on screen, about 0.11 days per ` +
-    `day shown, between 1 and 12 hours, so zooming in sharpens the line; the value in use is shown with each plot. The ` +
-    `faint line is the hourly mean and the dots are each day's strongest gust. Buoy weather is kept for the last 100 days so far.` +
-    `<br><br>Instruments: temperature, salinity and dissolved oxygen at every depth come from Sea-Bird ` +
-    `<a href="https://www.seabird.com/products/sbe-37-microcat">SBE 37-SMP-ODO MicroCAT</a> sensors (conductivity, temperature and an optical oxygen sensor), ` +
-    `as LISICOS lists them for the buoys; surface sensors sit at about 1 m.` +
-    `<br><br>Salinity and dissolved oxygen (the switch at the top) use the same hourly means, 36-hour means and year comparison. ` +
-    `Salinity is on the practical salinity scale, which has no unit. Oxygen shading marks reference levels: under ${DO_LEVELS.anoxic} mg/L anoxic ` +
-    `and under ${DO_LEVELS.hypoxic} mg/L hypoxic, as the <a href="/references/#lisp2024hypoxia">Long Island Sound Partnership</a> ` +
-    `defines them, and under ${DO_LEVELS.growth} mg/L, EPA's criterion for continuous exposure that protects growth in the coastal waters from Cape Cod to Cape Hatteras ` +
-    `(<a href="https://www.epa.gov/sites/default/files/2018-10/documents/ambient-al-wqc-dissolved-oxygen-cape-code.pdf">EPA-822-R-00-012</a>, 2000). ` +
-    `They are reference levels for reading the charts, not a regulatory assessment. Surface minus bottom is drawn for salinity and oxygen too, without thresholds; ` +
-    `the stratification readout stays a temperature measure. The buoys are four points: for oxygen across the whole Sound, see the summer surveys of ` +
-    `<a href="/references/#ctdeep_lis">CT DEEP</a> and the <a href="/references/#iec_wlis">Interstate Environmental Commission</a>, and the ` +
-    `<a href="/references/#lisp2024hypoxia">Long Island Sound Partnership</a>'s hypoxia indicator.` +
-    `<br><br>Bacteria: this site does not measure bacteria. For swimming conditions, see ` +
-    `<a href="/references/#sts_monitoring">Save the Sound</a>'s weekly results for the western Sound and the ` +
-    `<a href="/references/#nycdep_harbor">NYC Harbor Survey</a>. Full list: <a href="/references/">references</a>.` +
-    `<br><br>Wind and waves (the last view on the switch): wind, air temperature and pressure at each station, and waves at the three buoys ` +
-    `with a wave sensor. Significant wave height is the mean of the highest third of waves; the faint line is each hour's highest single wave. ` +
-    `Heights follow the wind unit: feet with knots or mph, metres with m/s. The wave datasets have been unpublished on the data server for long ` +
-    `stretches; the ingest asks for them every hour, so they return to the page on their own, and the record before the outage comes from our ` +
-    `own saved downloads. Pressure tendency is the change over the last 3 hours.`;
+    `Each plot's (i), and each readout's label, explains what it shows, how it is computed, the sensors and the sources, ` +
+    `with references. The papers and monitoring programs behind the page are on the <a href="/references/">references</a> page. ` +
+    `Times are stored in UTC and labelled in New York time; all data are provisional and may be revised.`;
   const src = meta.stations
     .flatMap((st) =>
       st.series.map((s: MetaSeries) => {
@@ -2565,6 +2618,12 @@ async function main(): Promise<void> {
     $("stations").addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       if (target.closest(".legend") || target.closest("a")) return;
+      const info = target.closest<HTMLElement>("[data-about]");
+      if (info) {
+        const section = info.closest<HTMLElement>(".station");
+        openAbout(info.dataset.about!, section ? byId(section.id) : null);
+        return;
+      }
       const tab = target.closest<HTMLButtonElement>(".tab");
       if (tab) {
         const section = tab.closest<HTMLElement>(".station")!;
@@ -2577,6 +2636,7 @@ async function main(): Promise<void> {
       if (opener?.dataset.station) openZoom(byId(opener.dataset.station), opener.dataset.fig as Kind, opener.dataset.full === "1");
     });
     wireZoom();
+    wireAbout();
     updatedStrip(meta, live);
     about(meta);
     wireCopy(meta, live, stations);

@@ -148,7 +148,6 @@ let fieldT: number | null = null; // the page timeline's time (epoch seconds), o
 let controls: FieldControls | null = null;
 let panel: HTMLElement | null = null;
 let clickBound = false;
-let infoOpen: boolean | null = null; // the key's note: closed in the small map unless opened
 let shownRaster: RasterField | undefined; // the raster the page passed in (the newest), to tell a new layer from a refresh
 let histIndex = -1; // the history frame on the map
 const histRanges = new WeakMap<RasterHistory, [number, number]>();
@@ -498,19 +497,18 @@ function renderPanel(fallback: HTMLElement): void {
     const span = r && r.window_days > 2 && oldest - newest >= 1 ? ` Each pixel is the latest clear view in the last ${Math.round(oldest) + 1} days; older pixels are fainter.` : "";
     const run = c ? ` Run of ${fmtDay.format(new Date(c.generated_at))}, covering 24h back to 72h ahead; the time bar below moves it.` : "";
     const credit = r ? r.attribution : c ? c.source : "";
-    const open = infoOpen ?? controls.wide;
     body = `<div class="field-key"><span class="field-name" title="${meta.title}">${meta.short}</span><span class="field-when">${when}</span>
-      <button type="button" class="field-info" aria-expanded="${open}" aria-label="About this layer" title="About this layer">i</button></div>
+      <button type="button" class="field-info" aria-haspopup="dialog" aria-label="About this layer" title="About this layer">i</button></div>
       ${scaleHtml(meta)}
-      <p class="field-note"${open ? "" : " hidden"}><b>${meta.title}.</b> ${meta.note}${span}${run} <span class="field-credit">${credit}</span></p>`;
+      <p class="field-note" hidden><b>${meta.title}.</b> ${meta.note}${span}${run} <span class="field-credit">${credit}</span></p>`;
   }
   panel.innerHTML = body;
   container.prepend(panel);
   const info = panel.querySelector<HTMLButtonElement>(".field-info")!;
   info.addEventListener("click", () => {
-    infoOpen = info.getAttribute("aria-expanded") !== "true";
-    info.setAttribute("aria-expanded", String(infoOpen));
-    panel!.querySelector<HTMLElement>(".field-note")!.hidden = !infoOpen;
+    if (!active) return;
+    // The page shows the layer's explanation in its About dialog (lis.ts listens).
+    document.dispatchEvent(new CustomEvent("lhzn-about", { detail: { key: `map-${active}` } }));
   });
 }
 

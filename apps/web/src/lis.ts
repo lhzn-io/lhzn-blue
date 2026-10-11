@@ -7,6 +7,7 @@ import registry from "../../../stations/stations.json";
 import shoreRegistry from "../../../stations/shore.json";
 import { highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
 import { METHODS, methodHtml } from "./methods";
+import { percentileText, SEASONS, seasonalPercentile, smoothByAge, trend, trendText, TRENDS } from "./trends";
 import type { Pin } from "./map";
 import type { FieldData, FieldKind, RasterHistory } from "./fields";
 import { wireSuggest } from "./suggest";
@@ -949,11 +950,10 @@ const FIGS: Record<Kind, Fig> = {
     build: (d, _depth, x0, x1) => {
       const xs = grid(x0, x1);
       const m = d.met;
-      // Smoothing follows the zoom: a half-life of about a tenth of a day per day shown, from 1h (a few
-      // days in view) to 12h (the default 110 days), so the line keeps a readable density at any span.
-      const halfLife = Math.min(12, Math.max(1, Math.round(((x1 - x0) / DAY) * 0.11)));
-      const smooth = m?.wind?.ema(halfLife);
-      const smoothLabel = `Wind, smoothed (${halfLife}h half-life)`; // the parameter travels with the plot
+      // Detail where a mariner needs it: hourly for the last two days, then smoother with age (a 6h half-life by two
+      // weeks back, a day by a month back), at any zoom.
+      const smooth = m?.wind ? smoothByAge(m.wind, d.now) : null;
+      const smoothLabel = "Wind, smoothed by age (hourly for 2 days)";
       const peaks = dailyPeaks(m?.gust ?? null);
       const u = WIND_UNITS[WU];
       const fmtU = (v: number) => `${v.toFixed(u.digits)} ${u.label}`;
@@ -1782,16 +1782,29 @@ function readouts(d: StationData): void {
     ].join("");
     return;
   }
-  $(`${d.meta.id}-readouts`).innerHTML = stationReadouts(d).join("");
+  $(`${d.meta.id}-readouts`).innerHTML =
+    stationReadouts(d).join("") +
+    `<button class="fig-info band-info" type="button" data-about="trends" aria-label="About the readouts' trends and %iles" title="About the trends and %iles">i</button>`;
 }
 
 /** One readout: the big figure, its label (which opens the plot's explanation) and a line of small print. */
-function readoutHtml(num: string, label: string, about: string, sub: string, state = ""): string {
-  return `<div class="readout"><div class="num">${num}</div><span class="lab"><button type="button" class="ro-about" data-about="${about}" title="About: ${label}">${label}</button></span><span class="sub${state ? ` ${state}` : ""}">${sub}</span></div>`;
+function readoutHtml(num: string, label: string, about: string, sub: string, state = "", context = ""): string {
+  return `<div class="readout"><div class="num">${num}</div><span class="lab"><button type="button" class="ro-about" data-about="${about}" title="About: ${label}">${label}</button></span>${context ? `<span class="trend">${context}</span>` : ""}<span class="sub${state ? ` ${state}` : ""}">${sub}</span></div>`;
 }
 
+/** Direction over the quantity's window, then the seasonal %ile: "↑ 0.6°F in 24h · 74th %ile". */
+function contextLine(s: Hourly | null | undefined, trendKey: string, fmt: (v: number) => string, season?: { key: string; what?: string }): string {
+  const spec = TRENDS[trendKey];
+  const parts = [trendText(trend(s, spec), spec, fmt)];
+  if (season) parts.push(percentileText(seasonalPercentile(s, SEASONS[season.key]), season.what));
+  return parts.filter(Boolean).join(" &middot; ");
+}
+
+/** The change in the view's water variable, in display units. */
+const waterDelta = (v: number) => (VK === "temp" ? `${v.toFixed(1)}&deg;F` : VK === "salinity" ? v.toFixed(2) : `${v.toFixed(1)} mg/L`);
+
 /** A reading at one depth, or why there is none. */
-function depthReadout(d: StationData, depth: string, value: (o: LastObs) => number | null | undefined, fmt: (v: number) => string, labelFor: (depthLabel: string) => string, about: string, extra?: (o: LastObs, v: number) => string): string {
+function depthReadout(d: StationData, depth: string, value: (o: LastObs) => number | null | undefined, fmt: (v: number) => string, labelFor: (depthLabel: string) => string, about: string, extra?: (o: LastObs, v: number) => string, context?: string): string {
   const o = d.obs[depth];
   const depthLabel = d.meta.series.find((s) => s.depth === depth)?.label ?? depth;
   const label = labelFor(depthLabel);
@@ -1800,8 +1813,11 @@ function depthReadout(d: StationData, depth: string, value: (o: LastObs) => numb
   const state = obsState(o);
   // An old reading is not a current condition: keep it out of the big figure.
   if (state === "offline") return readoutHtml("--", label, about, `no current reading &middot; last ${fmt(v).replace(/<[^>]+>/g, " ")}, ${fmtDate.format(new Date(o.time))}`, "offline");
-  return readoutHtml(fmt(v), label, about, `${o.depth_m ?? "--"} m &middot; ${extra ? extra(o, v) + " &middot; " : ""}${ago(o.time)}`, state);
+  return readoutHtml(fmt(v), label, about, `${o.depth_m ?? "--"} m &middot; ${extra ? extra(o, v) + " &middot; " : ""}${ago(o.time)}`, state, context);
 }
+
+/** Direction and %ile of the view's water variable at one depth, from its 36h mean. */
+const waterContext = (d: StationData, depth: string) => contextLine(d.m36[depth], VK, waterDelta, { key: "water" });
 
 /** Surface minus bottom of the view's variable, as its latest 36h mean. */
 function deltaReadout(d: StationData, fmt: (v: number) => string): string {
@@ -1811,7 +1827,7 @@ function deltaReadout(d: StationData, fmt: (v: number) => string): string {
     if (!Number.isFinite(sb.deltaC)) return readoutHtml("--", "Surface minus bottom", "sb", "no recent reading");
     return offline
       ? readoutHtml("--", "Surface minus bottom", "sb", `no current reading &middot; last ${signed(sb.deltaC, 2)}&deg;C, ${sb.status}`, "offline")
-      : readoutHtml(`${signed(sb.deltaC, 2)}&deg;C`, "Surface minus bottom", "sb", `${sb.status} (alpha definition) &middot; 24h mean`);
+      : readoutHtml(`${signed(sb.deltaC, 2)}&deg;C`, "Surface minus bottom", "sb", `${sb.status} (alpha definition) &middot; 24h mean`, "", stratContext(d));
   }
   const s = d.delta36;
   const end = s ? s.lastValid() : NaN;
@@ -1819,7 +1835,23 @@ function deltaReadout(d: StationData, fmt: (v: number) => string): string {
   const v = s.at(end);
   return offline
     ? readoutHtml("--", "Surface minus bottom", "sb", `no current reading &middot; last ${fmt(v)}`, "offline")
-    : readoutHtml(fmt(v), "Surface minus bottom", "sb", "36h mean");
+    : readoutHtml(fmt(v), "Surface minus bottom", "sb", "36h mean", "", contextLine(s, VK, waterDelta));
+}
+
+/** Stratifying or mixing: the size of the last day's mean surface-bottom temperature difference against the day
+ * before's (sizes of the means, so hours flipping sign around zero do not read as layering). */
+function stratContext(d: StationData): string {
+  const s = d.temp.delta;
+  const end = s ? s.lastValid() : NaN;
+  if (!s || !Number.isFinite(end)) return "";
+  const spec = TRENDS.stratification;
+  const w = spec.window * HOUR;
+  const now = Math.abs(s.mean(end - w + HOUR, end));
+  const before = Math.abs(s.mean(end - 2 * w + HOUR, end - w));
+  if (!Number.isFinite(now) || !Number.isFinite(before)) return "";
+  const delta = now - before;
+  const t = { dir: (Math.abs(delta) < spec.dead ? 0 : delta > 0 ? 1 : -1) as 1 | -1 | 0, delta };
+  return trendText(t, spec, (v) => `${((v * 5) / 9).toFixed(2)}&deg;C`);
 }
 
 const fmtTempF = (c: number) => `${f1(cToF(c))}&deg;F<small>${c.toFixed(1)}&deg;C</small>`;
@@ -1834,24 +1866,27 @@ function weatherReadouts(d: StationData): string[] {
   const u = WIND_UNITS[WU].label;
   if (o?.wind_kt != null && state !== "offline") {
     const dir = o.dir_deg != null ? `from ${compass(o.dir_deg)}` : "";
-    out.push(readoutHtml(`${windFmt(o.wind_kt)}<small>${u}</small>`, "Wind", "wind", `${dir}${dir ? " &middot; " : ""}gusts ${windFmt(o.gust_kt)} ${u} &middot; ${ago(o.time)}`, state));
+    out.push(readoutHtml(`${windFmt(o.wind_kt)}<small>${u}</small>`, "Wind", "wind", `${dir}${dir ? " &middot; " : ""}gusts ${windFmt(o.gust_kt)} ${u} &middot; ${ago(o.time)}`, state,
+      contextLine(d.met?.wind, "wind", (v) => `${windFmt(v)} ${u}`, { key: "wind", what: "last 3 days" })));
   } else out.push(readoutHtml("--", "Wind", "wind", "no recent reading", "offline"));
   if (d.kind === "buoy" && wavesOf(d.meta.id)?.sensor) {
     const w = lastWave(d.meta.id);
     const live = WAVE_LIVE[d.meta.id]?.published && w && obsState({ time: w.time } as LastObs) !== "offline";
     out.push(
       live
-        ? readoutHtml(`${waveFmt(w!.hs_m)}<small>${waveUnit().label}</small>`, "Waves", "waves", `${w!.tp_s != null ? `${w!.tp_s.toFixed(0)} s period &middot; ` : ""}${ago(w!.time)}`)
+        ? readoutHtml(`${waveFmt(w!.hs_m)}<small>${waveUnit().label}</small>`, "Waves", "waves", `${w!.tp_s != null ? `${w!.tp_s.toFixed(0)} s period &middot; ` : ""}${ago(w!.time)}`, "",
+            contextLine(d.waves?.hs, "waves", (v) => `${waveFmt(v)} ${waveUnit().label}`, { key: "waves", what: "last 3 days" }))
         : readoutHtml("--", "Waves", "waves", wavesText(d.meta.id, true), "offline"),
     );
   }
   if (o?.pressure_mb != null && state !== "offline") {
-    const p = d.met?.pressure;
-    const end = p ? p.lastValid() : NaN;
-    const trend = p && Number.isFinite(end) ? p.at(end) - p.at(end - 3 * HOUR) : NaN;
-    out.push(readoutHtml(`${o.pressure_mb.toFixed(0)}<small>mb</small>`, "Pressure", "pressure", `${Number.isFinite(trend) ? `${signed(trend)} in 3h &middot; ` : ""}${ago(o.time)}`, state));
+    const t = trend(d.met?.pressure, TRENDS.pressure);
+    const quick = t && Math.abs(t.delta) >= 3 ? " quickly" : ""; // past 3 mb in 3h
+    const ctx = contextLine(d.met?.pressure, "pressure", (v) => `${v.toFixed(1)} mb`).replace(/^(rising|falling)/, `$1${quick}`);
+    out.push(readoutHtml(`${o.pressure_mb.toFixed(0)}<small>mb</small>`, "Pressure", "pressure", ago(o.time), state, ctx));
   }
-  if (o?.air_f != null && state !== "offline") out.push(readoutHtml(`${f1(o.air_f)}&deg;F`, "Air", "air", ago(o.time), state));
+  if (o?.air_f != null && state !== "offline")
+    out.push(readoutHtml(`${f1(o.air_f)}&deg;F`, "Air", "air", ago(o.time), state, contextLine(d.met?.air, "air", (v) => `${v.toFixed(0)}&deg;F`, { key: "air" })));
   return out;
 }
 
@@ -1867,19 +1902,19 @@ function stationReadouts(d: StationData): string[] {
   const depths = d.depths.filter((dep) => dep !== "MID");
   if (d.kind === "shore") {
     if (VK === "wind") return [...weatherReadouts(d), levelReadout(d)];
-    return [depthReadout(d, d.depths[0], (o) => o.temperature_c, fmtTempF, () => "Water temperature", "col"), levelReadout(d)];
+    return [depthReadout(d, d.depths[0], (o) => o.temperature_c, fmtTempF, () => "Water temperature", "col", undefined, d.kind === "shore" ? contextLine(d.m36[d.depths[0]] ?? d.temp.m36[d.depths[0]], "temp", (v) => `${v.toFixed(1)}&deg;F`, { key: "water" }) : undefined), levelReadout(d)];
   }
   if (VK === "wind") return weatherReadouts(d);
   if (VK === "salinity") {
-    const items = depths.map((dep) => depthReadout(d, dep, (o) => o.salinity, fmtSal, (l) => `${l} salinity`, "col"));
+    const items = depths.map((dep) => depthReadout(d, dep, (o) => o.salinity, fmtSal, (l) => `${l} salinity`, "col", undefined, waterContext(d, dep)));
     return d.delta ? [...items, deltaReadout(d, (v) => signed(v, 2))] : items;
   }
   if (VK === "oxygen") {
     const bottomFirst = [...depths].reverse();
-    const items = bottomFirst.map((dep) => depthReadout(d, dep, (o) => o.oxygen_mg_l, fmtDo, (l) => `${l} dissolved oxygen`, "col", (_o, v) => oxygenStatus(v)));
+    const items = bottomFirst.map((dep) => depthReadout(d, dep, (o) => o.oxygen_mg_l, fmtDo, (l) => `${l} dissolved oxygen`, "col", (_o, v) => oxygenStatus(v), waterContext(d, dep)));
     return d.delta ? [...items, deltaReadout(d, (v) => `${signed(v, 1)}<small>mg/L</small>`)] : items;
   }
-  const items = depths.map((dep) => depthReadout(d, dep, (o) => o.temperature_c, fmtTempF, (l) => l, "col"));
+  const items = depths.map((dep) => depthReadout(d, dep, (o) => o.temperature_c, fmtTempF, (l) => l, "col", undefined, waterContext(d, dep)));
   return d.temp.delta ? [...items, deltaReadout(d, () => "")] : items;
 }
 

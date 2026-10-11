@@ -81,9 +81,10 @@ export const METHODS: Record<string, Method> = {
       "Wind speed at the station: a smoothed line, the hourly wind (faint) and each day's strongest gust (dots). Hovering " +
       "gives the direction it blows from.",
     method:
-      "The smoothed line is a two-sided exponential moving average of the hourly wind: run forward and back so peaks are not " +
-      "delayed, past data only at the latest hour, restarted after a gap. Its half-life follows the span on screen, about 0.11 " +
-      "days per day shown, between 1 and 12 hours.",
+      "The bold line is hourly for the last two days, then smoothed more the older it is: a two-sided exponential moving " +
+      "average whose half-life widens from 1 hour two days back to 6 hours two weeks back and a day a month back, so recent " +
+      "hours keep their detail and earlier weeks read as a trend. The average runs forward and back so peaks are not delayed, " +
+      "and restarts after a gap.",
     caveats: "Buoy weather is kept for the last 100 days so far. Speeds follow the Units switch.",
   },
   air: {
@@ -188,6 +189,23 @@ export const METHODS: Record<string, Method> = {
     method: "The NECOFS FVCOM forecast (UMass Dartmouth), every 2 hours [[chen2003fvcom]] [[chen2006fvcom]].",
     caveats: "A model forecast, not a measurement. Speeds follow the Units switch.",
   },
+};
+
+METHODS.trends = {
+  title: "Trends and %iles",
+  shows:
+    "Under each reading, which way it is heading and how unusual it is for the time of year: for example \"↑ 0.6°F in 24h " +
+    "· 74th %ile\".",
+  method:
+    "Direction compares two adjacent windows sized to how fast each quantity moves: 3 hours for wind, waves and pressure " +
+    "(the last 3 hours' mean against the 3 before for wind and waves); 24 hours for air and water. Changes smaller than a " +
+    "dead band read as steady: 2 kt of wind, 0.1 m of waves, 1 mb of pressure, 2°F of air, 0.2°F of water, 0.05 salinity, " +
+    "0.2 mg/L of oxygen. Pressure falling or rising by 3 mb or more in 3 hours reads as quickly. The %ile ranks the value " +
+    "(the 36-hour mean for water; the last 3 days' mean for wind and waves; the last day's for air) against the same dates, " +
+    "a week either side, in every earlier year with data for at least half that fortnight.",
+  caveats:
+    "A %ile needs at least three earlier years. Buoy weather is kept for the last 100 days so far, so wind, air and pressure " +
+    "show \"record too short for a %ile\" until the full weather record is added.",
 };
 
 /** Readout labels open the entry for the plot they summarise. */

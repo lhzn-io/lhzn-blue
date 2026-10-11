@@ -129,8 +129,9 @@ def render(entries: list[dict]) -> str:
     parts.append(
         '      <section class="refs-waterway refs-open" aria-labelledby="next-title">\n'
         '      <h2 id="next-title">Next waterway</h2>\n'
-        '      <p class="prose">Open. Each page is curated by people who know the water. If you work on, study or monitor a coastal '
-        f'water and would like to bring its observations and its literature here, write to <a href="mailto:{CONTACT}">{CONTACT}</a>.</p>\n'
+        '      <p class="prose">If you work on, study or monitor a coastal water and would lik'
+        'e to help bring its observations and academic literature here, write to '
+        f'<a href="mailto:{CONTACT}">{CONTACT}</a>.</p>\n'
         "      </section>"
     )
     body = "\n\n".join(filter(None, parts))

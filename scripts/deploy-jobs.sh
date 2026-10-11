@@ -39,7 +39,7 @@ SECRETS="CLOUDFLARE_API_TOKEN=${CF_TOKEN_SECRET}:latest"
 [ -n "${USGS_KEY_SECRET:-}" ] && SECRETS="${SECRETS},USGS_API_KEY=${USGS_KEY_SECRET}:latest"
 
 # Per job: timeout and memory. `fields` reads the model mesh and satellite grids, so it gets the most memory.
-declare -A TIMEOUT=([live]=10m [history]=30m [fields]=20m)
+declare -A TIMEOUT=([live]=10m [history]=30m [fields]=30m)
 declare -A MEMORY=([live]=512Mi [history]=1Gi [fields]=2Gi)
 for mode in live history fields; do
   gcloud run jobs deploy "lhzn-blue-${mode}" \

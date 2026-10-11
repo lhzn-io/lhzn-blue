@@ -1,6 +1,6 @@
 # Roadmap
 
-What `longhorizon.blue` does next, in rough order. Status as of 2026-10-09.
+What `longhorizon.blue` does next, in rough order. Status as of 2026-10-11.
 
 ## Principles
 
@@ -41,25 +41,26 @@ What `longhorizon.blue` does next, in rough order. Status as of 2026-10-09.
       fetched through `forcingkit` by a daily job that keeps no cache
 - [x] A page timeline (24h back to 72h ahead) that moves the currents and a rule on every chart; values shown on the
       chart lines at the cursor
+- [x] Satellite history: the last 90 days of SST, chlorophyll-a and Kd490 played on the map, the timeline switching
+      to days for a satellite layer. One frame a day (SST as analysed; chlorophyll and Kd490 as rolling 7-day
+      composites with each pixel's age), on a fixed colour scale, from one gzipped binary file per field (one byte
+      per pixel for the value and one for the age) that the daily job updates in place: the last 10 days recomputed,
+      older days dropped
 
 ## Next
 
-1. **Satellite history as a movie.** Play the recent past of SST, chlorophyll-a and Kd490 on the map, with the page
-   timeline stretched to weeks (30 to 90 days) in a history mode. One frame a day: SST as published (gap-free);
-   chlorophyll and Kd490 as rolling 7-day composites with each pixel's age, so clouds do not blank the frames, or the
-   gap-filled 2 km DINEOF products once their archive depth is checked. Published as one fixed rolling-window file per
-   field, overwritten daily, so storage cannot grow; the daily job adds one day and drops the oldest, after a one-off
-   backfill. Needs a compact binary frame format (8-bit values on the field's scale plus 1 byte of age per pixel,
-   about 30 to 60 KB a frame) in place of today's JSON integers, and the same format for the currents.
-2. **Station values at the timeline's time.** Map pins and the overview table follow the timeline cursor, marked
+1. **Station values at the timeline's time.** Map pins and the overview table follow the timeline cursor, marked
    observed or forecast, with "--" where nothing covers the time.
-3. **Tide-averaged flow at Middle Haddam.** The lowest Connecticut River gauge with a tide-free record is
+2. **Tide-averaged flow at Middle Haddam.** The lowest Connecticut River gauge with a tide-free record is
    Thompsonville, above Hartford (about 86% of the watershed). Below it USGS publishes only tidal flow at Middle
    Haddam, which reverses with the tide. Add a 25-hour mean of that flow as our own derived series, labelled as such,
    without normals (USGS publishes none for it).
-4. **Mobile formatting.** A pass over the phone layout: masthead, map height, status grid, chart heights, legend
+3. **Mobile formatting.** A pass over the phone layout: masthead, map height, status grid, chart heights, legend
    wrapping, zoom view controls, and tap targets (the page is wider than a phone screen today).
-5. **Rate limiting** on the data files at the edge, then retire the `workers.dev` address.
+4. **Rate limiting** on the data files at the edge, then retire the `workers.dev` address.
+5. **Compact currents.** The currents in the same binary frame format as the satellite history (about a third of
+   today's 3.5 MB), and a longer satellite record from the gap-filled 2 km products, whose archive is not limited to
+   the near-real-time sectors' three months.
 
 ## After that
 

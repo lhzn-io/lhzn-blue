@@ -7,7 +7,7 @@ import registry from "../../../stations/stations.json";
 import shoreRegistry from "../../../stations/shore.json";
 import { highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
 import type { Pin } from "./map";
-import type { FieldData, FieldKind } from "./fields";
+import type { FieldData, FieldKind, RasterHistory } from "./fields";
 import { wireSuggest } from "./suggest";
 import {
   COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, oxygenStatus, stratStatus, yearLines,
@@ -2305,6 +2305,25 @@ function fieldData(kind: FieldKind): Promise<FieldData> {
   return fieldCache.get(kind)!;
 }
 
+/** The 90-day history behind a satellite layer, loaded after the layer shows (null when it is not published). */
+const historyCache = new Map<FieldKind, Promise<RasterHistory | null>>();
+function historyData(kind: FieldKind): Promise<RasterHistory | null> {
+  if (!historyCache.has(kind)) {
+    historyCache.set(
+      kind,
+      fetch(`${DATA}/fields/${kind}-90d.bin`)
+        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${kind} history: HTTP ${r.status}`))))
+        .then(async (buf) => (await import("./fields")).decodeHistory(buf))
+        .catch((err) => {
+          console.error(err);
+          historyCache.delete(kind); // try again next time
+          return null;
+        }),
+    );
+  }
+  return historyCache.get(kind)!;
+}
+
 function applyWide(): void {
   document.querySelector(".overview")?.classList.toggle("map-wide", mapWide);
 }
@@ -2321,29 +2340,44 @@ async function syncField(): Promise<void> {
     }
   }
   const shown = kind !== "none" && (payload.raster || payload.currents) ? kind : null;
+  // The time bar: days for a satellite layer once its history is in, hours otherwise.
+  const tl = await import("./timeline");
+  if (shown !== "sst" && shown !== "chl" && shown !== "kd490") tl.setScale("hours");
   try {
-    (await import("./fields")).showField(shown, payload, {
-      choices: FIELD_CHOICES,
-      chosen: shown ?? "none",
-      onPick: (k) => {
-        fieldPick = k;
-        void syncField();
-      },
-      wide: mapWide,
-      speed: currentSpeed(),
-      onWide: (w) => {
-        mapWide = w;
-        try {
-          localStorage.setItem("lhzn-blue-map-wide", w ? "1" : "0");
-        } catch {
-          /* private mode */
-        }
-        void syncField();
-      },
-    });
+    const fields = await import("./fields");
+    void fields.showField(shown, payload, fieldControls());
+    if (shown === "sst" || shown === "chl" || shown === "kd490") {
+      const history = await historyData(shown);
+      if (history && fieldPick === shown) {
+        tl.setScale("days");
+        void fields.showField(shown, { ...payload, history }, fieldControls());
+      }
+    }
   } catch (err) {
     console.error(err);
   }
+}
+
+function fieldControls(): import("./fields").FieldControls {
+  return {
+    choices: FIELD_CHOICES,
+    chosen: fieldPick,
+    onPick: (k) => {
+      fieldPick = k;
+      void syncField();
+    },
+    wide: mapWide,
+    speed: currentSpeed(),
+    onWide: (w) => {
+      mapWide = w;
+      try {
+        localStorage.setItem("lhzn-blue-map-wide", w ? "1" : "0");
+      } catch {
+        /* private mode */
+      }
+      void syncField();
+    },
+  };
 }
 
 /** Pointing at a river in the table (mouse or keyboard) highlights its basin and fits the map to it. */

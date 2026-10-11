@@ -16,12 +16,23 @@ Published layout (under ``<root>/v1/fields/``):
   in).
 - ``currents.json``: surface (top sigma layer) eastward and northward current per element, in cm/s, every
   ``step`` seconds from ``t0``: a model forecast, labelled as one.
+- ``sst-90d.bin``, ``chl-90d.bin``, ``kd490-90d.bin``: the last 90 days of each raster, one frame per UTC day (the
+  composite at the day's end, or now for today), for playing the recent past. Gzipped; inside, ``LHZF``, a
+  little-endian uint32 header length, a JSON header (grid, days, encoding, sources), then per frame one byte per
+  pixel for the value (0 = no value; 1 to 255 spread linearly, or in log10 for chlorophyll and Kd490, over the
+  field's fixed range) and, for the composited fields, one byte per pixel for the age (tenths of a day; 255 = none).
+  The ranges are fixed so frames kept from earlier runs never need re-encoding. Each run recomputes the last
+  ``HISTORY_RECOMPUTE_DAYS`` (late passes fill in) and drops days older than ``HISTORY_DAYS``; the file is
+  overwritten in place.
 """
 
 from __future__ import annotations
 
+import gzip
+import json
 import logging
-from datetime import datetime
+import struct
+from datetime import date, datetime, time, timedelta, timezone
 
 import numpy as np
 import pandas as pd
@@ -42,6 +53,13 @@ CURRENT_HOURS_AHEAD = 72
 CURRENT_STEP_HOURS = 2  # keeps the file near 5 MB for about 12,500 elements
 ARROW_LEVELS = 6
 ARROW_CELL_DEG = 0.08  # level 0: one arrow per 0.08 degree cell; each level halves the cell
+HISTORY_DAYS = 90
+HISTORY_RECOMPUTE_DAYS = 10
+# name -> (low, high, log10 scale): fixed quantisation ranges for the history files
+HISTORY_RANGE = {"sst": (-2.0, 32.0, False), "chl": (0.05, 50.0, True), "kd490": (0.02, 5.0, True)}
+HISTORY_AGE = {"sst": True, "chl": True, "kd490": True}  # SST too: the newest frame may still be yesterday's analysis
+AGE_STEP = 0.1  # days per age unit
+MAGIC = b"LHZF"
 
 
 def raster(name: str, end: datetime | None = None) -> dict:
@@ -79,6 +97,124 @@ def raster(name: str, end: datetime | None = None) -> dict:
         "sources": [coastwatch.PRODUCTS[p].dataset for p in products if p in coastwatch.PRODUCTS],
         "attribution": ds.attrs.get("attribution", ""),
     }
+
+
+def _grid(ds) -> dict:
+    lat, lon = ds["lat"].values, ds["lon"].values
+    return {
+        "lon0": round(float(lon[0]), 6),
+        "lat0": round(float(lat[0]), 6),
+        "dlon": round(float(np.diff(lon).mean()), 7),
+        "dlat": round(float(np.diff(lat).mean()), 7),
+        "nx": int(lon.size),
+        "ny": int(lat.size),
+    }
+
+
+def quantise(values: np.ndarray, lo: float, hi: float, log10: bool) -> np.ndarray:
+    """Values to bytes: 0 where there is no value, 1 to 255 across [lo, hi] (clipped), linear or in log10."""
+    v = np.asarray(values, dtype=np.float64)
+    ok = np.isfinite(v) & (v > 0 if log10 else True)
+    x = np.log10(np.where(ok, v, 1.0)) if log10 else np.where(ok, v, 0.0)
+    a, b = (np.log10(lo), np.log10(hi)) if log10 else (lo, hi)
+    q = 1 + np.round(np.clip((x - a) / (b - a), 0.0, 1.0) * 254)
+    return np.where(ok, q, 0).astype(np.uint8)
+
+
+def dequantise(q: np.ndarray, lo: float, hi: float, log10: bool) -> np.ndarray:
+    a, b = (np.log10(lo), np.log10(hi)) if log10 else (lo, hi)
+    x = a + (q.astype(np.float64) - 1) / 254 * (b - a)
+    v = 10**x if log10 else x
+    return np.where(q > 0, v, np.nan)
+
+
+def quantise_age(age: np.ndarray) -> np.ndarray:
+    a = np.asarray(age, dtype=np.float64)
+    return np.where(np.isfinite(a), np.clip(np.round(a / AGE_STEP), 0, 254), 255).astype(np.uint8)
+
+
+def encode_history(header: dict, frames: list[tuple[np.ndarray, np.ndarray | None]]) -> bytes:
+    head = json.dumps(header, separators=(",", ":")).encode()
+    body = b"".join(v.tobytes() + (a.tobytes() if a is not None else b"") for v, a in frames)
+    return gzip.compress(MAGIC + struct.pack("<I", len(head)) + head + body, compresslevel=9, mtime=0)
+
+
+def decode_history(blob: bytes) -> tuple[dict, list[tuple[np.ndarray, np.ndarray | None]]]:
+    raw = gzip.decompress(blob)
+    if raw[:4] != MAGIC:
+        raise ValueError("not a history file")
+    (n,) = struct.unpack("<I", raw[4:8])
+    header = json.loads(raw[8 : 8 + n])
+    px = header["grid"]["nx"] * header["grid"]["ny"]
+    per = px * (2 if header.get("age") else 1)
+    body = np.frombuffer(raw, dtype=np.uint8, offset=8 + n)
+    frames = []
+    for i in range(len(header["days"])):
+        chunk = body[i * per : (i + 1) * per]
+        frames.append((chunk[:px].copy(), chunk[px:].copy() if header.get("age") else None))
+    return header, frames
+
+
+def _frame_end(day: date, now: datetime) -> datetime:
+    return min(datetime.combine(day, time(23, 59, 59), tzinfo=timezone.utc), now)
+
+
+def history(name: str, existing: bytes | None, end: datetime | None = None) -> tuple[bytes, dict]:
+    """The 90-day history file for a raster: frames kept from `existing` where still trusted, the rest computed.
+    Returns the file and a short summary for the log."""
+    from forcingkit.fetchers import coastwatch
+
+    quantity, window, coast, _ = RASTERS[name]
+    lo, hi, log10 = HISTORY_RANGE[name]
+    with_age = HISTORY_AGE[name]
+    end = end or now_utc()
+    today = end.astimezone(timezone.utc).date()
+    days = [today - timedelta(days=k) for k in range(HISTORY_DAYS - 1, -1, -1)]
+    kept: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
+    old_grid = None
+    if existing:
+        try:
+            header, frames = decode_history(existing)
+            if header.get("encoding") == {"low": lo, "high": hi, "log10": log10, "levels": 254} and bool(header.get("age")) == with_age:
+                old_grid = header["grid"]
+                fresh = {d.isoformat() for d in days[: HISTORY_DAYS - HISTORY_RECOMPUTE_DAYS]}
+                # A frame with no valid pixel is computed again: usually a server outage on its days, not cloud.
+                kept = {d: f for d, f in zip(header["days"], frames) if d in fresh and bool((f[0] > 0).any())}
+        except Exception:
+            log.warning("history %s unreadable; rebuilding", name)
+    todo = [d for d in days if d.isoformat() not in kept]
+    ds = coastwatch.composite_series(coastwatch.QUANTITIES[quantity], BBOX, [_frame_end(d, end) for d in todo], window)
+    ds = coastwatch.mask_coast(ds, coast)
+    grid = _grid(ds)
+    if old_grid is not None and old_grid != grid and len(todo) < len(days):
+        log.warning("history %s grid changed; rebuilding", name)
+        return history(name, None, end)
+    new = {
+        d.isoformat(): (quantise(ds["value"].values[i], lo, hi, log10).ravel(), quantise_age(ds["age_days"].values[i]).ravel() if with_age else None)
+        for i, d in enumerate(todo)
+    }
+    frames = [kept.get(d.isoformat()) or new[d.isoformat()] for d in days]
+    products = str(ds.attrs.get("products", "")).split(",")
+    header = {
+        "schema": SCHEMA,
+        "kind": name,
+        "quantity": quantity,
+        "units": ds["value"].attrs.get("units", ""),
+        "grid": grid,
+        "days": [d.isoformat() for d in days],
+        "frame_time": "each UTC day's end (today: the time of the run)",
+        "window_days": window,
+        "coast_mask_pixels": coast,
+        "encoding": {"low": lo, "high": hi, "log10": log10, "levels": 254},
+        "age": {"step_days": AGE_STEP} if with_age else None,
+        "generated_at": iso(end),
+        "products": products,
+        "sources": [coastwatch.PRODUCTS[p].dataset for p in products if p in coastwatch.PRODUCTS],
+        "attribution": ds.attrs.get("attribution", ""),
+    }
+    blob = encode_history(header, frames)
+    valid = [round(float((v > 0).mean()), 2) for v, _ in frames]
+    return blob, {"computed": len(todo), "kept": len(kept), "bytes": len(blob), "valid_min": min(valid), "valid_max": max(valid)}
 
 
 def arrow_levels(lon: np.ndarray, lat: np.ndarray) -> np.ndarray:
@@ -153,6 +289,15 @@ def publish(store: Store) -> list[str]:
         except Exception:
             log.exception("field %s not refreshed", name)
             failed.append(name)
+    for name in RASTERS:
+        rel = f"v1/fields/{name}-90d.bin"
+        try:
+            blob, summary = history(name, store.read_bytes(rel), end)
+            store.write_bytes(rel, blob, max_age=3600)
+            log.info("history %s: %s", name, summary)
+        except Exception:
+            log.exception("history %s not refreshed", name)
+            failed.append(f"{name}-90d")
     try:
         mesh, data = currents(end)
         store.write_json("v1/fields/currents-mesh.json", mesh, max_age=86400)

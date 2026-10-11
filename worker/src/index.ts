@@ -38,6 +38,9 @@ const FILES: Record<string, number> = {
   "v1/fields/kd490.json": 3600,
   "v1/fields/currents.json": 3600,
   "v1/fields/currents-mesh.json": 86400,
+  "v1/fields/sst-90d.bin": 3600,
+  "v1/fields/chl-90d.bin": 3600,
+  "v1/fields/kd490-90d.bin": 3600,
 };
 
 async function data(req: Request, env: Env, path: string): Promise<Response> {
@@ -62,7 +65,8 @@ async function data(req: Request, env: Env, path: string): Promise<Response> {
   return new Response(req.method === "HEAD" ? null : body, {
     status: 200,
     headers: {
-      "content-type": "application/json; charset=utf-8",
+      // The history files are gzipped binary that the page unzips itself.
+      "content-type": key.endsWith(".bin") ? "application/octet-stream" : "application/json; charset=utf-8",
       "cache-control": `public, max-age=${seconds}`,
       "x-robots-tag": "noindex",
     },

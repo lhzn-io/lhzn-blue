@@ -47,10 +47,38 @@ export interface CurrentsField {
   generated_at: string;
 }
 
+/** The last 90 days of a raster, one frame per UTC day (see the jobs' fields.py for the file layout). */
+export interface RasterHistory {
+  header: {
+    kind: Exclude<FieldKind, "currents">;
+    units: string;
+    grid: RasterField["grid"];
+    days: string[];
+    window_days: number;
+    encoding: { low: number; high: number; log10: boolean; levels: number };
+    age: { step_days: number } | null;
+    generated_at: string;
+    products: string[];
+    attribution: string;
+  };
+  body: Uint8Array;
+}
+
 export interface FieldData {
   raster?: RasterField;
+  history?: RasterHistory;
   mesh?: CurrentsMesh;
   currents?: CurrentsField;
+}
+
+/** Unzip and parse a history file: "LHZF", a little-endian uint32 header length, the JSON header, the frames. */
+export async function decodeHistory(buf: ArrayBuffer): Promise<RasterHistory> {
+  const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"));
+  const raw = new Uint8Array(await new Response(stream).arrayBuffer());
+  if (String.fromCharCode(...raw.subarray(0, 4)) !== "LHZF") throw new Error("not a history file");
+  const n = new DataView(raw.buffer, raw.byteOffset).getUint32(4, true);
+  const header = JSON.parse(new TextDecoder().decode(raw.subarray(8, 8 + n))) as RasterHistory["header"];
+  return { header, body: raw.subarray(8 + n) };
 }
 
 /** Controls the page passes in: the layer picker and the full-width toggle. */
@@ -121,6 +149,84 @@ let controls: FieldControls | null = null;
 let panel: HTMLElement | null = null;
 let clickBound = false;
 let infoOpen: boolean | null = null; // the key's note: closed in the small map unless opened
+let shownRaster: RasterField | undefined; // the raster the page passed in (the newest), to tell a new layer from a refresh
+let histIndex = -1; // the history frame on the map
+const histRanges = new WeakMap<RasterHistory, [number, number]>();
+
+/* ---------- History frames ---------- */
+
+const nyDay = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** The history frame for the timeline's time: the newest day not after its New York date, the date the time bar
+ * shows (now: the newest frame). */
+function historyIndex(h: RasterHistory): number {
+  const days = h.header.days;
+  if (fieldT == null) return days.length - 1;
+  const day = nyDay.format(new Date(fieldT * 1000));
+  let k = days.length - 1;
+  while (k > 0 && days[k] > day) k--;
+  return k;
+}
+
+function dequantise(h: RasterHistory, q: number): number {
+  const { low, high, log10 } = h.header.encoding;
+  if (q === 0) return NaN;
+  const a = log10 ? Math.log10(low) : low;
+  const b = log10 ? Math.log10(high) : high;
+  const x = a + ((q - 1) / 254) * (b - a);
+  return log10 ? 10 ** x : x;
+}
+
+/** One history frame as a raster the drawing code already knows. */
+function historyRaster(h: RasterHistory, k: number): RasterField {
+  const { grid, age, days, window_days } = h.header;
+  const px = grid.nx * grid.ny;
+  const per = px * (age ? 2 : 1);
+  const v = h.body.subarray(k * per, k * per + px);
+  const a = age ? h.body.subarray(k * per + px, (k + 1) * per) : null;
+  const last = k === days.length - 1 && h.header.generated_at.slice(0, 10) === days[k];
+  return {
+    kind: h.header.kind,
+    units: h.header.units,
+    scale: 1,
+    time: last ? h.header.generated_at : `${days[k]}T23:59:59Z`,
+    window_days,
+    grid,
+    values: Array.from(v, (q) => (q === 0 ? null : dequantise(h, q))),
+    age_days: a ? Array.from(a, (q) => (q === 255 ? null : q * age!.step_days)) : new Array(px).fill(null),
+    attribution: h.header.attribution,
+    products: h.header.products,
+  };
+}
+
+/** One colour scale for every frame, so the movie does not flicker: the field's fixed range, or for SST the 2nd to
+ * 98th percentile over all 90 days. */
+function historyRange(h: RasterHistory): [number, number] {
+  const meta = META[h.header.kind];
+  if (meta.range) return meta.range;
+  let r = histRanges.get(h);
+  if (!r) {
+    const counts = new Array(256).fill(0);
+    for (const q of h.body) counts[q]++; // the age bytes count too, harmlessly: only the value levels are read
+    const { grid, age } = h.header;
+    const px = grid.nx * grid.ny;
+    const vals = new Array(256).fill(0);
+    for (let k = 0; k < h.header.days.length; k++) {
+      const off = k * px * (age ? 2 : 1);
+      for (let i = 0; i < px; i++) vals[h.body[off + i]]++;
+    }
+    vals[0] = 0;
+    const total = vals.reduce((s, c) => s + c, 0);
+    const at = (p: number) => {
+      let acc = 0;
+      for (let q = 1; q < 256; q++) if ((acc += vals[q]) >= p * total) return dequantise(h, q);
+      return dequantise(h, 255);
+    };
+    r = total ? [at(0.02), at(0.98)] : [0, 1];
+    histRanges.set(h, r);
+  }
+  return r;
+}
 
 const LAYER_IDS = ["field-raster", "cur-fill", "cur-arrows"];
 const SOURCE_IDS = ["field-raster", "cur-mesh", "cur-points"];
@@ -138,7 +244,7 @@ const beneathLabels = (map: maplibregl.Map) => map.getStyle().layers?.find((l) =
 function rasterImage(f: RasterField, meta: Meta): string {
   const { nx, ny } = f.grid;
   const values = f.values.map((v) => (v == null ? NaN : v * f.scale));
-  range = rangeOf(meta, values);
+  range = data.history ? historyRange(data.history) : rangeOf(meta, values);
   const canvas = document.createElement("canvas");
   canvas.width = nx;
   canvas.height = ny;
@@ -173,6 +279,39 @@ function addRaster(map: maplibregl.Map, f: RasterField): void {
     { id: "field-raster", type: "raster", source: "field-raster", paint: { "raster-opacity": 0.85, "raster-resampling": "nearest", "raster-fade-duration": 0 } },
     beneathLabels(map),
   );
+}
+
+/** Move the raster to another history frame: the image, the key, and an open value. */
+async function showHistoryFrame(k: number): Promise<void> {
+  const h = data.history;
+  if (!h || k === histIndex) return;
+  histIndex = k;
+  data.raster = historyRaster(h, k);
+  const box = document.getElementById("map");
+  if (box) renderPanel(box);
+  const map = await mapReady();
+  const src = map.getSource("field-raster") as maplibregl.ImageSource | undefined;
+  if (src) {
+    const { lon0, lat0, dlon, dlat, nx, ny } = data.raster.grid;
+    const w = lon0 - dlon / 2;
+    const e = lon0 + (nx - 0.5) * dlon;
+    const s = lat0 - dlat / 2;
+    const n = lat0 + (ny - 0.5) * dlat;
+    src.updateImage({ url: rasterImage(data.raster, META[data.raster.kind]), coordinates: [[w, n], [e, n], [e, s], [w, s]] });
+  }
+  if (popup && probeAt) popup.setHTML(rasterText(data.raster, probeAt.lng, probeAt.lat) ?? "no value on this day");
+}
+
+const fmtFrameDay = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
+
+/** A raster's value at a point, with its age, and the day for a history frame. */
+function rasterText(f: RasterField, lng: number, lat: number): string | null {
+  const at = rasterValueAt(f, lng, lat);
+  if (!at) return null;
+  const meta = META[f.kind];
+  const age = Number.isFinite(at.age) ? `, ${at.age.toFixed(1)}d old` : "";
+  const day = data.history ? `<br><small>${fmtFrameDay.format(new Date(f.time))}</small>` : "";
+  return `${at.v.toFixed(meta.digits)} ${meta.unit}${age}${day}`;
 }
 
 function rasterValueAt(f: RasterField, lng: number, lat: number): { v: number; age: number } | null {
@@ -300,6 +439,7 @@ function frameAt(c: CurrentsField): number {
 /** Follow the page timeline: the currents move to its time; satellite fields are daily and keep their dates. */
 export async function setFieldTime(t: number | null): Promise<void> {
   fieldT = t;
+  if (data.history) return showHistoryFrame(historyIndex(data.history));
   const c = data.currents;
   if (!c) return;
   const k = frameAt(c);
@@ -467,14 +607,21 @@ function draw(map: maplibregl.Map): void {
 
 /** Show a field (or none) with its data, and the panel with the page's controls. */
 export async function showField(kind: FieldKind | null, payload: FieldData, ctl: FieldControls): Promise<void> {
-  const sameLayer = kind === active && payload.raster === data.raster && payload.currents === data.currents;
+  const sameLayer = kind === active && payload.raster === shownRaster && payload.currents === data.currents;
   if (!sameLayer) closeValue(); // a value from another layer
   active = kind;
-  data = kind ? payload : {};
+  data = kind ? { ...payload } : {};
+  shownRaster = payload.raster;
   controls = ctl;
+  histIndex = -1;
+  if (data.history) {
+    histIndex = historyIndex(data.history);
+    data.raster = historyRaster(data.history, histIndex);
+  }
   if (data.currents) frame = frameAt(data.currents);
   if (sameLayer && popup && probe != null && data.currents) popup.setHTML(currentText(data.currents, probe)); // e.g. the unit changed
-  if (data.raster) range = rangeOf(META[data.raster.kind], data.raster.values.map((v) => (v == null ? NaN : v * data.raster!.scale)));
+  if (data.history) range = historyRange(data.history);
+  else if (data.raster) range = rangeOf(META[data.raster.kind], data.raster.values.map((v) => (v == null ? NaN : v * data.raster!.scale)));
   else if (data.currents) range = META.currents.range!;
   // The panel first, so the picker, colour bar and source show while the map is still loading its tiles.
   const box = document.getElementById("map");
@@ -488,10 +635,8 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
       const r = data.raster;
       if (!active) return;
       if (r) {
-        const at = rasterValueAt(r, e.lngLat.lng, e.lngLat.lat);
-        if (!at) return;
-        const meta = META[r.kind];
-        void showValue(map, e.lngLat, `${at.v.toFixed(meta.digits)} ${meta.unit}${Number.isFinite(at.age) ? `, ${at.age.toFixed(1)}d old` : ""}`);
+        const text = rasterText(r, e.lngLat.lng, e.lngLat.lat);
+        if (text) void showValue(map, e.lngLat, text, null, { lng: e.lngLat.lng, lat: e.lngLat.lat });
         return;
       }
       const hit = map.queryRenderedFeatures(e.point, { layers: ["cur-fill"] })[0];
@@ -504,16 +649,19 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
 
 let popup: maplibregl.Popup | null = null;
 let probe: number | null = null; // the current element the popup reads, so it can follow the timeline
+let probeAt: { lng: number; lat: number } | null = null; // the raster point it reads, for history frames
 
-async function showValue(map: maplibregl.Map, at: maplibregl.LngLat, text: string, element: number | null = null): Promise<void> {
+async function showValue(map: maplibregl.Map, at: maplibregl.LngLat, text: string, element: number | null = null, point: { lng: number; lat: number } | null = null): Promise<void> {
   const ml = (await import("maplibre-gl")).default;
   closeValue();
   probe = element;
+  probeAt = point;
   const p = new ml.Popup({ closeButton: false, className: "pin-pop" }).setLngLat(at).setHTML(text).addTo(map);
   p.on("close", () => {
     if (popup === p) {
       popup = null;
       probe = null;
+      probeAt = null;
     }
   });
   popup = p;
@@ -523,4 +671,5 @@ function closeValue(): void {
   popup?.remove();
   popup = null;
   probe = null;
+  probeAt = null;
 }

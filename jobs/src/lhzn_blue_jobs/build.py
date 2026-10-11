@@ -86,6 +86,7 @@ WRITABLE = re.compile(
     r"v1/(history|history-salinity|history-oxygen|history-waves|history-turbidity|live|shore|shore-history|rivers|rivers-history)\.json"
     r"|v1/archive/[A-Z]{3,5}_(SFC|MID|BTM|WAVE)\.json"
     r"|v1/fields/(sst|chl|kd490|currents|currents-mesh)\.json"
+    r"|v1/fields/(sst|chl|kd490)-90d\.bin"
 )
 MAX_OBJECT_BYTES = 8 * 1024 * 1024
 STATIONS_FILE = Path(
@@ -140,28 +141,42 @@ class Store:
         path = Path(self.root) / rel
         return json.loads(path.read_text()) if path.exists() else None
 
+    def read_bytes(self, rel: str) -> bytes | None:
+        if self._kv is not None:
+            resp = self._kv[2].get(self._kv_url(rel), timeout=60)
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            return resp.content
+        if self._bucket is not None:
+            blob = self._blob(rel)
+            return blob.download_as_bytes() if blob.exists() else None
+        path = Path(self.root) / rel
+        return path.read_bytes() if path.exists() else None
+
     def write_json(self, rel: str, obj: dict, max_age: int) -> None:
+        text = json.dumps(obj, separators=(",", ":"), allow_nan=False)
+        self.write_bytes(rel, text.encode(), max_age, content_type="application/json")
+
+    def write_bytes(self, rel: str, data: bytes, max_age: int, content_type: str = "application/octet-stream") -> None:
         # Cost guard: only a fixed set of object names, each bounded in size, so a misbehaving loop can
         # rewrite the same few objects but never multiply them.
         if not WRITABLE.fullmatch(rel):
             raise ValueError(f"refusing to write unexpected object name: {rel}")
-        text = json.dumps(obj, separators=(",", ":"), allow_nan=False)
-        if len(text) > MAX_OBJECT_BYTES:
-            raise ValueError(f"refusing to write {rel}: {len(text)} bytes exceeds {MAX_OBJECT_BYTES}")
+        if len(data) > MAX_OBJECT_BYTES:
+            raise ValueError(f"refusing to write {rel}: {len(data)} bytes exceeds {MAX_OBJECT_BYTES}")
         if self._kv is not None:
-            resp = self._kv[2].put(
-                self._kv_url(rel), data=text.encode(), headers={"Content-Type": "application/json"}, timeout=120
-            )
+            resp = self._kv[2].put(self._kv_url(rel), data=data, headers={"Content-Type": content_type}, timeout=120)
             resp.raise_for_status()
         elif self._bucket is not None:
             blob = self._blob(rel)
             blob.cache_control = f"public, max-age={max_age}"
-            blob.upload_from_string(text, content_type="application/json")
+            blob.upload_from_string(data, content_type=content_type)
         else:
             path = Path(self.root) / rel
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text)
-        log.info("wrote %s/%s (%d bytes)", self.root, rel, len(text))
+            path.write_bytes(data)
+        log.info("wrote %s/%s (%d bytes)", self.root, rel, len(data))
 
 
 # ---------------------------------------------------------------------------------------------

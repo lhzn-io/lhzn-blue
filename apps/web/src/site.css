@@ -141,12 +141,10 @@ figure.wide { grid-column: 1 / -1; }
 /* Full-width map: the table moves below and the map takes most of the screen. */
 .overview.map-wide { grid-template-columns: 1fr; }
 .overview.map-wide .map { min-height: 70vh; }
-/* Surface field panel, over the map's lower left. */
-.field-panel {
-  position: absolute; left: 8px; bottom: 56px; z-index: 3; width: min(230px, calc(100% - 60px)); padding: 5px 8px 6px;
-  background: var(--pop-bg); border-left: 2px solid var(--accent); font: 10.5px/1.35 var(--sans); color: var(--ink);
-}
-.overview.map-wide .field-panel { width: min(300px, calc(100% - 60px)); }
+/* Below the map: the field key, then the time rows. Nothing is drawn over the field but the map's own controls. */
+.map-col { display: grid; align-content: start; min-width: 0; }
+.map-foot { padding: 8px 0 0; font: 10.5px/1.35 var(--sans); color: var(--ink); }
+.field-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 0 0 6px; }
 /* Expand and layer buttons under the zoom controls, in MapLibre's control style; the layer drawer beside them. */
 .field-ctrls button { display: grid; place-items: center; color: var(--ink); }
 .field-ctrls button[aria-pressed="true"], .field-ctrls button[aria-expanded="true"] { color: var(--accent); }
@@ -167,37 +165,41 @@ figure.wide { grid-column: 1 / -1; }
   font: italic 700 9.5px/13px Georgia, serif; text-align: center; color: var(--dim); background: none; border: 1px solid var(--rule);
 }
 .field-info[aria-expanded="true"] { color: var(--accent); border-color: var(--accent-line); }
-.field-scale { display: flex; align-items: center; gap: 5px; margin-top: 4px; font: 9.5px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
-.field-bar { flex: 1; min-width: 40px; height: 6px; }
-/* The page timeline: a hairline on the map's foot in the page's greys (no accent), the past solid and the forecast
-   dotted, ticks every 6h (taller at midnight), and a needle for the time. */
-.timeline {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; display: flex; align-items: center; gap: 10px;
-  height: 28px; padding: 0 10px; font: 10px/1.2 var(--mono); color: var(--dim);
-}
-.tl-play, .tl-now { flex: none; cursor: pointer; color: var(--dim); background: none; border: 0; padding: 0; }
+.field-scale { display: flex; align-items: center; gap: 6px; font: 9.5px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
+.field-bar { width: clamp(80px, 22vw, 200px); height: 5px; }
+.field-info { margin-left: 0; }
+.field-note { flex-basis: 100%; }
+/* The time rows: play | track | a fixed slot for the label. Hairlines in the page's greys, no accent; past solid,
+   forecast dotted. The context row directly below spans 90 days back to 72h ahead, with the map's window bracketed. */
+.timeline { font: 10px/1.2 var(--mono); color: var(--dim); }
+.tl-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) 150px; column-gap: 10px; align-items: center; height: 26px; }
+.tl-context { height: 30px; }
+.tl-play, .tl-now { cursor: pointer; color: var(--dim); background: none; border: 0; padding: 0; }
 .tl-play { display: grid; place-items: center; width: 16px; height: 16px; }
 .tl-play:hover, .tl-now:hover { color: var(--ink); }
-.tl-now { font: 10px/1.2 var(--sans); text-decoration: underline; text-underline-offset: 2px; }
-.tl-track { position: relative; flex: 1; min-width: 80px; align-self: stretch; }
+.tl-now { margin-left: 8px; font: 10px/1.2 var(--sans); text-decoration: underline; text-underline-offset: 2px; }
+.tl-slot { text-align: right; white-space: nowrap; overflow: hidden; }
+.tl-track, .tl-ctrack { position: relative; height: 100%; }
 .tl-track::before, .tl-track::after { content: ""; position: absolute; top: 50%; pointer-events: none; }
-.tl-track::before { left: 0; width: var(--tl-now); height: 1px; background: var(--dim); }
+.tl-track::before { left: 0; width: var(--tl-now); border-top: 1px solid var(--dim); }
 .tl-track::after { left: var(--tl-now); right: 0; border-top: 1px dotted var(--faint); }
 .tl-ticks { position: absolute; inset: 0; pointer-events: none; }
 .tl-tick { position: absolute; top: 50%; width: 1px; height: 4px; margin-top: -2px; background: var(--faint); }
 .tl-tick.day { height: 9px; margin-top: -4.5px; background: var(--dim); }
 .tl-tick.now { height: 13px; margin-top: -6.5px; background: var(--dim); }
 .tl-tick.ahead { opacity: 0.6; }
-.tl-range { -webkit-appearance: none; appearance: none; position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; background: none; cursor: pointer; }
-.tl-range::-webkit-slider-runnable-track { height: 100%; background: none; }
-.tl-range::-moz-range-track { background: none; }
-.tl-range::-webkit-slider-thumb { -webkit-appearance: none; width: 2px; height: 14px; margin-top: 7px; background: var(--ink); border: 0; }
-.tl-range::-moz-range-thumb { width: 2px; height: 14px; background: var(--ink); border: 0; border-radius: 0; }
-.tl-range:focus-visible { outline: 1px dotted var(--dim); outline-offset: -3px; }
-.tl-label { flex: none; min-width: 7.5em; text-align: right; white-space: nowrap; }
-/* Keep the map's own controls and the field key clear of the time bar. */
-.map .maplibregl-ctrl-bottom-left, .map .maplibregl-ctrl-bottom-right { bottom: 30px; }
-@media (max-width: 560px) { .tl-label { min-width: 0; } }
+.tl-frame { position: absolute; top: 50%; height: 8px; margin-top: -4px; background: var(--ink); opacity: 0.13; pointer-events: none; }
+.tl-needle, .tl-cneedle { position: absolute; top: 50%; width: 2px; height: 14px; margin: -7px 0 0 -1px; background: var(--ink); pointer-events: none; }
+.tl-cneedle { width: 1.5px; height: 11px; margin-top: -5.5px; }
+.tl-range { -webkit-appearance: none; appearance: none; position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; background: none; cursor: pointer; opacity: 0; }
+.tl-range:focus-visible { opacity: 1; outline: 1px dotted var(--dim); outline-offset: -3px; }
+.tl-cline { position: absolute; top: 50%; height: 0; border-top: 1px solid var(--faint); }
+.tl-cline.ahead { border-top-style: dotted; }
+.tl-bracket { position: absolute; top: 50%; height: 16px; margin-top: -8px; background: var(--ink); opacity: 0.07; }
+.tl-mark { position: absolute; bottom: -3px; transform: translateX(-50%); font: 8.5px/1 var(--mono); color: var(--faint); }
+.tl-mark.first { transform: none; }
+.tl-mark.last { transform: translateX(-100%); }
+@media (max-width: 560px) { .tl-row { grid-template-columns: 18px minmax(0, 1fr) 112px; } }
 .field-note { margin: 5px 0 0; font-size: 10px; line-height: 1.4; color: var(--dim); }
 .field-note b { font-weight: 600; color: var(--ink); }
 .field-credit { display: block; margin-top: 2px; font-size: 9.5px; color: var(--faint); }
@@ -221,10 +223,13 @@ figure.wide { grid-column: 1 / -1; }
 .wordmark { display: grid; text-decoration: none; color: var(--accent); font-weight: 300; letter-spacing: 0.32em; line-height: 0.95; }
 .wm-top { font-size: 13px; letter-spacing: 0.6em; }
 .wm-bottom { font-size: clamp(20px, 3.4vw, 32px); }
+/* One-line wordmark (landing and terms): never wraps; scales down on narrow screens. */
+.wm-one { display: block; white-space: nowrap; font-size: clamp(17px, 4.4vw, 34px); letter-spacing: 0.28em; line-height: 1.1; }
+@media (max-width: 520px) { .wm-one { letter-spacing: 0.14em; } }
 .stage {
-  align-self: flex-start; margin-top: 2px; padding: 3px 10px 5px; border-radius: 0 0 999px 999px;
+  align-self: center; padding: 3px 10px 4px; border-radius: 999px;
   font-size: 9.5px; font-weight: 700; letter-spacing: 0.24em; text-transform: uppercase;
-  color: var(--accent); border: 1px solid var(--accent-line); border-top: 0;
+  color: var(--accent); border: 1px solid var(--accent-line);
 }
 .mast-note { margin: 0; flex: 1 1 320px; max-width: 560px; color: var(--dim); font-size: 13.5px; line-height: 1.4; }
 .theme-toggle {
@@ -462,7 +467,6 @@ body.landing {
   color-scheme: dark;
 }
 .landing main { max-width: 760px; padding-top: 30px; }
-.landing .card-go { color: var(--link); }
 .landing .credits a { color: var(--link); text-decoration-color: rgba(124, 196, 234, 0.45); }
 .card {
   position: relative; display: grid; gap: 6px; margin-top: 24px; padding: 26px 18px 16px; text-decoration: none; color: var(--ink);
@@ -474,9 +478,26 @@ body.landing {
   font-size: 9.5px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
   color: var(--accent); border: 1px solid var(--accent-line); border-top: 0; background: var(--bg);
 }
-.card-text { font-size: 15px; line-height: 1.45; color: var(--ink-soft); }
-.card-go { font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim); }
-.card:hover .card-go { color: var(--accent); }
+.card-text { margin: 0; font-size: 15px; line-height: 1.5; color: var(--ink-soft); }
+.lede { margin: 0; font: 300 clamp(17px, 2.4vw, 21px)/1.3 var(--sans); letter-spacing: 0.04em; color: var(--ink-soft); }
+/* The whole card opens the waterway (a link covering it); the footnote and reference links sit above it. */
+.card { cursor: pointer; }
+.card-cover { position: absolute; inset: 0; z-index: 1; }
+.card-cover:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; }
+.card .fn a, .card-refs a { position: relative; z-index: 2; }
+/* Footnote markers in the card, and one light line of references under it. */
+.card .fn { font-size: 0.62em; line-height: 0; margin-left: 1px; }
+.card .fn a { color: var(--dim); text-decoration: none; }
+.card .fn a:hover { color: var(--link); }
+/* An open card for the next waterway: whitespace as an invitation. */
+.card-open { cursor: default; min-height: 92px; border-style: dashed; background: transparent; }
+.card-open .card-tag { color: var(--dim); border-color: var(--rule); border-style: dashed; }
+.card-open .card-text { color: var(--dim); }
+.card-open a { color: var(--link); text-underline-offset: 2px; }
+.card-refs { margin: 0; display: flex; flex-wrap: wrap; gap: 2px 14px; font: 10.5px/1.4 var(--mono); }
+.card-refs a { color: var(--dim); text-decoration: none; }
+.card-refs a:hover { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
+
 
 /* The status grid needs about 420 px for its five columns: stack it under the map before it gets squeezed. */
 @media (max-width: 1180px) {
@@ -515,5 +536,35 @@ body.landing {
 }
 .suggest-form textarea:focus { outline: 1px solid var(--accent-line); }
 .suggest-form .button { justify-self: start; }
+/* Terms page */
+.terms main { max-width: 680px; padding-top: 30px; }
+.terms .credits a { color: var(--link, var(--accent)); }
+.terms h1 { margin: 8px 0 14px; font: 300 30px/1.2 var(--sans); letter-spacing: 0.06em; color: var(--ink); }
+.terms h2 { margin: 26px 0 8px; font: 700 10.5px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
+.terms .prose a { color: var(--link, var(--accent)); }
+.terms-list { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+/* References page (generated from docs/references.bib) */
+.terms h3 { margin: 22px 0 8px; font: 700 10px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
+.refs-waterway { margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--rule); }
+.refs-waterway h2 { margin: 0 0 10px; font: 300 22px/1.2 var(--sans); letter-spacing: 0.08em; text-transform: none; color: var(--ink); }
+.refs-open { padding: 22px 20px 26px; min-height: 140px; border: 1px dashed var(--rule); }
+.refs-open h2 { color: var(--dim); }
+.refs-open .prose { color: var(--dim); max-width: 520px; }
+.refs { margin: 0; padding: 0; list-style: none; display: grid; gap: 14px; }
+.refs li { scroll-margin-top: 20px; }
+.refs li:target { outline: 1px solid var(--accent-line); outline-offset: 6px; }
+.ref { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-soft); }
+.ref a { color: var(--link, var(--accent)); word-break: break-word; }
+.ref-accessed { font: 10px/1.4 var(--mono); color: var(--faint); opacity: 0.8; white-space: nowrap; }
+.ref-note { margin: 3px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--dim); }
+
+/* About drawer: the page's abstract, in the Suggestions drawer's panel. */
+.topbar .info { margin-right: 8px; }
+.topbar .info + .suggest { margin-left: 0; }
+.info-body { width: min(420px, calc(100vw - 32px)); gap: 8px; font-size: 13px; line-height: 1.5; color: var(--ink-soft); }
+.info-body p { margin: 0; }
+.info-meta { color: var(--dim); font-size: 12px; }
+.info-links { font-size: 12px; }
+.info-body a { color: var(--link, var(--accent)); text-underline-offset: 2px; }
 .suggest-to { font-size: 12px; color: var(--dim); text-decoration-color: var(--rule); text-underline-offset: 2px; }
 .suggest-to:hover { color: var(--accent-hi); }

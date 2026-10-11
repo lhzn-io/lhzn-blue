@@ -12,7 +12,8 @@ set -a; . "$HOME/.config/lhzn-blue/env"; set +a
 WRANGLER="npx --yes wrangler@4"
 
 cd "$REPO/worker"
-find "$OUT/v1" -name '*.json' | sort | while read -r path; do
+# The JSON data files and the gzipped binary satellite histories (fields/*-90d.bin).
+find "$OUT/v1" \( -name '*.json' -o -name '*.bin' \) | sort | while read -r path; do
   key="${path#"$OUT"/}"
   $WRANGLER kv key put "$key" --path "$path" --binding DATA --remote >/dev/null
   stored="$($WRANGLER kv key get "$key" --binding DATA --remote 2>/dev/null | wc -c)"

@@ -22,4 +22,17 @@ export function wireSuggest(): void {
   document.addEventListener("click", (e) => {
     if (drawer.open && !drawer.contains(e.target as Node)) drawer.open = false;
   });
+  wireAbout();
+}
+
+/** About drawer: closes on Escape, an outside click, or following one of its links. */
+function wireAbout(): void {
+  const about = document.getElementById("about-drawer") as HTMLDetailsElement | null;
+  if (!about) return;
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && about.open) about.open = false;
+  });
+  document.addEventListener("click", (e) => {
+    if (about.open && (!about.contains(e.target as Node) || (e.target as HTMLElement).closest("a"))) about.open = false;
+  });
 }

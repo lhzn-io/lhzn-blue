@@ -6,13 +6,14 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="canonical" href="https://longhorizon.blue/long-island-sound/" />
     <script>
-      // Dark by default; a saved choice is applied before first paint so the page never flashes.
+      // Light by default; a saved choice of dark is applied before first paint so the page never flashes.
+      document.documentElement.dataset.theme = "light";
       try {
-        if (localStorage.getItem("lhzn-blue-theme") === "light") document.documentElement.dataset.theme = "light";
+        if (localStorage.getItem("lhzn-blue-theme") === "dark") delete document.documentElement.dataset.theme;
       } catch (e) {}
     </script>
     <title>Long Island Sound (alpha) | longhorizon.blue</title>
-    <meta name="description" content="Water temperature from surface to bottom, wind and air at the LISICOS buoys in Long Island Sound, compared with every earlier year on record. Observed data with its age and source; not for navigation." />
+    <meta name="description" content="Long Island Sound conditions from buoys, shore stations and rivers, read against the preceding weeks and the same dates in earlier years. Provisional public data, each value with its age and source." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -32,6 +33,20 @@
         <button class="tab" type="button" data-var="wind" aria-pressed="false">Wind &amp; waves</button>
         <button class="tab" type="button" data-var="rivers" aria-pressed="false">Rivers</button>
       </div>
+      <details class="suggest info" id="about-drawer">
+        <summary>About</summary>
+        <div class="suggest-form info-body">
+          <p>
+            Hourly observations from four <a href="https://lisicos.uconn.edu/">LISICOS</a> buoys (University of Connecticut), four NOAA
+            shore stations and nine USGS river gauges. Each value is shown with its age and compared with the preceding weeks and the same
+            dates in earlier years, so that present conditions and short-range forecasts can be read against recent experience. The map adds surface
+            temperature, chlorophyll-a and water clarity (NASA, NOAA) and modelled currents (NECOFS, UMass Dartmouth). Values that fail
+            a quality check are flagged with the reason.
+          </p>
+          <p class="info-meta">An early public version, curated locally. All data are provisional and may be revised.</p>
+          <p class="info-links"><a href="#about-title">Method and sources</a> &middot; <a href="/terms/">Terms</a> &middot; <a href="/references/">References</a> &middot; <a href="https://longhorizon.eco/field-notes/the-recent-past">Motivation</a></p>
+        </div>
+      </details>
       <details class="suggest" id="suggest" data-to="long-island-sound@longhorizon.blue" data-page="Long Island Sound">
         <summary>Suggestions</summary>
         <form class="suggest-form" id="suggest-form">
@@ -47,11 +62,6 @@
         <span class="wm-bottom">LONG ISLAND SOUND</span>
       </a>
       <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span>
-      <p class="mast-note">
-        Water temperature from surface to bottom, with wind and air, at the four <a href="https://lisicos.uconn.edu/">LISICOS</a> buoys
-        of the University of Connecticut: each reading with its age, set against the same dates in every earlier year on record.
-        Not for navigation. Corrections and local knowledge are welcome through Suggestions, top right.
-      </p>
       <div class="prefs">
         <div class="unit-switch" role="group" aria-label="Units for wind, currents and waves">
           <span aria-hidden="true">Units</span>
@@ -65,7 +75,10 @@
 
     <main>
       <section class="overview" aria-label="Buoys at a glance">
-        <div class="map" id="map" role="region" aria-label="Map of the buoys"></div>
+        <div class="map-col">
+          <div class="map" id="map" role="region" aria-label="Map of the buoys"></div>
+          <div class="map-foot" id="map-foot"></div>
+        </div>
         <div class="status" id="status" aria-live="polite"></div>
       </section>
       <div id="stations"></div>
@@ -94,7 +107,8 @@
           <a href="https://mariners.neracoos.org/">NERACOOS Mariners' Dashboard</a>. Both are the source and the inspiration for this page; thank you.
         </p>
         <p>
-          <b>Not for navigation.</b> These are observations with their age shown, not forecasts or safety advice. Values pass only basic range checks.
+          <b>All data are provisional</b> and may be revised. Observations are shown with their age; the currents are a model forecast. See the <a href="/references/">references</a> for the science and the monitoring programs behind them, and the
+          <a href="/terms/">terms</a> for use and credit.
         </p>
         <p>
           A <a href="/">longhorizon.blue</a> page by Long Horizon Observatory. Open source under the MIT license:

@@ -41,7 +41,11 @@ from .build import SCHEMA, Store, iso, now_utc
 
 log = logging.getLogger(__name__)
 
-BBOX = [-73.9, 40.7, -71.8, 41.45]  # Long Island Sound, from Throgs Neck to The Race
+# Long Island Sound from Throgs Neck to The Race, south to take in Long Island's south-shore bays and about 20 km of
+# the ocean in front. Every field uses this box, and every satellite pixel outside the currents model's water mesh is
+# dropped, so all fields share one coastline (MUR, for one, fills Long Island itself with interpolated values).
+BBOX = [-73.9, 40.45, -71.8, 41.45]
+WATER_SOURCE = "NECOFS FVCOM GOM7 mesh"  # the coastline every raster is cut to
 # name -> (forcingkit quantity, composite window in days, coastal pixels masked, scale: value = int * scale)
 RASTERS = {
     "sst": ("sst", 2, 0, 0.01),  # MUR is a gap-free analysis: no compositing or coastal mask needed
@@ -62,13 +66,38 @@ AGE_STEP = 0.1  # days per age unit
 MAGIC = b"LHZF"
 
 
-def raster(name: str, end: datetime | None = None) -> dict:
-    """One satellite raster, encoded for the page."""
+def water_mask(lon: np.ndarray, lat: np.ndarray, mesh: dict) -> np.ndarray:
+    """(lat, lon) booleans: True where the pixel centre lies on the model's water mesh."""
+    from matplotlib.tri import Triangulation
+
+    nodes = np.asarray(mesh["nodes"], dtype=np.float64)
+    tri = Triangulation(nodes[:, 0], nodes[:, 1], np.asarray(mesh["triangles"], dtype=np.int64))
+    x, y = np.meshgrid(lon, lat)
+    return tri.get_trifinder()(x, y) >= 0
+
+
+def cut_to_water(ds, mesh: dict | None):
+    """Drop every pixel off the water mesh (value and age), for one field or a series of frames."""
+    if mesh is None:
+        return ds
+    keep = water_mask(ds["lon"].values, ds["lat"].values, mesh)
+    out = ds.copy()
+    for name in ("value", "age_days"):
+        if name in out:
+            arr = out[name].values.copy()
+            arr[..., ~keep] = np.nan
+            out[name] = (out[name].dims, arr, out[name].attrs)
+    return out
+
+
+def raster(name: str, end: datetime | None = None, water: dict | None = None) -> dict:
+    """One satellite raster, cut to the water mesh, encoded for the page."""
     from forcingkit.fetchers import coastwatch
 
     quantity, days, coast, scale = RASTERS[name]
     end = end or now_utc()
-    ds = coastwatch.mask_coast(coastwatch.composite(coastwatch.QUANTITIES[quantity], BBOX, end, days), coast)
+    ds = cut_to_water(coastwatch.composite(coastwatch.QUANTITIES[quantity], BBOX, end, days), water)
+    ds = coastwatch.mask_coast(ds, coast)  # the coastal band, measured from the mesh's coastline
     lat, lon = ds["lat"].values, ds["lon"].values
     value, age = ds["value"].values, ds["age_days"].values
     ints = np.where(np.isfinite(value), np.round(value / scale), np.nan)
@@ -82,6 +111,7 @@ def raster(name: str, end: datetime | None = None) -> dict:
         "time": ds.attrs.get("end", iso(end)),
         "window_days": days,
         "coast_mask_pixels": coast,
+        "water": WATER_SOURCE if water is not None else None,
         "grid": {
             "lon0": round(float(lon[0]), 6),
             "lat0": round(float(lat[0]), 6),
@@ -159,7 +189,7 @@ def _frame_end(day: date, now: datetime) -> datetime:
     return min(datetime.combine(day, time(23, 59, 59), tzinfo=timezone.utc), now)
 
 
-def history(name: str, existing: bytes | None, end: datetime | None = None) -> tuple[bytes, dict]:
+def history(name: str, existing: bytes | None, end: datetime | None = None, water: dict | None = None) -> tuple[bytes, dict]:
     """The 90-day history file for a raster: frames kept from `existing` where still trusted, the rest computed.
     Returns the file and a short summary for the log."""
     from forcingkit.fetchers import coastwatch
@@ -175,7 +205,13 @@ def history(name: str, existing: bytes | None, end: datetime | None = None) -> t
     if existing:
         try:
             header, frames = decode_history(existing)
-            if header.get("encoding") == {"low": lo, "high": hi, "log10": log10, "levels": 254} and bool(header.get("age")) == with_age:
+            same = (
+                header.get("encoding") == {"low": lo, "high": hi, "log10": log10, "levels": 254}
+                and bool(header.get("age")) == with_age
+                and header.get("domain") == BBOX
+                and header.get("water") == (WATER_SOURCE if water is not None else None)
+            )
+            if same:
                 old_grid = header["grid"]
                 fresh = {d.isoformat() for d in days[: HISTORY_DAYS - HISTORY_RECOMPUTE_DAYS]}
                 # A frame with no valid pixel is computed again: usually a server outage on its days, not cloud.
@@ -184,11 +220,11 @@ def history(name: str, existing: bytes | None, end: datetime | None = None) -> t
             log.warning("history %s unreadable; rebuilding", name)
     todo = [d for d in days if d.isoformat() not in kept]
     ds = coastwatch.composite_series(coastwatch.QUANTITIES[quantity], BBOX, [_frame_end(d, end) for d in todo], window)
-    ds = coastwatch.mask_coast(ds, coast)
+    ds = coastwatch.mask_coast(cut_to_water(ds, water), coast)
     grid = _grid(ds)
     if old_grid is not None and old_grid != grid and len(todo) < len(days):
         log.warning("history %s grid changed; rebuilding", name)
-        return history(name, None, end)
+        return history(name, None, end, water)
     new = {
         d.isoformat(): (quantise(ds["value"].values[i], lo, hi, log10).ravel(), quantise_age(ds["age_days"].values[i]).ravel() if with_age else None)
         for i, d in enumerate(todo)
@@ -205,6 +241,8 @@ def history(name: str, existing: bytes | None, end: datetime | None = None) -> t
         "frame_time": "each UTC day's end (today: the time of the run)",
         "window_days": window,
         "coast_mask_pixels": coast,
+        "domain": BBOX,
+        "water": WATER_SOURCE if water is not None else None,
         "encoding": {"low": lo, "high": hi, "log10": log10, "levels": 254},
         "age": {"step_days": AGE_STEP} if with_age else None,
         "generated_at": iso(end),
@@ -283,27 +321,34 @@ def publish(store: Store) -> list[str]:
     """Fetch every field and write it; a field that fails is logged and left as it was. Returns the failures."""
     failed = []
     end = now_utc()
+    # Currents first: their mesh is the coastline every raster is cut to (the stored mesh if today's read fails).
+    water = None
+    try:
+        mesh, data = currents(end)
+        store.write_json("v1/fields/currents-mesh.json", mesh, max_age=86400)
+        store.write_json("v1/fields/currents.json", data, max_age=3600)
+        water = mesh
+    except Exception:
+        log.exception("currents not refreshed")
+        failed.append("currents")
+        water = store.read_json("v1/fields/currents-mesh.json")
+        if water is None or water.get("bbox") != BBOX:
+            log.warning("no water mesh for this box; rasters are not cut to the coastline this run")
+            water = None
     for name in RASTERS:
         try:
-            store.write_json(f"v1/fields/{name}.json", raster(name, end), max_age=3600)
+            store.write_json(f"v1/fields/{name}.json", raster(name, end, water), max_age=3600)
         except Exception:
             log.exception("field %s not refreshed", name)
             failed.append(name)
     for name in RASTERS:
         rel = f"v1/fields/{name}-90d.bin"
         try:
-            blob, summary = history(name, store.read_bytes(rel), end)
+            blob, summary = history(name, store.read_bytes(rel), end, water)
             store.write_bytes(rel, blob, max_age=3600)
             log.info("history %s: %s", name, summary)
         except Exception:
             log.exception("history %s not refreshed", name)
             failed.append(f"{name}-90d")
-    try:
-        mesh, data = currents(end)
-        store.write_json("v1/fields/currents-mesh.json", mesh, max_age=86400)
-        store.write_json("v1/fields/currents.json", data, max_age=3600)
-    except Exception:
-        log.exception("currents not refreshed")
-        failed.append("currents")
     return failed
 

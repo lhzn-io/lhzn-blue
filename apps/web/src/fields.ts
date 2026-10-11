@@ -472,7 +472,9 @@ function daySpan(from: Date, to: Date): string {
 }
 
 
-function renderPanel(container: HTMLElement): void {
+function renderPanel(fallback: HTMLElement): void {
+  // Below the map when the page has the slot (the key never covers the field), on the map otherwise.
+  const container = document.getElementById("map-foot") ?? fallback;
   panel?.remove();
   if (!controls) return;
   syncControls();
@@ -503,7 +505,7 @@ function renderPanel(container: HTMLElement): void {
       <p class="field-note"${open ? "" : " hidden"}><b>${meta.title}.</b> ${meta.note}${span}${run} <span class="field-credit">${credit}</span></p>`;
   }
   panel.innerHTML = body;
-  container.appendChild(panel);
+  container.prepend(panel);
   const info = panel.querySelector<HTMLButtonElement>(".field-info")!;
   info.addEventListener("click", () => {
     infoOpen = info.getAttribute("aria-expanded") !== "true";

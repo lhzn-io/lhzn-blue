@@ -225,7 +225,8 @@ function turbSection(stations: StationData[], live: Live, hist: TurbHistory | nu
         "water in the Sound sits near 1 NTU between storms, and a storm stirring up the bottom leaves a day's quietest readings low, while a fouled " +
         "window lifts them all. This is a working rule, to be checked against the operator's servicing dates; early in a fouling climb it can " +
         "miss days. The river input beside it, the USGS sensor on the Connecticut River, is serviced and reviewed. NTU (these buoys) and FNU (the USGS " +
-        "sensor) are close but not identical units. This view will carry the turbidity field as it comes: a surface map from satellite first, then a modelled field.",
+        "sensor) are close but not identical units. This view will carry the turbidity field as it comes: a surface map first, then a modelled field. " +
+        `Nearshore, in the Sound's bays and harbors, <a href="/references/#sts_monitoring">Save the Sound</a>'s Unified Water Study measures turbidity, oxygen and chlorophyll.`,
     },
     depths: buoys.map((b) => b.id),
     ...empty,
@@ -1606,7 +1607,7 @@ async function wireTimeline(box: HTMLElement): Promise<void> {
   if (timelineWired) return;
   timelineWired = true;
   const [tl, chart] = await Promise.all([import("./timeline"), import("./chart")]);
-  tl.mountTimeline(box);
+  tl.mountTimeline(document.getElementById("map-foot") ?? box);
   tl.onAsOf((t) => {
     chart.markAsOf(t);
     import("./fields").then((f) => f.setFieldTime(t)).catch(() => undefined);
@@ -2051,11 +2052,16 @@ function about(meta: Meta): void {
     `as LISICOS lists them for the buoys; surface sensors sit at about 1 m.` +
     `<br><br>Salinity and dissolved oxygen (the switch at the top) use the same hourly means, 36-hour means and year comparison. ` +
     `Salinity is on the practical salinity scale, which has no unit. Oxygen shading marks reference levels: under ${DO_LEVELS.anoxic} mg/L anoxic ` +
-    `and under ${DO_LEVELS.hypoxic} mg/L hypoxic, as the <a href="https://lispartnership.org/ecosystem-target-indicators/hypoxia/">Long Island Sound Partnership</a> ` +
+    `and under ${DO_LEVELS.hypoxic} mg/L hypoxic, as the <a href="/references/#lisp2024hypoxia">Long Island Sound Partnership</a> ` +
     `defines them, and under ${DO_LEVELS.growth} mg/L, EPA's criterion for continuous exposure that protects growth in the coastal waters from Cape Cod to Cape Hatteras ` +
     `(<a href="https://www.epa.gov/sites/default/files/2018-10/documents/ambient-al-wqc-dissolved-oxygen-cape-code.pdf">EPA-822-R-00-012</a>, 2000). ` +
     `They are reference levels for reading the charts, not a regulatory assessment. Surface minus bottom is drawn for salinity and oxygen too, without thresholds; ` +
-    `the stratification readout stays a temperature measure.` +
+    `the stratification readout stays a temperature measure. The buoys are four points: for oxygen across the whole Sound, see the summer surveys of ` +
+    `<a href="/references/#ctdeep_lis">CT DEEP</a> and the <a href="/references/#iec_wlis">Interstate Environmental Commission</a>, and the ` +
+    `<a href="/references/#lisp2024hypoxia">Long Island Sound Partnership</a>'s hypoxia indicator.` +
+    `<br><br>Bacteria: this site does not measure bacteria. For swimming conditions, see ` +
+    `<a href="/references/#sts_monitoring">Save the Sound</a>'s weekly results for the western Sound and the ` +
+    `<a href="/references/#nycdep_harbor">NYC Harbor Survey</a>. Full list: <a href="/references/">references</a>.` +
     `<br><br>Wind and waves (the last view on the switch): wind, air temperature and pressure at each station, and waves at the three buoys ` +
     `with a wave sensor. Significant wave height is the mean of the highest third of waves; the faint line is each hour's highest single wave. ` +
     `Heights follow the wind unit: feet with knots or mph, metres with m/s. The wave datasets have been unpublished on the data server for long ` +
@@ -2289,6 +2295,7 @@ try {
 } catch {
   /* private mode: the normal map */
 }
+const FRAME_SPAN: Record<FieldKind | "none", [number, number]> = { none: [0, 0], currents: [0, 2], sst: [24, 0], chl: [7 * 24, 0], kd490: [7 * 24, 0] };
 const fieldCache = new Map<FieldKind, Promise<FieldData>>();
 
 function fieldData(kind: FieldKind): Promise<FieldData> {
@@ -2343,6 +2350,8 @@ async function syncField(): Promise<void> {
   // The time bar: days for a satellite layer once its history is in, hours otherwise.
   const tl = await import("./timeline");
   if (shown !== "sst" && shown !== "chl" && shown !== "kd490") tl.setScale("hours");
+  // The span each frame covers, shaded on the time bar: a 2h model step, a day of SST, a 7-day composite.
+  tl.setFrame(...FRAME_SPAN[shown ?? "none"]);
   try {
     const fields = await import("./fields");
     void fields.showField(shown, payload, fieldControls());
@@ -2435,7 +2444,7 @@ function wireWater(live: Live, stations: StationData[], rebuild: () => void): vo
   );
 }
 
-/** The Light/Dark toggle: dark by default; the choice is remembered in this browser only. */
+/** The Light/Dark toggle: light by default; the choice is remembered in this browser only. */
 function wireTheme(redraw: () => void): void {
   const btn = $("theme-toggle");
   const label = () => {

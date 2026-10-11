@@ -6,7 +6,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="canonical" href="https://longhorizon.blue/" />
     <title>longhorizon.blue (alpha)</title>
-    <meta name="description" content="Public marine measurements, one waterway at a time, with their age and source. Long Island Sound first." />
+    <meta name="description" content="Local water conditions, read against the recent past and earlier years. Long Island Sound first." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -16,25 +16,31 @@
   </head>
   <body class="landing">
     <header class="mast">
-      <a class="wordmark" href="/" aria-label="longhorizon.blue home">
-        <span class="wm-top">LONGHORIZON</span>
-        <span class="wm-bottom">.BLUE</span>
-      </a>
+      <a class="wordmark wm-one" href="/" aria-label="longhorizon.blue home">LONGHORIZON.BLUE</a>
       <span class="stage">Alpha</span>
     </header>
     <main>
-      <p class="prose">
-        Measurements from the water, made public: what each waterway reads now, how that compares with the same dates in earlier years,
-        and where every number comes from. One page per waterway, curated by locals.
-      </p>
-      <a class="card" href="/long-island-sound/">
+      <p class="lede">Local water conditions &amp; comparisons</p>
+      <div class="card">
+        <a class="card-cover" href="/long-island-sound/" aria-label="Long Island Sound: open the page"></a>
         <span class="card-tag">Long Island Sound</span>
-        <span class="card-text">Water temperature through the water column, with wind and air temperature, at four buoys from Execution Rocks to the Central Sound, set against the same dates in every earlier year on record, and the record we keep when a buoy goes quiet.</span>
-        <span class="card-go">Open</span>
-      </a>
+        <p class="card-text">
+          A large estuarine embayment between Connecticut and the glacial bluffs of Long Island's north shore<sup class="fn"><a href="/references/#lewis2013geology" title="Lewis (2013), The Geology of Long Island Sound">1</a></sup>,
+          open to the Atlantic in the east and narrowing westward toward New York. In the narrow western Sound, waves are fetch-limited
+          and run larger under easterly winds than westerlies<sup class="fn"><a href="/references/#shin2021waves" title="Shin et al. (2021), Waves in Western Long Island Sound: A Fetch-Limited Coastal Basin">2</a></sup>, and bottom waters turn hypoxic most summers<sup class="fn"><a href="/references/#epa_roe_hypoxia" title="EPA (2023), Report on the Environment: Hypoxia in Long Island Sound">3</a></sup>.
+        </p>
+        <p class="card-refs">
+          <a href="/references/#lewis2013geology">1. Lewis, 2013</a>
+          <a href="/references/#shin2021waves">2. Shin et al., 2021</a>
+          <a href="/references/#epa_roe_hypoxia">3. EPA, 2023</a>
+        </p>
+      </div>
+      <div class="card card-open">
+        <span class="card-tag">Next waterway</span>
+        <p class="card-text">Open. Each page is curated by people who know the water: <a href="mailto:hello@longhorizon.blue">hello@longhorizon.blue</a></p>
+      </div>
       <footer class="credits">
-        <p>Not for navigation. Each page names its data sources.</p>
-        <p>By Long Horizon Observatory. Open source: <a href="https://github.com/lhzn-io/lhzn-blue">github.com/lhzn-io/lhzn-blue</a>.</p>
+        <p>Long Horizon Observatory &middot; All data provisional &middot; <a href="/terms/">Terms</a> &middot; <a href="https://github.com/lhzn-io/lhzn-blue">Source</a> &middot; <a href="/references/">References</a> &middot; <a href="https://longhorizon.eco/field-notes/the-recent-past">Motivation</a></p>
       </footer>
     </main>
     <script type="module" src="./src/landing.ts"></script>

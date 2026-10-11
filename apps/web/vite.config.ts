@@ -23,7 +23,7 @@ function localData(): Plugin {
   };
 }
 
-// Two pages: the landing page and one page per waterway.
+// Pages: the landing page, one page per waterway, the terms and the references.
 export default defineConfig({
   base: "/",
   plugins: [localData()],
@@ -35,6 +35,8 @@ export default defineConfig({
       input: {
         index: resolve(import.meta.dirname, "index.html"),
         lis: resolve(import.meta.dirname, "long-island-sound/index.html"),
+        terms: resolve(import.meta.dirname, "terms/index.html"),
+        references: resolve(import.meta.dirname, "references/index.html"),
       },
     },
   },

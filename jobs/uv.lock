@@ -1726,6 +1726,7 @@ source = { editable = "." }
 dependencies = [
     { name = "forcingkit" },
     { name = "google-cloud-storage" },
+    { name = "matplotlib" },
     { name = "pandas" },
     { name = "requests" },
 ]
@@ -1739,6 +1740,7 @@ archive = [
 requires-dist = [
     { name = "forcingkit", url = "https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.6.0.tar.gz" },
     { name = "google-cloud-storage", specifier = ">=2.18" },
+    { name = "matplotlib", specifier = ">=3.8" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "requests", specifier = ">=2.32" },
     { name = "tables", marker = "extra == 'archive'", specifier = ">=3.9" },

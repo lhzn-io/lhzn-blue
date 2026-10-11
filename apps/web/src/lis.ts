@@ -143,8 +143,10 @@ const WATER_VARS: Record<VarKey, WaterVar> = {
 };
 const isWater = (k: VarKey) => k === "temp" || k === "salinity" || k === "oxygen";
 let VK: VarKey = "temp";
+/** What a link asked for: ?view=oxygen&layer=sst&t=-30d#WLIS-col (see linkUrl). */
+const LINK = new URLSearchParams(location.search);
 try {
-  const saved = localStorage.getItem("lhzn-blue-water-var");
+  const saved = LINK.get("view") ?? localStorage.getItem("lhzn-blue-water-var");
   if (saved && saved in WATER_VARS) VK = saved as VarKey;
 } catch {
   /* private mode: temperature */
@@ -1609,7 +1611,10 @@ async function wireTimeline(box: HTMLElement): Promise<void> {
   timelineWired = true;
   const [tl, chart] = await Promise.all([import("./timeline"), import("./chart")]);
   tl.mountTimeline(document.getElementById("map-foot") ?? box);
+  timelineModule = tl;
+  applyPendingOffset("hours");
   tl.onAsOf((t) => {
+    syncUrl(true);
     chart.markAsOf(t);
     import("./fields").then((f) => f.setFieldTime(t)).catch(() => undefined);
   });
@@ -2125,10 +2130,18 @@ function updatedStrip(meta: Meta, live: Live): void {
 }
 
 /** The About dialog: one entry from methods.ts, for a plot, a readout or a map layer. */
+let aboutLink = "";
+
 function openAbout(key: string, d: StationData | null): void {
   const m = METHODS[key];
   if (!m) return;
   const dialog = $("about-dialog") as HTMLDialogElement;
+  // A plot on a station can be linked to: the page as it stands, scrolled to that plot.
+  const plotId = d && key in FIGS ? `${d.meta.id}-${key}` : "";
+  aboutLink = plotId ? linkUrl(plotId) : "";
+  const linkBtn = $("about-link") as HTMLButtonElement;
+  linkBtn.hidden = !aboutLink;
+  linkBtn.textContent = "Copy link";
   $("about-dialog-title").textContent = d && !key.startsWith("map-") ? `${m.title}: ${d.meta.name}` : m.title;
   $("about-dialog-body").innerHTML = methodHtml(key, {
     variable: isWater(VK) ? V().label.toLowerCase() : "the reading",
@@ -2143,6 +2156,15 @@ function openAbout(key: string, d: StationData | null): void {
 function wireAbout(): void {
   const dialog = $("about-dialog") as HTMLDialogElement;
   $("about-close").addEventListener("click", () => dialog.close());
+  $("about-link").addEventListener("click", async () => {
+    const btn = $("about-link") as HTMLButtonElement;
+    try {
+      await navigator.clipboard.writeText(aboutLink);
+      btn.textContent = "Copied";
+    } catch {
+      window.prompt("Copy this link:", aboutLink); // clipboard refused: show it to copy by hand
+    }
+  });
   dialog.addEventListener("click", (e) => {
     if (e.target === dialog) dialog.close(); // a click on the backdrop
   });
@@ -2376,7 +2398,50 @@ const FIELD_CHOICES: { kind: FieldKind | "none"; label: string }[] = [
   { kind: "kd490", label: "Water clarity (Kd490)" },
   { kind: "currents", label: "Surface currents (model)" },
 ];
-let fieldPick: FieldKind | "none" = "none"; // no field until one is picked from the layers button; kept across views
+let fieldPick: FieldKind | "none" = (["sst", "chl", "kd490", "currents"] as const).find((k) => k === LINK.get("layer")) ?? "none"; // none until picked (or linked); kept across views
+/** A linked time ("-6h", "+12h", "-30d"), applied once the time bar has the scale it belongs to. */
+let pendingOffset: { hours: number; scale: "hours" | "days" } | null = (() => {
+  const m = /^([+-]?\d+)([hd])$/.exec(LINK.get("t") ?? "");
+  return m ? { hours: Number(m[1]) * (m[2] === "d" ? 24 : 1), scale: m[2] === "d" ? "days" : "hours" } : null;
+})();
+
+/** The page's address for what is on screen: view, map layer, time, and optionally a plot ("WLIS-col"). */
+function linkUrl(plot?: string): string {
+  const p = new URLSearchParams();
+  p.set("view", VK); // always: a visitor's remembered view would otherwise win
+  if (fieldPick !== "none") p.set("layer", fieldPick);
+  const tl = timelineModule?.position();
+  if (tl && tl.offset !== 0) p.set("t", tl.scale === "days" ? `${Math.round(tl.offset / 24)}d` : `${tl.offset > 0 ? "+" : ""}${tl.offset}h`);
+  const q = p.toString();
+  return `${location.origin}${location.pathname}${q ? `?${q}` : ""}${plot ? `#${plot}` : ""}`;
+}
+
+/** Keep the address bar current (no history entries), so it can be shared as it stands. A plot anchor is dropped
+ * once the view changes under it. */
+function syncUrl(keepHash = false): void {
+  const hash = keepHash ? location.hash.slice(1) : "";
+  history.replaceState(null, "", linkUrl(hash || undefined));
+}
+
+let timelineModule: typeof import("./timeline") | null = null;
+
+/** Apply a linked time once the time bar is on the scale the link was made in. */
+function applyPendingOffset(scale: "hours" | "days"): void {
+  if (!pendingOffset || !timelineModule || pendingOffset.scale !== scale) return;
+  timelineModule.setOffset(pendingOffset.hours);
+  pendingOffset = null;
+}
+
+/** Scroll to a linked plot (or station) and outline it for a moment. */
+function revealLinked(): void {
+  const id = decodeURIComponent(location.hash.slice(1));
+  const el = id ? document.getElementById(id) : null;
+  if (!el) return;
+  const target = el.closest("figure") ?? el;
+  target.scrollIntoView({ block: "center" });
+  target.classList.add("linked");
+  window.setTimeout(() => target.classList.remove("linked"), 2600);
+}
 let mapWide = false;
 try {
   mapWide = localStorage.getItem("lhzn-blue-map-wide") === "1";
@@ -2447,6 +2512,7 @@ async function syncField(): Promise<void> {
       const history = await historyData(shown);
       if (history && fieldPick === shown) {
         tl.setScale("days");
+        applyPendingOffset("days");
         void fields.showField(shown, { ...payload, history }, fieldControls());
       }
     }
@@ -2462,6 +2528,7 @@ function fieldControls(): import("./fields").FieldControls {
     onPick: (k) => {
       fieldPick = k;
       void syncField();
+      syncUrl(true);
     },
     wide: mapWide,
     speed: currentSpeed(),
@@ -2528,6 +2595,7 @@ function wireWater(live: Live, stations: StationData[], rebuild: () => void): vo
       }
       mark();
       rebuild();
+      syncUrl();
     }),
   );
 }
@@ -2672,6 +2740,7 @@ async function main(): Promise<void> {
     });
     wireZoom();
     wireAbout();
+    window.setTimeout(revealLinked, 300); // after the sections draw
     updatedStrip(meta, live);
     about(meta);
     wireCopy(meta, live, stations);

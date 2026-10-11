@@ -106,7 +106,10 @@
       <dialog class="about-dialog" id="about-dialog" aria-labelledby="about-dialog-title">
         <div class="about-head">
           <h2 id="about-dialog-title"></h2>
-          <button class="tab" type="button" id="about-close" aria-label="Close">Close</button>
+          <span class="about-actions">
+            <button class="tab" type="button" id="about-link" hidden>Copy link</button>
+            <button class="tab" type="button" id="about-close" aria-label="Close">Close</button>
+          </span>
         </div>
         <div id="about-dialog-body"></div>
       </dialog>

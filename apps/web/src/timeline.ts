@@ -62,6 +62,16 @@ export function setScale(kind: ScaleKind): void {
   set(offset);
 }
 
+/** The cursor and its scale, for links ("-6h", "-30d"). */
+export function position(): { offset: number; scale: ScaleKind } {
+  return { offset, scale };
+}
+
+/** Move the cursor (hours from now), clamped to the current scale: a link opening the page at a time. */
+export function setOffset(h: number): void {
+  set(h);
+}
+
 /** The span the map's frame covers, in hours before and after the cursor (0, 0: none drawn). */
 export function setFrame(back: number, ahead: number): void {
   frame = { back, ahead };

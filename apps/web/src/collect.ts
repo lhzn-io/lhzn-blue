@@ -134,7 +134,7 @@ function buildTray(): HTMLElement {
         <button type="button" class="button" data-act="copy-prompt">Copy prompt</button>
         <button type="button" class="tab" data-act="download" data-needs-items>Download image</button>
       </div>
-      <p class="ct-note">Paste the image and the prompt into the assistant you already use. With nothing collected, the prompt covers the whole page. The answer comes from your assistant, not from us.</p>
+      <p class="ct-note">Paste the image and the prompt into the assistant you already use. With nothing collected, the prompt covers the whole page. The answer comes from your assistant, not from us (<a href="/terms/#ai">how this site uses AI</a>).</p>
       <p class="ct-status" aria-live="polite"></p>
     </div>
     <div class="ct-panel" data-panel="suggest" hidden>

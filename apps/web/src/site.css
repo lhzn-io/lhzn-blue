@@ -621,6 +621,7 @@ figure.linked, .station.linked { outline: 2px solid var(--accent-line); outline-
 .terms h1 { margin: 8px 0 14px; font: 300 30px/1.2 var(--sans); letter-spacing: 0.06em; color: var(--ink); }
 .terms h2 { margin: 26px 0 8px; font: 700 10.5px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
 .terms .prose a { color: var(--link, var(--accent)); }
+.terms .prose + .prose { margin-top: 10px; }
 .terms-list { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 /* References page (generated from docs/references.bib) */
 .terms h3 { margin: 22px 0 8px; font: 700 10px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }

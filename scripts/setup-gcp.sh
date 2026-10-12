@@ -3,13 +3,14 @@
 # Settings come from ~/.config/lhzn-blue/env (never committed): GCP_PROJECT, GCP_REGION,
 # JOB_SA (service account email; also used by Cloud Scheduler), CF_TOKEN_SECRET (secret name).
 #
-# The jobs write the published JSON to Cloudflare Workers KV, so Google Cloud holds no data:
-# nothing here can accumulate storage. The Cloudflare token (Workers KV edit only) lives in Secret
-# Manager; add it yourself with:
+# The jobs write the published JSON to Cloudflare Workers KV. The one thing Google Cloud keeps is the snapshot
+# job's saved copies of the server's datasets (SNAPSHOT_STORE, a gs:// bucket and prefix): about 50 MB three
+# times a week, moved to Coldline storage after 30 days (about $0.05 a month for a year of copies).
+# The Cloudflare token (Workers KV edit only) lives in Secret Manager; add it yourself with:
 #   printf '%s' "<token>" | gcloud secrets versions add "$CF_TOKEN_SECRET" --data-file=- --project "$GCP_PROJECT"
 set -euo pipefail
 set -a; . "$HOME/.config/lhzn-blue/env"; set +a
-: "${GCP_PROJECT:?}" "${GCP_REGION:?}" "${JOB_SA:?}" "${CF_TOKEN_SECRET:?}"
+: "${GCP_PROJECT:?}" "${GCP_REGION:?}" "${JOB_SA:?}" "${CF_TOKEN_SECRET:?}" "${SNAPSHOT_STORE:?}"
 P=(--project "$GCP_PROJECT")
 
 gcloud services enable cloudbuild.googleapis.com cloudscheduler.googleapis.com run.googleapis.com \
@@ -46,4 +47,18 @@ gcloud secrets describe "$CF_TOKEN_SECRET" "${P[@]}" >/dev/null 2>&1 ||
   gcloud secrets create "$CF_TOKEN_SECRET" "${P[@]}" --replication-policy automatic
 gcloud secrets add-iam-policy-binding "$CF_TOKEN_SECRET" "${P[@]}" \
   --member "serviceAccount:$JOB_SA" --role roles/secretmanager.secretAccessor >/dev/null
-echo "setup complete: $JOB_SA, secret $CF_TOKEN_SECRET"
+# Snapshots: the job may create objects in the bucket but not overwrite or delete them (object creator only).
+SNAP_BUCKET="${SNAPSHOT_STORE#gs://}"; SNAP_BUCKET="${SNAP_BUCKET%%/*}"
+SNAP_PREFIX="${SNAPSHOT_STORE#gs://$SNAP_BUCKET}"; SNAP_PREFIX="${SNAP_PREFIX#/}"
+gcloud storage buckets add-iam-policy-binding "gs://$SNAP_BUCKET" "${P[@]}" \
+  --member "serviceAccount:$JOB_SA" --role roles/storage.objectCreator >/dev/null
+# Copies older than 30 days move to Coldline (read rarely, kept indefinitely). The second prefix covers the
+# notebook's earlier copies, whose object names begin with a slash.
+LIFECYCLE="$(mktemp)"
+cat > "$LIFECYCLE" <<JSON
+{"rule": [{"action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
+           "condition": {"age": 30, "matchesStorageClass": ["STANDARD"], "matchesPrefix": ["${SNAP_PREFIX%/}/", "/${SNAP_PREFIX%/}/"]}}]}
+JSON
+gcloud storage buckets update "gs://$SNAP_BUCKET" "${P[@]}" --lifecycle-file "$LIFECYCLE" >/dev/null
+rm -f "$LIFECYCLE"
+echo "setup complete: $JOB_SA, secret $CF_TOKEN_SECRET, snapshots in $SNAPSHOT_STORE"

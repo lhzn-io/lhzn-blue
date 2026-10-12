@@ -11,7 +11,7 @@
       "name": "Western Sound",
       "operator": "LISICOS, University of Connecticut",
       "info_url": "https://lisicos.uconn.edu/about_wlis.php",
-      "met": { "dataset": "WLIS_MET" },
+      "met": { "dataset": "WLIS_MET", "ndbc": "44040", "dir_offset_deg": 14.2 },
       "turbidity": { "dataset": "WLIS_ECO_NTU", "depth_m": 1, "first_year": 2021 },
       "waves": { "sensor": true, "dataset": "WLIS_WAVE" },
       "panels": {
@@ -32,7 +32,7 @@
       "name": "Execution Rocks",
       "operator": "LISICOS, University of Connecticut",
       "info_url": "https://lisicos.uconn.edu/about_exrx.php",
-      "met": { "dataset": "EXRX_MET" },
+      "met": { "dataset": "EXRX_MET", "ndbc": "44022", "dir_offset_deg": 14.2 },
       "turbidity": { "dataset": "EXRX_ECO_NTU", "depth_m": 1, "first_year": 2019 },
       "waves": { "sensor": true, "dataset": "EXRX_WAVE" },
       "panels": {
@@ -77,7 +77,7 @@
       "name": "ARTG buoy",
       "operator": "LISICOS, University of Connecticut",
       "info_url": "https://lisicos.uconn.edu/about_artg.php",
-      "met": { "dataset": "ARTG_MET" },
+      "met": { "dataset": "ARTG_MET", "dir_offset_deg": 14.4 },
       "turbidity": { "dataset": "ARTG_ECO_NTU", "depth_m": 1, "first_year": 2025 },
       "waves": { "sensor": false },
       "panels": {
@@ -94,7 +94,7 @@
       "name": "Central Sound",
       "operator": "LISICOS, University of Connecticut",
       "info_url": "https://lisicos.uconn.edu/about_clis.php",
-      "met": { "dataset": "CLIS_MET" },
+      "met": { "dataset": "CLIS_MET", "ndbc": "44039", "dir_offset_deg": 14.9 },
       "turbidity": { "dataset": "CLIS_ECO_NTU", "depth_m": 1, "first_year": 2026 },
       "waves": { "sensor": true, "dataset": "CLIS_WAVE" },
       "panels": {

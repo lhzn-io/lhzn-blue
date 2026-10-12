@@ -85,7 +85,9 @@ export const METHODS: Record<string, Method> = {
       "average whose half-life widens from 1 hour two days back to 6 hours two weeks back and a day a month back, so recent " +
       "hours keep their detail and earlier weeks read as a trend. The average runs forward and back so peaks are not delayed, " +
       "and restarts after a gap.",
-    caveats: "Buoy weather is kept for the last 100 days so far. Speeds follow the Units switch.",
+    caveats:
+      "The plot shows the last 100 days. Speeds follow the Units switch. Directions are turned to true north: the server's " +
+      "read about 14 degrees clockwise of NDBC's records of the same buoys, close to the local magnetic variation.",
   },
   air: {
     title: "Air and water temperature",
@@ -204,11 +206,13 @@ METHODS.trends = {
     "slow, steady and sudden): wind 2, 5 and 10 kt; waves 0.1, 0.3 and 0.6 m; pressure 1, 2 and 3 mb; air 2, 6 and 12\u00b0F; " +
     "water temperature 0.2, 0.8 and 2\u00b0F; salinity 0.05, 0.2 and 0.6; oxygen 0.2, 0.8 and 2 mg/L. A wind shift is shown " +
     "when the mean direction of the last 3 hours differs from the 3 before by 20 degrees or more, in wind of 5 kt or more. " +
-    "The %ile ranks the value (the 36-hour mean for water; the last 3 days' mean for wind and waves; the last day's for air) " +
-    "against the same dates, a week either side, in every earlier year with data for at least half that fortnight.",
+    "The %ile ranks the value (the 36-hour mean for water; the last 3 days' mean for wind and waves; the last day's for air " +
+    "and pressure) against the same dates, a week either side, in every earlier year with data for at least half that " +
+    "fortnight. Weather %iles use daily means: from the NDBC archives of the same buoys (Western and Central Sound from 2004, " +
+    "Execution Rocks from 2005), then the buoys' own records.",
   caveats:
-    "A %ile needs at least three earlier years. Buoy weather is kept for the last 100 days so far, so wind, air and pressure " +
-    "show \"-- %ile\" until the full weather record is added.",
+    "A %ile needs at least three earlier years; where a station has fewer it reads \"-- %ile\" (the Stamford buoy's " +
+    "weather starts in 2024).",
 };
 
 /** Readout labels open the entry for the plot they summarise. */

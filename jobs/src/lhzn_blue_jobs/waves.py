@@ -117,10 +117,10 @@ def import_waves(store: Store, archive_dir: Path) -> None:
 
     Downloads overlap; where two disagree, the later download wins (the server may have revised values).
     """
-    from .archive import read_snapshot
+    from .archive import read_snapshot, saved_downloads
 
     for st, ds in wave_stations():
-        files = sorted(archive_dir.glob(f"*/{ds}.h5"))  # folder names are download times, so this is oldest first
+        files = saved_downloads(archive_dir, ds)
         if not files:
             log.warning("no saved downloads of %s under %s", ds, archive_dir)
             continue

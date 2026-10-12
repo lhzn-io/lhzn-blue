@@ -262,6 +262,21 @@ export class Daily {
     values.forEach((x, i) => (v[i] = x == null ? NaN : x));
     return new Daily(Date.parse(t0) / 1000, v);
   }
+
+  /** Each day's value across its 24 hours, to sit under an hourly window (Hourly.merge) for the %iles. */
+  toHourly(): Hourly {
+    const v = new Float64Array(this.v.length * 24);
+    this.v.forEach((x, i) => v.fill(x, i * 24, i * 24 + 24));
+    return new Hourly(this.t0, v);
+  }
+}
+
+/** The buoy weather history: daily means per station (wind in knots, air in F, pressure in mbar). */
+export interface MetHistory {
+  generated_at: string;
+  qc: string;
+  meta: Record<string, { record_start: string | null; days: number; ndbc: string | null; ndbc_years: number[] }>;
+  stations: Record<string, { t0: string | null; step: number; wind_kt?: (number | null)[]; air_f?: (number | null)[]; pressure_mb?: (number | null)[] }>;
 }
 
 /** The salinity or oxygen history: the same hourly record, loaded when a reader switches to it. */

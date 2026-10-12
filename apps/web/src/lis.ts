@@ -16,7 +16,7 @@ import {
   COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, oxygenStatus, stratStatus, yearLines,
   type Encoded, type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetObs, type MetWindow,
   type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type VarHistory, type WaveFrame,
-  type WaveHistory, type WaveLive, type WaveObs, type YearLine, Daily, type RiverHistory, type RiverLive, type TurbHistory, type TurbFrame,
+  type WaveHistory, type MetHistory, type WaveLive, type WaveObs, type YearLine, Daily, type RiverHistory, type RiverLive, type TurbHistory, type TurbFrame,
 } from "./series";
 
 const DATA = "/data/v1";
@@ -182,6 +182,7 @@ interface StationData {
   now: number; // the current hour: year comparisons are always about this time of year
   anchor: number; // end of the recent timelines: now for live stations, the last reading otherwise
   met: Met | null; // weather at the station, recent window only
+  metLong?: { wind: Hourly | null; air: Hourly | null; pressure: Hourly | null }; // daily history under the window, for the %iles
   level: Hourly | null; // shore stations: water level, feet above MLLW
   tides: TideEvent[]; // shore stations: predicted highs and lows
   levelNow: { time: string; ft: number } | null;
@@ -491,10 +492,22 @@ async function ensureVar(k: VarKey, live: Live, stations: StationData[]): Promis
     return;
   }
   if (k === "wind") {
-    const hist = await getJson<WaveHistory>(`${DATA}/${WATER_VARS.wind.file}`);
+    const [hist, met] = await Promise.all([
+      getJson<WaveHistory>(`${DATA}/${WATER_VARS.wind.file}`),
+      getJson<MetHistory>(`${DATA}/history-met.json`).catch(() => null), // the %iles wait for it; the rest shows without
+    ]);
     WAVE_META = hist.meta;
     for (const d of stations) if (d.kind === "buoy") d.waves = wavesFrom(hist.stations[d.meta.id], live.waves?.[d.meta.id]);
-    $("about-sources").insertAdjacentHTML("beforeend", ` ${hist.qc}`);
+    if (met) {
+      for (const d of stations) {
+        const h = d.kind === "buoy" ? met.stations[d.meta.id] : undefined;
+        if (!h?.t0) continue;
+        const long = (vals: (number | null)[] | undefined, recent: Hourly | null | undefined) =>
+          Hourly.merge(Daily.fromArray(h.t0, vals)?.toHourly() ?? null, recent ?? null);
+        d.metLong = { wind: long(h.wind_kt, d.met?.wind), air: long(h.air_f, d.met?.air), pressure: long(h.pressure_mb, d.met?.pressure) };
+      }
+    }
+    $("about-sources").insertAdjacentHTML("beforeend", ` ${hist.qc}${met ? ` ${met.qc}` : ""}`);
     loaded.add(k);
     return;
   }
@@ -1800,11 +1813,12 @@ function readoutHtml(num: string, label: string, about: string, sub: string, sta
   return `<div class="readout"><div class="num">${num}</div><span class="lab"><button type="button" class="ro-about" data-about="${about}" title="About: ${label}">${label}</button></span>${context ? `<span class="trend">${context}</span>` : ""}<span class="sub${state ? ` ${state}` : ""}">${sub}</span></div>`;
 }
 
-/** Direction over the quantity's window, then the seasonal %ile: "↑ 0.6°F in 24h · 74th %ile". */
-function contextLine(s: Hourly | null | undefined, trendKey: string, fmt: (v: number) => string, season?: { key: string; what?: string }): string {
+/** Direction over the quantity's window, then the seasonal %ile (from `season.long` when the series has a longer
+ * record than its recent window): "↗ +0.6°F in 24h · 74th %ile". */
+function contextLine(s: Hourly | null | undefined, trendKey: string, fmt: (v: number) => string, season?: { key: string; what?: string; long?: Hourly | null }): string {
   const spec = TRENDS[trendKey];
   const parts = [trendText(trend(s, spec), spec, fmt)];
-  if (season) parts.push(percentileText(seasonalPercentile(s, SEASONS[season.key]), season.what));
+  if (season) parts.push(percentileText(seasonalPercentile(season.long ?? s, SEASONS[season.key]), season.what));
   return parts.filter(Boolean).join(" &middot; ");
 }
 
@@ -1875,7 +1889,7 @@ function weatherReadouts(d: StationData): string[] {
   if (o?.wind_kt != null && state !== "offline") {
     const dir = o.dir_deg != null ? `from ${compass(o.dir_deg)}` : "";
     out.push(readoutHtml(`${windFmt(o.wind_kt)}<small>${u}</small>`, "Wind", "wind", `${dir}${dir ? " &middot; " : ""}gusts ${windFmt(o.gust_kt)} ${u} &middot; ${ago(o.time)}`, state,
-      [contextLine(d.met?.wind, "wind", (v) => `${windFmt(v)} ${u}`), veerText(d.met?.dir, d.met?.wind), percentileText(seasonalPercentile(d.met?.wind, SEASONS.wind), "last 3 days")]
+      [contextLine(d.met?.wind, "wind", (v) => `${windFmt(v)} ${u}`), veerText(d.met?.dir, d.met?.wind), percentileText(seasonalPercentile(d.metLong?.wind ?? d.met?.wind, SEASONS.wind), "last 3 days")]
         .filter(Boolean)
         .join(" &middot; ")));
   } else out.push(readoutHtml("--", "Wind", "wind", "no recent reading", "offline"));
@@ -1890,11 +1904,11 @@ function weatherReadouts(d: StationData): string[] {
     );
   }
   if (o?.pressure_mb != null && state !== "offline") {
-    const ctx = contextLine(d.met?.pressure, "pressure", (v) => `${v.toFixed(1)} mb`);
+    const ctx = contextLine(d.met?.pressure, "pressure", (v) => `${v.toFixed(1)} mb`, { key: "pressure", what: "last day", long: d.metLong?.pressure });
     out.push(readoutHtml(`${o.pressure_mb.toFixed(0)}<small>mb</small>`, "Pressure", "pressure", ago(o.time), state, ctx));
   }
   if (o?.air_f != null && state !== "offline")
-    out.push(readoutHtml(`${f1(o.air_f)}&deg;F`, "Air", "air", ago(o.time), state, contextLine(d.met?.air, "air", (v) => `${v.toFixed(0)}&deg;F`, { key: "air" })));
+    out.push(readoutHtml(`${f1(o.air_f)}&deg;F`, "Air", "air", ago(o.time), state, contextLine(d.met?.air, "air", (v) => `${v.toFixed(0)}&deg;F`, { key: "air", what: "last day", long: d.metLong?.air })));
   return out;
 }
 

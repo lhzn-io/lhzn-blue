@@ -73,6 +73,9 @@ QC_DESCRIPTION = (
 # Buoy weather (the *_MET datasets): named columns only (CLIS_MET fails when its dew point column is
 # requested). Wind is in knots; air temperature in C; pressure in mbar. Gross-range checks only: a spike
 # test would remove real gusts.
+# Wind direction on the server reads about 14 degrees clockwise of NDBC's archives of the same buoys (2021 to
+# 2024, steady month to month; the local magnetic variation is about 13 W), so it is turned back to true north
+# by each station's dir_offset_deg in stations.json (measured against NDBC; Stamford, with no NDBC record, the mean).
 MET_COLUMNS = ["air_temperature", "barometric_pressure", "wind_gust", "wind_speed", "wind_direction"]
 MET_RANGES = {
     "air_temperature": (-30.0, 45.0),
@@ -83,8 +86,8 @@ MET_RANGES = {
 }
 # Every object the jobs may write. Anything else is refused (see Store.write_json).
 WRITABLE = re.compile(
-    r"v1/(history|history-salinity|history-oxygen|history-waves|history-turbidity|live|shore|shore-history|rivers|rivers-history)\.json"
-    r"|v1/archive/[A-Z]{3,5}_(SFC|MID|BTM|WAVE)\.json"
+    r"v1/(history|history-salinity|history-oxygen|history-waves|history-turbidity|history-met|live|shore|shore-history|rivers|rivers-history)\.json"
+    r"|v1/archive/[A-Z]{3,5}_(SFC|MID|BTM|WAVE|MET)\.json"
     r"|v1/fields/(sst|chl|kd490|currents|currents-mesh)\.json"
     r"|v1/fields/(sst|chl|kd490)-90d\.bin"
 )
@@ -281,8 +284,9 @@ def depths(df: pd.DataFrame) -> list[float]:
 # Jobs
 
 
-def met_hourly(df: pd.DataFrame) -> pd.DataFrame:
-    """Hourly weather: mean wind, peak gust, speed-weighted mean direction, mean air temperature (F) and pressure."""
+def met_hourly(df: pd.DataFrame, dir_offset: float = 0.0) -> pd.DataFrame:
+    """Hourly weather: mean wind, peak gust, speed-weighted mean direction, mean air temperature (F) and pressure.
+    ``dir_offset`` (degrees) is subtracted from the direction first, to turn it to true north."""
     cols = ["wind_kt", "gust_kt", "dir_deg", "air_f", "pressure_mb"]
     if df.empty:
         return pd.DataFrame(columns=cols, index=pd.DatetimeIndex([], tz="UTC"), dtype=float)
@@ -291,7 +295,7 @@ def met_hourly(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             x = pd.to_numeric(df[col], errors="coerce")
             df[col] = x.where((x >= lo) & (x <= hi))
-    rad = np.deg2rad(df["wind_direction"])
+    rad = np.deg2rad((df["wind_direction"] - dir_offset) % 360)
     w = df["wind_speed"].fillna(0)
     east = (w * np.sin(rad)).resample("h").sum(min_count=1)
     north = (w * np.cos(rad)).resample("h").sum(min_count=1)
@@ -556,7 +560,7 @@ def live(store: Store, full: bool = False) -> None:
                 out_vars[var][key] = encode_var(window, var)
             out_vars["temp"][key].update({"last_obs": last_obs, "dataset": ds})
             out_datasets[ds] = status
-    out_met = live_met(prev.get("met", {}), prev_datasets, out_datasets, end)
+    out_met = live_met(prev.get("met", {}), prev_datasets, out_datasets, end, full=full)
     from . import turbidity, waves  # imported here: both build on this module
 
     out_waves = waves.live(prev.get("waves", {}), prev_datasets, out_datasets, end, store)
@@ -570,7 +574,7 @@ def live(store: Store, full: bool = False) -> None:
     )
 
 
-def live_met(prev_met: dict, prev_datasets: dict, out_datasets: dict, end) -> dict:
+def live_met(prev_met: dict, prev_datasets: dict, out_datasets: dict, end, full: bool = False) -> dict:
     """The hourly weather window per station (wind, gusts, direction, air temperature, pressure).
 
     It spans MET_WINDOW_HOURS, enough to share a time axis with the page's year comparison (96 days back).
@@ -582,13 +586,14 @@ def live_met(prev_met: dict, prev_datasets: dict, out_datasets: dict, end) -> di
         if not ds:
             continue
         before = prev_met.get(st["id"], {})
-        fetch_hours = LIVE_FETCH_HOURS if before.get("t0") else MET_WINDOW_HOURS
+        fetch_hours = LIVE_FETCH_HOURS if before.get("t0") and not full else MET_WINDOW_HOURS
+        offset = float(st["met"].get("dir_offset_deg", 0.0))
         window = decode_frame(before)
         last_obs = before.get("last_obs")
         status = dict(prev_datasets.get(ds, {}))
         try:
             df = merlin.fetch(ds, end - timedelta(hours=fetch_hours), end + timedelta(hours=1), MET_COLUMNS)
-            fresh = met_hourly(df)
+            fresh = met_hourly(df, offset)
             window = fresh.combine_first(window) if not window.empty else fresh
             good = df.dropna(subset=["wind_speed"]) if not df.empty else df
             if not good.empty:
@@ -597,7 +602,7 @@ def live_met(prev_met: dict, prev_datasets: dict, out_datasets: dict, end) -> di
                     "time": iso(row["time"]),
                     "wind_kt": _num(row["wind_speed"]),
                     "gust_kt": _num(row["wind_gust"]),
-                    "dir_deg": _num(row["wind_direction"]),
+                    "dir_deg": _num((float(row["wind_direction"]) - offset) % 360) if pd.notna(row["wind_direction"]) else None,
                     "air_f": _num(float(row["air_temperature"]) * 9 / 5 + 32) if pd.notna(row["air_temperature"]) else None,
                     "pressure_mb": _num(row["barometric_pressure"]),
                 }

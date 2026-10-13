@@ -543,6 +543,7 @@ body.landing {
 }
 .fig-info:hover, .fig-info:focus-visible { color: var(--accent); border-color: var(--accent-line); outline: none; }
 .strip-cap .fig-info { margin: 0 0 0 6px; }
+.station-head .head-info { align-self: center; margin-left: -6px; }
 /* The readouts' context line (trend and %ile), and the (i) that explains it. */
 .readout .trend { display: block; margin-top: 2px; font: 11px/1.35 var(--mono); color: var(--ink-soft); }
 .trend-part { white-space: nowrap; }

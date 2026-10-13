@@ -105,6 +105,17 @@
       "lon": -71.9841,
       "drainage_sqmi": 713,
       "mouth": "New London, by way of the Thames at Norwich"
+    },
+    {
+      "id": "PAWC",
+      "usgs_id": "01118500",
+      "river": "Pawcatuck",
+      "system": "Pawcatuck",
+      "name": "Pawcatuck River at Westerly",
+      "lat": 41.3853,
+      "lon": -71.8331,
+      "drainage_sqmi": 294,
+      "mouth": "Little Narragansett Bay, which opens through Fishers Island Sound to the Sound's eastern end"
     }
   ]
 }

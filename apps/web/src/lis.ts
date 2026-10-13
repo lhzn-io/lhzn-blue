@@ -1713,7 +1713,7 @@ function sectionHtml(d: StationData): string {
   // last reading to date the note from.
   const quiet = (d.kind === "buoy" || d.kind === "shore") && stationState(d) === "offline" && Number.isFinite(lastSeen(d));
   const notes = [
-    st.note,
+    isRiver(d) ? (d.gauge?.discontinued ? d.gauge.status_note : "") : st.note, // a river's notes are in its About; a discontinued gauge says so here
     d.kind === "shore" && VK !== "temp" ? `This station measures water temperature only; ${V().label.toLowerCase()} comes from the buoys.` : "",
     wavesText(id),
     !d.live && st.outage_note ? st.outage_note : "",
@@ -1726,7 +1726,7 @@ function sectionHtml(d: StationData): string {
   return `
     <section class="station" id="${id}" aria-labelledby="${id}-title">
       <div class="station-head">
-        <h2 id="${id}-title"><i class="dot ${overallState(d)}"></i>${st.name}</h2>
+        <h2 id="${id}-title"><i class="dot ${overallState(d)}"></i>${st.name}</h2>${isRiver(d) ? `<button class="fig-info head-info" type="button" data-about="gauge" aria-label="About ${st.name}" title="About ${d.kind === "rivers" ? "these gauges" : "this gauge"}">i</button>` : ""}
         <span class="sid">${d.kind === "turbidity" ? "LISICOS buoys, optical sensors at 1 m" : d.kind === "rivers" ? "USGS stream gauges" : d.kind === "river" ? `USGS ${d.gauge!.usgs_id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W` : `${id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W`}</span>
         <span class="rec">${recordLine(d, rec)}</span>
       </div>
@@ -2149,7 +2149,52 @@ function updatedStrip(meta: Meta, live: Live): void {
 /** The About dialog: one entry from methods.ts, for a plot, a readout or a map layer. */
 let aboutLink = "";
 
+const isRiver = (d: StationData) => d.kind === "rivers" || d.kind === "river";
+const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const sqmi = (n: number) => `${n.toLocaleString("en-US")} square miles`;
+const PROVISIONAL = "Values are provisional until USGS approves them.";
+
+/** A river section's About: the gauge (or, for All rivers, every gauge) from rivers.json, as labelled rows. */
+function gaugeAboutHtml(d: StationData): string {
+  const row = (label: string, html: string) => `<dt>${label}</dt><dd>${html}</dd>`;
+  const gauges = d.river?.gauges ?? [];
+  let rows: string;
+  if (d.kind === "rivers") {
+    const area = gauges.reduce((a, g) => a + g.drainage_sqmi, 0);
+    const conn = gauges.find((g) => g.id === "CONN");
+    rows =
+      row("Gauges", `${gauges.length} USGS stream gauges, largest basin first:<ul class="about-sensors">${gauges
+        .map((g) => `<li><a href="#${g.id}">${escHtml(g.river)}</a>: ${sqmi(g.drainage_sqmi)}${g.discontinued ? " (no flow published since " + escHtml(fmtDate.format(new Date(`${g.discontinued}T12:00:00Z`))) + ")" : ""}</li>`)
+        .join("")}</ul>`) +
+      row("Drains", `${sqmi(Math.round(area))} in all${conn ? `, about ${Math.round((100 * conn.drainage_sqmi) / area / 5) * 5}% of it the Connecticut River above Thompsonville` : ""}. The Naugatuck joins the Housatonic below the Stevenson gauge, so the two add without double counting.`) +
+      row("Not measured", "On Long Island most fresh water reaches the Sound as groundwater, which stream gauges do not measure, so the north shore is under-represented here.") +
+      row("Caveats", PROVISIONAL);
+  } else {
+    const g = d.gauge!;
+    const note = g.status_note ?? "";
+    rows =
+      row("Gauge", `${escHtml(g.name)}, USGS ${g.usgs_id} (<a href="https://waterdata.usgs.gov/monitoring-location/USGS-${g.usgs_id}/">gauge page</a>)`) +
+      row("Drains", sqmi(g.drainage_sqmi)) +
+      row("Reaches the Sound", `At ${escHtml(g.mouth)}.`) +
+      row("Record", g.discontinued
+        ? `Daily mean flow from ${g.record_start ? g.record_start.slice(0, 4) : "1990"} to ${fmtDate.format(new Date(`${g.discontinued}T12:00:00Z`))}.`
+        : `Daily mean flow from ${g.record_start ? g.record_start.slice(0, 4) : "1990"}; recent flow hourly, from 15-minute readings.`) +
+      (note ? row(g.discontinued ? "Status" : "Notes", escHtml(note.replace(PROVISIONAL, "").trim())) : "") +
+      row("Caveats", PROVISIONAL);
+  }
+  return `<dl class="about-list">${rows}</dl><p class="about-foot">Times are stored in UTC and labelled in New York time. All data are provisional and may be revised.</p>`;
+}
+
 function openAbout(key: string, d: StationData | null): void {
+  if (key === "gauge" && d && isRiver(d)) {
+    const dialog = $("about-dialog") as HTMLDialogElement;
+    aboutLink = "";
+    ($("about-link") as HTMLButtonElement).hidden = true;
+    $("about-dialog-title").textContent = d.kind === "rivers" ? "The river gauges" : d.meta.name;
+    $("about-dialog-body").innerHTML = gaugeAboutHtml(d);
+    if (!dialog.open) dialog.showModal();
+    return;
+  }
   const m = METHODS[key];
   if (!m) return;
   const dialog = $("about-dialog") as HTMLDialogElement;
@@ -2173,6 +2218,10 @@ function openAbout(key: string, d: StationData | null): void {
 function wireAbout(): void {
   const dialog = $("about-dialog") as HTMLDialogElement;
   $("about-close").addEventListener("click", () => dialog.close());
+  // A link to a section of this page (the river list in the gauges' About) closes the dialog on the way.
+  $("about-dialog-body").addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest('a[href^="#"]')) dialog.close();
+  });
   $("about-link").addEventListener("click", async () => {
     const btn = $("about-link") as HTMLButtonElement;
     try {

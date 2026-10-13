@@ -23,8 +23,10 @@
   </head>
   <body>
     <div class="topbar">
+      <button class="fresh drop-btn" id="fresh" type="button" aria-expanded="false" aria-controls="updated" title="When the data was fetched">loading</button>
       <p class="updated" id="updated" aria-live="polite"><b>Loading</b>reading the latest buoy data</p>
-      <div class="unit-switch var-switch" role="group" aria-label="View">
+      <button class="view-menu drop-btn" id="view-menu" type="button" aria-expanded="false" aria-controls="var-switch"><span class="vm-label">View</span> <span class="vm-current">Temp</span><span class="vm-caret" aria-hidden="true"></span></button>
+      <div class="unit-switch var-switch" id="var-switch" role="group" aria-label="View">
         <span aria-hidden="true">View</span>
         <button class="tab" type="button" data-var="temp" aria-pressed="true">Temp</button>
         <button class="tab" type="button" data-var="salinity" aria-pressed="false">Salinity</button>
@@ -49,13 +51,30 @@
         </div>
       </details>
       <button class="collect-open" type="button" id="collect-open" aria-expanded="false" aria-controls="collect-tray" title="Collect plots to ask your own AI about them or send us a suggestion">Collect<span id="collect-count"></span></button>
+      <button class="theme-icon" id="theme-toggle" type="button" aria-pressed="false"></button>
+      <button class="more-menu drop-btn" id="more-menu" type="button" aria-expanded="false" aria-controls="more-pop" aria-label="Menu: About, Collect, units and theme"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      <div class="more-pop" id="more-pop">
+        <button type="button" data-more="about">About</button>
+        <button type="button" data-more="collect">Collect plots<span class="more-count"></span></button>
+        <div class="more-row">
+          <span class="more-label">Units</span>
+          <div class="unit-switch units-top" role="group" aria-label="Units for wind, currents and waves">
+            <button class="tab" type="button" data-unit="kt" aria-pressed="true">kt</button>
+            <button class="tab" type="button" data-unit="mph" aria-pressed="false">mph</button>
+            <button class="tab" type="button" data-unit="ms" aria-pressed="false">m/s</button>
+          </div>
+        </div>
+        <button type="button" data-more="theme">Dark theme</button>
+      </div>
     </div>
     <header class="mast">
-      <a class="wordmark" href="/" aria-label="longhorizon.blue home">
-        <span class="wm-top">LOCAL CONDITIONS</span>
-        <span class="wm-bottom">LONG ISLAND SOUND</span>
-      </a>
-      <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span>
+      <div class="mast-id">
+        <a class="wordmark" href="/" aria-label="longhorizon.blue home">
+          <span class="wm-top">LOCAL WATER CONDITIONS</span>
+          <span class="wm-bottom">LONG ISLAND SOUND</span>
+        </a>
+        <p class="mast-by"><span class="lho">Long Horizon Observatory</span> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span></p>
+      </div>
       <div class="prefs">
         <div class="unit-switch" role="group" aria-label="Units for wind, currents and waves">
           <span aria-hidden="true">Units</span>
@@ -63,7 +82,6 @@
           <button class="tab" type="button" data-unit="mph" aria-pressed="false">mph</button>
           <button class="tab" type="button" data-unit="ms" aria-pressed="false">m/s</button>
         </div>
-        <button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false">Light</button>
       </div>
     </header>
 

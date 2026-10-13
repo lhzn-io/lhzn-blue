@@ -2122,6 +2122,11 @@ function updatedStrip(meta: Meta, live: Live): void {
     ];
     if (failing.length) parts.push(`<span class="warn">fetch failed: ${failing.join(", ")}</span>`);
     $("updated").innerHTML = parts.join(`<span class="sep">&middot;</span>`);
+    const fresh = $("fresh");
+    const age = Date.now() - fetched;
+    const state = failing.length || (age > 3 * 3600_000 && age <= 24 * 3600_000) ? "delayed" : age <= 3 * 3600_000 ? "live" : "offline";
+    fresh.innerHTML = `<i class="dot ${state}"></i>${span(fetched, Date.now())}`;
+    fresh.setAttribute("aria-label", `Data fetched ${span(fetched, Date.now())} ago`);
     $("updated").title =
       `Fetched ${fmtEt(live.generated_at)}` +
       (latest ? `; latest buoy reading ${fmtEt(latest)}` : "") +
@@ -2131,6 +2136,31 @@ function updatedStrip(meta: Meta, live: Live): void {
   };
   draw();
   window.setInterval(draw, 60_000);
+  dropDown($("fresh"), $("updated"));
+}
+
+/** The phone menu: About (the drawer), Collect (the tray, which shows the "+" marks), units and the theme. While
+ * plots are collected the menu button carries their count, so the tray stays one tap away. */
+function wireMore(): void {
+  const btn = $("more-menu");
+  const setOpen = dropDown(btn, $("more-pop"));
+  $("more-pop").addEventListener("click", (e) => {
+    const what = (e.target as HTMLElement).closest<HTMLElement>("[data-more]")?.dataset.more;
+    if (!what) return;
+    setOpen(false);
+    if (what === "theme") $("theme-toggle").click();
+    else if (what === "collect") window.setTimeout(() => $("collect-open").click());
+    else window.setTimeout(() => (($("about-drawer") as HTMLDetailsElement).open = true)); // after this click settles
+  });
+  const count = $("collect-count");
+  const show = () => {
+    const n = count.textContent?.trim() ?? "";
+    if (n) btn.dataset.count = n;
+    else delete btn.dataset.count;
+    $("more-pop").querySelector(".more-count")!.textContent = n ? ` (${n})` : "";
+  };
+  new MutationObserver(show).observe(count, { childList: true, characterData: true, subtree: true });
+  show();
 }
 
 /** The About dialog: one entry from methods.ts, for a plot, a readout or a map layer. */
@@ -2715,20 +2745,50 @@ function wireRiverHover(): void {
   box.addEventListener("pointerleave", () => VK === "rivers" && focus(null));
 }
 
+/** A phone drop-down: the button opens its panel under the bar; a choice, a tap elsewhere or Esc closes it.
+ * Opening one closes any other. Returns the setter, for closing after a choice. */
+const drops: ((open: boolean) => void)[] = [];
+function dropDown(btn: HTMLElement, panel: HTMLElement): (open: boolean) => void {
+  const setOpen = (open: boolean) => {
+    if (open) drops.forEach((close) => close !== setOpen && close(false));
+    panel.classList.toggle("open", open);
+    btn.setAttribute("aria-expanded", String(open));
+    // A narrow panel opens under its own button, kept on the screen; a full-width one (the freshness line) as styled.
+    if (open && panel.offsetWidth < window.innerWidth * 0.8) {
+      const bar = btn.offsetParent as HTMLElement | null;
+      const room = (bar?.clientWidth ?? window.innerWidth) - panel.offsetWidth - 8;
+      panel.style.left = `${Math.max(8, Math.min(btn.offsetLeft, room))}px`;
+      panel.style.right = "auto";
+    }
+  };
+  drops.push(setOpen);
+  btn.addEventListener("click", () => setOpen(!panel.classList.contains("open")));
+  document.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    if (panel.classList.contains("open") && !btn.contains(t) && !panel.contains(t)) setOpen(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && panel.classList.contains("open")) {
+      setOpen(false);
+      btn.focus();
+    }
+  });
+  return setOpen;
+}
+
 /** The Water switch (temperature, salinity, oxygen): temperature by default; remembered in this browser only.
  * A variable's history loads on first use; the button dims while it loads and the page keeps working. */
 function wireWater(live: Live, stations: StationData[], rebuild: () => void): void {
   const buttons = document.querySelectorAll<HTMLButtonElement>(".var-switch [data-var]");
+  // On a phone the switch is a drop-down under one button that names the current view.
+  const menu = $("view-menu");
+  const setOpen = dropDown(menu, $("var-switch"));
   const mark = () => {
     buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.var === VK)));
-    // On a phone the switch is a strip that scrolls sideways: bring the current view into it.
-    const strip = buttons[0]?.parentElement;
-    const on = [...buttons].find((b) => b.dataset.var === VK);
-    if (strip && on && strip.scrollWidth > strip.clientWidth) {
-      strip.scrollLeft = Math.max(0, on.offsetLeft - strip.offsetLeft - (strip.clientWidth - on.offsetWidth) / 2);
-    }
+    menu.querySelector(".vm-current")!.textContent = [...buttons].find((b) => b.dataset.var === VK)?.textContent ?? "";
   };
   mark();
+  buttons.forEach((b) => b.addEventListener("click", () => setOpen(false)));
   buttons.forEach((b) =>
     b.addEventListener("click", async () => {
       const k = b.dataset.var as VarKey;
@@ -2759,9 +2819,14 @@ function wireWater(live: Live, stations: StationData[], rebuild: () => void): vo
 /** The Light/Dark toggle: light by default; the choice is remembered in this browser only. */
 function wireTheme(redraw: () => void): void {
   const btn = $("theme-toggle");
+  // A moon in the light theme (switch to night), a sun in the dark one (switch to day).
+  const MOON = `<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`;
+  const SUN = `<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M3.2 12.8l1.1-1.1M11.7 4.3l1.1-1.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`;
   const label = () => {
     const light = currentTheme() === "light";
-    btn.textContent = light ? "Dark" : "Light";
+    btn.innerHTML = light ? MOON : SUN;
+    btn.title = light ? "Dark theme" : "Light theme";
+    document.querySelector<HTMLElement>('[data-more="theme"]')!.textContent = light ? "Dark theme" : "Light theme";
     btn.setAttribute("aria-pressed", String(light));
     btn.setAttribute("aria-label", light ? "Switch to the dark theme" : "Switch to the light theme");
   };
@@ -2906,6 +2971,7 @@ async function main(): Promise<void> {
     };
     wireTheme(redraw);
     wireUnits(redraw);
+    wireMore();
     // Keep "now" and the ages current on a page left open, and refit axis labels on resize.
     window.setInterval(() => {
       drawAll();

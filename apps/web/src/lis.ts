@@ -6,7 +6,7 @@ import promptTemplate from "../../../configs/prompts/visitor_prompt.txt?raw";
 import registry from "../../../stations/stations.json";
 import shoreRegistry from "../../../stations/shore.json";
 import { highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
-import { METHODS, methodHtml, REF_LABELS } from "./methods";
+import { BUOY_SENSORS, METHODS, methodHtml, REF_LABELS } from "./methods";
 import { mountCollect } from "./collect";
 import { percentileText, SEASONS, seasonalPercentile, smoothByAge, trend, trendText, TRENDS, veerText } from "./trends";
 import type { Pin } from "./map";
@@ -1707,26 +1707,13 @@ function sectionHtml(d: StationData): string {
       <div class="legend" id="${id}-${key}-legend"></div>
     </figure>`;
   };
-  // Any buoy can go quiet (a sensor fault, a recovery, or the server dropping a dataset): say so in the
-  // same words for every station, plus the station's own outage note when the server is not publishing.
-  // River sections say their own status (a discontinued gauge carries a note); and a quiet station needs a
-  // last reading to date the note from.
-  const quiet = (d.kind === "buoy" || d.kind === "shore") && stationState(d) === "offline" && Number.isFinite(lastSeen(d));
-  const notes = [
-    isRiver(d) ? (d.gauge?.discontinued ? d.gauge.status_note : "") : st.note, // a river's notes are in its About; a discontinued gauge says so here
-    d.kind === "shore" && VK !== "temp" ? `This station measures water temperature only; ${V().label.toLowerCase()} comes from the buoys.` : "",
-    wavesText(id),
-    !d.live && st.outage_note ? st.outage_note : "",
-    quiet
-      ? `No reading since ${fmtDate.format(new Date(lastSeen(d) * 1000))}, so there is no line for this year and the recent charts are empty. ` +
-        `The year charts show this time of year in the years we hold; Full record shows everything we have kept. ` +
-        `For recent conditions, see the LISICOS panels above (images on their site).`
-      : "",
-  ].filter(Boolean);
+  // Under the heading only a one-line status, and only for a gap in the data (a quiet station, a dataset the server
+  // no longer publishes, a discontinued gauge); the explanations are in the section's About (the (i) by its name).
+  const notes = statusLines(d);
   return `
     <section class="station" id="${id}" aria-labelledby="${id}-title">
       <div class="station-head">
-        <h2 id="${id}-title"><i class="dot ${overallState(d)}"></i>${st.name}</h2>${isRiver(d) ? `<button class="fig-info head-info" type="button" data-about="gauge" aria-label="About ${st.name}" title="About ${d.kind === "rivers" ? "these gauges" : "this gauge"}">i</button>` : ""}
+        <h2 id="${id}-title"><i class="dot ${overallState(d)}"></i>${st.name}</h2><button class="fig-info head-info" type="button" data-about="station" aria-label="About ${st.name}" title="About ${aboutNoun(d)}">i</button>
         <span class="sid">${d.kind === "turbidity" ? "LISICOS buoys, optical sensors at 1 m" : d.kind === "rivers" ? "USGS stream gauges" : d.kind === "river" ? `USGS ${d.gauge!.usgs_id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W` : `${id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W`}</span>
         <span class="rec">${recordLine(d, rec)}</span>
       </div>
@@ -2154,6 +2141,64 @@ const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").re
 const sqmi = (n: number) => `${n.toLocaleString("en-US")} square miles`;
 const PROVISIONAL = "Values are provisional until USGS approves them.";
 
+const aboutNoun = (d: StationData) =>
+  d.kind === "rivers" ? "these gauges" : d.kind === "river" ? "this gauge" : d.kind === "turbidity" ? "these sensors" : d.kind === "buoy" ? "this buoy" : "this station";
+
+/** A quiet station needs a last reading to date its status from. */
+const isQuiet = (d: StationData) => (d.kind === "buoy" || d.kind === "shore") && stationState(d) === "offline" && Number.isFinite(lastSeen(d));
+
+/** The one-line statuses shown under a section's heading: gaps in the data only. */
+function statusLines(d: StationData): string[] {
+  const g = d.gauge;
+  return [
+    g?.discontinued ? `No flow published since ${fmtDate.format(new Date(`${g.discontinued}T12:00:00Z`))}.` : "",
+    isQuiet(d) ? `No reading since ${fmtDate.format(new Date(lastSeen(d) * 1000))}.` : "",
+    !isRiver(d) && !d.live && d.meta.outage_note ? "Not published on the data server; the record shown is our saved copy." : "",
+    d.kind === "shore" && VK !== "temp" ? `Water temperature only; ${V().label.toLowerCase()} comes from the buoys.` : "",
+  ].filter(Boolean);
+}
+
+/** A buoy, shore station or the turbidity section's About: what it is, its record and every note, as labelled rows. */
+function stationAboutHtml(d: StationData): string {
+  const st = d.meta;
+  const row = (label: string, html: string) => `<dt>${label}</dt><dd>${html}</dd>`;
+  const links = [
+    st.info_url ? `<a href="${st.info_url}">${d.kind === "shore" ? "station page" : "about this buoy"}</a>` : "",
+    panelsOf(st.id).weather ? `<a href="${panelsOf(st.id).weather}">weather panel</a>` : "",
+    panelsOf(st.id).water_quality ? `<a href="${panelsOf(st.id).water_quality}">water quality panel</a>` : "",
+    panelsOf(st.id).waves ? `<a href="${panelsOf(st.id).waves}">wave panel</a>` : "",
+  ].filter(Boolean);
+  let rows = "";
+  if (d.kind !== "turbidity") {
+    rows += row(d.kind === "buoy" ? "Buoy" : "Station", `${escHtml(st.name)} (${st.id}), ${escHtml(st.operator)}; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W${links.length ? ` (${links.join(", ")})` : ""}.`);
+  }
+  const startOf = (s: MetaSeries) => (VK === "temp" ? s.record_start : s.vars?.[VK]?.record_start);
+  const record = recordLine(d, st.series.map((s) => `${s.label.toLowerCase()} from ${startOf(s)?.slice(0, 4) ?? "--"}`).join(", "));
+  rows += row("Record", `${record.replace(/^Record: (.)/, (_, c: string) => c.toUpperCase())}.`); // the row is already labelled
+  if (st.note) rows += row("Notes", st.note); // our own text (it may carry a link)
+  if (d.kind === "shore" && VK !== "temp") rows += row("Measures", `Water temperature only; ${V().label.toLowerCase()} on this page comes from the buoys.`);
+  const status = [
+    !d.live && st.outage_note ? st.outage_note : "",
+    isQuiet(d)
+      ? `No reading since ${fmtDate.format(new Date(lastSeen(d) * 1000))}, so there is no line for this year and the recent charts are empty. ` +
+        `The year charts show this time of year in the years we hold; Full record shows everything we have kept.` +
+        (d.kind === "buoy" ? " For recent conditions, see the LISICOS panels (images on their site)." : "")
+      : "",
+  ].filter(Boolean);
+  if (status.length) rows += row("Status", status.join(" "));
+  if (d.kind === "buoy" && wavesOf(st.id)) rows += row("Waves", escHtml(wavesText(st.id).replace(/^Waves: /, "")).replace(/^./, (c) => c.toUpperCase()));
+  const s = d.kind === "buoy" ? BUOY_SENSORS[st.id] : undefined;
+  if (s) {
+    const parts = [["Topside", s.topside], ["Surface", s.surface], ["Mid-depth", s.mid], ["Bottom", s.bottom]].filter(([, v]) => v);
+    rows += row(
+      "Sensors",
+      `${escHtml(s.platform)}, as LISICOS lists its 2019 configuration (<a href="/references/#lisicos">reference</a>).` +
+        `<ul class="about-sensors">${parts.map(([l, v]) => `<li><b>${l}:</b> ${escHtml(v!)}</li>`).join("")}</ul>`,
+    );
+  }
+  return `<dl class="about-list">${rows}</dl><p class="about-foot">Times are stored in UTC and labelled in New York time. All data are provisional and may be revised.</p>`;
+}
+
 /** A river section's About: the gauge (or, for All rivers, every gauge) from rivers.json, as labelled rows. */
 function gaugeAboutHtml(d: StationData): string {
   const row = (label: string, html: string) => `<dt>${label}</dt><dd>${html}</dd>`;
@@ -2186,12 +2231,12 @@ function gaugeAboutHtml(d: StationData): string {
 }
 
 function openAbout(key: string, d: StationData | null): void {
-  if (key === "gauge" && d && isRiver(d)) {
+  if (key === "station" && d) {
     const dialog = $("about-dialog") as HTMLDialogElement;
     aboutLink = "";
     ($("about-link") as HTMLButtonElement).hidden = true;
-    $("about-dialog-title").textContent = d.kind === "rivers" ? "The river gauges" : d.meta.name;
-    $("about-dialog-body").innerHTML = gaugeAboutHtml(d);
+    $("about-dialog-title").textContent = d.kind === "rivers" ? "The river gauges" : d.kind === "turbidity" ? "Buoy turbidity sensors" : d.meta.name;
+    $("about-dialog-body").innerHTML = isRiver(d) ? gaugeAboutHtml(d) : stationAboutHtml(d);
     if (!dialog.open) dialog.showModal();
     return;
   }
@@ -2647,7 +2692,7 @@ function fieldControls(): import("./fields").FieldControls {
   };
 }
 
-/** Pointing at a river in the table (mouse or keyboard) highlights its basin and fits the map to it. */
+/** Pointing at a river in the table (mouse or keyboard) highlights its basin on the map (the map does not move). */
 function wireRiverHover(): void {
   const box = $("status");
   let pending = 0;
@@ -2674,7 +2719,15 @@ function wireRiverHover(): void {
  * A variable's history loads on first use; the button dims while it loads and the page keeps working. */
 function wireWater(live: Live, stations: StationData[], rebuild: () => void): void {
   const buttons = document.querySelectorAll<HTMLButtonElement>(".var-switch [data-var]");
-  const mark = () => buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.var === VK)));
+  const mark = () => {
+    buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.var === VK)));
+    // On a phone the switch is a strip that scrolls sideways: bring the current view into it.
+    const strip = buttons[0]?.parentElement;
+    const on = [...buttons].find((b) => b.dataset.var === VK);
+    if (strip && on && strip.scrollWidth > strip.clientWidth) {
+      strip.scrollLeft = Math.max(0, on.offsetLeft - strip.offsetLeft - (strip.clientWidth - on.offsetWidth) / 2);
+    }
+  };
   mark();
   buttons.forEach((b) =>
     b.addEventListener("click", async () => {

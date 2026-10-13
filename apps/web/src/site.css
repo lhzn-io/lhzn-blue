@@ -251,7 +251,7 @@ main { padding: 0 var(--gutter) 40px; }
 /* Overview: locator map and status grid */
 .overview { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 22px 30px; padding: 22px 0 6px; }
 /* Beside the table the map takes the table's height (the grid row stretches it); stacked, it is fixed. */
-.map { position: relative; min-height: 300px; border: 1px solid var(--rule); background: var(--map-bg); }
+.map { position: relative; overflow: hidden; min-height: 300px; border: 1px solid var(--rule); background: var(--map-bg); }
 .status { align-self: start; }
 .status-grid { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
 .status-grid caption { text-align: left; margin-bottom: 8px; font: 700 10px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
@@ -587,7 +587,7 @@ figure.linked, .station.linked { outline: 2px solid var(--accent-line); outline-
 .collect-btn[aria-pressed="true"] { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 .band-actions { display: inline-flex; align-items: start; margin: 4px 0 0 6px; }
 .band-actions .band-info { margin: 0; }
-.map-foot { position: relative; }
+.map-foot { position: relative; padding-right: 32px; } /* room for the map's "+" beside the time labels */
 .map-actions { position: absolute; right: 0; top: 8px; z-index: 1; }
 .is-collected { outline: 1px solid var(--accent-line); outline-offset: 4px; }
 .collect-open {
@@ -649,3 +649,57 @@ figure.linked, .station.linked { outline: 2px solid var(--accent-line); outline-
 .info-body a { color: var(--link, var(--accent)); text-underline-offset: 2px; }
 .suggest-to { font-size: 12px; color: var(--dim); text-decoration-color: var(--rule); text-underline-offset: 2px; }
 .suggest-to:hover { color: var(--accent-hi); }
+
+/* Phones (360 to 430 px wide). Nothing may be wider than the screen; controls get a tap area of at least
+   32 px (the icons keep their size); small print stays at 9.5 px or more. Desktop is unchanged. */
+@media (max-width: 560px) {
+  /* Nothing scrolls the page sideways: a plot clips its edge labels, and the page clips anything else (clip,
+     unlike hidden, keeps the sticky top bar working). */
+  html, body { overflow-x: clip; }
+  .plot { overflow-x: clip; }
+
+  /* Top bar: freshness, About and Collect on one line; the views below as one strip that scrolls sideways. */
+  .topbar { flex-wrap: wrap; padding-bottom: 0; }
+  .topbar .updated { order: 1; flex: 1 1 0; font-size: 10px; }
+  .topbar .info, .topbar .suggest { order: 2; margin: 0 6px 0 0; }
+  .topbar .collect-open { order: 3; margin-right: var(--gutter); }
+  .topbar .var-switch {
+    order: 4; flex: 1 1 100%; margin: 0; padding: 0 var(--gutter) 2px; overflow-x: auto; overscroll-behavior-x: contain;
+    scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent);
+  }
+  .topbar .var-switch::-webkit-scrollbar { display: none; }
+  .topbar .var-switch .tab { flex: none; min-height: 32px; padding: 9px 10px 9px; }
+  .suggest > summary, .collect-open { min-height: 30px; padding: 8px 12px 8px; }
+  .station, .station-group { scroll-margin-top: 96px; }
+
+  /* Masthead: the units and the theme on their own line. */
+  .mast { gap: 12px 16px; }
+  .prefs { flex: 1 1 100%; margin-left: 0; justify-content: space-between; align-items: center; }
+  .prefs .tab, .theme-toggle { min-height: 32px; padding-top: 10px; padding-bottom: 10px; }
+  .unit-switch > span { padding-top: 0; align-self: center; font-size: 9.5px; }
+
+  /* Buttons: a larger invisible tap area around the same 15 px marks; taller tabs and pills. */
+  .collect-btn, .fig-info { position: relative; }
+  .collect-btn::after, .fig-info::after { content: ""; position: absolute; inset: -9px -6px; }
+  .collect-btn { margin-right: 12px; }
+  .fig-info { margin-right: 12px; }
+  .fig-actions { gap: 4px; align-items: center; }
+  .expand { min-height: 30px; padding: 9px 12px; }
+  .stab { min-height: 32px; }
+  .ro-about { padding: 6px 0; margin: -6px 0; }
+  .station-links a { padding: 7px 0; }
+  .pin::after { content: ""; position: absolute; inset: -9px -4px; }
+
+  /* Map and its time rows: a taller map; the play button and the map's "+" clear of the time labels. */
+  .map { height: 300px; }
+  .map-actions { top: 6px; }
+  .tl-row { grid-template-columns: 32px minmax(0, 1fr) 104px; }
+  .tl-play { width: 32px; height: 32px; }
+  .tl-mark { font-size: 9.5px; }
+
+  /* Small print. */
+  .status-key, .updated .ago, .stage { font-size: 10px; }
+  .strip-cap { font-size: 9.5px; }
+  .plot-labels { font-size: 9.5px; }
+  .plot-labels .month { font-size: 9.5px; }
+}

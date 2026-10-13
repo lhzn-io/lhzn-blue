@@ -88,7 +88,7 @@ function marker(map: maplibregl.Map, p: Pin, go: string): maplibregl.Marker {
   );
   el.addEventListener("mouseenter", () => {
     popup.setLngLat([p.lon, p.lat]).addTo(map);
-    if (p.kind === "gauge") focusBasin(p.id, false);
+    if (p.kind === "gauge") focusBasin(p.id);
   });
   el.addEventListener("mouseleave", () => popup.remove());
   el.addEventListener("click", () => select(p.id));
@@ -107,10 +107,8 @@ export function drawMap(container: HTMLElement, pins: Pin[], onSelect: (id: stri
     // Credits behind the (i) button; set explicitly so they never depend on the style loading.
     attributionControl: {
       compact: true,
-      customAttribution:
-        '<a href="https://openfreemap.org">OpenFreeMap</a> &copy; <a href="https://www.openmaptiles.org/">OpenMapTiles</a> ' +
-        'Data from <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>; basins from ' +
-        '<a href="https://waterdata.usgs.gov/blog/nldi-intro/">USGS NLDI</a>',
+      // The basemap style carries its own credit (OpenFreeMap, OpenMapTiles, OpenStreetMap); add only the basins.
+      customAttribution: 'Basins from <a href="https://waterdata.usgs.gov/blog/nldi-intro/">USGS NLDI</a>',
     },
     // With a mouse or trackpad the wheel zooms the map under the cursor (move off the map to scroll the page).
     // On a touch screen a one-finger drag scrolls the page and two fingers move the map, so a page scroll is
@@ -174,32 +172,19 @@ function highlight(map: maplibregl.Map, id: string, on: boolean): void {
   for (const fid of [id, watershedOf(id)]) if (fid) map.setFeatureState({ source: "basins", id: fid }, { hover: on });
 }
 
-/** Bounds of a gauge's watershed (so the river's mouth is in view), or of every watershed. */
-function bounds(id: string | null): maplibregl.LngLatBounds | null {
-  if (!basins) return null;
-  const want = id ? watershedOf(id) ?? id : null;
-  const b = new maplibregl.LngLatBounds();
-  for (const f of basins.features) {
-    if (want ? f.properties.id !== want : f.properties.kind !== "watershed") continue;
-    for (const poly of f.geometry.coordinates) for (const [x, y] of poly[0]) b.extend([x, y]);
-  }
-  return b.isEmpty() ? null : b;
-}
-
 function applyRiverMode(map: maplibregl.Map): void {
   gaugeMarkers.forEach((m) => m.remove());
   gaugeMarkers = riverMode ? gaugePins.map((p) => marker(map, p, "Go to river")) : [];
+  // The view stays where the reader left it: switching views never pans or zooms the map.
   const ready = () => {
     addBasinLayers(map);
     showBasins(map, riverMode);
-    const b = riverMode ? bounds(null) : null;
-    map.fitBounds(b ?? HOME, { padding: 24, duration: 600 });
   };
   if (map.isStyleLoaded()) ready();
   else map.once("load", ready);
 }
 
-/** Turn the Rivers view's map on or off: basins and gauges, fitted to the whole watershed; off returns to the Sound. */
+/** Turn the Rivers view's map on or off: basins and gauge pins, over the map as the reader left it. */
 export async function setRiverMode(on: boolean, gauges: Pin[]): Promise<void> {
   riverMode = on;
   gaugePins = gauges.map((g) => ({ ...g, kind: "gauge" }));
@@ -210,19 +195,15 @@ export async function setRiverMode(on: boolean, gauges: Pin[]): Promise<void> {
       basins = null; // the gauges still show; the basins are a nicety
     }
   }
-  if (!on) focusBasin(null, false);
+  if (!on) focusBasin(null);
   if (current) applyRiverMode(current);
 }
 
-/** Highlight one basin (or none) and, unless told not to, fit the map to it (or back to all basins). */
-export function focusBasin(id: string | null, fit = true): void {
+/** Highlight one basin (or none). The map does not move: the reader pans and zooms it (drag, wheel or pinch). */
+export function focusBasin(id: string | null): void {
   const map = current;
   if (!map) return;
   if (focused) highlight(map, focused, false);
   if (id) highlight(map, id, true);
   focused = id;
-  if (fit && riverMode) {
-    const b = bounds(id);
-    if (b) map.fitBounds(b, { padding: 28, duration: 700, maxZoom: 10 });
-  }
 }

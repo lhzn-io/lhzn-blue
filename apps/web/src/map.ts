@@ -112,7 +112,10 @@ export function drawMap(container: HTMLElement, pins: Pin[], onSelect: (id: stri
         'Data from <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>; basins from ' +
         '<a href="https://waterdata.usgs.gov/blog/nldi-intro/">USGS NLDI</a>',
     },
-    cooperativeGestures: true, // a page scroll never gets trapped by the map
+    // With a mouse or trackpad the wheel zooms the map under the cursor (move off the map to scroll the page).
+    // On a touch screen a one-finger drag scrolls the page and two fingers move the map, so a page scroll is
+    // never trapped by a map that fills the width.
+    cooperativeGestures: !window.matchMedia("(pointer: fine)").matches,
     dragRotate: false,
     pitchWithRotate: false,
   });

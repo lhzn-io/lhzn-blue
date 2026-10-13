@@ -75,5 +75,7 @@ export function wireHints(): void {
   });
   document.addEventListener("focusout", hide);
   document.addEventListener("pointerdown", hide);
-  window.addEventListener("scroll", hide, { passive: true });
+  // A scroll hides a hint on screen; one still waiting to show is placed when it shows, so it is left alone
+  // (the page also scrolls itself as sections load).
+  window.addEventListener("scroll", () => !tip.hidden && hide(), { passive: true });
 }

@@ -6,6 +6,7 @@ import promptTemplate from "../../../configs/prompts/visitor_prompt.txt?raw";
 import registry from "../../../stations/stations.json";
 import shoreRegistry from "../../../stations/shore.json";
 import { highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
+import { wireHints } from "./hints";
 import { BUOY_SENSORS, METHODS, methodHtml, REF_LABELS } from "./methods";
 import { mountCollect } from "./collect";
 import { percentileText, SEASONS, seasonalPercentile, smoothByAge, trend, trendText, TRENDS, veerText } from "./trends";
@@ -2122,11 +2123,17 @@ function updatedStrip(meta: Meta, live: Live): void {
     ];
     if (failing.length) parts.push(`<span class="warn">fetch failed: ${failing.join(", ")}</span>`);
     $("updated").innerHTML = parts.join(`<span class="sep">&middot;</span>`);
+    // The bar: a dot and the age; the buoys' lag only past its usual hour or two; the exact times in the hint.
     const fresh = $("fresh");
     const age = Date.now() - fetched;
-    const state = failing.length || (age > 3 * 3600_000 && age <= 24 * 3600_000) ? "delayed" : age <= 3 * 3600_000 ? "live" : "offline";
-    fresh.innerHTML = `<i class="dot ${state}"></i>${span(fetched, Date.now())}`;
-    fresh.setAttribute("aria-label", `Data fetched ${span(fetched, Date.now())} ago`);
+    const lag = latest ? fetched - Date.parse(latest) : Infinity;
+    const lagging = lag > 2 * 3600_000;
+    const state = age > 24 * 3600_000 ? "offline" : failing.length || lagging || age > 3 * 3600_000 ? "delayed" : "live";
+    const note = failing.length ? "fetch failed" : !latest ? "no recent buoy reading" : lagging ? `buoys ${span(Date.parse(latest), fetched)} behind` : "";
+    fresh.innerHTML = `<i class="dot ${state}"></i>${span(fetched, Date.now())}<span class="fresh-long">&nbsp;ago</span>${note ? `<span class="lag">${note}</span>` : ""}`;
+    fresh.title =
+      `Fetched ${fmtEt(live.generated_at)}` + (latest ? ` · latest buoy reading ${fmtEt(latest)}` : "") + ` · history rebuilt ${fmtEt(meta.generated_at)} (New York time)`;
+    fresh.setAttribute("aria-label", `Data fetched ${span(fetched, Date.now())} ago${note ? `, ${note}` : ""}`);
     $("updated").title =
       `Fetched ${fmtEt(live.generated_at)}` +
       (latest ? `; latest buoy reading ${fmtEt(latest)}` : "") +
@@ -2989,4 +2996,5 @@ async function main(): Promise<void> {
 }
 
 wireSuggest();
+wireHints();
 void main();

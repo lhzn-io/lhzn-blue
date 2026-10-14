@@ -1,5 +1,9 @@
 # longhorizon.blue: the pages are open to crawlers; the data files under /data/ serve the pages and are not an API.
+# Content signals (contentsignals.org) state our preference for how the pages may be used: yes to search and to AI
+# assistants reading a page to answer a question; no to AI model training, in keeping with the CC BY-NC 4.0 licence
+# of our plots and text (see https://longhorizon.blue/terms/).
 User-agent: *
+Content-Signal: search=yes, ai-input=yes, ai-train=no
 Disallow: /data/
 
 Sitemap: https://longhorizon.blue/sitemap.xml

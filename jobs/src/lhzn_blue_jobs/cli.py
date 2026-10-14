@@ -1,4 +1,4 @@
-"""Command line: ``lhzn-blue-jobs {history,live,latest,fields,snapshot,import-archive,import-waves,import-weather} --out <store>``.
+"""Command line: ``lhzn-blue-jobs {history,live,latest,fields,snapshot,forecast,import-archive,import-waves,import-weather} --out <store>``.
 
 ``live`` and ``history`` also refresh the shore stations (``shore.json``, ``shore-history.json``) and the
 rivers (``rivers.json``, ``rivers-history.json``) after the buoys; a failure there is logged and never stops
@@ -18,7 +18,7 @@ from . import build, rivers, shore, turbidity, waves, weather
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "import-archive", "import-waves", "import-weather"])
+    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "import-archive", "import-waves", "import-weather"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
@@ -29,6 +29,11 @@ def main() -> None:
         "--to",
         default=os.environ.get("LHZN_BLUE_SNAPSHOTS"),
         help="snapshot: local directory or gs://bucket/prefix for the saved copies (env LHZN_BLUE_SNAPSHOTS)",
+    )
+    parser.add_argument(
+        "--forecasts",
+        default=os.environ.get("LHZN_BLUE_FORECASTS"),
+        help="forecast: local directory or gs://bucket/prefix for the HRRR archive (env LHZN_BLUE_FORECASTS)",
     )
     parser.add_argument("--vintage", help="import-archive: fallback snapshot folder when stations.json names none")
     parser.add_argument("--full", action="store_true", help="live: refetch the whole 45-day window")
@@ -63,6 +68,13 @@ def main() -> None:
         from . import fields  # forcingkit is needed only here
 
         _failed.extend(fields.publish(store))
+    elif args.command == "forecast":
+        from . import forecast  # forcingkit's HRRR reader is needed only here
+
+        if not args.forecasts:
+            parser.error("forecast needs --forecasts (or LHZN_BLUE_FORECASTS)")
+        done = forecast.archive(store, args.forecasts)
+        logging.getLogger("lhzn_blue_jobs.forecast").info("cycles archived: %s", done or "none new")
     elif args.command == "snapshot":
         from . import snapshot
 

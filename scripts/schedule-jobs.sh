@@ -17,7 +17,7 @@ trigger() { # name, cron, job
     --oauth-service-account-email "$SCHEDULER_SA" --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform"
 }
 
-for job in lhzn-blue-live lhzn-blue-latest lhzn-blue-history lhzn-blue-fields lhzn-blue-snapshot; do
+for job in lhzn-blue-live lhzn-blue-latest lhzn-blue-history lhzn-blue-fields lhzn-blue-snapshot lhzn-blue-forecast; do
   gcloud run jobs add-iam-policy-binding "$job" --project "$GCP_PROJECT" --region "$GCP_REGION" \
     --member "serviceAccount:$SCHEDULER_SA" --role roles/run.invoker >/dev/null
 done
@@ -34,3 +34,5 @@ trigger lhzn-blue-fields "30 8 * * *" lhzn-blue-fields
 # Saved copies of the server's datasets on Monday, Wednesday and Friday, after the history build: a few hundred
 # requests each, so not daily.
 trigger lhzn-blue-snapshot "45 4 * * 1,3,5" lhzn-blue-snapshot
+# HRRR at the stations, hourly: each run archives the complete cycles of the last 4 hours not yet kept.
+trigger lhzn-blue-forecast "40 * * * *" lhzn-blue-forecast

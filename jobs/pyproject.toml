@@ -11,7 +11,7 @@ dependencies = [
     "google-cloud-storage>=2.18",
     # Surface fields (the `fields` job): satellite fetches and the NECOFS surface reader. A tag archive rather
     # than git+https, so the slim image installs it with pip and no git.
-    "forcingkit @ https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.6.0.tar.gz",
+    "forcingkit @ https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.7.0.tar.gz",
     "matplotlib>=3.8",  # point location on the model mesh (the shared coastline)
 ]
 

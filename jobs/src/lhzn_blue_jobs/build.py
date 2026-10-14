@@ -89,7 +89,7 @@ MET_RANGES = {
 }
 # Every object the jobs may write. Anything else is refused (see Store.write_json).
 WRITABLE = re.compile(
-    r"v1/(history|history-salinity|history-oxygen|history-waves|history-turbidity|history-met|live|shore|shore-history|rivers|rivers-history)\.json"
+    r"v1/(history|history-salinity|history-oxygen|history-waves|history-turbidity|history-met|live|shore|shore-history|rivers|rivers-history|forecast-hrrr)\.json"
     r"|v1/archive/[A-Z]{3,5}_(SFC|MID|BTM|WAVE|MET)\.json"
     r"|v1/fields/(sst|chl|kd490|currents|currents-mesh)\.json"
     r"|v1/fields/(sst|chl|kd490)-90d\.bin"

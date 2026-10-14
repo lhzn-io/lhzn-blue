@@ -1,0 +1,3 @@
+# Static asset headers (Cloudflare Workers static assets).
+/references.bib
+  Content-Type: text/plain; charset=utf-8

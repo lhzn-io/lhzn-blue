@@ -1,6 +1,6 @@
 # Roadmap
 
-What `longhorizon.blue` does next, in rough order. Status as of 2026-10-11.
+What `longhorizon.blue` does next, in rough order. Status as of 2026-10-13.
 
 ## Principles
 
@@ -24,7 +24,8 @@ What `longhorizon.blue` does next, in rough order. Status as of 2026-10-11.
 - [x] Hourly and daily ingest with range, spike and placeholder tests; a per-waterway salinity range
 - [x] Outage handling: every listed dataset is retried hourly and picked up again if it returns; the daily build
       never drops an hour it already holds
-- [x] "Copy prompt + data" for visitors' own AI assistants
+- [x] Collect: gather plots, readouts and the map, then ask your own AI (one image and a prompt scoped to them) or
+      send us a suggestion; a mode, so the "+" marks show only while collecting
 - [x] Custom domains (longhorizon.blue, lhzn.blue) and a contact address per waterway
 - [x] Salinity and dissolved oxygen, with oxygen reference levels (Long Island Sound Partnership hypoxia and anoxia,
       EPA's growth criterion)
@@ -32,7 +33,8 @@ What `longhorizon.blue` does next, in rough order. Status as of 2026-10-11.
       wind, pressure, water level, tide predictions)
 - [x] Wind and waves view: wind, air, pressure tendency, and waves from our saved downloads, with the wave datasets
       checked hourly so they return on their own
-- [x] Rivers view: nine USGS gauges, flow against normal for the date, year comparisons, and a watershed map
+- [x] Rivers view: ten USGS gauges (the Pawcatuck added in October 2026), flow against normal for the date, year
+      comparisons, and a watershed map
 - [x] Turbidity view: the buoys' point observations with a stuck-value test and a fouling flag, the biofouling
       explained, and the Connecticut River's serviced USGS sensor as the river input
 - [x] Surface fields on the map, chosen from a layers control: satellite sea surface temperature (NASA JPL MUR),
@@ -46,39 +48,51 @@ What `longhorizon.blue` does next, in rough order. Status as of 2026-10-11.
       composites with each pixel's age), on a fixed colour scale, from one gzipped binary file per field (one byte
       per pixel for the value and one for the age) that the daily job updates in place: the last 10 days recomputed,
       older days dropped
+- [x] Per-plot About dialogs with numbered references and the sensors at each buoy; the sections' notes behind an (i)
+      by their names, with only a one-line status for a gap in the data; deep links to a view, a time and a plot
+- [x] Trends under each reading (arrows angled by rate; veering and backing for wind) and seasonal percentiles
+- [x] Weather history: daily wind, air temperature and pressure from NDBC's archives of the same buoys (from 2004 and
+      2005), our saved downloads and the server, for the weather percentiles
+- [x] Wind directions to true north: the server's read about 14 degrees clockwise of NDBC's records of the same buoys
+- [x] Saved copies of the server's datasets three times a week (every dataset for our buoys, with a manifest), so a
+      withdrawn or renamed dataset is not lost
+- [x] Phone layout: one-line bar (View, the data's age, a menu), larger tap targets, nothing wider than the screen;
+      the map pans and zooms only when the reader moves it; hover hints in the site's own style
+- [x] "Use of AI" on the Terms page
 
 ## Next
 
 1. **Station values at the timeline's time.** Map pins and the overview table follow the timeline cursor, marked
-   observed or forecast, with "--" where nothing covers the time.
-2. **Tide-averaged flow at Middle Haddam.** The lowest Connecticut River gauge with a tide-free record is
-   Thompsonville, above Hartford (about 86% of the watershed). Below it USGS publishes only tidal flow at Middle
-   Haddam, which reverses with the tide. Add a 25-hour mean of that flow as our own derived series, labelled as such,
-   without normals (USGS publishes none for it).
-3. **Mobile formatting.** A pass over the phone layout: masthead, map height, status grid, chart heights, legend
-   wrapping, zoom view controls, and tap targets (the page is wider than a phone screen today).
-4. **Rate limiting** on the data files at the edge, then retire the `workers.dev` address.
-5. **Compact currents.** The currents in the same binary frame format as the satellite history (about a third of
-   today's 3.5 MB), and a longer satellite record from the gap-filled 2 km products, whose archive is not limited to
-   the near-real-time sectors' three months.
+   observed (or forecast, once there is one), with "--" where nothing covers the time.
+2. **Forecast against observed.** Archive NOAA's HRRR forecasts at each station, every hourly run, with the time each
+   was issued and the time it is for, back to 2024 from NOAA's open archive. Then a view with two linked sliders (the
+   time, and how far ahead the forecast was made) showing the observed wind against what each run predicted, and the
+   forecast's errors by lead time, wind direction, speed, season and stability. ECMWF and GFS follow for longer leads.
+3. **Compact currents.** The currents in the same binary frame format as the satellite history (about a third of
+   today's 3.5 MB), and a longer satellite record from the gap-filled 2 km products.
+4. **Design notes.** The palette and the plot grammar written down, with their licence.
 
 ## After that
 
-1. **Currents, continued.** Tidal current predictions at the CO-OPS current stations (The Race, Plum Gut, Hell Gate)
+1. **Fog.** The ingredients at the buoys (how close the air is to its dew point, the air-sea temperature difference),
+   observed visibility from the airport stations around the Sound and satellite fog, and visibility forecasts checked
+   against them.
+2. **Currents, continued.** Tidal current predictions at the CO-OPS current stations (The Race, Plum Gut, Hell Gate)
    beside the modelled field, and the modelled currents checked against them. Higher-resolution model runs of our own
    later.
-2. **Forecast against observed.** Wind (and later waves) from GFS or ECMWF over the observed record at each station,
-   with the forecast's running error.
-3. **Turbidity field.** A modelled turbidity field and short forecast from river discharge, wind and waves, and
+3. **Tide-averaged flow at Middle Haddam.** The lowest Connecticut River gauge with a tide-free record is
+   Thompsonville, above Hartford (about 86% of the watershed). Below it USGS publishes only tidal flow at Middle
+   Haddam, which reverses with the tide. Add a 25-hour mean of that flow as our own derived series, labelled as such,
+   without normals (USGS publishes none for it).
+4. **Turbidity field.** A modelled turbidity field and short forecast from river discharge, wind and waves, and
    currents, first at the surface and then through the water column, validated against the USGS river sensor and
    satellite turbidity rather than the fouling buoy sensors.
-4. **Weather history.** The full record of buoy weather (the server holds it from 2021 at Execution Rocks), and year
-   comparisons for wind and air temperature.
-5. **Quality control.** Flat-line test; evaluate IOOS `ioos_qc` (QARTOD) for all tests; use the operator's own QC
+5. **Weather percentiles at the shore stations**, from NOAA's records of their own weather.
+6. **Quality control.** Flat-line test; evaluate IOOS `ioos_qc` (QARTOD) for all tests; use the operator's own QC
    flags where published.
-6. **Expand east.** The eastern Sound, The Race, and Block Island Sound, from any further buoy data on the LISICOS
+7. **Expand east.** The eastern Sound, The Race, and Block Island Sound, from any further buoy data on the LISICOS
    server, the NERACOOS data servers, NDBC, or other public servers.
-7. **Remote MCP server and documented data files**, so AI clients and the boat-side assistant can query the same
+8. **Remote MCP server and documented data files**, so AI clients and the boat-side assistant can query the same
    numbers the page shows. Until then the data files serve this site only.
 
 ## Later

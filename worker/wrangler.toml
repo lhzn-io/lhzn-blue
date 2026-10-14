@@ -4,7 +4,7 @@
 name = "lhzn-blue"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
-workers_dev = true
+workers_dev = false # the custom domains below are the only addresses
 
 # The site's homes: Cloudflare creates and manages the DNS records for these custom domains. Both names
 # serve the site; pages declare longhorizon.blue as canonical.

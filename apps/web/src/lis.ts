@@ -1363,13 +1363,22 @@ const atFuture = () => AT != null && AT * 1000 > Date.now();
 const fmtAtWhen = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" });
 function atLabel(t: number): string {
   const ms = t * 1000;
-  return `${fmtAtWhen.format(new Date(ms))} (${ms < Date.now() ? `${span(ms, Date.now())} ago` : `in ${span(Date.now(), ms)}`})`;
+  return `${fmtAtWhen.format(new Date(ms)).replace(",", "")}, ${ms < Date.now() ? `${span(ms, Date.now())} ago` : `in ${span(Date.now(), ms)}`}`;
 }
 /** A table cell at the cursor's time: the observed value where the record covers it, "--" otherwise. */
 function atCell(v: number, shown: string, title: string, spark = "", extra = ""): string {
   if (!Number.isFinite(v)) return `<td class="offline"><b>--</b><small>${atFuture() ? "no forecast" : "no reading"}</small></td>`;
   return `<td class="asof" title="${title}, observed ${atLabel(AT!)}">${spark}<b>${shown}</b><small>${extra || "observed"}</small></td>`;
 }
+/** A station's observed value of a variable at a depth and time (temperature in &deg;F): the hourly record where it
+ * covers the time, NaN otherwise (no station forecasts before M8). The table, the pins and both prompts read values
+ * at the cursor through this, so they agree. A variable not yet loaded (its view never opened) gives NaN. */
+function valueAt(d: StationData, k: VarKey, depth: string, t: number): number {
+  const h = k === VK ? d.hourly : (k === "temp" ? d.temp : d.views[k])?.hourly;
+  return h?.[depth]?.at(t) ?? NaN;
+}
+/** A pin's water value: the view's variable with its unit. */
+const pinValue = (k: VarKey, v: number) => (k === "temp" ? `${f1(v)}&deg;F` : k === "salinity" ? `salinity ${v.toFixed(2)}` : `oxygen ${v.toFixed(1)} mg/L`);
 
 function sparklineOf(h: Hourly, color: string, unit: string, digits = 1): string {
   const end = h.lastValid();
@@ -1403,8 +1412,7 @@ function cellHtml(d: StationData, depth: string): string {
   if (d.kind === "shore" && VK !== "temp") return `<td class="na" title="Not measured at this station">&middot;</td>`;
   if (!d.depths.includes(depth)) return `<td class="na" title="No ${DEPTH_LABEL[depth].toLowerCase()} sensor published">&middot;</td>`;
   if (AT != null) {
-    const h = d.hourly[depth];
-    const v = h ? h.at(AT) : NaN;
+    const v = valueAt(d, VK, depth, AT);
     return atCell(v, v.toFixed(V().digits) + (VK === "temp" ? "&deg;" : ""), `${DEPTH_LABEL[depth]}: ${v.toFixed(V().digits)} ${unitName(VK)}`, sparkline(d, depth, P.now));
   }
   const o = d.obs[depth];
@@ -1640,14 +1648,14 @@ function statusGrid(stations: StationData[]): void {
   const table =
     SG === "buoy"
       ? isWater(VK)
-        ? `${open("buoy")}<caption>${AT != null ? `At ${atLabel(AT)}` : "Latest readings"}, west to east: ${what}</caption>${head(DEPTHS.map((d) => DEPTH_LABEL[d]))}
+        ? `${open("buoy")}<caption>${AT != null ? `${V().label} at ${atLabel(AT)}, west to east (${VK === "temp" ? "&deg;F" : unitName(VK)})` : `Latest readings, west to east: ${what}`}</caption>${head(DEPTHS.map((d) => DEPTH_LABEL[d]))}
       <tbody>${buoys.map((d) => `<tr>${name(d)}${DEPTHS.map((dep) => cellHtml(d, dep)).join("")}</tr>`).join("")}</tbody></table>`
-        : `${open("buoy")}<caption>${AT != null ? `At ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and waves (${waveUnit().label})</caption>${head(["Wind", "Air", "Pressure", "Waves"])}
+        : `${open("buoy")}<caption>${AT != null ? `Weather and waves at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and waves (${waveUnit().label})</caption>${head(["Wind", "Air", "Pressure", "Waves"])}
       <tbody>${buoys.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${wavesCell(d)}</tr>`).join("")}</tbody></table>`
       : isWater(VK)
-        ? `${open("shore")}<caption>${AT != null ? `At ${atLabel(AT)}` : "Latest readings"}, west to east: ${VK === "temp" ? "water temperature (&deg;F)" : `water temperature only (no ${V().label.toLowerCase()} sensors)`} and water level</caption>${head(["Water", "Level", "Next tide"])}
+        ? `${open("shore")}<caption>${AT != null ? `Water at ${atLabel(AT)}` : "Latest readings"}, west to east: ${VK === "temp" ? "water temperature (&deg;F)" : `water temperature only (no ${V().label.toLowerCase()} sensors)`} and water level</caption>${head(["Water", "Level", "Next tide"])}
       <tbody>${shore.map((d) => `<tr>${name(d)}${cellHtml(d, "SFC")}${levelCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`
-        : `${open("shore")}<caption>${AT != null ? `At ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and the next tide</caption>${head(["Wind", "Air", "Pressure", "Next tide"])}
+        : `${open("shore")}<caption>${AT != null ? `Weather at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and the next tide</caption>${head(["Wind", "Air", "Pressure", "Next tide"])}
       <tbody>${shore.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`;
   const tab = (g: Group, label: string, n: number) =>
     `<button type="button" role="tab" class="stab" id="stab-${g}" data-group="${g}" aria-selected="${SG === g}" aria-controls="status-panel" tabindex="${SG === g ? 0 : -1}">${label}<small>${n}</small></button>`;
@@ -1706,26 +1714,28 @@ function stationPin(d: StationData): Pin {
   const dep = d.depths.includes("SFC") ? "SFC" : d.depths[0];
   const kind = d.kind === "shore" ? ("shore" as const) : ("buoy" as const);
   const base = { id: d.meta.id, name: d.meta.name, lat: d.meta.lat, lon: d.meta.lon, kind };
+  const k: VarKey = d.kind === "shore" || !isWater(VK) ? "temp" : VK;
   if (AT != null) {
-    const water = d.temp.hourly[dep]?.at(AT) ?? NaN;
+    const water = valueAt(d, k, dep, AT);
     const wind = d.met?.wind?.at(AT) ?? NaN;
     const dir = d.met?.dir?.at(AT) ?? NaN;
     const parts = [
-      Number.isFinite(water) ? `${d.kind === "shore" ? "Water" : DEPTH_LABEL[dep]} ${f1(water)}&deg;F` : "",
+      Number.isFinite(water) ? `${d.kind === "shore" ? "Water" : DEPTH_LABEL[dep]} ${pinValue(k, water)}` : "",
       Number.isFinite(wind) ? `wind ${Number.isFinite(dir) ? compass(dir) + " " : ""}${windFmt(wind)} ${WIND_UNITS[WU].label}` : "",
     ].filter(Boolean);
     const label = parts.length ? `${parts.join("<br>")}<br>observed ${atLabel(AT)}` : `no ${atFuture() ? "forecast" : "reading"} at ${atLabel(AT)}`;
     return { ...base, state: parts.length ? "asof" : "offline", label };
   }
   const o = d.obs[dep];
+  const lv = o ? WATER_VARS[k].obs(o) : null;
   const state = overallState(d);
   const w = d.met?.last;
   const wind = w && w.wind_kt != null ? `wind ${w.dir_deg != null ? compass(w.dir_deg) + " " : ""}${windFmt(w.wind_kt)} ${WIND_UNITS[WU].label}, ${ago(w.time)}` : "";
   const reading =
     state === "partial"
       ? `Weather live: ${wind}<br>Water quality offline${o ? ` since ${fmtDate.format(new Date(o.time))}` : ""}`
-      : o && o.temperature_c != null
-        ? `${DEPTH_LABEL[dep]} ${f1(cToF(o.temperature_c))}&deg;F, ${ago(o.time)}${wind ? `<br>${wind}` : ""}`
+      : o && lv != null
+        ? `${DEPTH_LABEL[dep]} ${pinValue(k, lv)}, ${ago(o.time)}${wind ? `<br>${wind}` : ""}`
         : "no reading";
   const waves = wavesText(d.meta.id, true);
   const label = waves ? `${reading}<br>Waves: ${waves}` : reading.replace(/^Surface /, d.kind === "shore" ? "Water " : "Surface ");
@@ -2448,12 +2458,32 @@ function aboutShore(qc: string): void {
 
 /* ---------- Bring your own AI ---------- */
 
+/** The prompt's line for the timeline cursor: the observations the table and the pins show at that time. */
+function atPromptLine(d: StationData, t: number): string {
+  const when = `${fmtUtc(new Date(t * 1000).toISOString())} (${atLabel(t)})`;
+  const parts = d.meta.series
+    .map((s) => {
+      const vals = (["temp", "salinity", "oxygen"] as VarKey[])
+        .map((k) => [k, valueAt(d, k, s.depth, t)] as const)
+        .filter(([, v]) => Number.isFinite(v))
+        .map(([k, v]) => (k === "temp" ? `${f1(v)} F` : k === "salinity" ? `salinity ${v.toFixed(2)}` : `dissolved oxygen ${v.toFixed(2)} mg/L`));
+      return vals.length ? `${s.label.toLowerCase()} ${vals.join(", ")}` : "";
+    })
+    .filter(Boolean);
+  const wind = d.met?.wind?.at(t) ?? NaN;
+  const dir = d.met?.dir?.at(t) ?? NaN;
+  if (Number.isFinite(wind)) parts.push(`wind ${f1(wind)} kt${Number.isFinite(dir) ? ` from ${compass(dir)}` : ""}`);
+  const none = `no observations at that time${t * 1000 > Date.now() ? " (there are no station forecasts yet)" : ""}`;
+  return `  At the page's timeline cursor, ${when}: ${parts.length ? `observed ${parts.join("; ")}` : none}.`;
+}
+
 function promptData(stations: StationData[]): string {
   const out: string[] = [];
   for (const d of stations) {
     const st = d.meta;
     const xs = grid(d.now - 96 * DAY, d.now + 14 * DAY, Infinity);
     out.push(`Station ${st.id}, ${st.name} (${st.operator}), ${st.lat.toFixed(2)} N, ${Math.abs(st.lon).toFixed(2)} W.${st.note ? " " + st.note : ""}${!d.live && st.outage_note ? " " + st.outage_note : ""}`);
+    if (AT != null) out.push(atPromptLine(d, AT));
     for (const s of st.series) {
       const o = d.obs[s.depth];
       const m = d.temp.m36[s.depth];
@@ -2540,7 +2570,7 @@ function collectPrompt(meta: Meta, live: Live, stations: StationData[], ids: str
     const el = document.getElementById(id);
     const station = stations.find((d) => `${d.meta.id}-readouts` === id)?.meta.name ?? id;
     const lines = el ? [...el.querySelectorAll<HTMLElement>(".readout")].map((r) => `  ${r.innerText.replace(/\s*\n\s*/g, "; ")}`) : [];
-    return `Readouts at ${station}, as shown (value; label; trend and %ile against the same dates in earlier years; depth and age):\n${lines.join("\n")}`;
+    return `Readouts at ${station}, as shown (the latest readings${AT != null ? ", not the timeline cursor's time" : ""}; value; label; trend and %ile against the same dates in earlier years; depth and age):\n${lines.join("\n")}`;
   });
   if (rows.length) extra.push(rows.join("\n"));
   if (ids.includes("map")) {

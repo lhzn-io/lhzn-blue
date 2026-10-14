@@ -1,5 +1,6 @@
 #!/bin/bash
-# Build the ingest image and (re)deploy the Cloud Run jobs: `live` (hourly), `history` and `fields` (daily),
+# Build the ingest image and (re)deploy the Cloud Run jobs: `live` (hourly), `latest` (the buoys every 15 minutes
+# between hourly runs), `history` and `fields` (daily),
 # `snapshot` (saved copies of the server's datasets, three times a week).
 # Settings come from ~/.config/lhzn-blue/env (never committed):
 #   GCP_PROJECT      Google Cloud project id
@@ -42,9 +43,9 @@ SECRETS="CLOUDFLARE_API_TOKEN=${CF_TOKEN_SECRET}:latest"
 
 # Per job: timeout and memory. `fields` reads the model mesh and satellite grids, so it gets the most memory;
 # `snapshot` holds one dataset's whole record at a time.
-declare -A TIMEOUT=([live]=10m [history]=30m [fields]=30m [snapshot]=45m)
-declare -A MEMORY=([live]=512Mi [history]=1Gi [fields]=2Gi [snapshot]=1Gi)
-for mode in live history fields snapshot; do
+declare -A TIMEOUT=([live]=10m [latest]=5m [history]=30m [fields]=30m [snapshot]=45m)
+declare -A MEMORY=([live]=512Mi [latest]=512Mi [history]=1Gi [fields]=2Gi [snapshot]=1Gi)
+for mode in live latest history fields snapshot; do
   gcloud run jobs deploy "lhzn-blue-${mode}" \
     --project "$GCP_PROJECT" --region "$GCP_REGION" --image "$IMAGE" \
     --service-account "$JOB_SA" --args "$mode" \

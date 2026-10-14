@@ -1,2 +1,5 @@
+# longhorizon.blue: the pages are open to crawlers; the data files under /data/ serve the pages and are not an API.
 User-agent: *
 Disallow: /data/
+
+Sitemap: https://longhorizon.blue/sitemap.xml

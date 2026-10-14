@@ -16,7 +16,7 @@ import pandas as pd
 import requests
 
 BASE_URL = "http://merlin.dms.uconn.edu:8080/erddap"
-USER_AGENT = "lhzn-blue-ingest/0.1 (+https://longhorizon.blue)"
+USER_AGENT = "lhzn-blue-ingest/0.2 (+https://longhorizon.blue; hello@longhorizon.blue)"
 OBS_COLUMNS = ["sea_water_temperature", "sea_water_salinity", "oxygen_concentration_in_sea_water"]
 
 log = logging.getLogger(__name__)

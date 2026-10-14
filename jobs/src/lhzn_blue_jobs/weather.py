@@ -95,7 +95,8 @@ def ndbc_year(ndbc_id: str, year: int) -> pd.DataFrame | None:
     """One year of an NDBC standard meteorological archive, as rows in the server's columns and units;
     None when NDBC has no file for that year."""
     try:
-        raw = urllib.request.urlopen(NDBC_URL.format(id=ndbc_id, year=year), timeout=120).read()
+        req = urllib.request.Request(NDBC_URL.format(id=ndbc_id, year=year), headers={"User-Agent": merlin.USER_AGENT})
+        raw = urllib.request.urlopen(req, timeout=120).read()
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return None

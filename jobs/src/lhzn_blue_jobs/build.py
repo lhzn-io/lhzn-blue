@@ -38,6 +38,9 @@ log = logging.getLogger(__name__)
 SCHEMA = 1
 LIVE_WINDOW_HOURS = 45 * 24
 LIVE_FETCH_HOURS = 72
+# The quick refresh between hourly runs: the server posts readings about 70 to 80 minutes late, so 3 hours covers
+# every new one while keeping each request small.
+QUICK_FETCH_HOURS = 3
 MET_WINDOW_HOURS = 100 * 24
 # Water variables: published name, server column, unit, decimals. Temperature is converted to F; the
 # others are published in their own units (salinity on the practical scale, oxygen in mg/L).
@@ -517,18 +520,30 @@ def history(store: Store, first_year: int = 2010) -> None:
     store.write_json("v1/history.json", {"schema": SCHEMA, "meta": meta, "series": out["temp"]}, max_age=3600)
 
 
-def live(store: Store, full: bool = False) -> None:
+def live(store: Store, full: bool = False, quick: bool = False) -> None:
     """Refresh the 45-day hourly window and the latest observation for every series with a server source.
 
-    ``full`` refetches the whole window instead of the last 72 hours (use after a QC change).
+    ``full`` refetches the whole window instead of the last 72 hours (use after a QC change). ``quick`` (the
+    15-minute refresh between hourly runs) fetches only the last few hours of the buoys' water and weather and
+    keeps the waves and turbidity from the last hourly run.
     """
     end = now_utc()
     prev = {} if full else (store.read_json("v1/live.json") or {})
+    if quick and not prev:
+        log.warning("quick refresh skipped: no live.json to refresh yet")
+        return
     prev_vars = {"temp": prev.get("series", {})} | {var: prev.get(var, {}) for var in EXTRA_VARS}
     prev_datasets = prev.get("datasets", {})
     window_start = pd.Timestamp(end).floor("h") - pd.Timedelta(hours=LIVE_WINDOW_HOURS)
+    # A quick refresh reaches back past the last update (by more than the server's lag), so a run of failed
+    # updates never leaves a hole; normally that is its 3 hours.
+    if quick and prev.get("generated_at"):
+        since = (pd.Timestamp(end) - pd.Timestamp(prev["generated_at"])).total_seconds() / 3600
+        quick_hours = int(min(LIVE_FETCH_HOURS, max(QUICK_FETCH_HOURS, since + QUICK_FETCH_HOURS)))
+    else:
+        quick_hours = QUICK_FETCH_HOURS
     out_vars: dict[str, dict] = {var: {} for var in VARS}
-    out_datasets: dict = {}
+    out_datasets: dict = dict(prev_datasets) if quick else {}
     for st in load_stations()["stations"]:
         for ser in st["series"]:
             key = f"{st['id']}_{ser['depth']}"
@@ -541,7 +556,7 @@ def live(store: Store, full: bool = False) -> None:
             status = dict(prev_datasets.get(ds, {}))
             # The short fetch only when every variable already has a window (a new variable starts full).
             held = key in prev_vars["temp"] and all(key in prev_vars[var] for var in EXTRA_VARS)
-            fetch_hours = LIVE_FETCH_HOURS if held else LIVE_WINDOW_HOURS
+            fetch_hours = (quick_hours if quick else LIVE_FETCH_HOURS) if held else LIVE_WINDOW_HOURS
             try:
                 cols = merlin_columns(ds)
                 df = merlin.fetch(ds, end - timedelta(hours=fetch_hours), end + timedelta(hours=1), cols)
@@ -560,11 +575,14 @@ def live(store: Store, full: bool = False) -> None:
                 out_vars[var][key] = encode_var(window, var)
             out_vars["temp"][key].update({"last_obs": last_obs, "dataset": ds})
             out_datasets[ds] = status
-    out_met = live_met(prev.get("met", {}), prev_datasets, out_datasets, end, full=full)
-    from . import turbidity, waves  # imported here: both build on this module
+    out_met = live_met(prev.get("met", {}), prev_datasets, out_datasets, end, full=full, quick_hours=quick_hours if quick else None)
+    if quick:  # waves and turbidity change slowly and cost more requests: kept from the hourly run
+        out_waves, out_turb = prev.get("waves", {}), prev.get("turbidity", {})
+    else:
+        from . import turbidity, waves  # imported here: both build on this module
 
-    out_waves = waves.live(prev.get("waves", {}), prev_datasets, out_datasets, end, store)
-    out_turb = turbidity.live(prev.get("turbidity", {}), prev_datasets, out_datasets, end)
+        out_waves = waves.live(prev.get("waves", {}), prev_datasets, out_datasets, end, store)
+        out_turb = turbidity.live(prev.get("turbidity", {}), prev_datasets, out_datasets, end)
     store.write_json(
         "v1/live.json",
         {"schema": SCHEMA, "generated_at": iso(end), "series": out_vars["temp"]}
@@ -574,7 +592,7 @@ def live(store: Store, full: bool = False) -> None:
     )
 
 
-def live_met(prev_met: dict, prev_datasets: dict, out_datasets: dict, end, full: bool = False) -> dict:
+def live_met(prev_met: dict, prev_datasets: dict, out_datasets: dict, end, full: bool = False, quick_hours: int | None = None) -> dict:
     """The hourly weather window per station (wind, gusts, direction, air temperature, pressure).
 
     It spans MET_WINDOW_HOURS, enough to share a time axis with the page's year comparison (96 days back).
@@ -586,7 +604,7 @@ def live_met(prev_met: dict, prev_datasets: dict, out_datasets: dict, end, full:
         if not ds:
             continue
         before = prev_met.get(st["id"], {})
-        fetch_hours = LIVE_FETCH_HOURS if before.get("t0") and not full else MET_WINDOW_HOURS
+        fetch_hours = (quick_hours or LIVE_FETCH_HOURS) if before.get("t0") and not full else MET_WINDOW_HOURS
         offset = float(st["met"].get("dir_offset_deg", 0.0))
         window = decode_frame(before)
         last_obs = before.get("last_obs")

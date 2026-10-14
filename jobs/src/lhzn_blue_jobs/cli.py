@@ -1,4 +1,4 @@
-"""Command line: ``lhzn-blue-jobs {history,live,fields,snapshot,import-archive,import-waves,import-weather} --out <store>``.
+"""Command line: ``lhzn-blue-jobs {history,live,latest,fields,snapshot,import-archive,import-waves,import-weather} --out <store>``.
 
 ``live`` and ``history`` also refresh the shore stations (``shore.json``, ``shore-history.json``) and the
 rivers (``rivers.json``, ``rivers-history.json``) after the buoys; a failure there is logged and never stops
@@ -18,7 +18,7 @@ from . import build, rivers, shore, turbidity, waves, weather
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "fields", "snapshot", "import-archive", "import-waves", "import-weather"])
+    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "import-archive", "import-waves", "import-weather"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
@@ -56,6 +56,9 @@ def main() -> None:
             "v1/shore.json", shore.live(store.read_json("v1/shore.json"), build.now_utc(), full=args.full), max_age=300
         ))
         _shore(lambda: store.write_json("v1/rivers.json", rivers.live(store.read_json("v1/rivers.json")), max_age=300), "rivers")
+    elif args.command == "latest":
+        # The 15-minute refresh between hourly runs: the buoys' water and weather only.
+        build.live(store, quick=True)
     elif args.command == "fields":
         from . import fields  # forcingkit is needed only here
 

@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 
 API = "https://api.waterdata.usgs.gov/ogcapi/v1/collections"
 NORMALS_API = "https://api.waterdata.usgs.gov/statistics/v0/observationNormals"
-USER_AGENT = "lhzn-blue-ingest/0.1 (+https://longhorizon.blue)"
+USER_AGENT = "lhzn-blue-ingest/0.2 (+https://longhorizon.blue; hello@longhorizon.blue)"
 RIVERS_FILE = Path(
     os.environ.get("LHZN_BLUE_RIVERS", Path(__file__).resolve().parents[3] / "stations" / "rivers.json")
 )

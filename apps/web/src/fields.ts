@@ -205,8 +205,6 @@ function historyRange(h: RasterHistory): [number, number] {
   if (meta.range) return meta.range;
   let r = histRanges.get(h);
   if (!r) {
-    const counts = new Array(256).fill(0);
-    for (const q of h.body) counts[q]++; // the age bytes count too, harmlessly: only the value levels are read
     const { grid, age } = h.header;
     const px = grid.nx * grid.ny;
     const vals = new Array(256).fill(0);

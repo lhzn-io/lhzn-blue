@@ -73,12 +73,12 @@ class Archive:
         return f"{self.prefix}/{name}" if self.prefix else name
 
     def has(self, cycle: pd.Timestamp) -> bool:
-        name = self.name(cycle)
-        if self.dir is not None:
-            return (self.dir / name).exists()
-        return self.bucket.blob(self._path(name)).exists()
+        """Locally, whether the file exists. On GCS the jobs may create objects but not read them, so this is
+        False and the caller relies on the page's file and on put() refusing to overwrite."""
+        return (self.dir / self.name(cycle)).exists() if self.dir is not None else False
 
-    def put(self, cycle: pd.Timestamp, data: bytes) -> None:
+    def put(self, cycle: pd.Timestamp, data: bytes) -> bool:
+        """Write the cycle; False if it was already archived (the object exists and is never overwritten)."""
         name = self.name(cycle)
         if not NAME.fullmatch(name):
             raise ValueError(f"refusing to write {name}")
@@ -86,9 +86,15 @@ class Archive:
             path = self.dir / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
-            return
+            return True
+        from google.api_core.exceptions import PreconditionFailed
+
         blob = self.bucket.blob(self._path(name))
-        blob.upload_from_string(data, content_type="application/gzip", if_generation_match=0)  # never overwrite
+        try:
+            blob.upload_from_string(data, content_type="application/gzip", if_generation_match=0)  # never overwrite
+        except PreconditionFailed:
+            return False
+        return True
 
 
 def complete(cycle: pd.Timestamp) -> bool:
@@ -139,8 +145,11 @@ def archive(store: Store, root: str, lookback_hours: int = LOOKBACK_HOURS) -> li
 
     end = now_utc()
     arch = Archive(root)
+    prev = store.read_json(KV_KEY)
+    kept = set((prev or {}).get("cycles", {}))  # the last 48 hours of cycles: what this job has archived
     now = pd.Timestamp(end).tz_localize(None).floor("h")
-    todo = [c for c in (now - pd.Timedelta(hours=h) for h in range(lookback_hours, 0, -1)) if not arch.has(c) and complete(c)]
+    recent = [now - pd.Timedelta(hours=h) for h in range(lookback_hours, 0, -1)]
+    todo = [c for c in recent if f"{c:%Y-%m-%dT%HZ}" not in kept and not arch.has(c) and complete(c)]
     pts = points()
     frames = []
     for cycle in todo:
@@ -148,11 +157,13 @@ def archive(store: Store, root: str, lookback_hours: int = LOOKBACK_HOURS) -> li
         if df.empty:
             log.warning("HRRR %s: no rows", cycle)
             continue
-        arch.put(cycle, to_csv_gz(df))
-        log.info("HRRR %s: %d rows archived", cycle, len(df))
+        if arch.put(cycle, to_csv_gz(df)):
+            log.info("HRRR %s: %d rows archived", cycle, len(df))
+        else:
+            log.info("HRRR %s: already archived", cycle)
         frames.append(df)
     if frames:
-        store.write_json(KV_KEY, page_file(store.read_json(KV_KEY), pd.concat(frames), end), max_age=600)
+        store.write_json(KV_KEY, page_file(prev, pd.concat(frames), end), max_age=600)
     return [f"{c:%Y-%m-%d %HZ}" for c in todo]
 
 

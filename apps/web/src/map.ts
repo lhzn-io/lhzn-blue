@@ -7,7 +7,8 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import maplibregl from "maplibre-gl";
 
-type PinState = "live" | "delayed" | "offline" | "partial"; // partial: weather live, water sensors offline
+// partial: weather live, water sensors offline; asof: observed at the timeline cursor's time
+type PinState = "live" | "delayed" | "offline" | "partial" | "asof";
 
 export interface Pin {
   id: string;
@@ -77,11 +78,34 @@ export function setMapTheme(next: Theme): void {
   current?.setStyle(STYLES[next]);
 }
 
+/** Each pin's button and popup, by id, so pins can be updated in place (the timeline cursor moves often). */
+const pinIndex = new Map<string, { el: HTMLElement; popup: maplibregl.Popup; pin: Pin; go: string }>();
+/** A pin's label as plain text for its accessible name (the label is HTML: line breaks and entities). */
+function labelText(p: Pin): string {
+  const box = document.createElement("div");
+  box.innerHTML = `${p.name}: ${p.label.replace(/<br>/g, "; ")}`;
+  return box.textContent ?? "";
+}
+const pinClass = (p: Pin) => `pin pin-${p.state}${p.kind === "shore" ? " pin-shore" : p.kind === "gauge" ? " pin-gauge" : ""}`;
+
+/** New labels and states for pins already on the map (unknown ids are ignored). */
+export function updatePins(pins: Pin[]): void {
+  for (const p of pins) {
+    const entry = pinIndex.get(p.id);
+    if (!entry) continue;
+    // Swap the state class only: MapLibre's own marker classes on the same element place it.
+    entry.el.classList.replace(`pin-${entry.pin.state}`, `pin-${p.state}`);
+    entry.pin = { ...entry.pin, state: p.state, label: p.label };
+    entry.el.setAttribute("aria-label", labelText(entry.pin));
+    entry.popup.setHTML(`<b>${p.name}</b><br>${p.label}<br><span class="pin-go">${entry.go}</span>`);
+  }
+}
+
 function marker(map: maplibregl.Map, p: Pin, go: string): maplibregl.Marker {
   const el = document.createElement("button");
   el.type = "button";
-  el.className = `pin pin-${p.state}${p.kind === "shore" ? " pin-shore" : p.kind === "gauge" ? " pin-gauge" : ""}`;
-  el.setAttribute("aria-label", `${p.name}: ${p.label.replace(/<br>/g, "; ")}`);
+  el.className = pinClass(p);
+  el.setAttribute("aria-label", labelText(p));
   el.innerHTML = `<span class="pin-dot"></span><span class="pin-id">${p.id}</span>`;
   const popup = new maplibregl.Popup({ offset: 14, closeButton: false, className: "pin-pop" }).setHTML(
     `<b>${p.name}</b><br>${p.label}<br><span class="pin-go">${go}</span>`,
@@ -92,6 +116,7 @@ function marker(map: maplibregl.Map, p: Pin, go: string): maplibregl.Marker {
   });
   el.addEventListener("mouseleave", () => popup.remove());
   el.addEventListener("click", () => select(p.id));
+  pinIndex.set(p.id, { el, popup, pin: p, go });
   return new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lon, p.lat]).addTo(map);
 }
 

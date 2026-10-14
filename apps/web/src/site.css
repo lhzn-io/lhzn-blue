@@ -660,6 +660,11 @@ figure.linked, .station.linked { outline: 2px solid var(--accent-line); outline-
 .suggest-to { font-size: 12px; color: var(--dim); text-decoration-color: var(--rule); text-underline-offset: 2px; }
 .suggest-to:hover { color: var(--accent-hi); }
 
+/* The overview at the timeline cursor's time: observed values in the ink, not the live colours. */
+.status-grid td.asof b { color: var(--ink); }
+.status-grid td.asof small { color: var(--dim); }
+.dot.asof, .pin-asof .pin-dot { background: var(--ink); border-color: var(--ink); box-shadow: none; opacity: 0.75; }
+
 /* Hover hints (hints.ts): the site's panel, type and colours in place of the browser's tooltip. */
 .hint {
   position: fixed; z-index: 100; max-width: min(300px, calc(100vw - 16px)); padding: 6px 10px; pointer-events: none;

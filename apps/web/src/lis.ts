@@ -33,8 +33,9 @@ interface Palette {
   contrast: string; // neutral lines (gusts, hourly differences): white on dark, navy on light
   delayed: string;
   depth: Record<string, string>;
-  wind: string;
-  air: string;
+  line: string; // a plot's one series (wind, pressure, waves, a river's turbidity)
+  second: string; // a second kind of series on the same axis (air against water)
+  ramp: { L: [number, number]; C: [number, number]; h: [number, number] }; // strong to pale willow blues, for order
   bands: [string, string]; // surface-minus-bottom threshold shading: outer, inner
   oxygen: [string, string, string]; // dissolved oxygen shading: anoxic, hypoxic, below the growth criterion
   yearStops: { t: number; L: number; C: number; h: number }[];
@@ -46,23 +47,25 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     contrast: "#ffffff",
     delayed: "#f0b135",
     depth: { SFC: YELLOW, MID: "#ffffff", BTM: "#7fb8d8" },
-    wind: "#9fd3c7", // a pale sea green, distinct from the water depths
-    air: "#c4a7e7", // lavender, distinct from every water line
+    line: "#7fb8d8", // pale willow blue
+    second: "#ffffff",
+    ramp: { L: [0.86, 0.52], C: [0.06, 0.09], h: [225, 255] },
     bands: ["rgba(255,255,255,0.04)", "rgba(127,184,216,0.12)"],
     oxygen: ["rgba(240,177,53,0.26)", "rgba(240,177,53,0.14)", "rgba(240,177,53,0.05)"],
     yearStops: [
-      { t: 0, L: 0.6, C: 0.085, h: 195 }, // deep blue-green
-      { t: 0.22, L: 0.56, C: 0.1, h: 265 }, // blue-violet
-      { t: 1, L: 0.42, C: 0.1, h: 318 }, // deep plum
+      { t: 0, L: 0.78, C: 0.07, h: 225 }, // pale willow blue
+      { t: 0.3, L: 0.64, C: 0.09, h: 245 },
+      { t: 1, L: 0.46, C: 0.09, h: 258 }, // deep cobalt, 2.2:1 on the page
     ],
   },
   light: {
     now: "#b89300", // gilded gold, 2.7:1 on eggshell; this year is also the boldest line and named in legend and tooltip
     contrast: "#1c2a48",
     delayed: "#a35a00",
-    depth: { SFC: "#133c8b", MID: "#3a78a1", BTM: "#29706c" },
-    wind: "#23786f",
-    air: "#7e4d8a",
+    depth: { SFC: "#133c8b", MID: "#4a7fae", BTM: "#86a8cb" }, // cobalt to pale willow, surface to bottom
+    line: "#133c8b", // cobalt
+    second: "#86a8cb", // pale willow
+    ramp: { L: [0.36, 0.72], C: [0.13, 0.06], h: [262, 245] },
     bands: ["rgba(28,42,72,0.04)", "rgba(58,120,161,0.12)"],
     oxygen: ["rgba(163,90,0,0.22)", "rgba(163,90,0,0.12)", "rgba(163,90,0,0.045)"],
     yearStops: [
@@ -638,10 +641,18 @@ function oklch(L: number, C: number, h: number): string {
 
 /**
  * Year colors: the current year is the only line in the theme's "now" color, and the boldest. Earlier
- * years step away from it by age (see PALETTES): in the dark theme, deep blue-green to deep plum (at most
- * 5.0:1 on the page against the yellow's 11.7:1; the darkest 2.1:1); in the light theme, deep cobalt to
- * pale willow blue. Adjacent years are told apart by the tooltip and by legend highlighting.
+ * years step away from it by age (see PALETTES): in the dark theme, pale willow blue to deep cobalt (the
+ * darkest 2.2:1 on the page against the yellow's 11.7:1); in the light theme, deep cobalt to pale willow blue. Adjacent years are told apart by the tooltip and by legend highlighting.
  */
+/** n willow blues from strong to pale, for series that have an order (basin size, west to east). */
+function willowRamp(n: number): string[] {
+  const { L, C, h } = P.ramp;
+  return Array.from({ length: n }, (_, i) => {
+    const u = n <= 1 ? 0 : i / (n - 1);
+    return oklch(L[0] + (L[1] - L[0]) * u, C[0] + (C[1] - C[0]) * u, h[0] + (h[1] - h[0]) * u);
+  });
+}
+
 function yearStyle(offset: number, maxOffset: number): Pick<Line, "color" | "width" | "opacity"> {
   if (offset === 0) return { color: P.now, width: 2.6, opacity: 1 };
   const t = maxOffset <= 1 ? 0 : (offset - 1) / (maxOffset - 1);
@@ -984,15 +995,15 @@ const FIGS: Record<Kind, Fig> = {
       const lines: Line[] = m
         ? [
             { ys: peakYs, color: P.contrast, opacity: 0.55, label: "Daily peak gust", dots: true, fmt: fmtU },
-            { ys: xs.map((t) => windVal(m.wind?.at(t) ?? NaN)), color: P.wind, width: 0.7, opacity: 0.22, label: "Wind, hourly", fmt: fmtU },
+            { ys: xs.map((t) => windVal(m.wind?.at(t) ?? NaN)), color: P.line, width: 0.7, opacity: 0.22, label: "Wind, hourly", fmt: fmtU },
             { ys: xs.map((t) => windVal(m.gust?.at(t) ?? NaN)), color: P.contrast, label: "Gust, hourly", hidden: true, fmt: fmtU },
-            { ys: xs.map((t) => windVal(smooth?.at(t) ?? NaN)), color: P.wind, width: 1.8, label: smoothLabel, fmt: fmtU },
-            { ys: xs.map((t) => m.dir?.at(t) ?? NaN), color: P.wind, label: "From", hidden: true, fmt: (v) => `${compass(v)} (${Math.round(v)}°)` },
+            { ys: xs.map((t) => windVal(smooth?.at(t) ?? NaN)), color: P.line, width: 1.8, label: smoothLabel, fmt: fmtU },
+            { ys: xs.map((t) => m.dir?.at(t) ?? NaN), color: P.line, label: "From", hidden: true, fmt: (v) => `${compass(v)} (${Math.round(v)}°)` },
           ]
         : [];
       return {
         opts: { xs, lines, unit: ` ${u.label}`, zero: true, empty: "No weather data in this window." },
-        legend: [[smoothLabel, P.wind, 1], ["Wind, hourly", P.wind, 0.35], ["Daily peak gust", P.contrast, 0.55]],
+        legend: [[smoothLabel, P.line, 1], ["Wind, hourly", P.line, 0.35], ["Daily peak gust", P.contrast, 0.55]],
       };
     },
   },
@@ -1015,11 +1026,11 @@ const FIGS: Record<Kind, Fig> = {
       const label = `Water, ${DEPTH_LABEL[top].toLowerCase()}`;
       const lines: Line[] = [
         { ys: xs.map((t) => water?.at(t) ?? NaN), color: P.depth[top], width: 1.6, label },
-        { ys: xs.map((t) => d.met?.air?.at(t) ?? NaN), color: P.air, width: 1.3, label: "Air" },
+        { ys: xs.map((t) => d.met?.air?.at(t) ?? NaN), color: P.second, width: 1.3, label: "Air" },
       ];
       return {
         opts: { xs, lines, unit: "°F", empty: emptyNote(d) },
-        legend: [[label, P.depth[top], 1], ["Air", P.air, 1]],
+        legend: [[label, P.depth[top], 1], ["Air", P.second, 1]],
       };
     },
   },
@@ -1079,13 +1090,13 @@ const FIGS: Record<Kind, Fig> = {
       const lines: Line[] = w
         ? [
             { ys: xs.map((t) => val(w.hmax?.at(t) ?? NaN)), color: P.contrast, width: 0.7, opacity: 0.35, label: "Highest wave", fmt },
-            { ys: xs.map((t) => val(w.hs?.at(t) ?? NaN)), color: P.depth.BTM, width: 1.6, label: "Significant height", fmt },
+            { ys: xs.map((t) => val(w.hs?.at(t) ?? NaN)), color: P.line, width: 1.6, label: "Significant height", fmt },
             { ys: xs.map((t) => w.tp?.at(t) ?? NaN), color: P.contrast, label: "Dominant period", hidden: true, fmt: (v) => `${v.toFixed(1)} s` },
           ]
         : [];
       return {
         opts: { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, empty: `No wave readings in this window. ${wavesText(d.meta.id)} Full record shows what we hold.` },
-        legend: [["Significant height", P.depth.BTM, 1], ["Highest wave", P.contrast, 0.35]],
+        legend: [["Significant height", P.line, 1], ["Highest wave", P.contrast, 0.35]],
         note: "significant height: the mean of the highest third of waves, close to what an observer reports",
       };
     },
@@ -1103,8 +1114,8 @@ const FIGS: Record<Kind, Fig> = {
     start: (d) => d.met?.pressure?.t0 ?? d.now,
     build: (d, _depth, x0, x1) => {
       const xs = grid(x0, x1);
-      const lines: Line[] = [{ ys: xs.map((t) => d.met?.pressure?.at(t) ?? NaN), color: P.air, width: 1.5, label: "Pressure" }];
-      return { opts: { xs, lines, unit: " mb", hoverDigits: 1, empty: "No pressure readings in this window." }, legend: [["Pressure", P.air, 1]] };
+      const lines: Line[] = [{ ys: xs.map((t) => d.met?.pressure?.at(t) ?? NaN), color: P.line, width: 1.5, label: "Pressure" }];
+      return { opts: { xs, lines, unit: " mb", hoverDigits: 1, empty: "No pressure readings in this window." }, legend: [["Pressure", P.line, 1]] };
     },
   },
   flow: {
@@ -1155,7 +1166,7 @@ const FIGS: Record<Kind, Fig> = {
     build: (d, _id, x0, x1) => {
       const xs = grid(x0, x1);
       const r = d.river!;
-      const colors = [P.depth.SFC, P.depth.MID, P.depth.BTM, P.wind, P.air, P.delayed, P.contrast];
+      const colors = willowRamp(r.gauges.length); // largest basin strongest
       const fmt = (v: number) => (v <= 2.5 ? "under the 5th percentile" : v >= 97.5 ? "over the 95th percentile" : `${ordinal(v)} percentile`);
       const lines: Line[] = r.gauges.map((g, i) => ({
         ys: xs.map((t) => percentileOf(r, g.id, t, riverFlow(r, g.id, t))),
@@ -1194,10 +1205,10 @@ const FIGS: Record<Kind, Fig> = {
     build: (d, _id, x0, x1) => {
       const xs = grid(x0, x1);
       const label = d.kind === "turbidity" ? "Connecticut River at Thompsonville" : "Turbidity";
-      const lines: Line[] = [{ ys: xs.map((t) => d.river?.turb?.at(t) ?? NaN), color: P.air, width: 1.5, label }];
+      const lines: Line[] = [{ ys: xs.map((t) => d.river?.turb?.at(t) ?? NaN), color: P.line, width: 1.5, label }];
       return {
         opts: { xs, lines, unit: " FNU", hoverDigits: 1, zero: true, empty: "No turbidity readings in this window." },
-        legend: [[label, P.air, 1]],
+        legend: [[label, P.line, 1]],
         note: d.kind === "turbidity" ? "the river input: a USGS sensor, serviced and reviewed, in FNU" : "a USGS sensor, serviced and reviewed; muddy runoff raises it within hours of a storm",
       };
     },
@@ -1233,7 +1244,7 @@ const FIGS: Record<Kind, Fig> = {
     build: (d, _depth, x0, x1) => {
       const xs = grid(x0, x1);
       const t = d.turb!;
-      const colors = [P.depth.SFC, P.depth.MID, P.depth.BTM, P.wind, P.air];
+      const colors = willowRamp(t.buoys.length); // west to east
       const fmt = (v: number) => `${v.toFixed(1)} NTU`;
       const lines: Line[] = [];
       const cleanVals: number[] = [];
@@ -1442,7 +1453,7 @@ function windCell(d: StationData): string {
     const gust = m.gust?.at(AT) ?? NaN;
     const u = WIND_UNITS[WU].label;
     const from = Number.isFinite(dir) ? compass(dir) : "";
-    return atCell(v, `${Number.isFinite(dir) ? windArrow(dir) : ""}${from} ${windFmt(v)}<small class="g">${u}</small>`, `Wind ${windFmt(v)} ${u} from ${from || "--"}, gusts ${windFmt(gust)} ${u}`, sparklineOf(m.wind, P.wind, "kt"), `gusts ${windFmt(gust)}`);
+    return atCell(v, `${Number.isFinite(dir) ? windArrow(dir) : ""}${from} ${windFmt(v)}<small class="g">${u}</small>`, `Wind ${windFmt(v)} ${u} from ${from || "--"}, gusts ${windFmt(gust)} ${u}`, sparklineOf(m.wind, P.line, "kt"), `gusts ${windFmt(gust)}`);
   }
   const o = d.met?.last;
   if (!o || o.wind_kt == null) return `<td class="na">&middot;</td>`;
@@ -1451,7 +1462,7 @@ function windCell(d: StationData): string {
   const u = WIND_UNITS[WU].label;
   const dir = o.dir_deg != null ? compass(o.dir_deg) : "";
   const title = `Wind ${windFmt(o.wind_kt)} ${u}, gusts ${windFmt(o.gust_kt)} ${u}, from ${dir || "--"}; air ${f1(o.air_f ?? NaN)} F; ${ago(o.time)}`;
-  const spark = d.met?.wind ? sparklineOf(d.met.wind, P.wind, "kt") : "";
+  const spark = d.met?.wind ? sparklineOf(d.met.wind, P.line, "kt") : "";
   return `<td class="${state} wind" title="${title}">${spark}<b>${o.dir_deg != null ? windArrow(o.dir_deg) : ""}${dir} ${windFmt(o.wind_kt)}<small class="g">${u}</small></b><small>gusts ${windFmt(o.gust_kt)} &middot; ${ago(o.time).replace(" ago", "")}</small></td>`;
 }
 
@@ -1469,7 +1480,7 @@ function wavesCell(d: StationData): string {
   const last = lastWave(d.meta.id);
   const state = last ? obsState({ time: last.time } as LastObs) : "offline";
   if (WAVE_LIVE[d.meta.id]?.published && last && state !== "offline") {
-    const spark = d.waves?.hs ? sparklineOf(d.waves.hs, P.depth.BTM, "m significant height", 2) : "";
+    const spark = d.waves?.hs ? sparklineOf(d.waves.hs, P.line, "m significant height", 2) : "";
     return `<td class="${state}" title="Significant wave height ${waveFmt(last.hs_m)} ${waveUnit().label}, highest ${waveFmt(last.hmax_m)}, period ${last.tp_s ?? "--"} s; ${ago(last.time)}">${spark}<b>${waveFmt(last.hs_m)}<small class="g"> ${waveUnit().label}</small></b><small>${last.tp_s != null ? last.tp_s.toFixed(0) + " s &middot; " : ""}${ago(last.time).replace(" ago", "")}</small></td>`;
   }
   const inner = `<b>--</b><small>${wavesText(d.meta.id, true)}</small>`;

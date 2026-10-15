@@ -177,11 +177,18 @@ figure.wide { grid-column: 1 / -1; }
 .field-bar { width: clamp(80px, 22vw, 200px); height: 5px; }
 .field-info { margin-left: 0; }
 .field-note { flex-basis: 100%; }
-/* The time rows: play | track | a fixed slot for the label. Hairlines in the page's greys, no accent; past solid,
-   forecast dotted. The context row directly below spans 90 days back to 72h ahead, with the map's window bracketed. */
+/* The time rows: the label on its own line, then play | track, both tracks the map's full width. Hairlines in the
+   page's greys, no accent; past solid, forecast dotted. The context row directly below spans 90 days back to 72h
+   ahead, with the map's window bracketed. */
 .timeline { font: 10px/1.2 var(--mono); color: var(--dim); }
-.tl-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) 150px; column-gap: 10px; align-items: center; height: 26px; }
-.tl-context { height: 30px; }
+.map-foot .timeline { margin-right: -32px; } /* the tracks run under the map's "+", which sits on the label's line */
+.tl-row { display: grid; grid-template-columns: 18px minmax(0, 1fr); grid-template-areas: "slot slot" "play track"; column-gap: 10px; row-gap: 2px; align-items: center; }
+.tl-row > .tl-play { grid-area: play; }
+.tl-row > .tl-track { grid-area: track; height: 26px; }
+.tl-row > .tl-slot { grid-area: slot; text-align: left; padding-left: 28px; min-height: 14px; }
+.tl-context { grid-template-areas: "play track"; height: 30px; }
+.tl-context > .tl-ctrack { grid-area: track; }
+.tl-context > .tl-slot { display: none; }
 .tl-play, .tl-now { cursor: pointer; color: var(--dim); background: none; border: 0; padding: 0; }
 .tl-play { display: grid; place-items: center; width: 16px; height: 16px; }
 .tl-play:hover, .tl-now:hover { color: var(--ink); }
@@ -767,15 +774,10 @@ body:not(.landing) .stage { padding: 0; border: 0; border-radius: 0; color: var(
   /* Map and its time rows: a taller map; the play button and the map's "+" clear of the time labels. */
   .map { height: 300px; }
   .map-actions { top: 6px; }
-  /* Time rows: both tracks the full width, the time label on its own line above them. */
-  .map-foot .timeline { margin-right: -32px; }
-  .tl-row { grid-template-columns: 32px minmax(0, 1fr); grid-template-areas: "slot slot" "play track"; height: auto; row-gap: 2px; }
-  .tl-row > .tl-play { grid-area: play; }
-  .tl-row > .tl-track { grid-area: track; height: 30px; }
-  .tl-row > .tl-slot { grid-area: slot; text-align: left; padding-left: 42px; }
-  .tl-context { grid-template-columns: 32px minmax(0, 1fr); grid-template-areas: "play track"; height: 30px; }
-  .tl-context > .tl-ctrack { grid-area: track; }
-  .tl-context > .tl-slot { display: none; }
+  /* Time rows: a larger play target. */
+  .tl-row { grid-template-columns: 32px minmax(0, 1fr); }
+  .tl-row > .tl-track { height: 30px; }
+  .tl-row > .tl-slot { padding-left: 42px; }
   .tl-play { width: 32px; height: 32px; }
   .tl-mark { font-size: 9.5px; }
 

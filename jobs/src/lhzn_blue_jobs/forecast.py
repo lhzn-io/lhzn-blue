@@ -8,6 +8,9 @@ to 48 h on the 00, 06, 12 and 18 UTC cycles. Each cycle is kept twice:
   never overwritten or deleted; the long record that verification draws on (Coldline after 30 days).
 - ``v1/forecast-hrrr.json`` (KV): the cycles of the last 48 hours, per station and field, for the page.
 
+`backfill` fills the archive for past cycles (HRRR is on the bucket from 2014-07-30) at fewer leads, split across
+Cloud Run tasks.
+
 Rows are (issue_time, valid_time, lead_h, point, field, value) in HRRR's units (m/s, K, Pa, m). A cycle is taken
 only once its longest lead is published, so an archived cycle is complete.
 """
@@ -36,6 +39,7 @@ KEEP_HOURS = 48  # cycles kept in the page's file
 # How far a station may reach for HRRR water cells: New London sits on the Thames, narrower than HRRR's 3 km
 # cells, whose nearest water cells are about 7 km away in the Sound. The buoys find theirs within 3 km.
 MAX_KM = 10.0
+BACKFILL_LEADS = [1, 2, 3, 6, 9, 12, 18, 24, 36, 48]  # past cycles: the leads verification bins on, not every hour
 KV_KEY = "v1/forecast-hrrr.json"
 NAME = re.compile(r"\d{4}/\d{2}/cycle=\d{10}\.csv\.gz")
 SHORE_FILE = Path(
@@ -165,6 +169,40 @@ def archive(store: Store, root: str, lookback_hours: int = LOOKBACK_HOURS) -> li
     if frames:
         store.write_json(KV_KEY, page_file(prev, pd.concat(frames), end), max_age=600)
     return [f"{c:%Y-%m-%d %HZ}" for c in todo]
+
+
+def backfill(root: str, start: str, end: str, task: int = 0, tasks: int = 1, workers: int = 4) -> dict[str, int]:
+    """Archive past cycles, start to end hourly (UTC, inclusive), at BACKFILL_LEADS: this task takes every
+    `tasks`-th cycle from `task` (Cloud Run's task index and count). Create-only, so a cycle already in the archive
+    is read again but never overwritten; one that fails is logged and left for a rerun. The page's file is not
+    touched."""
+    import concurrent.futures
+
+    from forcingkit.fetchers.hrrr_points import fetch_points
+
+    arch = Archive(root)
+    pts = points()
+    cycles = list(pd.date_range(start, end, freq="h"))[task::tasks]
+    counts = {"cycles": len(cycles), "archived": 0, "already": 0, "empty": 0, "failed": 0}
+
+    def one(cycle: pd.Timestamp) -> str:
+        if arch.has(cycle):
+            return "already"
+        df = fetch_points([cycle], BACKFILL_LEADS, pts, FIELDS, max_km=MAX_KM, max_workers=2)
+        if df.empty:
+            return "empty"
+        return "archived" if arch.put(cycle, to_csv_gz(df)) else "already"
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(one, c): c for c in cycles}
+        for f in concurrent.futures.as_completed(futures):
+            try:
+                counts[f.result()] += 1
+            except Exception as exc:
+                counts["failed"] += 1
+                log.warning("HRRR %s: failed: %s", futures[f], exc)
+    log.info("backfill task %d of %d: %s", task + 1, tasks, counts)
+    return counts
 
 
 def read_cycle(root: str, cycle: pd.Timestamp) -> pd.DataFrame:

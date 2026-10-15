@@ -1,7 +1,8 @@
 #!/bin/bash
 # Build the ingest image and (re)deploy the Cloud Run jobs: `live` (hourly), `latest` (the buoys every 15 minutes
 # between hourly runs), `history` and `fields` (daily),
-# `snapshot` (saved copies of the server's datasets, three times a week).
+# `snapshot` (saved copies of the server's datasets, three times a week), `forecast` (HRRR at the stations, hourly),
+# and `forecast-backfill` (past HRRR cycles, run by hand).
 # Settings come from ~/.config/lhzn-blue/env (never committed):
 #   GCP_PROJECT      Google Cloud project id
 #   GCP_REGION       e.g. us-central1
@@ -55,3 +56,15 @@ for mode in live latest history fields snapshot forecast; do
     --tasks 1 --max-retries 1 --task-timeout "${TIMEOUT[$mode]}" \
     --cpu 1 --memory "${MEMORY[$mode]}"
 done
+
+# The HRRR backfill: never scheduled; run by hand with its dates, e.g.
+#   gcloud run jobs execute lhzn-blue-forecast-backfill --tasks 50 \
+#     --args=forecast-backfill,-v,--start,2024-01-01T00,--end,2024-12-31T23
+# Each task takes every 50th cycle; create-only writes, so a rerun only fills gaps.
+gcloud run jobs deploy "lhzn-blue-forecast-backfill" \
+  --project "$GCP_PROJECT" --region "$GCP_REGION" --image "$IMAGE" \
+  --service-account "$JOB_SA" --args "forecast-backfill" \
+  --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_FORECASTS=${FORECAST_STORE}" \
+  --set-secrets "$SECRETS" \
+  --tasks 1 --parallelism 10 --max-retries 1 --task-timeout 60m \
+  --cpu 1 --memory 2Gi

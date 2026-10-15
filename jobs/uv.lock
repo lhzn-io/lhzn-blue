@@ -1110,8 +1110,8 @@ wheels = [
 
 [[package]]
 name = "forcingkit"
-version = "0.7.0"
-source = { url = "https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.7.0.tar.gz" }
+version = "0.7.1"
+source = { url = "https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.7.1.tar.gz" }
 dependencies = [
     { name = "bottleneck" },
     { name = "cfgrib" },
@@ -1140,7 +1140,7 @@ dependencies = [
     { name = "zarr", version = "3.1.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "zarr", version = "3.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { hash = "sha256:4b05689280d6ffe580f733742e79727b18fdadbce6c8c35928343cfac89f3574" }
+sdist = { hash = "sha256:f7ac7573d8979218e309a766b50bd351fd3b83fa1c738f36332347c7a69ff2fb" }
 
 [package.metadata]
 requires-dist = [
@@ -1738,7 +1738,7 @@ archive = [
 
 [package.metadata]
 requires-dist = [
-    { name = "forcingkit", url = "https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.7.0.tar.gz" },
+    { name = "forcingkit", url = "https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.7.1.tar.gz" },
     { name = "google-cloud-storage", specifier = ">=2.18" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "pandas", specifier = ">=2.2" },

@@ -559,7 +559,9 @@ def live(store: Store, full: bool = False, quick: bool = False) -> None:
             held = key in prev_vars["temp"] and all(key in prev_vars[var] for var in EXTRA_VARS)
             fetch_hours = (quick_hours if quick else LIVE_FETCH_HOURS) if held else LIVE_WINDOW_HOURS
             try:
-                cols = merlin_columns(ds)
+                # The 15-minute refresh reuses the column list the hourly run looked up (one request fewer each).
+                cols = status.get("columns") if quick and status.get("columns") else merlin_columns(ds)
+                status["columns"] = cols
                 df = merlin.fetch(ds, end - timedelta(hours=fetch_hours), end + timedelta(hours=1), cols)
                 for var, (col, _, _) in VARS.items():
                     fresh = hourly(df, col)

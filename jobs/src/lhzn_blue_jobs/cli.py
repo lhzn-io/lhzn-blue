@@ -13,10 +13,10 @@ import sys
 import os
 from pathlib import Path
 
-from . import build, rivers, shore, turbidity, waves, weather
+from . import build, merlin, rivers, shore, turbidity, waves, weather
 
 
-def main() -> None:
+def _main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
     parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "import-verification", "import-archive", "import-waves", "import-weather"])
     parser.add_argument(
@@ -46,6 +46,7 @@ def main() -> None:
     parser.add_argument("--full", action="store_true", help="live: refetch the whole 45-day window")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
+    merlin.set_budget(merlin.BUDGETS.get(args.command, merlin.DEFAULT_BUDGET))
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -138,6 +139,14 @@ def _shore(step, what: str = "shore") -> None:
     except Exception:  # the buoy files are already written
         logging.getLogger(f"lhzn_blue_jobs.{what}").exception("%s not refreshed", what)
         _failed.append(what)
+
+
+def main() -> None:
+    """The jobs' entry point: the command, then a line with the run's requests to the LISICOS server."""
+    try:
+        _main()
+    finally:
+        logging.getLogger("lhzn_blue_jobs.merlin").warning(merlin.summary())
 
 
 if __name__ == "__main__":

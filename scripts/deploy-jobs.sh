@@ -58,13 +58,14 @@ for mode in live latest history fields snapshot forecast; do
 done
 
 # The HRRR backfill: never scheduled; run by hand with its dates, e.g.
-#   gcloud run jobs execute lhzn-blue-forecast-backfill --tasks 50 \
+#   gcloud run jobs execute lhzn-blue-forecast-backfill --tasks 250 \
 #     --args=forecast-backfill,-v,--start,2024-01-01T00,--end,2024-12-31T23
-# Each task takes every 50th cycle; create-only writes, so a rerun only fills gaps.
+# Each task takes every 250th cycle (about 100 cycles for 2024 to 2026, 20 minutes on one vCPU, inside the timeout);
+# create-only writes, so a rerun only fills gaps.
 gcloud run jobs deploy "lhzn-blue-forecast-backfill" \
   --project "$GCP_PROJECT" --region "$GCP_REGION" --image "$IMAGE" \
   --service-account "$JOB_SA" --args "forecast-backfill" \
   --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_FORECASTS=${FORECAST_STORE}" \
   --set-secrets "$SECRETS" \
-  --tasks 1 --parallelism 10 --max-retries 1 --task-timeout 60m \
+  --tasks 1 --parallelism 20 --max-retries 1 --task-timeout 60m \
   --cpu 1 --memory 2Gi

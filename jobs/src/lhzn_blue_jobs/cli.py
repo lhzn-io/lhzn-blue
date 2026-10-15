@@ -1,4 +1,4 @@
-"""Command line: ``lhzn-blue-jobs {history,live,latest,fields,snapshot,forecast,forecast-backfill,import-archive,import-waves,import-weather} --out <store>``.
+"""Command line: ``lhzn-blue-jobs {history,live,latest,fields,snapshot,forecast,forecast-backfill,import-verification,import-archive,import-waves,import-weather} --out <store>``.
 
 ``live`` and ``history`` also refresh the shore stations (``shore.json``, ``shore-history.json``) and the
 rivers (``rivers.json``, ``rivers-history.json``) after the buoys; a failure there is logged and never stops
@@ -18,13 +18,18 @@ from . import build, rivers, shore, turbidity, waves, weather
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "import-archive", "import-waves", "import-weather"])
+    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "import-verification", "import-archive", "import-waves", "import-weather"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
         help="local directory or gs://bucket[/prefix] (env LHZN_BLUE_OUT)",
     )
-    parser.add_argument("--archive-dir", type=Path, help="import-archive, import-waves, import-weather: directory of <vintage>/<dataset>.h5")
+    parser.add_argument(
+        "--archive-dir",
+        type=Path,
+        help="import-archive, import-waves, import-weather: directory of <vintage>/<dataset>.h5; "
+        "import-verification: directory of saved <DATASET>_MET.csv.gz",
+    )
     parser.add_argument(
         "--to",
         default=os.environ.get("LHZN_BLUE_SNAPSHOTS"),
@@ -50,6 +55,7 @@ def main() -> None:
         build.history(store)
         store.write_json("v1/history-waves.json", waves.history(store), max_age=3600)
         _shore(lambda: store.write_json("v1/history-met.json", weather.history(store), max_age=3600), "weather")
+        _shore(lambda: _verify(store), "verification")
         _shore(lambda: store.write_json("v1/history-turbidity.json", turbidity.history(store), max_age=3600), "turbidity")
         _shore(lambda: store.write_json(
             "v1/shore-history.json", shore.history(store.read_json("v1/shore-history.json"), build.now_utc()), max_age=3600
@@ -85,6 +91,13 @@ def main() -> None:
         task = int(os.environ.get("CLOUD_RUN_TASK_INDEX", 0))
         tasks = int(os.environ.get("CLOUD_RUN_TASK_COUNT", 1))
         forecast.backfill(args.forecasts, args.start, args.end, task, tasks)
+    elif args.command == "import-verification":
+        from . import verify
+
+        if not (args.forecasts and args.archive_dir):
+            parser.error("import-verification needs --forecasts (a local copy of the archive) and --archive-dir")
+        verify.seed(store, Path(args.forecasts), args.archive_dir)
+        verify.update(store)
     elif args.command == "snapshot":
         from . import snapshot
 
@@ -110,6 +123,12 @@ def main() -> None:
 
 
 _failed: list[str] = []
+
+
+def _verify(store: build.Store) -> None:
+    from . import verify  # pandas only; kept out of the other jobs' imports
+
+    verify.update(store)
 
 
 def _shore(step, what: str = "shore") -> None:

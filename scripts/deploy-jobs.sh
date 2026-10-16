@@ -45,7 +45,7 @@ SECRETS="CLOUDFLARE_API_TOKEN=${CF_TOKEN_SECRET}:latest"
 
 # Per job: timeout and memory. `fields` reads the model mesh and satellite grids, so it gets the most memory;
 # `snapshot` holds one dataset's whole record at a time.
-declare -A TIMEOUT=([live]=20m[latest]=5m [history]=30m [fields]=30m [snapshot]=45m [forecast]=30m)
+declare -A TIMEOUT=([live]=20m [latest]=5m [history]=30m [fields]=30m [snapshot]=45m [forecast]=30m)
 declare -A MEMORY=([live]=512Mi [latest]=512Mi [history]=1Gi [fields]=2Gi [snapshot]=1Gi [forecast]=2Gi)
 for mode in live latest history fields snapshot forecast; do
   gcloud run jobs deploy "lhzn-blue-${mode}" \

@@ -873,3 +873,8 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .plot[data-fig="hilo"] .ld-ref, .hi-svg .ld-ref { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
 .hi-svg text { font: 400 9.5px var(--mono); fill: var(--dim); }
 .plot[data-fig="hilo"] .ld-note { font: 400 11px var(--mono); fill: var(--dim); }
+
+/* A station row keeps the height a sparkline gives it, with or without a reading at the cursor, so the table and the
+   map beside it do not jump as the cursor moves or a feed drops. */
+.status-grid tbody tr:not([data-gauge]):not(.total) { height: 63px; }
+.status-grid td.offline small { white-space: nowrap; }

@@ -21,7 +21,9 @@ BIB = REPO / "docs" / "references.bib"
 OUT = REPO / "apps" / "web" / "references" / "index.html"
 
 # Site-wide sections first (they apply to every waterway), then one heading per waterway with its own sections.
-GENERAL = [("design", "How the plots are drawn"), ("fields", "Methods behind the map's fields")]
+GENERAL = [("fields", "Methods behind the map's fields")]
+# After the waterways: the books behind how the plots are drawn.
+CLOSING = [("design", "How the plots are drawn")]
 WATERWAYS = [
     {
         "id": "long-island-sound",
@@ -94,7 +96,9 @@ def cite(e: dict) -> str:
         pages = f", pp. {e['pages']}" if e.get("pages") else ""
         parts.append(f" In {h(eds)}, <i>{h(e.get('booktitle', ''))}</i>{h(pages)}. {h(e.get('publisher', ''))}.")
     elif e["type"] == "book":
-        parts.append(f" {h(e.get('series', ''))}. {h(e.get('publisher', ''))}.")
+        series = f" {h(e['series'])}." if e.get("series") else ""
+        edition = f" {h(e['edition'])} edition." if e.get("edition") else ""
+        parts.append(f"{series}{edition} {h(e.get('publisher', ''))}.")
     elif e["type"] == "misc":
         parts.append(f" {h(e.get('publisher', ''))}.")
     if e.get("doi"):
@@ -125,6 +129,7 @@ def render(entries: list[dict]) -> str:
             f'      <h2 id="{w["id"]}-title">{html.escape(w["name"])}</h2>\n'
             f'      <p class="prose">{html.escape(w["intro"])}</p>\n\n{inner}\n      </section>'
         )
+    parts += [section(entries, g, h, 2) for g, h in CLOSING]  # its own heading level, not under the last waterway
     # Room for the next waterway: left visibly open, as an invitation.
     parts.append(
         '      <section class="refs-waterway refs-open" aria-labelledby="next-title">\n'

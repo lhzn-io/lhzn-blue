@@ -2024,7 +2024,7 @@ function atLabel(t: number): string {
 }
 /** A table cell at the cursor's time: the observed value where the record covers it, "--" otherwise. */
 function atCell(v: number, shown: string, title: string, spark = "", extra = ""): string {
-  if (!Number.isFinite(v)) return `<td class="offline"><b>--</b><small>${atFuture() ? "no forecast" : "no reading"}</small></td>`;
+  if (!Number.isFinite(v)) return `<td class="offline">${spark}<b>--</b><small>${atFuture() ? "no forecast" : "no reading"}</small></td>`;
   return `<td class="asof" title="${title}, observed ${atLabel(AT!)}">${spark}<b>${shown}</b><small>${extra || "observed"}</small></td>`;
 }
 /** A station's observed value of a variable at a depth and time (temperature in &deg;F): the hourly record where it
@@ -2184,13 +2184,26 @@ function pressureCell(d: StationData): string {
   return `<td class="${state}" title="Pressure ${o.pressure_mb.toFixed(1)} mbar${tend ? `, ${tend}` : ""}; ${ago(o.time)}"><b>${o.pressure_mb.toFixed(0)}<small class="g"> mb</small></b><small>${tend || ago(o.time).replace(" ago", "")}</small></td>`;
 }
 
+/** NOAA's predicted water level at a time (ft above MLLW), linear between its hourly values; NaN outside them. */
+function predictedLevel(d: StationData, t: number): number {
+  const p = TIDES?.[d.meta.id]?.pred;
+  if (!p) return NaN;
+  const k = (t - Date.parse(p.t0) / 1000) / p.step, i = Math.floor(k);
+  const a = p.ft[i], b = p.ft[i + 1];
+  return a == null || b == null ? NaN : a + (b - a) * (k - i);
+}
+
 /** Shore station cells: the latest water level with a 7-day line (the tides), and the next predicted tide. */
 function levelCell(d: StationData): string {
   if (AT != null) {
     if (!d.level) return `<td class="na">&middot;</td>`;
     const v = d.level.at(AT);
     const dep = departure(d);
-    return atCell(v, `${feet(v)}<small class="g"> ft</small>`, `Water level ${feet(v)} ft above MLLW (preliminary)`, dep ? sparklineOf(dep, P.line, "ft against the prediction", 1) : "");
+    const spark = dep ? sparklineOf(dep, P.line, "ft against the prediction", 1) : "";
+    const p = predictedLevel(d, AT);
+    if (!Number.isFinite(v) && Number.isFinite(p))
+      return `<td class="fcst" title="Water level ${feet(p)} ft above MLLW, NOAA's prediction">${spark}<b>${feet(p)}<small class="g"> ft</small></b><small>predicted</small></td>`;
+    return atCell(v, `${feet(v)}<small class="g"> ft</small>`, `Water level ${feet(v)} ft above MLLW (preliminary)`, spark);
   }
   const lv = d.levelNow;
   if (!lv) return `<td class="na">&middot;</td>`;
@@ -2285,7 +2298,7 @@ function turbTable(): string {
     const value =
       o?.turb_ntu != null && state !== "offline"
         ? `<td class="${fouled ? "delayed" : state}" title="${o.turb_ntu.toFixed(2)} NTU, ${ago(o.time)}">${spark}<b>${o.turb_ntu.toFixed(1)}<small class="g"> NTU</small></b><small>${AT != null ? "observed" : ago(o.time).replace(" ago", "")}</small></td>`
-        : `<td class="offline"><b>--</b><small>${AT != null ? (atFuture() ? "no forecast" : "no reading") : "no current reading"}</small></td>`;
+        : `<td class="offline">${spark}<b>--</b><small>${AT != null ? (atFuture() ? "no forecast" : "no reading") : "no current reading"}</small></td>`;
     return `<tr><th scope="row"><a href="#TURB"><i class="dot ${state}"></i>${b.name}</a></th>${value}
       <td><b>${state === "offline" ? "--" : fouled ? "likely fouled" : "clean"}</b><small>by the check, ${AT != null ? "that day" : "today"}</small></td>
       <td><b>${share != null ? Math.round(share * 100) + "%" : "--"}</b><small>of hours flagged</small></td></tr>`;
@@ -2295,7 +2308,7 @@ function turbTable(): string {
   const conn = AT == null ? r?.last.CONN : Number.isFinite(connAt) ? { time: new Date(AT * 1000).toISOString(), turb_fnu: connAt, flow_cfs: null } : null;
   const river = conn?.turb_fnu != null
     ? `<tr class="total"><th scope="row">Connecticut River</th><td title="USGS, Thompsonville, ${ago(conn.time)}"><b>${conn.turb_fnu.toFixed(1)}<small class="g"> FNU</small></b><small>${AT != null ? "observed" : ago(conn.time).replace(" ago", "")}</small></td><td colspan="2"><small>the river input at Thompsonville; a serviced USGS sensor</small></td></tr>`
-    : "";
+    : `<tr class="total"><th scope="row">Connecticut River</th><td class="offline"><b>--</b><small>${AT != null ? (atFuture() ? "no forecast" : "no reading") : "no current reading"}</small></td><td colspan="2"><small>the river input at Thompsonville; a serviced USGS sensor</small></td></tr>`;
   return `<table class="status-grid" id="status-panel">
     <caption>${AT != null ? `Turbidity at ${atLabel(AT)}` : "Latest turbidity"}, buoys west to east, then the river input</caption>
     <thead><tr><th></th><th scope="col">Turbidity</th><th scope="col">Sensor check</th><th scope="col">Last 30 days</th></tr></thead>

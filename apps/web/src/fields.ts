@@ -177,7 +177,7 @@ const position = (meta: Meta, [lo, hi]: [number, number], v: number) =>
 let active: FieldKind | null = null;
 let data: FieldData = {};
 let range: [number, number] = [0, 1];
-let frame = 0;
+let frame = 0; // the currents frame on the map (-1: the timeline's time is outside the model run)
 let windFrame = -1; // the wind frame on the map (-1: no HRRR hour at the timeline's time)
 let fieldT: number | null = null; // the page timeline's time (epoch seconds), or null for now
 let controls: FieldControls | null = null;
@@ -388,6 +388,7 @@ const meshGeoJSON = (m: CurrentsMesh) => ({
 });
 
 function pointsGeoJSON(m: CurrentsMesh, c: CurrentsField, k: number) {
+  if (k < 0) return { type: "FeatureCollection" as const, features: [] };
   const u = c.u[k];
   const v = c.v[k];
   return {
@@ -413,7 +414,11 @@ function addCurrents(map: maplibregl.Map, m: CurrentsMesh, c: CurrentsField): vo
       id: "cur-fill",
       type: "fill",
       source: "cur-mesh",
-      paint: { "fill-color": ["interpolate", ["linear"], ["coalesce", ["feature-state", "s"], 0], ...stops] as maplibregl.ExpressionSpecification, "fill-opacity": 0.6, "fill-antialias": false },
+      paint: {
+        "fill-color": ["interpolate", ["linear"], ["coalesce", ["feature-state", "s"], 0], ...stops] as maplibregl.ExpressionSpecification,
+        "fill-opacity": ["case", ["==", ["feature-state", "s"], null], 0, 0.6] as maplibregl.ExpressionSpecification,
+        "fill-antialias": false,
+      },
     },
     beneathLabels(map),
   );
@@ -439,13 +444,17 @@ function addCurrents(map: maplibregl.Map, m: CurrentsMesh, c: CurrentsField): vo
   paintFrame(map);
 }
 
-/** Shade each triangle by speed at the current frame, and move the arrows. */
+/** Shade each triangle by speed at the current frame (none outside the model run), and move the arrows. */
 function paintFrame(map: maplibregl.Map): void {
   const { mesh: m, currents: c } = data;
   if (!m || !c || !map.getSource("cur-mesh")) return;
-  const u = c.u[frame];
-  const v = c.v[frame];
-  for (let i = 0; i < u.length; i++) map.setFeatureState({ source: "cur-mesh", id: i }, { s: Math.hypot(u[i], v[i]) });
+  if (frame < 0) {
+    for (let i = 0; i < m.triangles.length; i++) map.setFeatureState({ source: "cur-mesh", id: i }, { s: null });
+  } else {
+    const u = c.u[frame];
+    const v = c.v[frame];
+    for (let i = 0; i < u.length; i++) map.setFeatureState({ source: "cur-mesh", id: i }, { s: Math.hypot(u[i], v[i]) });
+  }
   (map.getSource("cur-points") as maplibregl.GeoJSONSource).setData(pointsGeoJSON(m, c, frame));
   if (popup && probe != null) popup.setHTML(currentText(c, probe));
 }
@@ -454,6 +463,7 @@ const fmtProbe = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York"
 
 /** A current's value at one element for the frame shown, in the reader's unit, with its time. */
 function currentText(c: CurrentsField, id: number): string {
+  if (frame < 0) return "no model hour at this time";
   const u = c.u[frame][id];
   const v = c.v[frame][id];
   const deg = ((Math.atan2(u, v) * 180) / Math.PI + 360) % 360;
@@ -610,10 +620,10 @@ function windText(w: WindField, id: number): string {
   return `${(Math.hypot(u[id], v[id]) * un.perMs).toFixed(un.digits)} ${un.label} from ${compass16(from)} (${Math.round(from)}&deg;)<br><small>${fmtProbe.format(new Date(f.valid_time))}, HRRR ${f.cycle.slice(11, 13)}Z run, ${f.lead} h ahead${land}</small>`;
 }
 
-/** The frame nearest the timeline's time (now by default). */
+/** The frame nearest the timeline's time (now by default), or -1 when the time is outside the model run. */
 function frameAt(c: CurrentsField): number {
   const k = Math.round(((fieldT ?? Date.now() / 1000) - Date.parse(c.t0) / 1000) / c.step);
-  return Math.min(c.steps - 1, Math.max(0, k));
+  return k >= 0 && k < c.steps ? k : -1;
 }
 
 /** Follow the page timeline: the currents move to its time; satellite fields are daily and keep their dates. */
@@ -632,7 +642,12 @@ export async function setFieldTime(t: number | null): Promise<void> {
   if (!c) return;
   const k = frameAt(c);
   if (k === frame) return;
+  const edge = (k < 0) !== (frame < 0);
   frame = k;
+  if (edge) {
+    const box = document.getElementById("map");
+    if (box) renderPanel(box); // the key says when there is no model hour
+  }
   paintFrame(await mapReady());
 }
 
@@ -694,7 +709,9 @@ function renderPanel(fallback: HTMLElement): void {
     const when = r
       ? daySpan(day(r.window_days > 2 ? oldest : newest), day(newest))
       : c
-        ? "model"
+        ? frame >= 0
+          ? "model"
+          : "no model hour"
         : w
           ? wf
             ? `${fmtProbe.format(new Date(wf.valid_time))}, ${wf.cycle.slice(11, 13)}Z run`

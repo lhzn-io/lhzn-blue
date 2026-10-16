@@ -521,6 +521,12 @@ body.landing {
 .card-refs a:hover { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
 
 
+/* Beside the table the map keeps one height in every view (the tallest table's, Rivers), so switching views or moving
+   the time does not move the page below it. */
+@media (min-width: 1181px) {
+  .map { min-height: 696px; }
+}
+
 /* The status grid needs about 420 px for its five columns: stack it under the map before it gets squeezed. */
 @media (max-width: 1180px) {
   .overview { grid-template-columns: 1fr; }
@@ -876,5 +882,6 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 
 /* A station row keeps the height a sparkline gives it, with or without a reading at the cursor, so the table and the
    map beside it do not jump as the cursor moves or a feed drops. */
-.status-grid tbody tr:not([data-gauge]):not(.total) { height: 63px; }
+.status-grid tbody tr:not(.total) { height: 63px; }
+.status-grid tbody tr.total { height: 44px; }
 .status-grid td.offline small { white-space: nowrap; }

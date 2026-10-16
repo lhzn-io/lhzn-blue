@@ -1595,11 +1595,79 @@ function soundRowsSvg(stations: StationData[]): string {
   return `<svg class="sound-rows" viewBox="0 0 ${W} ${H}" role="img" aria-label="Departure from the predicted tide at each shore station, the last 30 days">${rows}${ticks}${cur}<text x="${W - 8}" y="${top + 2}" text-anchor="end" class="sr-tick">each row &plusmn;${lim.toFixed(1)} ft</text></svg>`;
 }
 
-function soundRowsSection(stations: StationData[]): string {
-  return `<section class="station sound-rows-sec" id="sound-rows" aria-labelledby="sound-rows-title">
-    <div class="station-head"><h2 id="sound-rows-title">The Sound, station by station</h2><span class="sid">departure from NOAA's prediction, the last 30 days</span></div>
-    <figure class="wide"><div id="sound-rows-box">${soundRowsSvg(stations)}</div></figure>
-  </section>`;
+
+/** A moon phase glyph: a thin circle, the dark part tinted lightly (new moon a pale disc, quarters half tinted,
+ * full moon open). */
+function moonGlyph(phase: string, r = 3.6): string {
+  const ring = `<circle r="${r}" fill="none" stroke="var(--ink-mute)" stroke-width="0.9"/>`;
+  const tint = `fill="var(--ink-mute)" fill-opacity="0.3"`;
+  if (phase === "new") return `<circle r="${r}" ${tint}/>${ring}`;
+  if (phase === "first_quarter") return `<path d="M0,${-r} A${r},${r} 0 0 0 0,${r} Z" ${tint}/>${ring}`;
+  if (phase === "last_quarter") return `<path d="M0,${-r} A${r},${r} 0 0 1 0,${r} Z" ${tint}/>${ring}`;
+  return ring;
+}
+const phaseName = (p: string) => ({ new: "new moon", first_quarter: "first quarter", full: "full moon", last_quarter: "last quarter" })[p] ?? p;
+
+/** The tide ladder for one station: each high and low as NOAA's prediction (open circle) and what the water did (a
+ * short bar), joined by a stem; the stem in ochre where the water ran more than 0.5 ft beyond the prediction in the
+ * direction that matters (higher at a high, lower at a low). Mean higher high water dashed, the NWS minor flood level
+ * solid, the moon's phases along the top, the hours ahead shaded. Drawn on the same time axis as the departure. */
+function drawLadder(d: StationData, x0: number, x1: number): void {
+  const plot = document.getElementById(`${d.meta.id}-hilo`);
+  const svg = plot?.querySelector("svg");
+  if (!plot || !svg) return;
+  if (!TIDES) void loadTides();
+  const W = Math.max(200, svg.clientWidth || plot.clientWidth - 44), H = Math.max(120, svg.clientHeight || 200);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const tide = TIDES?.[d.meta.id];
+  const events = (tide?.hilo ?? d.tides).map((e) => ({ t: Date.parse(e.t) / 1000, ft: e.ft, type: e.type })).filter((e) => e.t >= x0 && e.t <= x1);
+  if (!events.length) {
+    svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="ld-note">${TIDES ? "No tides in this window." : "Loading the predictions."}</text>`;
+    return;
+  }
+  const obsAt = (e: { t: number; type: string }) => {
+    if (!d.level || e.t > Date.now() / 1000) return NaN;
+    const near = [-2, -1, 0, 1, 2].map((k) => d.level!.at(Math.round(e.t / HOUR) * HOUR + k * HOUR)).filter(Number.isFinite);
+    return near.length >= 3 ? (e.type === "H" ? Math.max(...near) : Math.min(...near)) : NaN;
+  };
+  const rows = events.map((e) => ({ ...e, o: obsAt(e) }));
+  const minor = tide?.flood_ft?.nws_minor ?? NaN, mhhw = tide?.datums_ft?.MHHW ?? NaN;
+  const vals = rows.flatMap((r) => [r.ft, r.o]).concat([minor, mhhw]).filter(Number.isFinite);
+  const lo = Math.floor(Math.min(...vals) - 0.3), hi = Math.ceil(Math.max(...vals) + 0.3);
+  const top = 16, bot = 18;
+  const x = (t: number) => ((t - x0) / (x1 - x0)) * W;
+  const y = (v: number) => top + (1 - (v - lo) / (hi - lo)) * (H - top - bot);
+  const now = Date.now() / 1000;
+  let g = `<rect x="${x(now).toFixed(1)}" y="${top}" width="${Math.max(0, W - x(now)).toFixed(1)}" height="${H - top - bot}" fill="var(--panel)" opacity="0.6"/>`;
+  const step = hi - lo > 6 ? 2 : 1;
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    g += `<line x1="0" x2="${W}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--chart-grid)"/><text x="${W + 6}" y="${(y(v) + 3).toFixed(1)}" class="ld-tick">${v} ft</text>`;
+  }
+  // A label each Monday, at the same place and in the same words as the departure plot's (UTC dates at midnight).
+  const fmtTick = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
+  for (let t = Math.ceil(x0 / DAY) * DAY; t <= x1; t += DAY) {
+    const day = new Date(t * 1000);
+    if (day.getUTCDay() !== 1) continue;
+    g += `<text x="${x(t).toFixed(1)}" y="${H - 4}" text-anchor="middle" class="ld-tick">${fmtTick.format(day)}</text>`;
+  }
+  if (Number.isFinite(mhhw)) g += `<line x1="0" x2="${W}" y1="${y(mhhw).toFixed(1)}" y2="${y(mhhw).toFixed(1)}" stroke="var(--dim)" stroke-dasharray="4 3" opacity="0.7"><title>Mean higher high water, ${mhhw.toFixed(1)} ft</title></line>`;
+  if (Number.isFinite(minor)) g += `<line x1="0" x2="${W}" y1="${y(minor).toFixed(1)}" y2="${y(minor).toFixed(1)}" stroke="var(--tide-hi)" stroke-width="1.2"><title>NWS minor flood, ${minor.toFixed(1)} ft</title></line>`;
+  for (const r of rows) {
+    const cx = x(r.t);
+    const beyond = Number.isFinite(r.o) && (r.type === "H" ? r.o - r.ft : r.ft - r.o) > 0.5;
+    const when = fmtWhenMin.format(new Date(r.t * 1000));
+    if (Number.isFinite(r.o)) {
+      g += `<line x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="${y(r.ft).toFixed(1)}" y2="${y(r.o).toFixed(1)}" stroke="${beyond ? "var(--tide-hi)" : "var(--tide-mid)"}" stroke-width="${beyond ? 1.8 : 1.2}"/>`;
+      g += `<line x1="${(cx - 3.5).toFixed(1)}" x2="${(cx + 3.5).toFixed(1)}" y1="${y(r.o).toFixed(1)}" y2="${y(r.o).toFixed(1)}" stroke="var(--ink)" stroke-width="1.6"><title>${r.type === "H" ? "High" : "Low"} ${when}: observed ${r.o.toFixed(1)} ft, predicted ${r.ft.toFixed(1)} ft</title></line>`;
+    }
+    g += `<circle cx="${cx.toFixed(1)}" cy="${y(r.ft).toFixed(1)}" r="2.6" fill="var(--bg)" stroke="var(--dim)" stroke-width="1"><title>${r.type === "H" ? "High" : "Low"} ${when}: predicted ${r.ft.toFixed(1)} ft</title></circle>`;
+  }
+  for (const m of MOON) {
+    const t = Date.parse(m.t) / 1000;
+    if (t >= x0 && t <= x1) g += `<g transform="translate(${x(t).toFixed(1)},7)"><title>${phaseName(m.phase)}, ${fmtWhen.format(new Date(t * 1000))}</title>${moonGlyph(m.phase)}</g>`;
+  }
+  if (AT != null && AT >= x0 && AT <= x1) g += `<line x1="${x(AT).toFixed(1)}" x2="${x(AT).toFixed(1)}" y1="${top}" y2="${H - bot}" stroke="var(--ink)" opacity="0.6"/>`;
+  svg.innerHTML = g;
 }
 
 /** The highest predicted tide each day for the next five weeks at one station, as stems, against mean higher high
@@ -1626,18 +1694,18 @@ function highestAheadHtml(stations: StationData[]): string {
   const x = (t: number) => 4 + ((t - t0) / (t1 - t0)) * (W - 8);
   const y = (v: number) => top + (1 - (v - lo) / (hi - lo)) * (H - top - bot);
   const stems = days.map((e) => {
-    const c = Number.isFinite(mhhw) && e.ft >= mhhw + 0.8 ? P.delayed : P.line;
+    const c = Number.isFinite(mhhw) && e.ft >= mhhw + 0.8 ? "var(--tide-hi)" : "var(--tide-mid)";
     return `<line x1="${x(e.t).toFixed(1)}" x2="${x(e.t).toFixed(1)}" y1="${y(Math.max(lo, e.ft)).toFixed(1)}" y2="${y(lo).toFixed(1)}" stroke="${c}" stroke-width="2"><title>${fmtWhenMin.format(new Date(e.t * 1000))}: ${e.ft.toFixed(1)} ft</title></line>` +
       `<line x1="${(x(e.t) - 2.5).toFixed(1)}" x2="${(x(e.t) + 2.5).toFixed(1)}" y1="${y(e.ft).toFixed(1)}" y2="${y(e.ft).toFixed(1)}" stroke="${c}" stroke-width="1.2"/>`;
   }).join("");
   const rule = (v: number, dash: string, c: string) => (Number.isFinite(v) ? `<line x1="0" x2="${W}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="${c}" stroke-dasharray="${dash}" opacity="0.7"/>` : "");
-  const moon = (p: string) => p === "full" ? `<circle r="3.5" fill="none" stroke="currentColor"/>` : p === "new" ? `<circle r="3.5" fill="none" stroke="currentColor" stroke-dasharray="1.6 1.4"/>` : p === "first_quarter" ? `<path d="M0,-3.5 A3.5,3.5 0 0 1 0,3.5 Z" fill="none" stroke="currentColor"/>` : `<path d="M0,-3.5 A3.5,3.5 0 0 0 0,3.5 Z" fill="none" stroke="currentColor"/>`;
+  const moon = (p: string) => moonGlyph(p, 3.5);
   const moons = MOON.filter((m) => { const t = Date.parse(m.t) / 1000; return t >= t0 && t <= t1; })
     .map((m) => `<g transform="translate(${x(Date.parse(m.t) / 1000).toFixed(1)},6)" opacity="0.8"><title>${m.phase.replace("_", " ")} moon</title>${moon(m.phase)}</g>`).join("");
   const top3 = days.reduce((a, b) => (b.ft > a.ft ? b : a));
   return `<section class="hi-ahead" aria-label="Highest tides ahead at ${d.meta.name}">
     <p class="ol-title">Highest tides, next 5 weeks &middot; ${d.meta.name} <span class="ol-hint">pick a row above</span></p>
-    <svg viewBox="0 0 ${W} ${H}" class="hi-svg" role="img" aria-label="Highest predicted tide each day">${moons}${rule(minor, "", P.delayed)}${rule(mhhw, "3 3", P.contrast)}${stems}</svg>
+    <svg viewBox="0 0 ${W} ${H}" class="hi-svg" role="img" aria-label="Highest predicted tide each day">${moons}${rule(minor, "", "var(--tide-hi)")}${rule(mhhw, "3 3", "var(--dim)")}${stems}</svg>
     <p class="status-key">highest ${top3.ft.toFixed(1)} ft ${fmtWhenMin.format(new Date(top3.t * 1000))}${Number.isFinite(minor) ? `, ${(minor - top3.ft).toFixed(1)} ft below minor flood (solid line)` : ""}; dashed: mean higher high water; amber: 0.8 ft or more above it</p>
   </section>`;
 }
@@ -2411,6 +2479,7 @@ async function showAt(t: number | null): Promise<void> {
   AT = t;
   const rowsBox = document.getElementById("sound-rows-box");
   if (rowsBox && VK === "tides") rowsBox.innerHTML = soundRowsSvg(STATIONS);
+  if (VK === "tides") for (const d of STATIONS.filter((s) => s.kind === "shore")) { const [a, b] = FIGS.hilo.window(d); drawLadder(d, a, b); }
   if (STATIONS.length) statusGrid(STATIONS);
   try {
     (await import("./map")).updatePins([...STATIONS.map(stationPin), ...(VK === "rivers" ? gaugePins() : [])]);
@@ -2704,6 +2773,15 @@ function drawInline(d: StationData, key: Kind): void {
   if (!shows(d, key)) return;
   const [x0, x1] = FIGS[key].window(d);
   const b = FIGS[key].build(d, activeDepth(d, key), x0, x1, false);
+  if (key === "hilo") {
+    drawLadder(d, x0, x1);
+    $(`${d.meta.id}-${key}-legend`).innerHTML =
+      `<span class="lg"><svg width="10" height="10" viewBox="-5 -5 10 10" aria-hidden="true"><circle r="3" fill="none" stroke="var(--dim)"/></svg>predicted</span>` +
+      `<span class="lg"><svg width="10" height="10" viewBox="-5 -5 10 10" aria-hidden="true"><line x1="-4" x2="4" y1="0" y2="0" stroke="var(--ink)" stroke-width="1.6"/></svg>observed</span>` +
+      `<span class="lg"><i style="background: var(--tide-hi)"></i>more than 0.5 ft beyond; minor flood</span>` +
+      `<span class="lg"><i style="background: var(--dim)"></i>mean higher high water (dashed)</span>`;
+    return;
+  }
   renderLines($(`${d.meta.id}-${key}`), b.opts);
   $(`${d.meta.id}-${key}-legend`).innerHTML = legendHtml(b);
   if (key === "sb") drawWindStrip(d, x0, x1);
@@ -3713,7 +3791,7 @@ async function main(): Promise<void> {
       };
       $("stations").innerHTML =
         VK === "tides"
-          ? `${soundRowsSection(stations)}<h2 class="station-group">Shore stations, NOAA tide gauges</h2>${stations.filter((d) => d.kind === "shore").map(sectionHtml).join("")}`
+          ? `<h2 class="station-group">Shore stations, NOAA tide gauges</h2>${stations.filter((d) => d.kind === "shore").map(sectionHtml).join("")}`
           : VK === "rivers"
           ? `<h2 class="station-group">Rivers into the Sound, USGS stream gauges</h2>${RIVER_SECTIONS.map(sectionHtml).join("")}`
           : VK === "turbidity"

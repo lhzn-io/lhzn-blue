@@ -13,7 +13,7 @@ import sys
 import os
 from pathlib import Path
 
-from . import build, merlin, rivers, shore, tides, turbidity, waves, weather
+from . import build, merlin, rivers, shore, tides, turbidity, usgs_tidal, waves, weather
 
 
 def _main() -> None:
@@ -71,6 +71,10 @@ def _main() -> None:
             "v1/shore.json", shore.live(store.read_json("v1/shore.json"), build.now_utc(), full=args.full), max_age=300
         ))
         _shore(lambda: store.write_json("v1/rivers.json", rivers.live(store.read_json("v1/rivers.json")), max_age=300), "rivers")
+        _shore(lambda: _usgs_fit(store), "usgs-tidal fit")  # monthly: only when the saved fit is a month old
+        _shore(lambda: store.write_json("v1/usgs-tidal.json", usgs_tidal.live(
+            store.read_json("v1/usgs-tidal.json"), store.read_json("v1/archive/usgs-tidal-pred.json")
+        ), max_age=300), "usgs-tidal")
     elif args.command == "latest":
         # The 15-minute refresh between hourly runs: the buoys' water and weather only.
         build.live(store, quick=True)
@@ -133,6 +137,12 @@ def _verify(store: build.Store) -> None:
     from . import verify  # pandas only; kept out of the other jobs' imports
 
     verify.update(store)
+
+
+def _usgs_fit(store: build.Store) -> None:
+    """The USGS gauges' tide predictions, refitted monthly (see usgs_tidal)."""
+    if usgs_tidal.fit_due(store.read_json("v1/archive/usgs-tidal-pred.json")):
+        store.write_json("v1/archive/usgs-tidal-pred.json", usgs_tidal.fit(), max_age=3600)
 
 
 def _shore(step, what: str = "shore") -> None:

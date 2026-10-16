@@ -16,7 +16,8 @@ the Sound's own (connected to mid-Sound) are kept. Smoothed at a chosen scale:
    isthmus (Eatons Neck on Asharoken) keeps the isthmus as a narrow spit. Cut the contour into the two shores; the Long
    Island shore stops just short of Orient Point, so the North Fork is not drawn.
 4. The islands at the mouth (Plum, Fishers) are drawn only as their north shores, the side that faces the Sound.
-5. Rivers: the channels up the Housatonic, Quinnipiac, Connecticut and Thames, as centre lines from where each
+5. Rivers: the channels up the Byram, Mianus, Rippowam, Norwalk, Saugatuck, Housatonic, Quinnipiac, Connecticut and
+   Thames, and the Nissequogue and Mattituck Creek on Long Island, as centre lines from where each
    leaves the smoothed shore to as far as RIVER_KM.
 6. A finer outline (SIGMA_FINE) for close zoom, made the same way.
 
@@ -57,10 +58,17 @@ KY = 110.95
 
 # Rivers drawn as hairlines, from the mouth (approximate) upstream.
 RIVERS = [
-    {"name": "Housatonic River", "lon": -73.1050, "lat": 41.1800},
-    {"name": "Quinnipiac River", "lon": -72.9050, "lat": 41.2900},
-    {"name": "Connecticut River", "lon": -72.3480, "lat": 41.2780},
-    {"name": "Thames River", "lon": -72.0900, "lat": 41.3350},
+    {"name": "Byram River", "lon": -73.6560, "lat": 40.9930, "from": "N", "search_km": 3.0},
+    {"name": "Mianus River", "lon": -73.5900, "lat": 41.0230, "from": "N", "search_km": 3.0},
+    {"name": "Rippowam River", "lon": -73.5380, "lat": 41.0400, "from": "N", "search_km": 3.0},
+    {"name": "Norwalk River", "lon": -73.4130, "lat": 41.0900, "from": "N", "search_km": 3.0},
+    {"name": "Saugatuck River", "lon": -73.3700, "lat": 41.1030, "from": "N", "search_km": 3.0},
+    {"name": "Housatonic River", "lon": -73.1050, "lat": 41.1800, "from": "N"},
+    {"name": "Quinnipiac River", "lon": -72.9050, "lat": 41.2900, "from": "N"},
+    {"name": "Connecticut River", "lon": -72.3480, "lat": 41.2780, "from": "N"},
+    {"name": "Thames River", "lon": -72.0900, "lat": 41.3350, "from": "N"},
+    {"name": "Nissequogue River", "lon": -73.2250, "lat": 40.9120, "from": "S"},
+    {"name": "Mattituck Creek", "lon": -72.5630, "lat": 41.0150, "from": "S", "search_km": 3.0},
 ]
 RIVER_KM = 40.0
 
@@ -68,14 +76,9 @@ RIVER_KM = 40.0
 SIDE = {"KPTN": "S"}
 MIN_ISLAND_KM2 = 0.5  # Plum and Fishers; the Gulls and the islets along the shore are left out
 
-# Gauges drawn on the outline: the shore stations on the site, then live USGS tidal gauges not yet on the site
-# (shown as such until they are). Side: the shore each sits on.
-CANDIDATES = [
-    {"id": "SADN6", "name": "Sands Point", "lon": -73.7102, "lat": 40.8662, "side": "S", "usgs": "01302250"},
-    {"id": "LATN6", "name": "Lattingtown", "lon": -73.5932, "lat": 40.9051, "side": "S", "usgs": "01302845"},
-    {"id": "FLXN6", "name": "Flax Pond", "lon": -73.1432, "lat": 40.9629, "side": "S", "usgs": "01304057"},
-    {"id": "RYPN6", "name": "Rye", "lon": -73.6726, "lat": 40.9623, "side": "N", "usgs": "01297000"},
-]
+# Gauges drawn on the outline: NOAA's (stations/shore.json) and the USGS tidal gauges with a level
+# (stations/usgs-tidal.json), each placed on its shore.
+USGS_FILE = REPO / "stations" / "usgs-tidal.json"
 
 
 def world(lon, lat):
@@ -223,16 +226,20 @@ def main() -> None:
     from collections import deque
     channel = raw_water & (soft < 0.5)
     sound_edge = ndimage.binary_dilation(soft >= 0.5)
-    chan_lab, _ = ndimage.label(channel)
+    chan_lab, _ = ndimage.label(channel, structure=np.ones((3, 3)))  # corner-joined cells count: narrow inlets
     rivers = []
     for rv in RIVERS:
         mx_, my_ = (float(v) for v in world(rv["lon"], rv["lat"]))
         i0, j0 = int((mx_ - X0) / H), int((my_ - Y0) / H)
-        win = int(round(15.0 / H))  # wide estuaries are part of the outline: the channel may leave it well upstream
+        # Wide estuaries are part of the outline, so a river's channel may leave it well upstream (15 km); a small
+        # creek gets a short radius, so a larger water body nearby is not taken for it.
+        win = int(round(rv.get("search_km", 15.0) / H))
         js, is_ = np.nonzero(channel[max(0, j0 - win) : j0 + win, max(0, i0 - win) : i0 + win] & sound_edge[max(0, j0 - win) : j0 + win, max(0, i0 - win) : i0 + win])
         js, is_ = js + max(0, j0 - win), is_ + max(0, i0 - win)
-        north_of_mouth = gy[js] >= my_ - 1.0  # all four enter from Connecticut: not the bays across the Sound
-        js, is_ = js[north_of_mouth], is_[north_of_mouth]
+        # Each river on its own side of the Sound (not a bay across it): Connecticut's from the north, Long Island's
+        # from the south.
+        own_side = gy[js] >= my_ - 1.0 if rv["from"] == "N" else gy[js] <= my_ + 1.0
+        js, is_ = js[own_side], is_[own_side]
         if js.size == 0:
             print(f"{rv['name']}: no channel found")
             continue
@@ -250,7 +257,7 @@ def main() -> None:
             j, i = q.popleft()
             if dist[j, i] >= limit:
                 continue
-            for dj, di in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            for dj, di in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
                 a2, b2 = j + dj, i + di
                 if 0 <= a2 < channel.shape[0] and 0 <= b2 < channel.shape[1] and channel[a2, b2] and dist[a2, b2] < 0:
                     dist[a2, b2] = dist[j, i] + 1
@@ -264,6 +271,8 @@ def main() -> None:
         if len(line) >= 4:
             rivers.append({"name": rv["name"], "line": soften(np.array(line), 2)})
             print(f"{rv['name']}: {len(line) * step * H:.1f} km")
+        else:
+            print(f"{rv['name']}: no line ({len(q) if False else int((dist == 0).sum())} sources, channel of {sizes[best]} cells, {len(line)} steps)")
 
     shore = json.loads((REPO / "stations" / "shore.json").read_text())["stations"]
     gauges = []
@@ -271,9 +280,12 @@ def main() -> None:
         x, y = (float(v) for v in world(s["lon"], s["lat"]))
         side = SIDE.get(s["id"]) or ("S" if y < np.interp(x, south[:, 0], south[:, 1]) + 3 else "N")
         gauges.append({"id": s["id"], "name": s["name"], "side": side, "kind": "site", "at": snap(north if side == "N" else south, s["lon"], s["lat"])})
-    for c in CANDIDATES:
-        gauges.append({"id": c["id"], "name": c["name"], "side": c["side"], "kind": "usgs", "usgs": c["usgs"],
-                       "at": snap(north if c["side"] == "N" else south, c["lon"], c["lat"])})
+    for g in json.loads(USGS_FILE.read_text())["gauges"]:
+        if "level" not in g["parameters"]:
+            continue
+        gauges.append({"id": g["id"], "name": g["short"], "side": g["side"], "kind": "site", "operator": "USGS",
+                       "at": snap(north if g["side"] == "N" else south, g["lon"], g["lat"])})
+    gauges.sort(key=lambda q: q["at"][0])
 
     rnd = lambda c: [[round(float(a), 2), round(float(b), 2)] for a, b in c]
     OUT.write_text(json.dumps({

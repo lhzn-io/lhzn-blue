@@ -13,6 +13,7 @@ dependencies = [
     # than git+https, so the slim image installs it with pip and no git.
     "forcingkit @ https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.7.1.tar.gz",
     "matplotlib>=3.8",  # point location on the model mesh (the shared coastline)
+    "utide>=0.3",  # harmonic tide fits for the USGS tidal gauges (Codiga 2011)
 ]
 
 [project.optional-dependencies]

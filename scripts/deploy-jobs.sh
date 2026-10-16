@@ -24,7 +24,7 @@ trap 'rm -rf "$CTX"' EXIT
 mkdir -p "$CTX/jobs" "$CTX/stations"
 cp -R "$REPO/jobs/pyproject.toml" "$REPO/jobs/src" "$CTX/jobs/"
 [ -f "$REPO/jobs/README.md" ] && cp "$REPO/jobs/README.md" "$CTX/jobs/"
-cp "$REPO/stations/stations.json" "$REPO/stations/shore.json" "$REPO/stations/rivers.json" "$CTX/stations/"
+cp "$REPO/stations/stations.json" "$REPO/stations/shore.json" "$REPO/stations/rivers.json" "$REPO/stations/usgs-tidal.json" "$CTX/stations/"
 cp "$REPO/jobs/Dockerfile" "$CTX/Dockerfile"
 
 IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/lhzn-blue/ingest:$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || date +%s)"
@@ -45,7 +45,7 @@ SECRETS="CLOUDFLARE_API_TOKEN=${CF_TOKEN_SECRET}:latest"
 
 # Per job: timeout and memory. `fields` reads the model mesh and satellite grids, so it gets the most memory;
 # `snapshot` holds one dataset's whole record at a time.
-declare -A TIMEOUT=([live]=10m [latest]=5m [history]=30m [fields]=30m [snapshot]=45m [forecast]=30m)
+declare -A TIMEOUT=([live]=20m[latest]=5m [history]=30m [fields]=30m [snapshot]=45m [forecast]=30m)
 declare -A MEMORY=([live]=512Mi [latest]=512Mi [history]=1Gi [fields]=2Gi [snapshot]=1Gi [forecast]=2Gi)
 for mode in live latest history fields snapshot forecast; do
   gcloud run jobs deploy "lhzn-blue-${mode}" \

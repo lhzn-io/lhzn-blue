@@ -1,0 +1,126 @@
+{
+  "note": "USGS tidal gauges on Long Island Sound, named by the water they measure. Water level is published in feet above NAVD88 and converted here to feet above MLLW with NOAA VDatum (the offset agrees with the National Water Prediction Service's datum table where it publishes one). Mean sea level is the 1983 to 2001 epoch, from VDatum, so predictions fitted to a gauge's own record sit on the same footing as NOAA's. Flood levels are the National Weather Service's, where it sets them. Old Lyme reports gauge height on a local datum, so only its water quality is used.",
+  "gauges": [
+    {
+      "id": "RYE",
+      "usgs_id": "01297000",
+      "name": "Long Island Sound at Rye",
+      "short": "Rye",
+      "lat": 40.96231,
+      "lon": -73.67264,
+      "side": "N",
+      "nwps": "RYPN6",
+      "navd88_above_mllw_ft": 4.132,
+      "msl_above_mllw_ft": 3.899,
+      "flood_ft": {
+        "nws_minor": 10.0,
+        "nws_moderate": 11.0,
+        "nws_major": 13.0
+      },
+      "parameters": {
+        "level": "62620"
+      },
+      "mhhw_above_mllw_ft": 7.886
+    },
+    {
+      "id": "WHOB",
+      "usgs_id": "01303152",
+      "name": "West Harbor, Oyster Bay",
+      "short": "West Harbor",
+      "lat": 40.90356,
+      "lon": -73.54336,
+      "side": "S",
+      "navd88_above_mllw_ft": 4.177,
+      "msl_above_mllw_ft": 3.935,
+      "parameters": {
+        "level": "62620",
+        "temperature_c": "00010",
+        "salinity": [
+          "00480",
+          "90860"
+        ],
+        "oxygen_mg_l": "00300",
+        "ph": "00400",
+        "turbidity_fnu": "63680",
+        "chlorophyll_ug_l": "32316"
+      },
+      "mhhw_above_mllw_ft": 7.976
+    },
+    {
+      "id": "NORW",
+      "usgs_id": "410606073245700",
+      "name": "Norwalk River at the Maritime Aquarium",
+      "short": "Norwalk River",
+      "lat": 41.10162,
+      "lon": -73.41595,
+      "side": "N",
+      "navd88_above_mllw_ft": 3.966,
+      "msl_above_mllw_ft": 3.802,
+      "parameters": {
+        "level": "62620",
+        "temperature_c": "00010",
+        "salinity": [
+          "00480",
+          "90860"
+        ],
+        "oxygen_mg_l": "00300",
+        "ph": "00400",
+        "turbidity_fnu": "63680",
+        "fchl_rfu": "32315"
+      },
+      "mhhw_above_mllw_ft": 7.656
+    },
+    {
+      "id": "FLAX",
+      "usgs_id": "01304057",
+      "name": "Flax Pond at Old Field",
+      "short": "Flax Pond",
+      "lat": 40.96286,
+      "lon": -73.14317,
+      "side": "S",
+      "nwps": "FLXN6",
+      "navd88_above_mllw_ft": 3.767,
+      "msl_above_mllw_ft": 3.56,
+      "flood_ft": {
+        "nws_action": 9.0,
+        "nws_minor": 9.2,
+        "nws_moderate": 10.2,
+        "nws_major": 12.2
+      },
+      "parameters": {
+        "level": "62620",
+        "temperature_c": "00010",
+        "salinity": [
+          "00480",
+          "90860"
+        ],
+        "oxygen_mg_l": "00300",
+        "ph": "00400",
+        "turbidity_fnu": "63680",
+        "chlorophyll_ug_l": "32316"
+      },
+      "caveat": "A tidal pond behind a narrow inlet: its tide is smaller and later than the Sound's.",
+      "mhhw_above_mllw_ft": 7.259
+    },
+    {
+      "id": "OLDL",
+      "usgs_id": "01194796",
+      "name": "Connecticut River at Old Lyme",
+      "short": "Old Lyme",
+      "lat": 41.31249,
+      "lon": -72.3459,
+      "side": "N",
+      "parameters": {
+        "temperature_c": "00010",
+        "salinity": [
+          "00480",
+          "90860"
+        ],
+        "oxygen_mg_l": "00300",
+        "ph": "00400",
+        "turbidity_fnu": "63680",
+        "fchl_rfu": "32315"
+      }
+    }
+  ]
+}

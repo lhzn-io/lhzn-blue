@@ -880,7 +880,7 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .plot[data-fig="hilo"] { height: 230px; }
 .plot[data-fig="hilo"] .ld-tick, .plot[data-fig="hilo"] .ld-ref { font: 400 10px var(--mono); fill: var(--dim); }
 .plot[data-fig="hilo"] .ld-ref, .hi-svg .ld-ref { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
-.hi-svg text { font: 400 9.5px var(--mono); fill: var(--dim); }
+.hi-svg text { font: 400 7px var(--mono); fill: var(--dim); } /* the SVG scales up with the column: about 11px on screen */
 .plot[data-fig="hilo"] .ld-note { font: 400 11px var(--mono); fill: var(--dim); }
 
 /* A station row keeps the height a sparkline gives it, with or without a reading at the cursor, so the table and the
@@ -927,3 +927,20 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
    share, the rest equal. */
 .status-grid { table-layout: fixed; }
 .status-grid thead th:first-child { width: 27%; }
+
+/* The Tides view batch: the tilt band in the diagram, the highest-tides strip, the moon in the caption. */
+.schematic .tb-zero { stroke: var(--rule); }
+.schematic .tb-tick { font: 400 9.5px var(--mono); fill: var(--faint); }
+.schematic .tb-trail { fill: none; stroke: var(--wp-willow); stroke-width: 1; }
+.schematic .tb-now { fill: none; stroke: var(--wp-gold); stroke-width: 2.2; stroke-linejoin: round; }
+.schematic .tb-dot { fill: var(--wp-gold); }
+.schematic .tb-south { stroke-dasharray: 5 3; }
+.schematic .sc-tilt-mode .sc-sep { width: 8px; }
+.schematic .sc-tilt-mode { position: absolute; left: 10px; bottom: 10px; z-index: 2; display: flex; gap: 4px; }
+.schematic .sc-tilt-mode button { font: 600 9px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; padding: 3px 8px; cursor: pointer; }
+.schematic .sc-tilt-mode button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent-line); }
+@media (max-width: 559px) { .schematic .sc-tilt-mode { display: none; } }
+.hi-svg .hi-ahead-band { fill: var(--panel); opacity: 0.6; }
+.hi-svg .hi-obs { stroke: var(--wp-gold); stroke-width: 1.6; }
+.hi-svg .hi-cursor { stroke: var(--ink); stroke-width: 1; opacity: 0.6; }
+.status-grid caption .cap-moon { vertical-align: -1px; margin-right: 6px; overflow: visible; }

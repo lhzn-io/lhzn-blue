@@ -91,29 +91,35 @@ def _csv(resp: requests.Response) -> pd.DataFrame:
     return pd.read_csv(io.StringIO(text))
 
 
-def continuous(usgs_id: str, parameter: str, start: datetime, end: datetime) -> pd.Series:
-    """Instantaneous values (15-minute) for ``start <= time < end``, in chunks of 30 days."""
+def continuous(usgs_id: str, parameter: str, start: datetime, end: datetime, chunk_days: int = CHUNK_DAYS) -> pd.Series:
+    """Instantaneous values for ``start <= time < end``, in chunks of ``chunk_days``; a chunk whose page fills (series
+    logged every few minutes) is read on, page by page."""
     parts = []
     a = start
+    page = 10000
     while a < end:
-        b = min(a + timedelta(days=CHUNK_DAYS), end)
-        df = _csv(
-            _get(
-                f"{API}/continuous/items",
-                {
-                    "f": "csv",
-                    "monitoring_location_id": f"USGS-{usgs_id}",
-                    "parameter_code": parameter,
-                    "time": f"{iso(a)}/{iso(b)}",
-                    "properties": "time,value",
-                    "limit": 10000,
-                },
+        b = min(a + timedelta(days=chunk_days), end)
+        offset = 0
+        while True:
+            df = _csv(
+                _get(
+                    f"{API}/continuous/items",
+                    {
+                        "f": "csv",
+                        "monitoring_location_id": f"USGS-{usgs_id}",
+                        "parameter_code": parameter,
+                        "time": f"{iso(a)}/{iso(b)}",
+                        "properties": "time,value",
+                        "limit": page,
+                        "offset": offset,
+                    },
+                )
             )
-        )
-        if len(df) >= 10000:
-            log.warning("USGS %s %s: page limit reached for %s/%s", usgs_id, parameter, iso(a), iso(b))
-        if not df.empty:
-            parts.append(pd.Series(pd.to_numeric(df["value"], errors="coerce").values, index=pd.to_datetime(df["time"], utc=True)))
+            if not df.empty:
+                parts.append(pd.Series(pd.to_numeric(df["value"], errors="coerce").values, index=pd.to_datetime(df["time"], utc=True)))
+            if len(df) < page:
+                break
+            offset += page
         a = b
     if not parts:
         return pd.Series(dtype=float, index=pd.DatetimeIndex([], tz="UTC"))

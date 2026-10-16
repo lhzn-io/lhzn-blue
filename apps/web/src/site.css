@@ -151,6 +151,8 @@ figure.wide { grid-column: 1 / -1; }
 .overview.map-wide .map { min-height: 70vh; }
 /* Below the map: the field key, then the time rows. Nothing is drawn over the field but the map's own controls. */
 .map-col { display: grid; align-content: start; min-width: 0; }
+.outage { margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--delayed); background: var(--panel); font: 13px/1.5 var(--sans); color: var(--ink); max-width: 80ch; }
+.outage b { font-weight: 600; }
 .map-foot { padding: 8px 0 0; font: 10.5px/1.35 var(--sans); color: var(--ink); }
 .field-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 0 0 6px; }
 /* Expand and layer buttons under the zoom controls, in MapLibre's control style; the layer drawer beside them. */

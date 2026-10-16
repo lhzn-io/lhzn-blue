@@ -2238,12 +2238,9 @@ function updatedStrip(meta: Meta, live: Live): void {
     .pop();
   const outage = $("outage");
   const since = (t: string) =>
-    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(t));
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(t));
   if (down) {
-    outage.innerHTML =
-      `<b>The buoys' data server is not responding.</b> The LISICOS server at the University of Connecticut has not answered since ` +
-      `${lastOk ? since(lastOk) : "our last update"}, so the buoys show their last readings; they resume when it returns. ` +
-      `Shore stations and rivers come from NOAA and USGS and are current.`;
+    outage.textContent = `Buoy data unavailable since ${lastOk ? since(lastOk) : "the last update"}.`;
     outage.hidden = false;
   }
   const draw = () => {
@@ -2253,7 +2250,7 @@ function updatedStrip(meta: Meta, live: Live): void {
       `<b>Updated</b>${fmtEt(live.generated_at)} <span class="ago">(${span(fetched, Date.now())} ago)</span>`,
       latest ? `buoys ${span(Date.parse(latest), fetched)} behind` : "no recent buoy reading",
     ];
-    if (down) parts.push(`<span class="warn">buoy server not responding since ${lastOk ? since(lastOk) : "the last update"}</span>`);
+    if (down) parts.push(`<span class="warn">buoy data unavailable since ${lastOk ? since(lastOk) : "the last update"}</span>`);
     else if (failing.length) parts.push(`<span class="warn">fetch failed: ${failing.join(", ")}</span>`);
     $("updated").innerHTML = parts.join(`<span class="sep">&middot;</span>`);
     // The bar: a dot and the age; the buoys' lag only past its usual hour or two; the exact times in the hint.
@@ -2262,7 +2259,7 @@ function updatedStrip(meta: Meta, live: Live): void {
     const lag = latest ? fetched - Date.parse(latest) : Infinity;
     const lagging = lag > 2 * 3600_000;
     const state = age > 24 * 3600_000 ? "offline" : failing.length || lagging || age > 3 * 3600_000 ? "delayed" : "live";
-    const note = down ? "buoy server down" : failing.length ? "fetch failed" : !latest ? "no recent buoy reading" : lagging ? `buoys ${span(Date.parse(latest), fetched)} behind` : "";
+    const note = down ? "buoys unavailable" : failing.length ? "fetch failed" : !latest ? "no recent buoy reading" : lagging ? `buoys ${span(Date.parse(latest), fetched)} behind` : "";
     fresh.innerHTML = `<i class="dot ${state}"></i>${span(fetched, Date.now())}<span class="fresh-long">&nbsp;ago</span>${note ? `<span class="lag">${note}</span>` : ""}`;
     fresh.title =
       `Fetched ${fmtEt(live.generated_at)}` + (latest ? ` · latest buoy reading ${fmtEt(latest)}` : "") + ` · history rebuilt ${fmtEt(meta.generated_at)} (New York time)`;
@@ -2271,7 +2268,7 @@ function updatedStrip(meta: Meta, live: Live): void {
       `Fetched ${fmtEt(live.generated_at)}` +
       (latest ? `; latest buoy reading ${fmtEt(latest)}` : "") +
       `; history rebuilt ${fmtEt(meta.generated_at)} (New York time)` +
-      (down ? "; the buoys' data server is not responding, so the buoys show their last readings" : failing.length ? `; the last fetch failed for ${failing.join(", ")}, so those show the last good values` : "") +
+      (down ? "; buoy data unavailable" : failing.length ? `; the last fetch failed for ${failing.join(", ")}, so those show the last good values` : "") +
       ".";
   };
   draw();

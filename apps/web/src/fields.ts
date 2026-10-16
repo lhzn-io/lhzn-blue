@@ -105,7 +105,7 @@ export async function decodeHistory(buf: ArrayBuffer): Promise<RasterHistory> {
 
 /** Controls the page passes in: the layer picker and the full-width toggle. */
 export interface FieldControls {
-  choices: { kind: FieldKind | "none"; label: string }[];
+  choices: { kind: FieldKind | "none"; label: string; more?: boolean }[];
   chosen: FieldKind | "none";
   onPick: (kind: FieldKind | "none") => void;
   wide: boolean;
@@ -763,9 +763,13 @@ function syncControls(): void {
 
 function renderDrawer(): void {
   if (!drawer || !controls) return;
-  drawer.innerHTML = `<p class="layers-title">Layer</p>${controls.choices
-    .map((c) => `<button type="button" class="layers-choice" data-kind="${c.kind}" aria-pressed="${c.kind === controls!.chosen}">${c.label}</button>`)
-    .join("")}`;
+  const btn = (c: FieldControls["choices"][number]) =>
+    `<button type="button" class="layers-choice" data-kind="${c.kind}" aria-pressed="${c.kind === controls!.chosen}">${c.label}</button>`;
+  const main = controls.choices.filter((c) => !c.more);
+  const more = controls.choices.filter((c) => c.more);
+  const open = more.some((c) => c.kind === controls!.chosen);
+  drawer.innerHTML = `<p class="layers-title">Layer</p>${main.map(btn).join("")}` +
+    (more.length ? `<details class="layers-more"${open ? " open" : ""}><summary>More layers</summary>${more.map(btn).join("")}</details>` : "");
 }
 
 function closeDrawer(): void {

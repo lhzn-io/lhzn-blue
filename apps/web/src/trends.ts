@@ -31,6 +31,7 @@ export const TRENDS: Record<string, TrendSpec> = {
   pressure: { window: 3, mode: "point", dead: 1, rates: [2, 3], words: ["rising", "falling", "steady"] },
   air: { window: 24, mode: "point", dead: 2, rates: [6, 12], words: ["warming", "cooling", "steady"] },
   stratification: { window: 24, mode: "mean", dead: 0.18, rates: [0.7, 1.8], words: ["stratifying", "mixing", "steady"] },
+  departure: { window: 6, mode: "mean", dead: 0.1, rates: [0.3, 0.6], words: ["rising", "falling", "steady"] },
 };
 
 /** Wind direction: shifts under this many degrees (or in wind under `minKt`) are not shown. */

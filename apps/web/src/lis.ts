@@ -1995,7 +1995,351 @@ function markOutlookRow(): void {
     const shown = VK === "tides" && !STATIONS.some((d) => d.meta.id === on && d.kind === "shore") ? "KPTN" : on;
     tr.classList.toggle("ol-on", (VK === "wind" || VK === "tides") && id === shown);
   });
+  syncSchematic();
 }
+/* ---------- The schematic Sound (Tides view) ---------- */
+
+/** The Tides view draws the Sound as a diagram over the map box: the gauges are points, and a basemap would invite
+ * the eye to read the water between them, which is not measured. The outline (public/schematic-lis.json, from
+ * scripts/build-schematic.py) is the currents model's coastline smoothed at 1 km, north up, at true scale, in km east
+ * and north of Kings Point. Each gauge on the site carries its level and its departure from NOAA's prediction at the
+ * timeline's time (ahead of the record, the predicted level); live USGS gauges not yet on the site are drawn as
+ * dashed rings. */
+interface Schematic {
+  north: [number, number][];
+  south: [number, number][];
+  gauges: { id: string; name: string; side: "N" | "S"; kind: "site" | "usgs"; usgs?: string; at: [number, number] }[];
+  islands?: [number, number][][];
+  rivers?: { name: string; line: [number, number][] }[];
+  fine?: { north: [number, number][]; south: [number, number][] };
+}
+let SCHEM: Schematic | null = null;
+let schemLoading: Promise<void> | null = null;
+let schemWired = false;
+// The diagram's pan and zoom (k: scale, tx/ty: offset in px); while it moves, labels keep their offsets from their pins.
+let schemView = { k: 1, tx: 0, ty: 0 };
+let schemMoving = false;
+let schemIdle = 0;
+const schemRel = new Map<string, { dx0: number; dy0: number; dx1: number; dy1: number }>();
+let schemLayout: { key: string; boxes: Map<string, { x0: number; y0: number; x1: number; y1: number }> } | null = null;
+
+function syncSchematic(): void {
+  const map = document.getElementById("map");
+  if (!map) return;
+  let box = map.querySelector<HTMLElement>(".schematic");
+  if (VK !== "tides") {
+    box?.remove();
+    return;
+  }
+  if (!SCHEM) {
+    schemLoading ??= getJson<Schematic>("/schematic-lis.json")
+      .then((s) => {
+        SCHEM = s;
+        syncSchematic();
+      })
+      .catch(() => undefined);
+    return;
+  }
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "schematic";
+    box.innerHTML = `<div class="sc-draw"></div><button type="button" class="sc-reset" hidden>Reset</button><button type="button" class="sc-ibtn" aria-expanded="false" aria-controls="sc-info" title="About this diagram">i</button><div class="sc-info" id="sc-info" hidden></div>`;
+    map.appendChild(box);
+    const btn = box.querySelector<HTMLButtonElement>(".sc-ibtn")!;
+    const info = box.querySelector<HTMLElement>(".sc-info")!;
+    const toggle = (open: boolean) => {
+      info.hidden = !open;
+      btn.setAttribute("aria-expanded", String(open));
+    };
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggle(info.hidden !== false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !info.hidden) toggle(false);
+    });
+    document.addEventListener("click", (e) => {
+      if (!info.hidden && !info.contains(e.target as Node)) toggle(false);
+    });
+    const drawEl = box.querySelector<HTMLElement>(".sc-draw")!;
+    const resetBtn = box.querySelector<HTMLButtonElement>(".sc-reset")!;
+    const moved = () => {
+      const w = drawEl.clientWidth, h = drawEl.clientHeight;
+      const v = schemView;
+      v.k = Math.min(8, Math.max(1, v.k));
+      v.tx = Math.min(w * 0.25, Math.max(w * (1 - v.k) - w * 0.25, v.tx));
+      v.ty = Math.min(h * 0.25, Math.max(h * (1 - v.k) - h * 0.25, v.ty));
+      if (v.k === 1 && Math.abs(v.tx) < 1 && Math.abs(v.ty) < 1) v.tx = v.ty = 0;
+      resetBtn.hidden = v.k === 1 && v.tx === 0 && v.ty === 0;
+      schemMoving = true;
+      requestAnimationFrame(syncSchematic);
+      clearTimeout(schemIdle);
+      schemIdle = window.setTimeout(() => {
+        schemMoving = false;
+        syncSchematic();
+      }, 220);
+    };
+    const zoomAt = (cx: number, cy: number, f: number) => {
+      const v = schemView;
+      const k = Math.min(8, Math.max(1, v.k * f));
+      v.tx = cx - ((cx - v.tx) * k) / v.k;
+      v.ty = cy - ((cy - v.ty) * k) / v.k;
+      v.k = k;
+      moved();
+    };
+    drawEl.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const r = drawEl.getBoundingClientRect();
+      zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015));
+    }, { passive: false });
+    const pointers = new Map<number, { x: number; y: number }>();
+    let dragged = false;
+    let pinch = 0;
+    drawEl.addEventListener("pointerdown", (e) => {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      dragged = false;
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        pinch = Math.hypot(a.x - b.x, a.y - b.y);
+      }
+    });
+    drawEl.addEventListener("pointermove", (e) => {
+      const p = pointers.get(e.pointerId);
+      if (!p) return;
+      const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      if (pointers.size === 1) {
+        if (!dragged && Math.hypot(dx, dy) < 4) return;
+        if (!dragged) drawEl.setPointerCapture(e.pointerId);
+        dragged = true;
+        schemView.tx += dx;
+        schemView.ty += dy;
+        p.x = e.clientX;
+        p.y = e.clientY;
+        moved();
+      } else if (pointers.size === 2) {
+        p.x = e.clientX;
+        p.y = e.clientY;
+        const [a, b] = [...pointers.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        const r = drawEl.getBoundingClientRect();
+        if (pinch) zoomAt((a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top, d / pinch);
+        pinch = d;
+        dragged = true;
+      }
+    });
+    const up = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinch = 0;
+    };
+    drawEl.addEventListener("pointerup", up);
+    drawEl.addEventListener("pointercancel", up);
+    drawEl.addEventListener("click", (e) => {
+      if (dragged) {
+        e.stopPropagation();
+        dragged = false;
+      }
+    }, true);
+    const reset = () => {
+      schemView = { k: 1, tx: 0, ty: 0 };
+      moved();
+    };
+    drawEl.addEventListener("dblclick", reset);
+    resetBtn.addEventListener("click", reset);
+    const idOf = (e: Event) => (e.target as Element).closest<SVGGElement>("g[data-id]")?.dataset.id ?? null;
+    box.addEventListener("mouseover", (e) => {
+      const id = idOf(e);
+      if (id && id !== (OUTLOOK_PEEK ?? OUTLOOK_PIN)) {
+        OUTLOOK_PEEK = id;
+        statusGrid(STATIONS);
+      }
+    });
+    box.addEventListener("mouseleave", () => {
+      if (OUTLOOK_PEEK) {
+        OUTLOOK_PEEK = null;
+        statusGrid(STATIONS);
+      }
+    });
+    box.addEventListener("click", (e) => {
+      const id = idOf(e);
+      if (id) {
+        OUTLOOK_PIN = id;
+        OUTLOOK_PEEK = null;
+        statusGrid(STATIONS);
+      }
+    });
+  }
+  if (!schemWired) {
+    schemWired = true;
+    let frame = 0;
+    window.addEventListener("resize", () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(syncSchematic);
+    });
+  }
+  const draw = box.querySelector<HTMLElement>(".sc-draw")!;
+  draw.innerHTML = schematicSvg(SCHEM, draw.clientWidth || 800, draw.clientHeight || 500);
+  box.querySelector<HTMLElement>(".sc-info")!.innerHTML = schematicInfo(SCHEM);
+}
+
+/** What the diagram is and how to read it: kept off the drawing, behind the (i). */
+function schematicInfo(sc: Schematic): string {
+  const sw = (inner: string) => `<svg width="16" height="12" viewBox="-8 -6 16 12" aria-hidden="true">${inner}</svg>`;
+  const lastS = [...sc.gauges].filter((q) => q.side === "S" && q.kind === "site").sort((a, b) => b.at[0] - a.at[0])[0]
+    ?? [...sc.gauges].filter((q) => q.side === "S").sort((a, b) => b.at[0] - a.at[0])[0];
+  const end = sc.south[sc.south.length - 1];
+  const gap = lastS ? Math.round(Math.hypot(end[0] - lastS.at[0], end[1] - lastS.at[1]) / 5) * 5 : 0;
+  return `<p><b>Water level at the tide gauges.</b> The gauges are points; nothing is drawn between them, because the water there is not measured.</p>
+    <ul class="sc-key">
+      <li>${sw('<circle r="3.8" style="fill:var(--wp-gold)"/>')}observed level, ft above MLLW</li>
+      <li>${sw('<circle r="3.6" style="fill:var(--bg);stroke:var(--ink-mute)"/>')}NOAA's predicted level (ahead of the record)</li>
+      <li>${sw('<line y1="5" y2="-5" style="stroke:var(--wp-willow);stroke-width:2.6"/>')}observed minus predicted; up is higher</li>
+      <li>${sw('<line y1="5" y2="-5" style="stroke:var(--wp-amber);stroke-width:2.6"/>')}more than 0.5 ft from the prediction</li>
+      <li>${sw('<circle r="3.6" style="fill:var(--bg);stroke:var(--ink-mute);stroke-dasharray:2 1.6"/>')}USGS tide gauge, not yet on this site</li>
+    </ul>
+    <p>${gap ? `No gauge on Long Island's shore for about ${gap} km east of ${lastS.name}. ` : ""}Outline: the Census Bureau's TIGER shoreline (public domain), smoothed at 0.75 km (finer when zoomed in); north up, to scale; islands at the mouth drawn by their north shores. Drag to pan, scroll or pinch to zoom.</p>`;
+}
+
+function schematicSvg(sc: Schematic, W: number, H: number): string {
+  const nar = W < 560;
+  const [xmin, xmax, ymin, ymax] = [-4, 160, -3, 61];
+  const pad = { l: nar ? 22 : 84, r: nar ? 14 : 40, t: nar ? 40 : 60, b: nar ? 46 : 70 };
+  const s = Math.min((W - pad.l - pad.r) / (xmax - xmin), (H - pad.t - pad.b) / (ymax - ymin));
+  const ox = pad.l + (W - pad.l - pad.r - (xmax - xmin) * s) / 2;
+  const oy = pad.t + (H - pad.t - pad.b - (ymax - ymin) * s) / 2;
+  const { k: zk, tx, ty } = schemView;
+  const X = (x: number) => (ox + (x - xmin) * s) * zk + tx;
+  const Y = (y: number) => (oy + (ymax - y) * s) * zk + ty;
+  const f1 = (v: number) => v.toFixed(1);
+  const path = (pts: [number, number][]) => "M" + pts.map(([x, y]) => `${f1(X(x))},${f1(Y(y))}`).join("L");
+  const shore = zk >= 2.5 && sc.fine ? sc.fine : sc; // closer in, the outline smoothed at 0.35 km
+  const lines = [shore.north, shore.south, ...(sc.islands ?? [])];
+  let g = (sc.rivers ?? []).map((r) => `<path d="${path(r.line)}" class="sc-river"><title>${r.name}</title></path>`).join("");
+  g += lines.map((l, i) => `<path d="${path(l)}" class="${i < 2 ? "sc-shore" : "sc-isle"}"/>`).join("");
+
+  // Label placement: each label tries spots around its mark and takes the one that crosses the fewest shore points,
+  // overlaps no other label or mark, and stays in the frame.
+  type Box = { x0: number; y0: number; x1: number; y1: number };
+  const pts: [number, number][] = [];
+  lines.forEach((l, k) => { for (let i = 0; i < l.length; i += k < 2 ? 2 : 1) pts.push([X(l[i][0]), Y(l[i][1])]); });
+  for (const r of sc.rivers ?? []) for (const [x, y] of r.line) pts.push([X(x), Y(y)]);
+  const taken: Box[] = [];
+  const CW = 6.15, LH = 12;
+  // Each label tries spots out on its shore's land side (near, then farther into the open space) and takes the one that
+  // keeps clear of the shore, of other labels and marks, and whose leader line crosses the least shore.
+  const leads: [number, number, number, number][] = [];
+  const shoreSegs: [number, number, number, number][] = [];
+  for (const l of lines) for (let i = 1; i < l.length; i++) shoreSegs.push([X(l[i - 1][0]), Y(l[i - 1][1]), X(l[i][0]), Y(l[i][1])]);
+  const cross = (a: [number, number, number, number], c: [number, number, number, number]) => {
+    const o = (p: number, q: number, r: number, t: number, u: number, v: number) => Math.sign((r - p) * (v - q) - (t - q) * (u - p));
+    return o(a[0], a[1], a[2], a[3], c[0], c[1]) !== o(a[0], a[1], a[2], a[3], c[2], c[3]) && o(c[0], c[1], c[2], c[3], a[0], a[1]) !== o(c[0], c[1], c[2], c[3], a[2], a[3]);
+  };
+  // Leaders are vertical: a label sits straight above (north shore) or below (south shore) its pin, slid sideways
+  // only as far as keeps the pin under the label.
+  const anchorOf = (px: number, py: number, b: Box): [number, number] => [px, py < b.y0 ? b.y0 : b.y1];
+  // Spots are worked out once per size, from fixed-width templates, and reused at every time, so moving the time
+  // never moves a label.
+  const sizeKey = `${W}x${H}:${zk.toFixed(3)}:${Math.round(tx)}:${Math.round(ty)}`;
+  if (!schemLayout || schemLayout.key !== sizeKey) schemLayout = { key: sizeKey, boxes: new Map() };
+  const memo = schemLayout.boxes;
+  const place = (key: string, px: number, py: number, rows: string[], side: "N" | "S", far = false): { b: Box; lead: boolean } => {
+    const rel = schemRel.get(key);
+    const kept = memo.get(key) ?? (schemMoving && rel ? { x0: px + rel.dx0, y0: py + rel.dy0, x1: px + rel.dx1, y1: py + rel.dy1 } : undefined);
+    if (kept) {
+      taken.push(kept);
+      leads.push([px, py, ...anchorOf(px, py, kept)]);
+      return { b: kept, lead: true };
+    }
+    const w = Math.max(...rows.map((r) => r.length)) * CW + 6, h = rows.length * LH + 3;
+    // The site's gauges at one distance, just clear of the largest bar; the USGS gauges farther out, stepping on.
+    const dists = far ? [56, 72, 88, 104, 122, 140] : [Math.max(9, 2 * FT) + 6, Math.max(9, 2 * FT) + 22];
+    const xs = [-w / 2, -8, -w + 8, -w * 0.25, -w * 0.75];
+    let best: { b: Box; score: number; lead: boolean } | null = null;
+    dists.forEach((d, di) => xs.forEach((dx, xi) => {
+      const y0 = side === "N" ? py - d - h : py + d;
+      const bx = { x0: px + dx, y0, x1: px + dx + w, y1: y0 + h };
+      let score = di * 1.5 + xi * 0.4;
+      if (bx.x0 < 2 || bx.y0 < 2 || bx.x1 > W - 2 || bx.y1 > H - 2) score += 1000;
+      for (const t of taken) if (bx.x0 < t.x1 + 4 && t.x0 < bx.x1 + 4 && bx.y0 < t.y1 + 3 && t.y0 < bx.y1 + 3) score += 1000;
+      const [ax, ay] = anchorOf(px, py, bx);
+      for (const [x, y] of pts) if (x > bx.x0 - 6 && x < bx.x1 + 6 && y > bx.y0 - 6 && y < bx.y1 + 6) score += 4;
+      for (const [lx, ly0, , ly1] of leads) if (lx > bx.x0 - 3 && lx < bx.x1 + 3 && Math.max(Math.min(ly0, ly1), bx.y0) < Math.min(Math.max(ly0, ly1), bx.y1)) score += 300;
+      // The leader may not pass through another label, or cross a shore.
+      for (const t of taken) if (ax > t.x0 && ax < t.x1 && Math.max(Math.min(py, ay), t.y0) < Math.min(Math.max(py, ay), t.y1)) score += 300;
+      const seg: [number, number, number, number] = [px, py + (ay - py) * 0.15, ax, ay];
+      for (const sh of shoreSegs) if (cross(seg, sh)) { score += 600; break; }
+      if (!best || score < best.score) best = { b: bx, score, lead: true };
+    }));
+    taken.push(best!.b);
+    leads.push([px, py, ...anchorOf(px, py, best!.b)]);
+    memo.set(key, best!.b);
+    schemRel.set(key, { dx0: best!.b.x0 - px, dy0: best!.b.y0 - py, dx1: best!.b.x1 - px, dy1: best!.b.y1 - py });
+    return best!;
+  };
+  const text = (b: Box, rows: string[], cls: string[]) =>
+    rows.map((r, i) => `<text x="${f1(b.x0 + 3)}" y="${f1(b.y0 + 10 + i * LH)}" class="${cls[i] ?? cls[0]} sc-halo">${r}</text>`).join("");
+  const leader = (px: number, py: number, b: Box, gap = 5) => {
+    const [, ay] = anchorOf(px, py, b);
+    const sy = py + Math.sign(ay - py) * gap;
+    return Math.abs(ay - sy) < 4 ? "" : `<line x1="${f1(px)}" y1="${f1(sy)}" x2="${f1(px)}" y2="${f1(ay)}" class="sc-lead"/>`;
+  };
+
+  // Marks first (so labels keep off them), then labels.
+  const on = OUTLOOK_PEEK ?? OUTLOOK_PIN;
+  const shown = sc.gauges.some((q) => q.id === on && q.kind === "site") ? on : "KPTN";
+  const FT = Math.max(14, s * 4); // px per foot of departure
+  type Mark = { q: Schematic["gauges"][number]; x: number; y: number; svg: string; rows: string[]; cls: string[]; title: string };
+  const marks: Mark[] = [];
+  for (const q of sc.gauges) {
+    const x = X(q.at[0]), y = Y(q.at[1]);
+    if (x < -10 || x > W + 10 || y < -10 || y > H + 10) continue; // panned out of view
+    if (q.kind === "usgs") {
+      if (nar) continue;
+      marks.push({ q, x, y, svg: `<circle cx="${f1(x)}" cy="${f1(y)}" r="3.6" class="sc-cand"/>`, rows: [q.name], cls: ["sc-cname"], title: `${q.name}: USGS tide gauge ${q.usgs}, not yet on this site` });
+      taken.push({ x0: x - 5, y0: y - 5, x1: x + 5, y1: y + 5 });
+      continue;
+    }
+    const d = STATIONS.find((st) => st.meta.id === q.id && st.kind === "shore");
+    if (!d) continue;
+    let lv = NaN, dep = NaN, how = "observed";
+    if (AT == null) {
+      lv = d.levelNow?.ft ?? NaN;
+      dep = lastValue(departure(d));
+    } else {
+      const h = Math.floor(AT / HOUR) * HOUR;
+      lv = d.level?.at(h) ?? NaN;
+      dep = departure(d)?.at(h) ?? NaN;
+      if (!Number.isFinite(lv)) {
+        lv = predictedLevel(d, AT);
+        dep = NaN;
+        how = "predicted";
+      }
+    }
+    const val = Number.isFinite(lv) ? `${feet(lv)} ft${Number.isFinite(dep) ? ` ${signedFt(dep)}` : how === "predicted" ? " pred." : ""}` : "no reading";
+    const beyond = Number.isFinite(dep) && Math.abs(dep) > 0.5;
+    const bar = Number.isFinite(dep) ? `<line x1="${f1(x)}" x2="${f1(x)}" y1="${f1(y)}" y2="${f1(y - dep * FT)}" class="sc-bar${beyond ? " beyond" : ""}"/>` : "";
+    const dot = how === "predicted" || !Number.isFinite(lv) ? `<circle cx="${f1(x)}" cy="${f1(y)}" r="3.6" class="sc-pred"/>` : `<circle cx="${f1(x)}" cy="${f1(y)}" r="3.8" class="sc-obs"/>`;
+    const ring = q.id === shown ? `<circle cx="${f1(x)}" cy="${f1(y)}" r="8" class="sc-on"/>` : "";
+    taken.push({ x0: x - 9, y0: y - Math.max(9, 2 * FT), x1: x + 9, y1: y + Math.max(9, 2 * FT) });
+    const title = `${q.name}: ${Number.isFinite(lv) ? `${feet(lv)} ft above MLLW, ${how}` : "no reading"}${Number.isFinite(dep) ? `, ${signedFt(dep)} ft against the prediction` : ""}${AT != null ? `, ${atLabel(AT)}` : ""}`;
+    marks.push({ q, x, y, svg: `${bar}${ring}${dot}<circle cx="${f1(x)}" cy="${f1(y)}" r="12" class="sc-hit"/>`, rows: [q.name, val], cls: ["sc-nm", "sc-val"], title });
+  }
+  // The site's gauges claim their spots first, then the candidates, then the named places.
+  for (const m of [...marks].sort((a, b) => (a.q.kind === "site" ? 0 : 1) - (b.q.kind === "site" ? 0 : 1))) {
+    const p = place(m.q.id, m.x, m.y, m.q.kind === "site" ? [m.q.name, "-00.0 ft +0.0 pred."] : m.rows, m.q.side, m.q.kind !== "site");
+    const body = `<title>${m.title}</title>${p.lead ? leader(m.x, m.y, p.b) : ""}${m.svg}${text(p.b, m.rows, m.cls)}`;
+    g += m.q.kind === "site" ? `<g data-id="${m.q.id}" class="sc-g">${body}</g>` : `<g data-usgs="${m.q.usgs}">${body}</g>`;
+  }
+  // Scale bar and north arrow, at the foot.
+  const km = zk >= 4 ? 5 : zk >= 2 ? 10 : 20; // a bar of about the same length at any zoom
+  const sk = s * zk;
+  const sx = W - (nar ? 14 : 40) - km * sk - 40, sy = H - 18;
+  g += `<g class="sc-scale"><line x1="${f1(sx)}" x2="${f1(sx + km * sk)}" y1="${sy}" y2="${sy}"/>` +
+    [0, km / 2, km].map((t) => `<line x1="${f1(sx + t * sk)}" x2="${f1(sx + t * sk)}" y1="${sy - 3}" y2="${sy + 3}"/><text x="${f1(sx + t * sk)}" y="${sy - 7}" text-anchor="middle">${t === km ? `${km} km` : t}</text>`).join("") +
+    `<path d="M${f1(sx + km * sk + 28)},${sy + 3} V${sy - 15} M${f1(sx + km * sk + 24.5)},${sy - 9} L${f1(sx + km * sk + 28)},${sy - 16} L${f1(sx + km * sk + 31.5)},${sy - 9}"/>` +
+    `<text x="${f1(sx + km * sk + 36)}" y="${sy}">N</text></g>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Long Island Sound in outline, with water level at the tide gauges">${g}</svg>`;
+}
+
 const WATER_PAGE = "/long-island-sound/tides/"; // "Reading the tides": unlinked until it returns
 void WATER_PAGE;
 
@@ -2778,12 +3122,35 @@ function levelReadout(d: StationData): string {
   return readoutHtml(`${lv ? lv.ft.toFixed(1) : "--"}<small>ft</small>`, "Water level", "tide", `above MLLW${lv ? ` &middot; ${ago(lv.time)}` : ""}${e ? ` &middot; next ${tideText(e)}` : ""}`);
 }
 
+/** The Tides view's readouts for a shore station: what is unusual first (the water against NOAA's prediction), then
+ * the level, then the margin to minor flooding at the next high if the departure held. */
+function tidesReadouts(d: StationData): string[] {
+  const lv = d.levelNow;
+  const state = lv ? obsState({ time: lv.time } as LastObs) : "offline";
+  const dep = lastValue(departure(d));
+  const out: string[] = [];
+  out.push(Number.isFinite(dep) && state !== "offline"
+    ? readoutHtml(`${signedFt(dep)}<small>ft</small>`, "Departure from prediction", "dep", `observed minus NOAA's prediction${lv ? ` &middot; ${ago(lv.time)}` : ""}`, state,
+        contextLine(departure(d), "departure", (v) => `${v.toFixed(1)} ft`))
+    : readoutHtml("--", "Departure from prediction", "dep", "no current reading", "offline"));
+  out.push(readoutHtml(`${lv ? lv.ft.toFixed(1) : "--"}<small>ft</small>`, "Water level", "tide", `above MLLW${lv ? ` &middot; ${ago(lv.time)}` : ""}`, state));
+  const hi = d.tides.find((e) => e.type === "H" && Date.parse(e.t) > Date.now());
+  const minor = TIDES?.[d.meta.id]?.flood_ft?.nws_minor ?? null;
+  if (hi && minor != null) {
+    const reach = hi.ft + (Number.isFinite(dep) ? dep : 0);
+    out.push(readoutHtml(`${(minor - reach).toFixed(1)}<small>ft</small>`, "Below minor flood", "hilo",
+      `next high ${hi.ft.toFixed(1)} ft predicted, ${fmtWhenMin.format(new Date(hi.t))}${Number.isFinite(dep) ? `, ${signedFt(dep)} ft departure` : ""} &middot; NWS minor ${minor.toFixed(1)} ft`));
+  }
+  return out;
+}
+
 /** The readouts at the top of a buoy or shore station section follow the view, mirroring the plots below them.
  * Mid-depth stays out: the water-column plot carries it. */
 function stationReadouts(d: StationData): string[] {
   const depths = d.depths.filter((dep) => dep !== "MID");
   if (d.kind === "shore") {
     if (VK === "wind") return [...weatherReadouts(d), levelReadout(d)];
+    if (VK === "tides") return tidesReadouts(d);
     return [depthReadout(d, d.depths[0], (o) => o.temperature_c, fmtTempF, () => "Water temperature", "col", undefined, d.kind === "shore" ? contextLine(d.m36[d.depths[0]] ?? d.temp.m36[d.depths[0]], "temp", (v) => `${v.toFixed(1)}&deg;F`, { key: "water" }) : undefined), levelReadout(d)];
   }
   if (VK === "wind") return weatherReadouts(d);
@@ -3498,6 +3865,7 @@ function gaugePins(): Pin[] {
 
 /** The map follows the view: basins and gauges in Rivers, the Sound otherwise; and the view's surface field. */
 async function syncMap(): Promise<void> {
+  syncSchematic();
   try {
     (await import("./map")).setRiverMode(VK === "rivers", VK === "rivers" ? gaugePins() : []);
   } catch {
@@ -3516,7 +3884,18 @@ const FIELD_CHOICES: { kind: FieldKind | "none"; label: string }[] = [
   { kind: "currents", label: "Surface currents (model)" },
   { kind: "wind", label: "Wind (HRRR)" },
 ];
-let fieldPick: FieldKind | "none" = (["sst", "chl", "kd490", "currents", "wind"] as const).find((k) => k === LINK.get("layer")) ?? "none"; // none until picked (or linked); kept across views
+/** The map layers each view offers, and the one it opens with; the others sit under "More layers". */
+const VIEW_LAYERS: Record<VarKey, { offer: FieldKind[]; def: FieldKind | "none" }> = {
+  temp: { offer: ["sst"], def: "sst" },
+  salinity: { offer: ["chl"], def: "none" },
+  oxygen: { offer: ["chl"], def: "chl" },
+  turbidity: { offer: ["kd490", "chl"], def: "kd490" },
+  wind: { offer: ["wind", "currents"], def: "wind" },
+  tides: { offer: [], def: "none" },
+  rivers: { offer: [], def: "none" },
+};
+// A linked layer wins on load; otherwise the view's default. A layer picked by hand lasts until the view changes.
+let fieldPick: FieldKind | "none" = (["sst", "chl", "kd490", "currents", "wind"] as const).find((k) => k === LINK.get("layer")) ?? VIEW_LAYERS[VK].def;
 /** A linked time ("-6h", "+12h", "-30d"), applied once the time bar has the scale it belongs to. */
 let pendingOffset: { hours: number; scale: "hours" | "days" } | null = (() => {
   const m = /^([+-]?\d+)([hd])$/.exec((LINK.get("t") ?? "").replace(/^ /, "+")); // a "+" in a query string reads as a space
@@ -3643,7 +4022,11 @@ async function syncField(): Promise<void> {
 
 function fieldControls(): import("./fields").FieldControls {
   return {
-    choices: FIELD_CHOICES,
+    choices: (() => {
+      const offer = VIEW_LAYERS[VK].offer;
+      const ordered = [FIELD_CHOICES[0], ...offer.map((k) => FIELD_CHOICES.find((c) => c.kind === k)!)];
+      return [...ordered, ...FIELD_CHOICES.filter((c) => !ordered.includes(c)).map((c) => ({ ...c, more: true }))];
+    })(),
     chosen: fieldPick,
     onPick: (k) => {
       fieldPick = k;
@@ -3746,6 +4129,7 @@ function wireWater(live: Live, stations: StationData[], rebuild: () => void): vo
         b.classList.remove("loading");
       }
       VK = k;
+      fieldPick = VIEW_LAYERS[VK].def; // a new view opens with its own layer
       try {
         localStorage.setItem("lhzn-blue-water-var", VK);
       } catch {

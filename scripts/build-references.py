@@ -21,7 +21,7 @@ BIB = REPO / "docs" / "references.bib"
 OUT = REPO / "apps" / "web" / "references" / "index.html"
 
 # Site-wide sections first (they apply to every waterway), then one heading per waterway with its own sections.
-GENERAL = [("fields", "Methods behind the map's fields")]
+GENERAL = [("design", "How the plots are drawn"), ("fields", "Methods behind the map's fields")]
 WATERWAYS = [
     {
         "id": "long-island-sound",

@@ -143,9 +143,10 @@ export const METHODS: Record<string, Method> = {
       "is fetch-limited and larger under easterly winds [[shin2021waves]].",
   },
   pressure: {
-    title: "Pressure",
-    shows: "Barometric pressure each hour at the station.",
-    method: "The tendency is the change over the last 3 hours.",
+    title: "Pressure tendency",
+    shows: "How fast the barometer is changing: the change over 3 hours, observed and then forecast by HRRR (dashed). A falling barometer comes before wind; the faster it falls, the more.",
+    method: "Observed: the station's hourly mean minus that of 3 hours before. Forecast: the same from HRRR's sea-level pressure at the station. Shaded bands follow the UK shipping forecast's terms: steady to falling slowly under 1.6 mb in 3 hours, quickly 3.6 to 6, very rapidly beyond 6.",
+    caveats: "The buoy barometer and HRRR's sea-level pressure differ by up to about 1 mb, so the dashed line can start a little off the observed one.",
   },
   flow: {
     title: "Flow against normal",

@@ -1173,20 +1173,44 @@ const FIGS: Record<Kind, Fig> = {
     },
   },
   pressure: {
-    title: "Pressure",
-    sub: "hourly, at the station",
+    title: "Pressure tendency",
+    sub: "change over 3 hours, mb; falling below zero",
     varies: false,
     in: (k) => k === "wind",
     depthTabs: false,
     seasonal: false,
     available: (d) => !!d.met?.pressure && Number.isFinite(d.met.pressure.lastValid()),
-    window: RIGHT,
+    window: (d) => [d.now - 10 * DAY, d.now + 2 * DAY],
     maxSpan: 100 * DAY,
     start: (d) => d.met?.pressure?.t0 ?? d.now,
     build: (d, _depth, x0, x1) => {
-      const xs = grid(x0, x1);
-      const lines: Line[] = [{ ys: xs.map((t) => d.met?.pressure?.at(t) ?? NaN), color: P.line, width: 1.5, label: "Pressure" }];
-      return { opts: { xs, lines, unit: " mb", hoverDigits: 1, empty: "No pressure readings in this window." }, legend: [["Pressure", P.line, 1]] };
+      if (!FCST) void loadForecast();
+      const xs = grid(x0, x1).map((t) => Math.round(t / HOUR) * HOUR);
+      const p = d.met?.pressure;
+      const now = Date.now() / 1000;
+      const mb = (v: number) => `${signed(v)} mb`;
+      const obs = xs.map((t) => (p && t <= now ? p.at(t) - p.at(t - 3 * HOUR) : NaN));
+      const fc = xs.map((t) => {
+        if (t <= now) return NaN;
+        const a = forecastAt(d.meta.id, t), b = forecastAt(d.meta.id, t - 3 * HOUR);
+        return a && b && Number.isFinite(a.pres) && Number.isFinite(b.pres) ? a.pres - b.pres : NaN;
+      });
+      const lines: Line[] = [
+        { ys: obs, color: P.line, width: 1.5, label: "Change over 3 h", fmt: mb },
+        { ys: fc, color: P.line, width: 1.5, dash: "6 3", label: "HRRR forecast", fmt: mb },
+        { ys: xs.map((t) => p?.at(t) ?? NaN), color: P.line, label: "Pressure", hidden: true, fmt: (v) => `${v.toFixed(1)} mb` },
+      ];
+      // The shipping forecast's tendency terms (mb in 3 hours): slowly under 1.6, quickly 3.6 to 6, very rapidly over 6.
+      const bands = [
+        { y0: -1.6, y1: 1.6, fill: P.bands[0] },
+        { y0: -6, y1: -3.6, fill: P.bands[1] },
+        { y0: 3.6, y1: 6, fill: P.bands[1] },
+      ];
+      return {
+        opts: { xs, lines, bands, unit: " mb", zero: true, floor: -4, hoverDigits: 1, marker: { x: now, label: "now" }, empty: "No pressure readings in this window." },
+        legend: [["Change over 3 h", P.line, 1], ["HRRR forecast (dashed)", P.line, 0.7]],
+        note: "shaded: steady to falling slowly (under 1.6 mb in 3 h), and falling or rising quickly (3.6 to 6); beyond 6 is very rapid",
+      };
     },
   },
   flow: {
@@ -1374,7 +1398,7 @@ const FIGS: Record<Kind, Fig> = {
 };
 
 /** Figure order in a section, left column then right, row by row. */
-const ORDER: Kind[] = ["yoy", "chg", "col", "sb", "next48", "hilo", "dep", "wind", "air", "tide", "waves", "pressure", "share", "bturb", "flow", "rpct", "ryoy", "rturb"];
+const ORDER: Kind[] = ["yoy", "chg", "col", "sb", "next48", "hilo", "dep", "wind", "tide", "waves", "pressure", "share", "bturb", "flow", "rpct", "ryoy", "rturb", "air"];
 
 /** A figure's name with the variable it shows, for the zoom title and screen readers. */
 const figName = (f: Fig) => (f.varies && VK !== "temp" ? `${V().label}: ${f.title.charAt(0).toLowerCase()}${f.title.slice(1)}` : f.title);
@@ -1433,6 +1457,7 @@ interface TideStation {
   flood_ft?: Record<string, number | null>;
 }
 let TIDES: Record<string, TideStation> | null = null;
+let MOON: { t: string; phase: string }[] = [];
 let tidesLoading: Promise<void> | null = null;
 let tidesRedraw: () => void = () => undefined;
 const DEPARTURE = new Map<string, Hourly | null>();
@@ -1440,9 +1465,10 @@ const TIDES_PAGE = "/long-island-sound/tides/"; // "Reading the tides": unlinked
 void TIDES_PAGE;
 
 function loadTides(): Promise<void> {
-  tidesLoading ??= getJson<{ stations: Record<string, TideStation> }>(`${DATA}/shore-tides.json`)
+  tidesLoading ??= getJson<{ stations: Record<string, TideStation>; moon?: { t: string; phase: string }[] }>(`${DATA}/shore-tides.json`)
     .then((j) => {
       TIDES = j.stations;
+      MOON = j.moon ?? [];
       DEPARTURE.clear();
       tidesRedraw();
     })
@@ -1526,6 +1552,94 @@ function hiloBuilt(d: StationData, x0: number, x1: number): Built {
     opts: { xs, lines, unit: " ft", marker: { x: Date.now() / 1000, label: "now" }, empty: "No tides in this window." },
     legend: [["Observed", P.now, 1], ["Predicted", P.contrast, 0.45], ["NWS minor flood", P.delayed, 0.7], ["MHHW (dashed)", P.contrast, 0.35]],
   };
+}
+
+/** The Sound, station by station: the departure from the prediction at each shore station, west to east, the
+ * last 30 days on one time axis and one vertical scale; amber above the prediction, willow below. The timeline's
+ * cursor is drawn across all rows. */
+function soundRowsSvg(stations: StationData[]): string {
+  const shore = stations.filter((d) => d.kind === "shore");
+  const deps = shore.map((d) => [d, departure(d)] as const).filter((p): p is readonly [StationData, Hourly] => !!p[1]);
+  if (!deps.length) return `<p class="note">Loading the predictions.</p>`;
+  const t1 = Math.floor(Date.now() / 1000 / HOUR) * HOUR, t0 = t1 - 30 * DAY;
+  const W = 900, rowH = 46, left = 96, top = 6, H = top + deps.length * rowH + 22;
+  const x = (t: number) => left + ((t - t0) / (t1 - t0)) * (W - left - 8);
+  let lim = 0.5;
+  for (const [, h] of deps) for (let t = t0; t <= t1; t += HOUR) { const v = h.at(t); if (Number.isFinite(v)) lim = Math.max(lim, Math.abs(v)); }
+  lim = Math.ceil(lim * 2) / 2;
+  const rows = deps.map(([d, h], i) => {
+    const y0 = top + i * rowH + rowH / 2;
+    const y = (v: number) => y0 - (v / lim) * (rowH / 2 - 3);
+    const area = (sign: 1 | -1) => {
+      let p = "", open = false;
+      for (let t = t0; t <= t1; t += HOUR) {
+        const v = h.at(t);
+        if (!Number.isFinite(v)) { if (open) { p += `L${x(t - HOUR).toFixed(1)},${y0}Z`; open = false; } continue; }
+        const c = sign > 0 ? Math.max(0, v) : Math.min(0, v);
+        if (!open) { p += `M${x(t).toFixed(1)},${y0}`; open = true; }
+        p += `L${x(t).toFixed(1)},${y(c).toFixed(1)}`;
+      }
+      if (open) p += `L${x(t1).toFixed(1)},${y0}Z`;
+      return p;
+    };
+    return `<text x="${left - 10}" y="${y0 + 3}" text-anchor="end" class="sr-name">${d.meta.name}</text>` +
+      `<line x1="${left}" x2="${W - 8}" y1="${y0}" y2="${y0}" stroke="currentColor" opacity="0.18"/>` +
+      `<path d="${area(1)}" fill="${P.delayed}" opacity="0.55"/><path d="${area(-1)}" fill="${P.line}" opacity="0.5"/>`;
+  }).join("");
+  let ticks = "";
+  for (let k = 0; k <= 30; k += 7) {
+    const t = t1 - k * DAY;
+    ticks += `<text x="${x(t).toFixed(1)}" y="${H - 4}" text-anchor="${k === 0 ? "end" : "middle"}" class="sr-tick">${fmtDate.format(new Date(t * 1000)).replace(/, \d{4}$/, "")}</text>`;
+  }
+  const cur = AT != null && AT >= t0 && AT <= t1 ? `<line x1="${x(AT).toFixed(1)}" x2="${x(AT).toFixed(1)}" y1="${top}" y2="${H - 18}" stroke="currentColor" stroke-width="1.2" opacity="0.7"/>` : "";
+  return `<svg class="sound-rows" viewBox="0 0 ${W} ${H}" role="img" aria-label="Departure from the predicted tide at each shore station, the last 30 days">${rows}${ticks}${cur}<text x="${W - 8}" y="${top + 2}" text-anchor="end" class="sr-tick">each row &plusmn;${lim.toFixed(1)} ft</text></svg>`;
+}
+
+function soundRowsSection(stations: StationData[]): string {
+  return `<section class="station sound-rows-sec" id="sound-rows" aria-labelledby="sound-rows-title">
+    <div class="station-head"><h2 id="sound-rows-title">The Sound, station by station</h2><span class="sid">departure from NOAA's prediction, the last 30 days</span></div>
+    <figure class="wide"><div id="sound-rows-box">${soundRowsSvg(stations)}</div></figure>
+  </section>`;
+}
+
+/** The highest predicted tide each day for the next five weeks at one station, as stems, against mean higher high
+ * water and the NWS minor flood level, with the moon's phases above (line work). Amber: 0.8 ft or more above MHHW. */
+function highestAheadHtml(stations: StationData[]): string {
+  const pick = OUTLOOK_PEEK ?? OUTLOOK_PIN;
+  const d = stations.find((s) => s.meta.id === pick && s.kind === "shore") ?? stations.find((s) => s.meta.id === "KPTN");
+  const tide = d ? TIDES?.[d.meta.id] : undefined;
+  if (!d || !tide?.hilo) return "";
+  const t0 = Date.now() / 1000, t1 = t0 + 35 * DAY;
+  const byDay = new Map<string, { t: number; ft: number }>();
+  for (const e of tide.hilo) {
+    const t = Date.parse(e.t) / 1000;
+    if (e.type !== "H" || t < t0 || t > t1) continue;
+    const k = fmtDate.format(new Date(t * 1000));
+    if (!byDay.has(k) || byDay.get(k)!.ft < e.ft) byDay.set(k, { t, ft: e.ft });
+  }
+  const days = [...byDay.values()].sort((a, b) => a.t - b.t);
+  if (days.length < 5) return "";
+  const mhhw = tide.datums_ft?.MHHW ?? NaN, minor = tide.flood_ft?.nws_minor ?? NaN;
+  const W = 360, H = 96, top = 16, bot = 14;
+  const lo = Number.isFinite(mhhw) ? mhhw - 1.5 : Math.min(...days.map((e) => e.ft)) - 0.5;
+  const hi = Math.max(...days.map((e) => e.ft), Number.isFinite(minor) ? minor : -Infinity) + 0.2;
+  const x = (t: number) => 4 + ((t - t0) / (t1 - t0)) * (W - 8);
+  const y = (v: number) => top + (1 - (v - lo) / (hi - lo)) * (H - top - bot);
+  const stems = days.map((e) => {
+    const c = Number.isFinite(mhhw) && e.ft >= mhhw + 0.8 ? P.delayed : P.line;
+    return `<line x1="${x(e.t).toFixed(1)}" x2="${x(e.t).toFixed(1)}" y1="${y(Math.max(lo, e.ft)).toFixed(1)}" y2="${y(lo).toFixed(1)}" stroke="${c}" stroke-width="2"><title>${fmtWhenMin.format(new Date(e.t * 1000))}: ${e.ft.toFixed(1)} ft</title></line>` +
+      `<line x1="${(x(e.t) - 2.5).toFixed(1)}" x2="${(x(e.t) + 2.5).toFixed(1)}" y1="${y(e.ft).toFixed(1)}" y2="${y(e.ft).toFixed(1)}" stroke="${c}" stroke-width="1.2"/>`;
+  }).join("");
+  const rule = (v: number, dash: string, c: string) => (Number.isFinite(v) ? `<line x1="0" x2="${W}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="${c}" stroke-dasharray="${dash}" opacity="0.7"/>` : "");
+  const moon = (p: string) => p === "full" ? `<circle r="3.5" fill="none" stroke="currentColor"/>` : p === "new" ? `<circle r="3.5" fill="none" stroke="currentColor" stroke-dasharray="1.6 1.4"/>` : p === "first_quarter" ? `<path d="M0,-3.5 A3.5,3.5 0 0 1 0,3.5 Z" fill="none" stroke="currentColor"/>` : `<path d="M0,-3.5 A3.5,3.5 0 0 0 0,3.5 Z" fill="none" stroke="currentColor"/>`;
+  const moons = MOON.filter((m) => { const t = Date.parse(m.t) / 1000; return t >= t0 && t <= t1; })
+    .map((m) => `<g transform="translate(${x(Date.parse(m.t) / 1000).toFixed(1)},6)" opacity="0.8"><title>${m.phase.replace("_", " ")} moon</title>${moon(m.phase)}</g>`).join("");
+  const top3 = days.reduce((a, b) => (b.ft > a.ft ? b : a));
+  return `<section class="hi-ahead" aria-label="Highest tides ahead at ${d.meta.name}">
+    <p class="ol-title">Highest tides, next 5 weeks &middot; ${d.meta.name} <span class="ol-hint">pick a row above</span></p>
+    <svg viewBox="0 0 ${W} ${H}" class="hi-svg" role="img" aria-label="Highest predicted tide each day">${moons}${rule(minor, "", P.delayed)}${rule(mhhw, "3 3", P.contrast)}${stems}</svg>
+    <p class="status-key">highest ${top3.ft.toFixed(1)} ft ${fmtWhenMin.format(new Date(top3.t * 1000))}${Number.isFinite(minor) ? `, ${(minor - top3.ft).toFixed(1)} ft below minor flood (solid line)` : ""}; dashed: mean higher high water; amber: 0.8 ft or more above it</p>
+  </section>`;
 }
 
 /** The Tides view's table: per shore station, the water against the prediction, the next high and low, and how far
@@ -1789,7 +1903,8 @@ function markOutlookRow(): void {
   const on = OUTLOOK_PEEK ?? OUTLOOK_PIN;
   document.querySelectorAll<HTMLTableRowElement>("#status tbody tr").forEach((tr) => {
     const id = tr.querySelector<HTMLAnchorElement>('th a[href^="#"]')?.getAttribute("href")?.slice(1);
-    tr.classList.toggle("ol-on", VK === "wind" && id === on);
+    const shown = VK === "tides" && !STATIONS.some((d) => d.meta.id === on && d.kind === "shore") ? "KPTN" : on;
+    tr.classList.toggle("ol-on", (VK === "wind" || VK === "tides") && id === shown);
   });
 }
 const WATER_PAGE = "/long-island-sound/tides/"; // "Reading the tides": unlinked until it returns
@@ -2111,7 +2226,8 @@ function statusGrid(stations: StationData[]): void {
   }
   if (VK === "tides") {
     if (!TIDES) void loadTides();
-    $("status").innerHTML = tidesTable(stations);
+    $("status").innerHTML = tidesTable(stations) + highestAheadHtml(stations);
+    markOutlookRow();
     return;
   }
   const buoys = stations.filter((d) => d.kind === "buoy");
@@ -2157,10 +2273,12 @@ function wireStatusTabs(stations: StationData[]): void {
   const redrawOutlook = () => {
     const el = box.querySelector(".outlook");
     if (el) el.outerHTML = outlookHtml(stations);
+    const hi = box.querySelector(".hi-ahead");
+    if (hi) hi.outerHTML = highestAheadHtml(stations);
     markOutlookRow();
   };
   box.addEventListener("mouseover", (e) => {
-    const id = VK === "wind" ? rowId(e) : null;
+    const id = VK === "wind" || VK === "tides" ? rowId(e) : null;
     if (id && id !== (OUTLOOK_PEEK ?? OUTLOOK_PIN)) {
       OUTLOOK_PEEK = id;
       redrawOutlook();
@@ -2173,14 +2291,14 @@ function wireStatusTabs(stations: StationData[]): void {
     }
   });
   box.addEventListener("focusin", (e) => {
-    const id = VK === "wind" ? rowId(e) : null;
+    const id = VK === "wind" || VK === "tides" ? rowId(e) : null;
     if (id) {
       OUTLOOK_PEEK = id;
       redrawOutlook();
     }
   });
   box.addEventListener("click", (e) => {
-    if (VK !== "wind" || (e.target as HTMLElement).closest("a, button")) return;
+    if ((VK !== "wind" && VK !== "tides") || (e.target as HTMLElement).closest("a, button")) return;
     const id = rowId(e);
     if (id) {
       OUTLOOK_PIN = id;
@@ -2232,16 +2350,25 @@ function stationPin(d: StationData): Pin {
   const kind = d.kind === "shore" ? ("shore" as const) : ("buoy" as const);
   const base = { id: d.meta.id, name: d.meta.name, lat: d.meta.lat, lon: d.meta.lon, kind };
   const k: VarKey = d.kind === "shore" || !isWater(VK) ? "temp" : VK;
-  if (VK === "tides" && d.kind === "shore" && AT == null) {
-    const lv = d.levelNow;
-    const dep = lastValue(departure(d));
-    const hi = d.tides.find((e) => e.type === "H" && Date.parse(e.t) > Date.now());
-    const label = [
-      lv ? `Water ${feet(lv.ft)} ft, ${ago(lv.time)}` : "no recent level",
-      Number.isFinite(dep) ? `${signedFt(dep)} ft against the prediction` : "",
-      hi ? `next high ${hi.ft.toFixed(1)} ft ${fmtWhenMin.format(new Date(hi.t))}` : "",
-    ].filter(Boolean).join("<br>");
-    return { ...base, state: overallState(d), label };
+  if (VK === "tides" && d.kind === "shore") {
+    if (AT == null) {
+      const lv = d.levelNow;
+      const dep = lastValue(departure(d));
+      const hi = d.tides.find((e) => e.type === "H" && Date.parse(e.t) > Date.now());
+      const label = [
+        lv ? `Water ${feet(lv.ft)} ft, ${ago(lv.time)}` : "no recent level",
+        Number.isFinite(dep) ? `${signedFt(dep)} ft against the prediction` : "",
+        hi ? `next high ${hi.ft.toFixed(1)} ft ${fmtWhenMin.format(new Date(hi.t))}` : "",
+      ].filter(Boolean).join("<br>");
+      return { ...base, state: overallState(d), label, bar: dep };
+    }
+    const h = Math.floor(AT / HOUR) * HOUR;
+    const dep = departure(d)?.at(h) ?? NaN;
+    const lv = d.level?.at(h) ?? NaN;
+    const label = Number.isFinite(lv)
+      ? `Water ${feet(lv)} ft, ${Number.isFinite(dep) ? `${signedFt(dep)} ft against the prediction` : ""}<br>observed ${atLabel(AT)}`
+      : `predicted ${feet(predictedHour(d.meta.id, h))} ft<br>${atLabel(AT)}`;
+    return { ...base, state: overallState(d), label, bar: dep };
   }
   if (AT != null && atFuture()) {
     const f = forecastAt(d.meta.id, AT);
@@ -2282,6 +2409,8 @@ function stationPin(d: StationData): Pin {
 /** The overview table and the map pins at the cursor's time (or the latest readings at now). */
 async function showAt(t: number | null): Promise<void> {
   AT = t;
+  const rowsBox = document.getElementById("sound-rows-box");
+  if (rowsBox && VK === "tides") rowsBox.innerHTML = soundRowsSvg(STATIONS);
   if (STATIONS.length) statusGrid(STATIONS);
   try {
     (await import("./map")).updatePins([...STATIONS.map(stationPin), ...(VK === "rivers" ? gaugePins() : [])]);
@@ -2980,6 +3109,8 @@ function about(meta: Meta): void {
   $("about-method").innerHTML =
     `Each plot's (i), and each readout's label, explains what it shows, how it is computed, the sensors and the sources, ` +
     `with references. The papers and monitoring programs behind the page are on the <a href="/references/">references</a> page. ` +
+    `The plots owe their form to Edward Tufte: data in line work, small multiples on shared axes, sparklines ` +
+    `(<a href="/references/#tufte2001visual">his books</a>). ` +
     `Times are stored in UTC and labelled in New York time; all data are provisional and may be revised.`;
   const src = meta.stations
     .flatMap((st) =>
@@ -3582,7 +3713,7 @@ async function main(): Promise<void> {
       };
       $("stations").innerHTML =
         VK === "tides"
-          ? `<h2 class="station-group">Shore stations, NOAA tide gauges</h2>${stations.filter((d) => d.kind === "shore").map(sectionHtml).join("")}`
+          ? `${soundRowsSection(stations)}<h2 class="station-group">Shore stations, NOAA tide gauges</h2>${stations.filter((d) => d.kind === "shore").map(sectionHtml).join("")}`
           : VK === "rivers"
           ? `<h2 class="station-group">Rivers into the Sound, USGS stream gauges</h2>${RIVER_SECTIONS.map(sectionHtml).join("")}`
           : VK === "turbidity"

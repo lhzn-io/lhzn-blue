@@ -824,3 +824,16 @@ input[type="range"]:not(.tl-range)::-moz-range-progress { background: transparen
 input[type="range"]:not(.tl-range)::-webkit-slider-thumb { -webkit-appearance: none; width: 2px; height: 16px; margin-top: -7.5px; background: var(--ink); border: 0; border-radius: 0; box-shadow: 0 0 0 6px transparent; }
 input[type="range"]:not(.tl-range)::-moz-range-thumb { width: 2px; height: 16px; background: var(--ink); border: 0; border-radius: 0; }
 input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim); outline-offset: 3px; }
+
+/* Tides view: the departure as a line up or down from each shore pin (the Sound's tilt on the map). */
+.pin { position: relative; }
+.pin-bar { position: absolute; left: 5.5px; bottom: 50%; width: 2.5px; margin-left: -1.25px; background: var(--delayed); pointer-events: none; }
+.pin-bar.down { bottom: auto; top: 50%; background: var(--accent); }
+/* The Sound's departure rows and the highest tides ahead. */
+.sound-rows { width: 100%; height: auto; display: block; color: var(--ink); }
+.sound-rows .sr-name { font: 400 12px var(--sans); fill: var(--ink); }
+.sound-rows .sr-tick { font: 400 10px var(--mono); fill: var(--dim); }
+.sound-rows-sec .station-head h2 { font-size: clamp(18px, 2.4vw, 24px); }
+.hi-ahead { margin: 18px 0 0; padding-top: 10px; border-top: 1px solid var(--rule); color: var(--ink); }
+.hi-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.overview:has(.hi-ahead) .status-grid tbody tr { cursor: pointer; }

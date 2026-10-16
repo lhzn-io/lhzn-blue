@@ -18,6 +18,20 @@ export interface Pin {
   state: PinState;
   kind?: "buoy" | "shore" | "gauge";
   label: string; // short reading for the popup, e.g. "Surface 66.3 F, 1h ago"
+  bar?: number | null; // Tides view: the departure from the prediction, ft, drawn as a line up or down from the pin
+}
+
+/** A pin's departure line: up for water above the prediction, down for below, 26 px a foot (4 to 44 px). */
+function setBar(el: HTMLElement, v: number | null | undefined): void {
+  const bar = el.querySelector<HTMLElement>(".pin-bar");
+  if (!bar) return;
+  if (v == null || !Number.isFinite(v)) {
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  bar.style.height = `${Math.min(44, Math.max(4, Math.abs(v) * 26)).toFixed(1)}px`;
+  bar.classList.toggle("down", v < 0);
 }
 
 const STYLES = {
@@ -95,7 +109,8 @@ export function updatePins(pins: Pin[]): void {
     if (!entry) continue;
     // Swap the state class only: MapLibre's own marker classes on the same element place it.
     entry.el.classList.replace(`pin-${entry.pin.state}`, `pin-${p.state}`);
-    entry.pin = { ...entry.pin, state: p.state, label: p.label };
+    entry.pin = { ...entry.pin, state: p.state, label: p.label, bar: p.bar };
+    setBar(entry.el, p.bar);
     entry.el.setAttribute("aria-label", labelText(entry.pin));
     entry.popup.setHTML(`<b>${p.name}</b><br>${p.label}<br><span class="pin-go">${entry.go}</span>`);
   }
@@ -106,7 +121,8 @@ function marker(map: maplibregl.Map, p: Pin, go: string): maplibregl.Marker {
   el.type = "button";
   el.className = pinClass(p);
   el.setAttribute("aria-label", labelText(p));
-  el.innerHTML = `<span class="pin-dot"></span><span class="pin-id">${p.id}</span>`;
+  el.innerHTML = `<span class="pin-bar" hidden></span><span class="pin-dot"></span><span class="pin-id">${p.id}</span>`;
+  setBar(el, p.bar);
   const popup = new maplibregl.Popup({ offset: 14, closeButton: false, className: "pin-pop" }).setHTML(
     `<b>${p.name}</b><br>${p.label}<br><span class="pin-go">${go}</span>`,
   );

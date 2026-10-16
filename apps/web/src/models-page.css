@@ -1,0 +1,63 @@
+/* "Wind models compared": four models' wind on their own grids, as four small synced maps with one time slider.
+   Built on site.css (tokens, masthead, legend, credits); this file adds the page's column, the slider and the 2x2
+   map grid. */
+
+/* Masthead: the waterway as an eyebrow (a link back), the page title under it. */
+.mg-mast { align-items: flex-end; justify-content: space-between; }
+.mg-eyebrow {
+  display: inline-block; text-decoration: none; color: var(--accent); font: 300 13px/1.2 var(--sans);
+  letter-spacing: 0.42em; text-transform: uppercase;
+}
+.mg-eyebrow:hover { color: var(--accent-hi); }
+.mg-title {
+  margin: 8px 0 0; font: 300 clamp(22px, 4vw, 38px)/1.05 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink);
+}
+.mg-nav { display: flex; align-items: center; gap: 6px; }
+.mg-back {
+  padding: 6px 0; font: 700 9.5px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent);
+  text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 3px;
+}
+.mg-back:hover { color: var(--accent-hi); }
+.mg-nav .theme-icon { margin-right: -8px; }
+
+.mg-main { max-width: 1120px; }
+.mg-lede { margin: 22px 0 14px; font: 400 clamp(14px, 1.7vw, 17px)/1.45 var(--sans); color: var(--ink-soft); }
+
+/* The time slider: play, slider, the frame's time; sticky so it stays in reach while the maps scroll by. */
+.mg-controls {
+  position: sticky; top: 0; z-index: 3; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  margin: 0 0 16px; padding: 8px 0; background: var(--bg); border-bottom: 1px solid var(--rule);
+}
+.mg-controls[hidden] { display: none; }
+.mg-play {
+  display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--accent-line); border-radius: 50%;
+  background: none; color: var(--accent); cursor: pointer;
+}
+.mg-play:hover { color: var(--accent-hi); border-color: var(--accent); }
+.mg-controls input { width: 100%; margin: 0; min-height: 28px; accent-color: var(--accent); }
+.mg-time { font: 10.5px/1.4 var(--mono); color: var(--dim); white-space: nowrap; }
+.mg-time b { font-weight: 500; color: var(--ink); }
+
+/* Four maps, two by two; stacked on phones. */
+.mg-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 24px; }
+.mg-panel { min-width: 0; margin: 0; }
+.mg-panel figcaption { margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mg-map { position: relative; height: 340px; background: var(--map-bg); border: 1px solid var(--rule); }
+.mg-map .maplibregl-ctrl-attrib { font-size: 10px; }
+.mg-key { align-items: center; margin-top: 14px; }
+.mg-key .sq { display: inline-block; width: 11px; height: 11px; margin: 0 4px 0 0; vertical-align: -1px; border-radius: 1.5px; }
+.mg-foot { max-width: 90ch; }
+.mg-fallback { display: grid; place-items: center; height: 100%; padding: 12px; text-align: center; font: italic 14px var(--serif); color: var(--dim); }
+
+@media (max-width: 860px) {
+  .mg-grid { grid-template-columns: 1fr; }
+  .mg-map { height: 260px; }
+}
+@media (max-width: 560px) {
+  .mg-mast { align-items: flex-start; }
+  .mg-nav { width: 100%; justify-content: space-between; }
+  .mg-eyebrow { letter-spacing: 0.3em; }
+  .mg-title { letter-spacing: 0.08em; }
+  .mg-controls { grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; }
+  .mg-time { grid-column: 1 / -1; }
+}

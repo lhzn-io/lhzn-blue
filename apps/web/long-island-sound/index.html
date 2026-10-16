@@ -34,6 +34,7 @@
         <button class="tab" type="button" data-var="turbidity" aria-pressed="false">Turbidity</button>
         <button class="tab" type="button" data-var="wind" aria-pressed="false">Wind &amp; waves</button>
         <button class="tab" type="button" data-var="rivers" aria-pressed="false">Rivers</button>
+        <button class="tab" type="button" data-var="tides" aria-pressed="false">Tides</button>
       </div>
       <details class="suggest info" id="about-drawer">
         <summary>About</summary>
@@ -56,6 +57,7 @@
       <div class="more-pop" id="more-pop">
         <button type="button" data-more="about">About</button>
         <button type="button" data-more="collect">Collect plots<span class="more-count"></span></button>
+        <a class="more-link" href="/long-island-sound/forecast/">Forecast verification</a>
         <div class="more-row">
           <span class="more-label">Units</span>
           <div class="unit-switch units-top" role="group" aria-label="Units for wind, currents and waves">
@@ -75,10 +77,10 @@
         </a>
         <p class="mast-by"><span class="lho">Long Horizon Observatory</span> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span></p>
       </div>
+      <p class="outage mast-outage" id="outage" role="status" hidden></p>
     </header>
 
     <main>
-      <p class="outage" id="outage" role="status" hidden></p>
       <section class="overview" aria-label="Buoys at a glance">
         <div class="map-col">
           <div class="map" id="map" role="region" aria-label="Map of the buoys"></div>

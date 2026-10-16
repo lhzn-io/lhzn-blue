@@ -75,6 +75,23 @@ export const METHODS: Record<string, Method> = {
       "[[odonnell2013physical]] [[torgersen1997mixing]].",
     sources: "{station}, LISICOS [[lisicos]].",
   },
+  next48: {
+    title: "The next 48 hours",
+    shows:
+      "Wind and gusts at the station: measured over the last day and a half, and forecast by NOAA's HRRR model for the " +
+      "next two days. The dashed line is the newest forecast for each hour; the dotted lines show how far such a forecast " +
+      "typically misses at that lead time; dots are gusts. Each faint line is an earlier HRRR run: where they bunch " +
+      "together, the model has been consistent; where they spread apart, it has not, and the timing or strength is less " +
+      "certain. Each run reaches 18 or 48 hours ahead, so fewer lines remain further out.",
+    method:
+      "HRRR (3 km, hourly) is read at the station's nearest water cells. The typical " +
+      "error is the mean absolute difference between HRRR and the four buoys at each lead time since January 2024; about " +
+      "6 in 10 forecast hours fall within it.",
+    caveats:
+      "Raw model output, not corrected. One model only; other models are not shown. For decisions afloat, use the " +
+      "National Weather Service marine forecast. " +
+      "Why HRRR, not ECMWF or GFS? HRRR is NOAA's 3 km model, run every hour, for the next 18 to 48 hours. Global models such as ECMWF and GFS reach further ahead on coarser grids (about 9 to 25 km); across a Sound 5 to 34 km wide that is one or two cells. For the next day or two at the water's edge, the finer grid matters. We will add the global models with their own measured errors at the buoys.",
+  },
   wind: {
     title: "Wind",
     shows:
@@ -94,9 +111,23 @@ export const METHODS: Record<string, Method> = {
     shows: "Hourly air temperature and surface water temperature.",
     sources: "The station's weather sensors and its surface sensor.",
   },
+  hilo: {
+    title: "Highs and lows",
+    shows: "Each high and low tide: NOAA's prediction (faint) and the water's (bold), against mean higher high water and the NWS minor flood level.",
+    method: "The observed high or low is the highest or lowest hourly mean within 2 hours of the predicted time.",
+    sources: "NOAA CO-OPS; flood levels from the National Weather Service.",
+    caveats: "Observations are preliminary until NOAA verifies them.",
+  },
+  dep: {
+    title: "Departure from prediction",
+    shows: "Observed water level minus NOAA's prediction, hourly: what wind, pressure and river flow add to the tide.",
+    method: "The prediction is averaged over the same hour as the observed hourly mean.",
+    sources: "NOAA CO-OPS.",
+    caveats: "Predictions use the 1983 to 2001 tidal epoch; sea level has risen about 0.3 ft since, so the departure sits above zero most weeks.",
+  },
   tide: {
-    title: "Water level",
-    shows: "Observed water level each hour, and the predicted highs and lows, in feet above mean lower low water.",
+    title: "Departure from prediction",
+    shows: "Observed water level minus NOAA's prediction, hourly: what wind, pressure and river flow add to the tide.",
     sources: "NOAA CO-OPS.",
     caveats:
       "Observations are preliminary until NOAA verifies them. Predictions are astronomical tide only; wind and pressure move " +
@@ -190,6 +221,17 @@ export const METHODS: Record<string, Method> = {
       "24 hours back to 72 hours ahead.",
     method: "The NECOFS FVCOM forecast (UMass Dartmouth), every 2 hours [[chen2003fvcom]] [[chen2006fvcom]].",
     caveats: "A model forecast, not a measurement. Speeds follow the Units switch.",
+  },
+  "map-wind": {
+    title: "Wind (HRRR)",
+    shows:
+      "Forecast wind 10 m above the surface on the model's own 3 km cells, shaded by speed, with arrows in the direction " +
+      "the wind blows toward; 24 hours back to 48 hours ahead.",
+    method:
+      "NOAA's High-Resolution Rapid Refresh (HRRR), read through forcingkit. Each hour comes from the newest run that covers " +
+      "it: hourly runs reach 18 hours ahead, the 00, 06, 12 and 18 UTC runs 48 hours. Values are raw: no smoothing between " +
+      "cells. Cells HRRR counts as land are drawn fainter, so the coastline is the model's.",
+    caveats: "A model forecast, not a measurement; the past hours are short-lead forecasts, not observations. Speeds follow the Units switch.",
   },
 };
 

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href="https://longhorizon.blue/long-island-sound/models/" />
+    <script>
+      // Light by default; a saved choice of dark is applied before first paint so the page never flashes.
+      document.documentElement.dataset.theme = "light";
+      try {
+        if (localStorage.getItem("lhzn-blue-theme") === "dark") delete document.documentElement.dataset.theme;
+      } catch (e) {}
+    </script>
+    <title>Wind models compared, Long Island Sound (alpha) | longhorizon.blue</title>
+    <meta name="description" content="10 m wind over Long Island Sound for the next 48 hours on four models' own grids: NOAA HRRR (3 km), DWD ICON (13 km), ECMWF open data and NOAA GFS (0.25 degree)." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Josefin+Sans:wght@300;400;600;700&family=Martian+Mono:wght@300;400;500&display=swap"
+    />
+  </head>
+  <body class="mg">
+    <header class="mast mg-mast">
+      <div class="mast-id">
+        <a class="mg-eyebrow" href="/long-island-sound/">Long Island Sound</a>
+        <h1 class="mg-title">Wind models compared</h1>
+        <p class="mast-by"><span class="lho">Long Horizon Observatory</span> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span></p>
+      </div>
+      <nav class="mg-nav" aria-label="Page">
+        <a class="mg-back" href="/long-island-sound/">Back to the Sound</a>
+        <button class="theme-icon" id="theme-toggle" type="button" aria-pressed="false"></button>
+      </nav>
+    </header>
+
+    <main class="mg-main">
+      <p class="mg-lede" id="lede">HRRR 3 km · ICON 13 km · ECMWF 25 km · GFS 27 km: each on its own grid, the next 48 hours over Long Island Sound.</p>
+      <p class="outage" id="load-error" role="status" hidden></p>
+
+      <div class="mg-controls" id="controls">
+        <button class="mg-play" id="play" type="button" aria-pressed="false" aria-label="Play"></button>
+        <input type="range" id="slider" min="0" max="0" step="1" value="0" aria-label="Forecast hour" />
+        <span class="mg-time" id="tlabel" aria-live="polite"></span>
+      </div>
+
+      <div class="mg-grid" id="panels"></div>
+      <div class="legend mg-key" id="key"></div>
+      <p class="note mg-foot">Arrows point where the wind blows toward.</p>
+
+      <footer class="credits">
+        <p>
+          <b>Data:</b> NOAA (HRRR, GFS); Deutscher Wetterdienst (DWD), ICON, CC BY 4.0; ECMWF open data, CC BY 4.0. Basemap: OpenFreeMap,
+          OpenStreetMap contributors.
+        </p>
+        <p>Model output as published; not for navigation. See the <a href="/terms/">terms</a> for use and credit.</p>
+        <p>
+          A <a href="/">longhorizon.blue</a> page by Long Horizon Observatory. Open source under the MIT license:
+          <a href="https://github.com/lhzn-io/lhzn-blue">code</a>. Back to <a href="/long-island-sound/">Long Island Sound</a>.
+        </p>
+      </footer>
+    </main>
+
+    <script type="module" src="../../src/models-page.ts"></script>
+  </body>
+</html>

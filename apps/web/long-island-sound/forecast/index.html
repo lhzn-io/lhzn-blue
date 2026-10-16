@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href="https://longhorizon.blue/long-island-sound/forecast/" />
+    <script>
+      // Light by default; a saved choice of dark is applied before first paint so the page never flashes.
+      document.documentElement.dataset.theme = "light";
+      try {
+        if (localStorage.getItem("lhzn-blue-theme") === "dark") delete document.documentElement.dataset.theme;
+      } catch (e) {}
+    </script>
+    <title>Forecast verification | Long Island Sound | longhorizon.blue</title>
+    <meta name="description" content="Every NOAA HRRR wind forecast archived at four Long Island Sound buoys since January 2024, compared with what the buoys measured: typical error by lead time, by forecast speed and by day." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Josefin+Sans:wght@300;400;600;700&family=Martian+Mono:wght@300;400;500&display=swap"
+    />
+  </head>
+  <body class="fc">
+    <header class="mast fc-mast">
+      <div class="mast-id">
+        <a class="fc-eyebrow" href="/long-island-sound/">Long Island Sound</a>
+        <h1 class="fc-title">Forecast verification</h1>
+        <p class="mast-by"><span class="lho">Long Horizon Observatory</span> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span></p>
+      </div>
+      <nav class="fc-nav" aria-label="Page">
+        <a class="fc-back" href="/long-island-sound/">Back to the Sound</a>
+        <button class="theme-icon" id="theme-toggle" type="button" aria-pressed="false"></button>
+      </nav>
+    </header>
+
+    <main class="fc-main">
+      <p class="fc-lede" id="lede">Reading the forecast archive.</p>
+      <p class="outage" id="load-error" role="status" hidden></p>
+
+      <div class="band fc-cards" id="cards" aria-label="Headline numbers"></div>
+
+      <section class="fc-sec" aria-labelledby="conv-title">
+        <h2 class="fc-h" id="conv-title">How the forecast came in</h2>
+        <p class="prose fc-say">Every HRRR run for one buoy, and what the buoy measured. Pick an hour to see each run's forecast for it.</p>
+        <div class="fc-controls"><span class="fc-ctl-label">Buoy</span><span class="fc-tabs" id="conv-buoy" role="group" aria-label="Buoy"></span></div>
+        <p class="outage fc-obs-note" id="conv-note" role="status" hidden></p>
+        <div class="fc-conv">
+          <figure class="fc-conv-main">
+            <figcaption><span class="cap-label" id="conv-cap">Wind at 10 m</span><span class="cap-sub">kt, Eastern time</span></figcaption>
+            <div class="plot fc-conv-plot" id="conv-plot"><svg role="img" aria-label="HRRR runs and the observed wind at the buoy"></svg><div class="plot-labels" aria-hidden="true"></div></div>
+            <div class="fc-slider">
+              <label class="fc-ctl-label" for="conv-t">Hour</label>
+              <input type="range" id="conv-t" min="0" max="1" step="1" value="0" />
+            </div>
+            <p class="fc-read" id="conv-read" aria-live="polite"></p>
+            <div class="legend">
+              <span><i style="background: var(--now)"></i>observed at the buoy, raised to 10 m</span>
+              <span><i style="background: var(--fc-mid)"></i>HRRR runs (paler is older)</span>
+              <span><i style="background: var(--ink)"></i>the hour shown in the panel</span>
+            </div>
+          </figure>
+          <figure class="fc-panel">
+            <figcaption><span class="cap-label">What each run said for that hour</span></figcaption>
+            <div class="fc-svgbox" id="conv-panel"></div>
+            <p class="note fc-panel-note" id="conv-panel-note"></p>
+          </figure>
+        </div>
+      </section>
+
+      <section class="fc-sec" aria-labelledby="cal-title">
+        <h2 class="fc-h" id="cal-title">HRRR says this: what do the buoys see?</h2>
+        <p class="prose fc-say" id="cal-say"></p>
+        <div class="fc-controls"><span class="fc-ctl-label">Hours ahead</span><span class="fc-tabs" id="cal-band" role="group" aria-label="Hours ahead"></span></div>
+        <figure>
+          <div class="fc-svgbox" id="cal-chart"></div>
+          <div class="legend" id="cal-legend"></div>
+        </figure>
+        <p class="note fc-note">Grouped by the forecast, not by the observation, which would show regression to the mean.</p>
+      </section>
+
+      <section class="fc-sec" aria-labelledby="lead-title">
+        <h2 class="fc-h" id="lead-title">The error barely grows with lead time</h2>
+        <p class="prose fc-say" id="lead-say"></p>
+        <div class="fc-controls">
+          <span class="fc-group"><span class="fc-ctl-label">Measure</span><span class="fc-tabs" id="lead-var" role="group" aria-label="Measure"></span></span>
+          <span class="fc-group"><span class="fc-ctl-label">Buoy</span><span class="fc-tabs" id="lead-buoy" role="group" aria-label="Buoy"></span></span>
+        </div>
+        <figure>
+          <div class="fc-svgbox" id="lead-chart"></div>
+          <div class="legend" id="lead-legend"></div>
+        </figure>
+      </section>
+
+      <section class="fc-sec" aria-labelledby="card-title">
+        <h2 class="fc-h" id="card-title">The last 30 days, buoy by buoy</h2>
+        <p class="prose fc-say" id="card-say"></p>
+        <div class="fc-controls"><span class="fc-ctl-label">Hours ahead</span><span class="fc-tabs" id="card-band" role="group" aria-label="Hours ahead"></span></div>
+        <figure>
+          <div class="fc-svgbox" id="card-chart"></div>
+          <div class="legend fc-card-key" id="card-key"></div>
+        </figure>
+      </section>
+
+      <section class="fc-sec fc-method" aria-labelledby="method-title">
+        <h2 class="fc-h" id="method-title">Method and caveats</h2>
+        <dl class="about-list" id="method"></dl>
+      </section>
+
+      <footer class="credits">
+        <p>
+          <b>Data:</b> forecasts from NOAA's <a href="https://rapidrefresh.noaa.gov/hrrr/">High-Resolution Rapid Refresh</a> (HRRR), read at
+          the buoys with forcingkit; observations from <a href="https://lisicos.uconn.edu/">LISICOS</a>, Department of Marine Sciences,
+          University of Connecticut. Thank you to both.
+        </p>
+        <p><b>Provisional data.</b> Past forecast performance, not a forecast; not for navigation. <a href="/terms/">Terms</a>.</p>
+        <p>
+          A <a href="/">longhorizon.blue</a> page by Long Horizon Observatory. Open source under the MIT license:
+          <a href="https://github.com/lhzn-io/lhzn-blue">code</a>. Back to <a href="/long-island-sound/">Long Island Sound</a>.
+        </p>
+      </footer>
+    </main>
+
+    <script type="module" src="../../src/forecast-page.ts"></script>
+  </body>
+</html>

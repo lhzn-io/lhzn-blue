@@ -1,0 +1,100 @@
+/* "How good is the forecast?": the forecast verification page for Long Island Sound. Built on site.css (tokens,
+   masthead, readout band, tabs, plots, legend); this file adds the page's column, its sections and the willow
+   ramp used for order (lead time and run age: strong for recent or short, pale for old or long). */
+:root {
+  /* Willow blues for order, dark theme: the strong end is the brightest, older or longer recedes into the night. */
+  --fc-strong: #a9d6f0;
+  --fc-mid: #6f9cc4;
+  --fc-pale: #3b5f80;
+}
+:root[data-theme="light"] {
+  /* Light theme: cobalt to pale willow on the eggshell ground. */
+  --fc-strong: #133c8b;
+  --fc-mid: #4a7fae;
+  --fc-pale: #a9c0da;
+}
+
+/* Masthead: the waterway as an eyebrow (a link back), the question as the title. */
+.fc-mast { align-items: flex-end; justify-content: space-between; }
+.fc-eyebrow {
+  display: inline-block; text-decoration: none; color: var(--accent); font: 300 13px/1.2 var(--sans);
+  letter-spacing: 0.42em; text-transform: uppercase;
+}
+.fc-eyebrow:hover { color: var(--accent-hi); }
+.fc-title {
+  margin: 8px 0 0; font: 300 clamp(22px, 4vw, 38px)/1.05 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink);
+}
+.fc-nav { display: flex; align-items: center; gap: 6px; }
+.fc-back {
+  padding: 6px 0; font: 700 9.5px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent);
+  text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 3px;
+}
+.fc-back:hover { color: var(--accent-hi); }
+.fc-nav .theme-icon { margin-right: -8px; }
+
+/* One reading column, wide enough for the run chart and its panel side by side. */
+.fc-main { max-width: 1120px; }
+.fc-lede { margin: 22px 0 18px; max-width: 70ch; font: 400 15px/1.5 var(--sans); color: var(--dim); }
+.fc-lede b { font-weight: 600; color: var(--ink); }
+.fc-cards { margin-bottom: 8px; }
+.fc-cards .readout .sub { max-width: 30ch; }
+.fc-sec { padding: 30px 0 8px; margin-top: 18px; border-top: 1px solid var(--rule); display: grid; gap: 10px; min-width: 0; }
+.fc-h { margin: 0; font: 300 clamp(18px, 2.4vw, 24px)/1.2 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
+.fc-say { max-width: 72ch; }
+.fc-say b { font-weight: 600; color: var(--ink); }
+.fc-note { max-width: 90ch; }
+
+/* Controls: a small-caps label, then the site's hanging tabs, wrapping on phones. */
+.fc-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.fc-ctl-label { font: 700 8.5px/1 var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--faint); }
+.fc-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.fc-tabs { display: inline-flex; flex-wrap: wrap; gap: 2px; margin-right: 10px; }
+.fc-tabs .tab { min-height: 26px; }
+
+/* How the forecast came in: the runs chart and, beside it (under it on phones), the panel for one hour. */
+.fc-conv { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); gap: 18px 28px; align-items: start; }
+.fc-conv figure { min-width: 0; }
+.fc-conv-plot { height: 300px; }
+.fc-conv-plot svg { cursor: crosshair; }
+.fc-slider { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; margin: 18px 44px 0 0; }
+.fc-slider input { width: 100%; margin: 0; accent-color: var(--accent); }
+.fc-read { margin: 6px 0 0; min-height: 2.9em; font: 10.5px/1.45 var(--mono); color: var(--ink-soft); }
+.fc-read b { font-weight: 500; color: var(--ink); }
+.fc-panel { padding: 12px 12px 10px; background: var(--panel); border-top: 1px solid var(--accent-line); }
+.fc-panel figcaption { margin-bottom: 4px; }
+.fc-panel-note { margin-top: 6px; font-size: 11px; }
+.fc-obs-note { margin: 0; }
+.legend i { border-radius: 1px; }
+
+/* Plain SVG charts drawn from the tokens; text in the plot-label style. */
+.fc-svgbox { position: relative; width: 100%; min-width: 0; }
+.fc-svg { display: block; width: 100%; overflow: visible; }
+.fc-svg text { font-family: var(--mono); font-size: 9px; fill: var(--chart-label); }
+.fc-svg text.lab { font: 700 8.5px var(--sans); letter-spacing: 0.16em; text-transform: uppercase; fill: var(--dim); }
+.fc-svg text.val { fill: var(--ink); font-size: 9.5px; }
+.fc-svg text.note { font: italic 13px var(--serif); fill: var(--dim); }
+.fc-card-key { align-items: center; }
+.fc-card-key .sq { display: inline-block; width: 11px; height: 11px; margin: 0 4px 0 0; vertical-align: -1px; border-radius: 1.5px; }
+
+.fc-method .about-list { max-width: 900px; grid-template-columns: 8.5em 1fr; }
+.fc-method .about-list dd { font-size: 13.5px; }
+.fc-method .about-list a { text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 2px; }
+
+@media (max-width: 860px) {
+  .fc-conv { grid-template-columns: 1fr; }
+  .fc-conv-plot { height: 250px; }
+}
+@media (max-width: 560px) {
+  .fc-mast { align-items: flex-start; }
+  .fc-nav { width: 100%; justify-content: space-between; }
+  .fc-eyebrow { letter-spacing: 0.3em; }
+  .fc-title { letter-spacing: 0.08em; }
+  .fc-svg text { font-size: 9.5px; }
+  .fc-svg text.lab { font-size: 9px; }
+  .fc-ctl-label { font-size: 9.5px; }
+  .fc-tabs { margin-right: 0; }
+  .fc-tabs .tab { min-height: 32px; }
+  .fc-slider { margin-right: 0; }
+  .fc-slider input { min-height: 32px; }
+  .fc-method .about-list { grid-template-columns: 1fr; }
+}

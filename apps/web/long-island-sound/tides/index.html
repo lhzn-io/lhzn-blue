@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href="https://longhorizon.blue/long-island-sound/tides/" />
+    <script>
+      // Light by default; a saved choice of dark is applied before first paint so the page never flashes.
+      document.documentElement.dataset.theme = "light";
+      try {
+        if (localStorage.getItem("lhzn-blue-theme") === "dark") delete document.documentElement.dataset.theme;
+      } catch (e) {}
+    </script>
+    <title>Reading the tides, Long Island Sound (alpha) | longhorizon.blue</title>
+    <meta name="description" content="Water levels at Kings Point, Bridgeport, New Haven and New London: how the observed water departs from NOAA's tide predictions, how the Sound tilts, and the highest tides ahead. Provisional public data." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Josefin+Sans:wght@300;400;600;700&family=Martian+Mono:wght@300;400;500&display=swap"
+    />
+  </head>
+  <body class="wp">
+    <div class="wp-wrap">
+      <header class="wp-mast">
+        <div class="wp-mast-top">
+          <a class="wp-eyebrow" href="/long-island-sound/">Long Island Sound</a>
+          <button class="theme-toggle wp-theme" id="wp-theme" type="button" aria-pressed="false">Dark</button>
+        </div>
+        <h1 class="wp-title">Reading the tides</h1>
+        <p class="wp-lede">Water level at four NOAA stations, against the tide predictions.</p>
+        <p class="wp-fresh" id="wp-fresh" aria-live="polite">Loading the latest water levels</p>
+        <p class="wp-back"><a href="/long-island-sound/">Back to Long Island Sound</a></p>
+      </header>
+
+      <section class="wp-sec" aria-labelledby="tilt-h">
+        <h2 id="tilt-h">The Sound tilts</h2>
+        <p class="wp-say">Water level from Kings Point to New London, hourly, the last ten days.</p>
+        <div class="wp-controls">
+          <div class="tabs wp-seg" id="tilt-mode" role="group" aria-label="Measure"></div>
+          <button class="tab wp-play" id="tilt-play" type="button" aria-pressed="false">Play</button>
+          <input type="range" id="tilt-t" class="wp-range" aria-label="Hour" />
+          <span class="wp-readout" id="tilt-read"></span>
+        </div>
+        <div class="wp-tilt">
+          <div class="wp-chart" id="tilt-chart"></div>
+          <div class="wp-chart" id="tilt-map"></div>
+        </div>
+      </section>
+
+      <section class="wp-sec" aria-labelledby="king-h">
+        <h2 id="king-h">The highest tides ahead</h2>
+        <p class="wp-say" id="king-say"></p>
+        <div class="wp-controls"><span class="wp-ctl-label">Station</span><div class="tabs wp-seg" id="king-st" role="group" aria-label="Station"></div></div>
+        <div class="wp-chart" id="king-chart"></div>
+        <div class="wp-legend">
+          <span><i class="wp-sw" style="background: var(--wp-bar-high)"></i>0.8 ft or more above MHHW</span>
+          <span><i class="wp-sw" style="background: var(--wp-bar-mid)"></i>above MHHW</span>
+          <span><i class="wp-sw" style="background: var(--wp-bar-low)"></i>below MHHW</span>
+          <span><i style="border-color: var(--wp-flood)"></i>NWS minor flood</span>
+          <span class="wp-moonkey"></span>
+        </div>
+      </section>
+
+      <section class="wp-sec" aria-labelledby="lad-h">
+        <h2 id="lad-h">The tide ladder</h2>
+        <p class="wp-say">Each high and low water: predicted (open circle) and observed (dot).</p>
+        <div class="wp-controls"><span class="wp-ctl-label">Station</span><div class="tabs wp-seg" id="lad-st" role="group" aria-label="Station"></div></div>
+        <div class="wp-chart" id="lad-chart"></div>
+        <p class="wp-readout" id="lad-read"></p>
+        <div class="wp-legend">
+          <span><svg width="14" height="10" aria-hidden="true"><circle cx="7" cy="5" r="3.2" style="fill: var(--bg); stroke: var(--ink)" /></svg>predicted</span>
+          <span><svg width="14" height="10" aria-hidden="true"><circle cx="7" cy="5" r="3.4" style="fill: var(--wp-gold)" /></svg>observed</span>
+          <span><i style="border-color: var(--wp-amber)"></i>more than 0.5 ft beyond the prediction</span>
+          <span><i style="border-color: var(--wp-flood)"></i>NWS minor flood</span>
+          <span><i style="border-color: var(--wp-flood); border-top-style: dashed"></i>moderate flood</span>
+          <span><i style="border-color: var(--faint); border-top-style: dashed"></i>mean higher high water</span>
+          <span class="wp-moonkey"></span>
+        </div>
+      </section>
+
+      <section class="wp-sec" aria-labelledby="dep-h">
+        <h2 id="dep-h">The departure from prediction</h2>
+        <p class="wp-say" id="dep-say"></p>
+        <div class="wp-chart" id="dep-chart"></div>
+        <p class="wp-note">Observed minus predicted, hourly, ft. Predictions use the 1983 to 2001 tidal epoch; sea level has risen about 0.3 ft since.</p>
+      </section>
+
+      <footer class="wp-foot">
+        <h2>Sources and caveats</h2>
+        <p>
+          NOAA CO-OPS preliminary water levels (hourly means), predictions, datums and NWS flood levels, in feet above MLLW. Moon
+          phases from the US Naval Observatory. Times Eastern. Not for navigation.
+        </p>
+        <p class="wp-links"><a href="/long-island-sound/">Long Island Sound</a> &middot; <a href="/terms/">Terms</a> &middot; <a href="/references/">References</a></p>
+      </footer>
+    </div>
+    <script type="module" src="/src/water-page.ts"></script>
+  </body>
+</html>

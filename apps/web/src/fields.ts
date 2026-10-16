@@ -6,15 +6,16 @@
  * Rasters are drawn on a canvas at the product's own resolution and placed as an image over their grid cells, so a
  * pixel is never smoothed into its neighbours; older pixels (a cloudy spell) are drawn fainter. Currents are drawn on
  * the model's own triangles, shaded by speed, with arrows at element centres thinned by zoom level, so the field is
- * shown as the model holds it rather than regridded.
+ * shown as the model holds it rather than regridded. HRRR wind is drawn the same way on HRRR's own 3 km cells, one
+ * quadrilateral per cell, with land cells (HRRR's mask) fainter.
  */
 import type maplibregl from "maplibre-gl";
 import { mapReady, mapTheme, onStyle } from "./map";
 
-export type FieldKind = "sst" | "chl" | "kd490" | "currents";
+export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind";
 
 export interface RasterField {
-  kind: Exclude<FieldKind, "currents">;
+  kind: Exclude<FieldKind, "currents" | "wind">;
   units: string;
   scale: number;
   time: string;
@@ -47,10 +48,30 @@ export interface CurrentsField {
   generated_at: string;
 }
 
+/** HRRR 10 m wind on the model's own grid (see the jobs' hrrr_grid.py): each cell a quadrilateral, one frame per
+ * valid hour with east and north components as base64 int8 in steps of encoding.step m/s. */
+export interface WindField {
+  generated_at: string;
+  source: string;
+  attribution: string;
+  encoding: { step: number };
+  mesh: {
+    nx: number;
+    ny: number;
+    corner_lon: number[];
+    corner_lat: number[];
+    centre_lon: number[];
+    centre_lat: number[];
+    land: number[];
+    arrow_level: number[];
+  };
+  frames: { valid_time: string; cycle: string; lead: number; u: string; v: string }[];
+}
+
 /** The last 90 days of a raster, one frame per UTC day (see the jobs' fields.py for the file layout). */
 export interface RasterHistory {
   header: {
-    kind: Exclude<FieldKind, "currents">;
+    kind: Exclude<FieldKind, "currents" | "wind">;
     units: string;
     grid: RasterField["grid"];
     days: string[];
@@ -69,6 +90,7 @@ export interface FieldData {
   history?: RasterHistory;
   mesh?: CurrentsMesh;
   currents?: CurrentsField;
+  wind?: WindField;
 }
 
 /** Unzip and parse a history file: "LHZF", a little-endian uint32 header length, the JSON header, the frames. */
@@ -98,7 +120,18 @@ const RAMPS: Record<string, string[]> = {
   algae: ["#d7f9d0", "#a3d3a0", "#6fae6a", "#3e8a3c", "#1c6427", "#0d3f17", "#062a10"],
   turbid: ["#e9f6ab", "#d3c671", "#bf9747", "#a1703b", "#795338", "#4d392d", "#221f1b"],
   speed: ["#fffdcd", "#e1cd73", "#aaac20", "#5f920c", "#187328", "#144b2a", "#172313"],
+  wind: ["#f1edf8", "#b7a2dd", "#6a47a8", "#3f2477"], // the light-theme scale; see windStops()
 };
+
+/** Wind colours, m/s: one continuous scale, pale lavender to deep violet on the light basemap and the reverse on the
+ * dark one, so the strongest wind is always the most visible (the same scale as the four-grids page, in kt). */
+const KT = 0.514444;
+const WIND_TOP = 35 * KT;
+const windStops = (): [number, string][] =>
+  (mapTheme() === "light"
+    ? [[0, "#f1edf8"], [6, "#d9cdee"], [12, "#b7a2dd"], [18, "#9070c6"], [25, "#6a47a8"], [35, "#3f2477"]]
+    : [[0, "#2b2440"], [6, "#3f3366"], [12, "#5d4a92"], [18, "#8167bd"], [25, "#a990dd"], [35, "#d6c7f5"]]
+  ).map(([kt, c]) => [(kt as number) * KT, c as string]);
 
 interface Meta {
   title: string;
@@ -116,6 +149,7 @@ const META: Record<FieldKind, Meta> = {
   chl: { title: "Chlorophyll-a", short: "Chlorophyll-a", ramp: "algae", log: true, range: [0.5, 30], unit: "mg/m³", digits: 1, note: "Satellite estimate of the surface; biased high in turbid water and near the shore (a band along the coast is left out)." },
   kd490: { title: "Water clarity (Kd490)", short: "Clarity, Kd490", ramp: "turbid", log: true, range: [0.1, 2], unit: "m⁻¹", digits: 2, note: "Light attenuation at 490 nm, a satellite proxy for murkiness, not a turbidity reading in NTU. Higher is murkier." },
   currents: { title: "Surface currents", short: "Currents", ramp: "speed", log: false, range: [0, 150], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
+  wind: { title: "Wind (HRRR)", short: "Wind, HRRR", ramp: "wind", log: false, range: [0, WIND_TOP], unit: "m/s", digits: 1, note: "Model forecast (NOAA HRRR), 10 m above the surface, on the model's own 3 km cells; arrows show where the wind blows toward. Cells HRRR counts as land are fainter." },
 };
 
 const hex = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
@@ -144,6 +178,7 @@ let active: FieldKind | null = null;
 let data: FieldData = {};
 let range: [number, number] = [0, 1];
 let frame = 0;
+let windFrame = -1; // the wind frame on the map (-1: no HRRR hour at the timeline's time)
 let fieldT: number | null = null; // the page timeline's time (epoch seconds), or null for now
 let controls: FieldControls | null = null;
 let panel: HTMLElement | null = null;
@@ -225,8 +260,8 @@ function historyRange(h: RasterHistory): [number, number] {
   return r;
 }
 
-const LAYER_IDS = ["field-raster", "cur-fill", "cur-arrows"];
-const SOURCE_IDS = ["field-raster", "cur-mesh", "cur-points"];
+const LAYER_IDS = ["field-raster", "cur-fill", "cur-arrows", "wind-fill", "wind-arrows"];
+const SOURCE_IDS = ["field-raster", "cur-mesh", "cur-points", "wind-cells", "wind-points"];
 
 function clear(map: maplibregl.Map): void {
   for (const id of LAYER_IDS) if (map.getLayer(id)) map.removeLayer(id);
@@ -427,6 +462,154 @@ function currentText(c: CurrentsField, id: number): string {
   return `${(Math.hypot(u, v) * sp.perCms).toFixed(sp.digits + 1)} ${sp.label} toward ${Math.round(deg)}&deg;<br><small>${t}, model</small>`;
 }
 
+/* ---------- Wind (HRRR) ---------- */
+
+const windDecoded = new WeakMap<WindField["frames"][number], { u: Float32Array; v: Float32Array }>();
+
+/** A frame's east and north components in m/s (decoded once). */
+function windUV(w: WindField, k: number): { u: Float32Array; v: Float32Array } {
+  const f = w.frames[k];
+  let uv = windDecoded.get(f);
+  if (!uv) {
+    const dec = (s: string) => {
+      const b = atob(s);
+      const out = new Float32Array(b.length);
+      for (let i = 0; i < b.length; i++) out[i] = ((b.charCodeAt(i) << 24) >> 24) * w.encoding.step; // int8
+      return out;
+    };
+    uv = { u: dec(f.u), v: dec(f.v) };
+    windDecoded.set(f, uv);
+  }
+  return uv;
+}
+
+/** The frame for the timeline's time: the nearest valid hour, or -1 when HRRR has none within the hour. */
+function windFrameAt(w: WindField): number {
+  const t = fieldT ?? Date.now() / 1000;
+  let best = -1;
+  let gap = Infinity;
+  w.frames.forEach((f, k) => {
+    const d = Math.abs(Date.parse(f.valid_time) / 1000 - t);
+    if (d < gap) [best, gap] = [k, d];
+  });
+  return gap <= 3600 ? best : -1;
+}
+
+/** Each HRRR cell as its own quadrilateral, from the corners the job published. */
+function windCellsGeoJSON(w: WindField) {
+  const { nx, ny, corner_lon: x, corner_lat: y, land } = w.mesh;
+  const c = (j: number, i: number) => [x[j * (nx + 1) + i], y[j * (nx + 1) + i]];
+  const features = [];
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const id = j * nx + i;
+      features.push({
+        type: "Feature" as const,
+        id,
+        properties: { land: land[id] },
+        geometry: { type: "Polygon" as const, coordinates: [[c(j, i), c(j, i + 1), c(j + 1, i + 1), c(j + 1, i), c(j, i)]] },
+      });
+    }
+  }
+  return { type: "FeatureCollection" as const, features };
+}
+
+function windPointsGeoJSON(w: WindField, k: number) {
+  const m = w.mesh;
+  const uv = k >= 0 ? windUV(w, k) : null;
+  return {
+    type: "FeatureCollection" as const,
+    features: uv
+      ? m.centre_lon.map((lon, i) => ({
+          type: "Feature" as const,
+          properties: { level: m.arrow_level[i], land: m.land[i], s: Math.hypot(uv.u[i], uv.v[i]), d: (Math.atan2(uv.u[i], uv.v[i]) * 180) / Math.PI },
+          geometry: { type: "Point" as const, coordinates: [lon, m.centre_lat[i]] },
+        }))
+      : [],
+  };
+}
+
+/** The wind colour expression on a speed in m/s. */
+function windColour(s: maplibregl.ExpressionSpecification): maplibregl.ExpressionSpecification {
+  return ["interpolate", ["linear"], s, ...windStops().flat()] as maplibregl.ExpressionSpecification;
+}
+
+function addWind(map: maplibregl.Map, w: WindField): void {
+  range = META.wind.range!;
+  arrowImage(map);
+  map.addSource("wind-cells", { type: "geojson", data: windCellsGeoJSON(w) });
+  map.addSource("wind-points", { type: "geojson", data: windPointsGeoJSON(w, windFrame) });
+  const land = (water: number, onLand: number): maplibregl.ExpressionSpecification => ["case", ["==", ["get", "land"], 1], onLand, water];
+  map.addLayer(
+    {
+      id: "wind-fill",
+      type: "fill",
+      source: "wind-cells",
+      paint: {
+        "fill-color": windColour(["coalesce", ["feature-state", "s"], 0]),
+        "fill-opacity": ["case", ["==", ["feature-state", "s"], null], 0, ["==", ["get", "land"], 1], 0.28, 0.72] as maplibregl.ExpressionSpecification,
+        "fill-antialias": false,
+      },
+    },
+    beneathLabels(map),
+  );
+  const shown = (level: number): maplibregl.ExpressionSpecification => ["case", ["<=", ["get", "level"], level], land(0.9, 0.3), 0];
+  map.addLayer({
+    id: "wind-arrows",
+    type: "symbol",
+    source: "wind-points",
+    layout: {
+      "icon-image": "cur-arrow",
+      "icon-rotate": ["get", "d"],
+      "icon-rotation-alignment": "map",
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+      "icon-size": ["interpolate", ["linear"], ["get", "s"], 0, 0.3, 5, 0.46, 15, 0.72],
+    },
+    paint: {
+      // One colour per theme, never switching by speed.
+      "icon-color": mapTheme() === "light" ? "#1c2a48" : "#f4f1e8",
+      "icon-opacity": ["step", ["zoom"], shown(0), 8.6, shown(1), 9.4, shown(2), 10.2, shown(3), 11, shown(6)] as maplibregl.ExpressionSpecification,
+    },
+  });
+  paintWind(map);
+}
+
+/** Shade each cell by speed at the frame shown (none outside HRRR's hours), and move the arrows. */
+function paintWind(map: maplibregl.Map): void {
+  const w = data.wind;
+  if (!w || !map.getSource("wind-cells")) return;
+  const n = w.mesh.nx * w.mesh.ny;
+  if (windFrame < 0) {
+    for (let i = 0; i < n; i++) map.setFeatureState({ source: "wind-cells", id: i }, { s: null });
+  } else {
+    const { u, v } = windUV(w, windFrame);
+    for (let i = 0; i < n; i++) map.setFeatureState({ source: "wind-cells", id: i }, { s: Math.hypot(u[i], v[i]) });
+  }
+  (map.getSource("wind-points") as maplibregl.GeoJSONSource).setData(windPointsGeoJSON(w, windFrame));
+  if (popup && probe != null) popup.setHTML(windText(w, probe));
+}
+
+/** The reader's unit for wind, from the page's speed setting (given per cm/s for currents). */
+function windUnit(): { label: string; perMs: number; digits: number } {
+  const sp = controls?.speed;
+  if (!sp) return { label: "kt", perMs: 1 / 0.514444, digits: 0 };
+  return { label: sp.label, perMs: sp.perCms * 100, digits: sp.label === "m/s" ? 1 : 0 };
+}
+
+const compass16 = (deg: number) => ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"][Math.round(deg / 22.5) % 16];
+
+/** One cell's wind for the frame shown: speed in the reader's unit and the direction it blows from. */
+function windText(w: WindField, id: number): string {
+  if (windFrame < 0) return "no HRRR hour at this time";
+  const f = w.frames[windFrame];
+  const { u, v } = windUV(w, windFrame);
+  const from = ((Math.atan2(-u[id], -v[id]) * 180) / Math.PI + 360) % 360;
+  const un = windUnit();
+  const land = w.mesh.land[id] ? ", land cell" : "";
+  return `${(Math.hypot(u[id], v[id]) * un.perMs).toFixed(un.digits)} ${un.label} from ${compass16(from)} (${Math.round(from)}&deg;)<br><small>${fmtProbe.format(new Date(f.valid_time))}, HRRR ${f.cycle.slice(11, 13)}Z run, ${f.lead} h ahead${land}</small>`;
+}
+
 /** The frame nearest the timeline's time (now by default). */
 function frameAt(c: CurrentsField): number {
   const k = Math.round(((fieldT ?? Date.now() / 1000) - Date.parse(c.t0) / 1000) / c.step);
@@ -437,6 +620,14 @@ function frameAt(c: CurrentsField): number {
 export async function setFieldTime(t: number | null): Promise<void> {
   fieldT = t;
   if (data.history) return showHistoryFrame(historyIndex(data.history));
+  if (data.wind) {
+    const k = windFrameAt(data.wind);
+    if (k === windFrame) return;
+    windFrame = k;
+    const box = document.getElementById("map");
+    if (box) renderPanel(box); // the key shows the hour and run
+    return paintWind(await mapReady());
+  }
   const c = data.currents;
   if (!c) return;
   const k = frameAt(c);
@@ -451,6 +642,13 @@ const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", 
 
 
 function scaleHtml(meta: Meta): string {
+  if (active === "wind") {
+    const un = windUnit();
+    const at = (s: number) => `${((s / WIND_TOP) * 100).toFixed(1)}%`;
+    const stops = windStops().map(([s, c]) => `${c} ${at(s)}`);
+    const v = (s: number) => (s * un.perMs).toFixed(0);
+    return `<div class="field-scale"><span>0</span><i class="field-bar" style="background:linear-gradient(90deg,${stops.join(",")})"></i><span>${v(WIND_TOP)} ${un.label}</span></div>`;
+  }
   const ramp = RAMPS[meta.ramp];
   // Currents are stored in cm/s and shown in the reader's unit.
   const sp = active === "currents" && controls ? controls.speed : null;
@@ -486,15 +684,29 @@ function renderPanel(fallback: HTMLElement): void {
   {
     const r = data.raster;
     const c = data.currents;
+    const w = data.wind;
     // The dates of the data, not of the job: from the oldest pixel in a composite to the newest.
     const ages = r ? r.age_days.filter((a): a is number => a != null) : [];
     const newest = ages.length ? Math.min(...ages) : 0;
     const oldest = ages.length ? Math.max(...ages) : 0;
     const day = (age: number) => new Date(Date.parse(r!.time) - age * 86400e3);
-    const when = r ? daySpan(day(r.window_days > 2 ? oldest : newest), day(newest)) : c ? "model" : "";
+    const wf = w && windFrame >= 0 ? w.frames[windFrame] : null;
+    const when = r
+      ? daySpan(day(r.window_days > 2 ? oldest : newest), day(newest))
+      : c
+        ? "model"
+        : w
+          ? wf
+            ? `${fmtProbe.format(new Date(wf.valid_time))}, ${wf.cycle.slice(11, 13)}Z run`
+            : "no HRRR hour"
+          : "";
     const span = r && r.window_days > 2 && oldest - newest >= 1 ? ` Each pixel is the latest clear view in the last ${Math.round(oldest) + 1} days; older pixels are fainter.` : "";
-    const run = c ? ` Run of ${fmtDay.format(new Date(c.generated_at))}, covering 24h back to 72h ahead; the time bar below moves it.` : "";
-    const credit = r ? r.attribution : c ? c.source : "";
+    const run = c
+      ? ` Run of ${fmtDay.format(new Date(c.generated_at))}, covering 24h back to 72h ahead; the time bar below moves it.`
+      : w
+        ? " Each hour from the newest HRRR run that covers it, 24h back to 48h ahead; the time bar below moves it."
+        : "";
+    const credit = r ? r.attribution : c ? c.source : w ? w.attribution : "";
     body = `<div class="field-key"><span class="field-name" title="${meta.title}">${meta.short}</span><span class="field-when">${when}</span>
       <button type="button" class="field-info" aria-haspopup="dialog" aria-label="About this layer" title="About this layer">i</button></div>
       ${scaleHtml(meta)}
@@ -601,11 +813,12 @@ function draw(map: maplibregl.Map): void {
   if (!active) return;
   if (data.raster) addRaster(map, data.raster);
   else if (data.mesh && data.currents) addCurrents(map, data.mesh, data.currents);
+  else if (data.wind) addWind(map, data.wind);
 }
 
 /** Show a field (or none) with its data, and the panel with the page's controls. */
 export async function showField(kind: FieldKind | null, payload: FieldData, ctl: FieldControls): Promise<void> {
-  const sameLayer = kind === active && payload.raster === shownRaster && payload.currents === data.currents;
+  const sameLayer = kind === active && payload.raster === shownRaster && payload.currents === data.currents && payload.wind === data.wind;
   if (!sameLayer) closeValue(); // a value from another layer
   active = kind;
   data = kind ? { ...payload } : {};
@@ -617,10 +830,13 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
     data.raster = historyRaster(data.history, histIndex);
   }
   if (data.currents) frame = frameAt(data.currents);
+  if (data.wind) windFrame = windFrameAt(data.wind);
   if (sameLayer && popup && probe != null && data.currents) popup.setHTML(currentText(data.currents, probe)); // e.g. the unit changed
+  if (sameLayer && popup && probe != null && data.wind) popup.setHTML(windText(data.wind, probe));
   if (data.history) range = historyRange(data.history);
   else if (data.raster) range = rangeOf(META[data.raster.kind], data.raster.values.map((v) => (v == null ? NaN : v * data.raster!.scale)));
   else if (data.currents) range = META.currents.range!;
+  else if (data.wind) range = META.wind.range!;
   // The panel first, so the picker, colour bar and source show while the map is still loading its tiles.
   const box = document.getElementById("map");
   if (box) renderPanel(box);
@@ -635,6 +851,12 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
       if (r) {
         const text = rasterText(r, e.lngLat.lng, e.lngLat.lat);
         if (text) void showValue(map, e.lngLat, text, null, { lng: e.lngLat.lng, lat: e.lngLat.lat });
+        return;
+      }
+      const w = data.wind;
+      if (w) {
+        const cell = map.queryRenderedFeatures(e.point, { layers: ["wind-fill"] })[0];
+        if (cell && typeof cell.id === "number") void showValue(map, e.lngLat, windText(w, cell.id), cell.id);
         return;
       }
       const hit = map.queryRenderedFeatures(e.point, { layers: ["cur-fill"] })[0];

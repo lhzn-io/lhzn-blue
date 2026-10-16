@@ -150,9 +150,10 @@ figure.wide { grid-column: 1 / -1; }
 .overview.map-wide { grid-template-columns: 1fr; }
 .overview.map-wide .map { min-height: 70vh; }
 /* Below the map: the field key, then the time rows. Nothing is drawn over the field but the map's own controls. */
-.map-col { display: grid; align-content: start; min-width: 0; }
+.map-col { display: flex; flex-direction: column; min-width: 0; } /* the map grows to the right column's height */
 .outage { margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--delayed); background: var(--panel); font: 13px/1.5 var(--sans); color: var(--ink); max-width: 80ch; }
 .outage b { font-weight: 600; }
+.mast .mast-outage { margin: 0; flex: 0 1 auto; align-self: center; }
 .map-foot { padding: 8px 0 0; font: 10.5px/1.35 var(--sans); color: var(--ink); }
 .field-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 0 0 6px; }
 /* Expand and layer buttons under the zoom controls, in MapLibre's control style; the layer drawer beside them. */
@@ -270,7 +271,7 @@ main { padding: 0 var(--gutter) 40px; }
 /* Overview: locator map and status grid */
 .overview { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 22px 30px; padding: 22px 0 6px; }
 /* Beside the table the map takes the table's height (the grid row stretches it); stacked, it is fixed. */
-.map { position: relative; overflow: hidden; min-height: 300px; border: 1px solid var(--rule); background: var(--map-bg); }
+.map { position: relative; overflow: hidden; flex: 1 1 auto; min-height: 300px; border: 1px solid var(--rule); background: var(--map-bg); }
 .status { align-self: start; }
 .status-grid { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
 .status-grid caption { text-align: left; margin-bottom: 8px; font: 700 10px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
@@ -380,6 +381,7 @@ figcaption { display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wra
 .cap-sub { font-size: 12px; color: var(--dim); }
 .plot { position: relative; height: 190px; padding-bottom: 16px; padding-right: 44px; }
 .plot svg { width: 100%; height: 100%; display: block; overflow: visible; touch-action: pan-y; }
+.plot[data-fig="next48"] { height: 380px; } /* full width, so twice the height of the paired plots */
 .plot-labels { position: absolute; inset: 0 0 16px 0; pointer-events: none; font-family: var(--mono); font-size: 8.5px; color: var(--chart-label); }
 .plot-labels span { position: absolute; white-space: nowrap; }
 .plot-labels .month { bottom: -15px; transform: translateX(-50%); color: var(--chart-month); font-size: 8px; }
@@ -449,6 +451,7 @@ figcaption { display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wra
   border: 1px solid transparent; border-top: 0; transition: color 0.15s, border-color 0.15s;
 }
 .tab:hover { color: var(--ink); border-color: var(--rule); }
+a.tab.tab-link { text-decoration: none; display: inline-flex; align-items: center; }
 .tab[aria-pressed="true"] { color: var(--accent); border-color: var(--accent-line); }
 .tab:focus-visible, .button:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; }
 
@@ -711,6 +714,10 @@ figure.linked, .station.linked { outline: 2px solid var(--accent-line); outline-
   display: flex; align-items: center; justify-content: flex-start; min-height: 40px; padding: 0 18px; cursor: pointer; text-align: left;
   background: none; border: 0; border-radius: 0; font: 600 10.5px/1 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim);
 }
+.more-pop > .more-link { display: flex; align-items: center; min-height: 40px; padding: 0 18px; text-decoration: none; font: 600 10.5px/1 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
+.more-pop > .more-link:hover, .more-pop > .more-link:focus-visible { color: var(--accent); outline: none; }
+.status-grid td.fcst b { color: var(--ink); font-style: italic; font-weight: 400; }
+.status-grid td.fcst small { color: var(--accent); }
 .more-pop > button:hover, .more-pop > button:focus-visible { color: var(--accent); outline: none; }
 .more-row { display: flex; align-items: center; justify-content: space-between; min-height: 40px; padding: 0 10px 0 18px; }
 .more-label { font: 600 10.5px/1 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
@@ -789,3 +796,31 @@ body:not(.landing) .stage { padding: 0; border: 0; border-radius: 0; color: var(
   .plot-labels { font-size: 9.5px; }
   .plot-labels .month { font-size: 9.5px; }
 }
+
+/* The next 48 hours: one line per quantity under the status table, and a sentence in the masthead. */
+.outlook { margin: 18px 0 0; padding-top: 10px; border-top: 1px solid var(--rule); }
+.ol-title { margin: 0 0 6px; font: 700 10px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
+.ol-title .ol-src { margin-left: 8px; font: 400 9.5px var(--mono); letter-spacing: 0; text-transform: none; color: var(--dim); }
+.ol-row { display: grid; grid-template-columns: 84px 160px minmax(0, 1fr); gap: 10px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--rule); }
+.ol-k { font: 400 13px/1.2 var(--sans); }
+.ol-k small { display: block; font: 400 9.5px/1.2 var(--mono); color: var(--dim); }
+.ol-spark { display: block; width: 160px; height: 22px; color: var(--ink); }
+.ol-v small { color: var(--dim); }
+.ol-hint { margin-left: 8px; font: 400 9.5px var(--mono); letter-spacing: 0; text-transform: none; color: var(--faint); }
+.status-grid tbody tr.ol-on th, .status-grid tbody tr.ol-on td { background: var(--panel); }
+.overview:has(.outlook) .status-grid tbody tr { cursor: pointer; }
+.ol-v { font: 400 11px/1.35 var(--mono); color: var(--ink); }
+@media (max-width: 560px) {
+  .ol-row { grid-template-columns: 60px 112px minmax(0, 1fr); gap: 8px; }
+  .ol-spark { width: 112px; }
+}
+@media (max-width: 560px) { .plot[data-fig="next48"] { height: 280px; } }
+
+/* Range sliders in the site's line style: a hairline track and a thin vertical needle, like the time bar's. */
+input[type="range"]:not(.tl-range) { -webkit-appearance: none; appearance: none; height: 24px; margin: 0; background: transparent; cursor: pointer; }
+input[type="range"]:not(.tl-range)::-webkit-slider-runnable-track { height: 1px; background: var(--dim); }
+input[type="range"]:not(.tl-range)::-moz-range-track { height: 1px; background: var(--dim); }
+input[type="range"]:not(.tl-range)::-moz-range-progress { background: transparent; }
+input[type="range"]:not(.tl-range)::-webkit-slider-thumb { -webkit-appearance: none; width: 2px; height: 16px; margin-top: -7.5px; background: var(--ink); border: 0; border-radius: 0; box-shadow: 0 0 0 6px transparent; }
+input[type="range"]:not(.tl-range)::-moz-range-thumb { width: 2px; height: 16px; background: var(--ink); border: 0; border-radius: 0; }
+input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim); outline-offset: 3px; }

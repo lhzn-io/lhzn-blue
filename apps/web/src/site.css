@@ -838,9 +838,38 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .hi-svg { width: 100%; height: auto; display: block; overflow: visible; }
 .overview:has(.hi-ahead) .status-grid tbody tr { cursor: pointer; }
 
+/* The tides charts (the Tides view and the textbook page): gold is observed and now, willow gives order, amber
+   is water beyond the prediction, a muted red marks flood levels. */
+:root {
+  --wp-gold: var(--now);
+  --wp-amber: var(--delayed);
+  --wp-cobalt: #9cc8e2;
+  --wp-willow: #5d8fb8;
+  --wp-pale: #3d6688;
+  --wp-flood: #e57373;
+  --wp-water: rgba(127, 184, 216, 0.09);
+  --wp-coast: rgba(127, 184, 216, 0.32);
+  --wp-bar-low: rgba(127, 184, 216, 0.16);
+  --wp-bar-mid: rgba(127, 184, 216, 0.45);
+  --wp-bar-high: rgba(196, 160, 90, 0.75);
+}
+:root[data-theme="light"] {
+  --wp-cobalt: #133c8b;
+  --wp-willow: #4a7fae;
+  --wp-pale: #86a8cb;
+  --wp-flood: #9b2c2c;
+  --wp-water: rgba(74, 127, 174, 0.1);
+  --wp-coast: rgba(74, 127, 174, 0.38);
+  --wp-bar-low: rgba(74, 127, 174, 0.16);
+  --wp-bar-mid: rgba(74, 127, 174, 0.5);
+  --wp-bar-high: rgba(150, 110, 40, 0.7);
+}
+
 /* Tides: soft ochre for water beyond the prediction and flood lines, soft willow for the rest (both themes). */
 :root { --tide-hi: rgba(196, 160, 90, 0.8); --tide-mid: rgba(127, 184, 216, 0.55); }
 :root[data-theme="light"] { --tide-hi: rgba(150, 110, 40, 0.72); --tide-mid: rgba(74, 127, 174, 0.55); }
 .plot[data-fig="hilo"] { height: 230px; }
-.plot[data-fig="hilo"] .ld-tick { font: 400 10px var(--mono); fill: var(--dim); }
+.plot[data-fig="hilo"] .ld-tick, .plot[data-fig="hilo"] .ld-ref { font: 400 10px var(--mono); fill: var(--dim); }
+.plot[data-fig="hilo"] .ld-ref, .hi-svg .ld-ref { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+.hi-svg text { font: 400 9.5px var(--mono); fill: var(--dim); }
 .plot[data-fig="hilo"] .ld-note { font: 400 11px var(--mono); fill: var(--dim); }

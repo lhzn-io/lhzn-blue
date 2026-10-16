@@ -2,30 +2,6 @@
    note. Theme tokens come from site.css (dark under :root, light under data-theme="light"); the page adds its
    chart colours here for both themes. Gold is observed and now; willow blues give order; amber is water above the
    prediction and other states that stand out; a muted red marks flood thresholds. */
-:root {
-  --wp-gold: var(--now);
-  --wp-amber: var(--delayed);
-  --wp-cobalt: #9cc8e2;
-  --wp-willow: #5d8fb8;
-  --wp-pale: #3d6688;
-  --wp-flood: #e57373;
-  --wp-water: rgba(127, 184, 216, 0.09);
-  --wp-coast: rgba(127, 184, 216, 0.32);
-  --wp-bar-low: rgba(127, 184, 216, 0.16);
-  --wp-bar-mid: rgba(127, 184, 216, 0.45);
-  --wp-bar-high: rgba(196, 160, 90, 0.75);
-}
-:root[data-theme="light"] {
-  --wp-cobalt: #133c8b;
-  --wp-willow: #4a7fae;
-  --wp-pale: #86a8cb;
-  --wp-flood: #9b2c2c;
-  --wp-water: rgba(74, 127, 174, 0.1);
-  --wp-coast: rgba(74, 127, 174, 0.38);
-  --wp-bar-low: rgba(74, 127, 174, 0.16);
-  --wp-bar-mid: rgba(74, 127, 174, 0.5);
-  --wp-bar-high: rgba(150, 110, 40, 0.7);
-}
 
 body.wp { overflow-x: hidden; }
 .wp-wrap { max-width: 980px; margin: 0 auto; padding: 22px var(--gutter) 64px; }

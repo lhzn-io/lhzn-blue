@@ -3466,8 +3466,10 @@ function updatedStrip(meta: Meta, live: Live): void {
   const outage = $("outage");
   const since = (t: string) =>
     new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(t));
+  // What UConn reported about the outage (by email, Oct 16, 2026); shown only while the server is unreachable.
+  const OPERATOR_NOTE = "UConn reports its data server is being upgraded, expected back by mid-November 2026; the Western Sound buoy has a hardware fault awaiting ship time (as of Oct 16).";
   if (down) {
-    outage.textContent = `Buoy data unavailable since ${lastOk ? since(lastOk) : "the last update"}.`;
+    outage.textContent = `Buoy data unavailable since ${lastOk ? since(lastOk) : "the last update"}. ${OPERATOR_NOTE}`;
     outage.hidden = false;
   }
   const draw = () => {

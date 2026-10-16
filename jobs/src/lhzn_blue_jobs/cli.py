@@ -13,7 +13,7 @@ import sys
 import os
 from pathlib import Path
 
-from . import build, merlin, rivers, shore, turbidity, waves, weather
+from . import build, merlin, rivers, shore, tides, turbidity, waves, weather
 
 
 def _main() -> None:
@@ -61,6 +61,7 @@ def _main() -> None:
         _shore(lambda: store.write_json(
             "v1/shore-history.json", shore.history(store.read_json("v1/shore-history.json"), build.now_utc()), max_age=3600
         ))
+        _shore(lambda: store.write_json("v1/shore-tides.json", tides.build(), max_age=3600), "tides")
         _shore(lambda: store.write_json(
             "v1/rivers-history.json", rivers.history(store.read_json("v1/rivers-history.json")), max_age=3600
         ), "rivers")
@@ -84,6 +85,8 @@ def _main() -> None:
             parser.error("forecast needs --forecasts (or LHZN_BLUE_FORECASTS)")
         done = forecast.archive(store, args.forecasts)
         logging.getLogger("lhzn_blue_jobs.forecast").info("cycles archived: %s", done or "none new")
+        _shore(lambda: __import__("lhzn_blue_jobs.hrrr_grid", fromlist=["publish"]).publish(store), "hrrr grid")
+        _shore(lambda: __import__("lhzn_blue_jobs.model_grids", fromlist=["publish"]).publish(store), "model grids")
     elif args.command == "forecast-backfill":
         from . import forecast
 

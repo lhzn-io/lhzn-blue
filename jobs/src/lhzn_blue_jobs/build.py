@@ -327,10 +327,13 @@ def encode_frame(frame: pd.DataFrame, decimals: dict[str, int] | None = None) ->
     return out
 
 
+FRAME_MARKS = ("transcribed",)  # lists in an encoded frame that are not hourly columns
+
+
 def decode_frame(obj: dict | None) -> pd.DataFrame:
     if not obj or not obj.get("t0"):
         return pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC"), dtype=float)
-    cols = [k for k, v in obj.items() if isinstance(v, list)]
+    cols = [k for k, v in obj.items() if isinstance(v, list) and k not in FRAME_MARKS]
     idx = pd.date_range(pd.Timestamp(obj["t0"]), periods=len(obj[cols[0]]), freq="h") if cols else []
     return pd.DataFrame({c: pd.to_numeric(pd.Series(obj[c], index=idx), errors="coerce") for c in cols}).dropna(how="all")
 

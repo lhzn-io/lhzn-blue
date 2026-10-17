@@ -205,6 +205,9 @@ def publish(store: Store, root: str | None) -> list[str]:
         archived.append(key)
         if run >= cutoff:
             new[key] = pts_run
-    if new or prev is None or set(archived) != set((prev or {}).get("archived", [])):
+        # Written after every run (a run takes about 2 minutes on one vCPU), so a job stopped by its timeout keeps
+        # what it read and the next run does not fetch it again.
+        store.write_json(KV_KEY, page_file(prev, new, archived, end), max_age=1800)
+    if prev is None and not new:
         store.write_json(KV_KEY, page_file(prev, new, archived, end), max_age=1800)
     return sorted(new)

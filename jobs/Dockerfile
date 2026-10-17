@@ -4,6 +4,8 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY jobs/ /app/jobs/
 COPY stations/ /app/stations/
+# Tesseract (with English) reads the LISICOS station panels in the `panels` job.
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir /app/jobs
 ENV LHZN_BLUE_STATIONS=/app/stations/stations.json \
     LHZN_BLUE_SHORE_STATIONS=/app/stations/shore.json \

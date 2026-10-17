@@ -17,7 +17,7 @@ trigger() { # name, cron, job
     --oauth-service-account-email "$SCHEDULER_SA" --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform"
 }
 
-for job in lhzn-blue-live lhzn-blue-latest lhzn-blue-history lhzn-blue-fields lhzn-blue-snapshot lhzn-blue-forecast; do
+for job in lhzn-blue-live lhzn-blue-latest lhzn-blue-history lhzn-blue-fields lhzn-blue-snapshot lhzn-blue-forecast lhzn-blue-panels; do
   gcloud run jobs add-iam-policy-binding "$job" --project "$GCP_PROJECT" --region "$GCP_REGION" \
     --member "serviceAccount:$SCHEDULER_SA" --role roles/run.invoker >/dev/null
 done
@@ -36,3 +36,6 @@ trigger lhzn-blue-fields "30 8 * * *" lhzn-blue-fields
 trigger lhzn-blue-snapshot "45 4 * * 1,3,5" lhzn-blue-snapshot
 # HRRR at the stations, hourly: each run archives the complete cycles of the last 4 hours not yet kept.
 trigger lhzn-blue-forecast "40 * * * *" lhzn-blue-forecast
+# The LISICOS station panels while the data server is down (a stopgap): weather every 10 minutes, waves and water
+# quality every 30 (the job decides). Pause this trigger when the server returns, or if LISICOS asks.
+trigger lhzn-blue-panels "*/10 * * * *" lhzn-blue-panels

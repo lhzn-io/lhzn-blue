@@ -18,7 +18,7 @@ from . import build, merlin, rivers, shore, tides, turbidity, usgs_tidal, waves,
 
 def _main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "import-verification", "import-archive", "import-waves", "import-weather"])
+    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "panels", "import-verification", "import-archive", "import-waves", "import-weather"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
@@ -44,6 +44,11 @@ def _main() -> None:
         "--nwps",
         default=os.environ.get("LHZN_BLUE_NWPS"),
         help="forecast: local directory or gs://bucket/prefix for the NWPS wave model archive (env LHZN_BLUE_NWPS)",
+    )
+    parser.add_argument(
+        "--panels",
+        default=os.environ.get("LHZN_BLUE_PANELS_ARCHIVE"),
+        help="panels: local directory or gs://bucket/prefix for the panel images as fetched (env LHZN_BLUE_PANELS_ARCHIVE)",
     )
     parser.add_argument("--start", help="forecast-backfill: first cycle, UTC (e.g. 2024-01-01T00)")
     parser.add_argument("--end", help="forecast-backfill: last cycle, UTC")
@@ -101,6 +106,12 @@ def _main() -> None:
         _shore(lambda: __import__("lhzn_blue_jobs.hrrr_grid", fromlist=["publish"]).publish(store), "hrrr grid")
         _shore(lambda: __import__("lhzn_blue_jobs.model_grids", fromlist=["publish"]).publish(store), "model grids")
         _shore(lambda: __import__("lhzn_blue_jobs.nwps", fromlist=["publish"]).publish(store, args.nwps), "nwps")
+    elif args.command == "panels":
+        from . import panels  # Tesseract is needed only here
+
+        out = panels.publish(store, args.panels)
+        logging.getLogger("lhzn_blue_jobs.panels").info(
+            "panels: %s", {k: v.get("status") for k, v in out.get("health", {}).items()})
     elif args.command == "forecast-backfill":
         from . import forecast
 

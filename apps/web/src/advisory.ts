@@ -6,13 +6,16 @@
 import { getJson } from "./series";
 
 interface ZoneSpan { issued: string | null; from: string | null; until: string | null }
-interface Alert {
+export interface Alert {
   event: string; kind: string; zones: string[]; ends: string | null;
   updated?: string | null; // NWS's latest message for it
   issued?: string; // first issued for these zones (IEM's record of the event)
   by_zone?: Record<string, ZoneSpan>;
 }
-interface AlertsNow { generated_at: string; zones: Record<string, string>; alerts: Alert[] }
+export interface AlertsNow { generated_at: string; zones: Record<string, string>; alerts: Alert[] }
+let latest: AlertsNow | null = null;
+/** The alerts file as last fetched (null before the first fetch, or when it failed). */
+export const alertsNow = (): AlertsNow | null => latest;
 
 const fmtEnd = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" });
 // Most severe first, so a gale warning leads a small craft advisory.
@@ -31,6 +34,7 @@ export async function mountAdvisories(mast: Element, onOpen?: () => void): Promi
   let now: AlertsNow;
   try {
     now = await getJson<AlertsNow>("/data/v1/advisories-now.json");
+    latest = now;
   } catch {
     return; // no file (or no network): no banner, never a guess
   }

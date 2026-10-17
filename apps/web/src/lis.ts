@@ -19,7 +19,7 @@ import {
   type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type VarHistory, type WaveFrame,
   type WaveHistory, type MetHistory, type WaveLive, type WaveObs, type YearLine, Daily, type RiverHistory, type RiverLive, type TurbHistory, type TurbFrame,
 } from "./series";
-import { mountAdvisories, WIND_STRIP_HASH } from "./advisory";
+import { alertsNow, mountAdvisories, WIND_STRIP_HASH } from "./advisory";
 
 const DATA = "/data/v1";
 const $ = (id: string) => document.getElementById(id)!;
@@ -2120,6 +2120,49 @@ function runText(issue: number, lead: number): string {
   return `${fmtRun.format(new Date(issue * 1000))} run, ${lead} h ahead`;
 }
 
+const SOUND_ZONES = ["ANZ335", "ANZ331", "ANZ332"];
+
+/** The Sound's zones with a wind advisory in force at a time (epoch seconds): from NWS's active alerts for the
+ * present (the hourly file), from the daily record for earlier times; the most severe per zone. */
+function zonesInForce(t: number): { id: string; strong: boolean; title: string }[] {
+  const out = new Map<string, { id: string; strong: boolean; title: string; rank: number }>();
+  const put = (id: string, kind: string, name: string, t0: number, t1: number) => {
+    if (!(kind in ADV_WIND) || t < t0 || t >= t1) return;
+    const rank = ADV_WIND[kind];
+    if ((out.get(id)?.rank ?? -1) >= rank) return;
+    out.set(id, { id, strong: rank > 0, rank, title: `${name}, ${id}: ${fmtWhenMin.format(new Date(t0 * 1000))} to ${fmtWhenMin.format(new Date(t1 * 1000))}` });
+  };
+  const now = alertsNow();
+  for (const a of now?.alerts ?? []) {
+    for (const z of a.zones) {
+      const sp = a.by_zone?.[z];
+      const t0 = sp?.from ? Date.parse(sp.from) / 1000 : Date.parse(now!.generated_at) / 1000;
+      const t1 = Date.parse(sp?.until ?? a.ends ?? "") / 1000;
+      if (Number.isFinite(t1)) put(z, a.kind, a.event, t0, t1);
+    }
+  }
+  if (ADV) {
+    for (const z of SOUND_ZONES) {
+      const own = (ADV.events[z] ?? []).map((e) => [e[0], advTime(e[1]), advTime(e[2])] as const);
+      const old = Object.entries(ADV.retired ?? {}).filter(([, r]) => r.into.includes(z))
+        .flatMap(([o, r]) => (ADV!.events[o] ?? []).map((e) => [e[0], advTime(e[1]), Math.min(advTime(e[2]), advTime(r.until))] as const));
+      for (const [kind, t0, t1] of [...old, ...own]) put(z, kind, ADV.kinds[kind] ?? kind, t0, t1);
+    }
+  }
+  return [...out.values()].map(({ id, strong, title }) => ({ id, strong, title }));
+}
+
+/** Outline on the map the zones in force at the page's time (the record loads when the cursor goes back). */
+async function syncZones(): Promise<void> {
+  const t = AT ?? Date.now() / 1000;
+  if (!ADV && t < Date.now() / 1000 - HOUR) void loadAdvisories();
+  try {
+    (await import("./map")).setAdvisoryZones(zonesInForce(t));
+  } catch {
+    /* map not loaded */
+  }
+}
+
 /** A fault cell with the model's value under it: the fault first ("--", why), then the model, marked as such. */
 function standInCell(fault: string, faultTitle: string, model: string, modelTitle: string, cls = ""): string {
   return `<td class="offline standin${cls ? ` ${cls}` : ""}" title="${faultTitle}"><b>--</b><small>${fault}</small><small class="model" title="${modelTitle}. A model value, not a measurement; the buoy's own sensor is out.">${model}</small></td>`;
@@ -3280,6 +3323,7 @@ async function showAt(t: number | null): Promise<void> {
   if (rowsBox && VK === "tides") rowsBox.innerHTML = soundRowsSvg(STATIONS);
   if (VK === "tides") for (const d of STATIONS.filter((s) => s.kind === "shore")) { const [a, b] = FIGS.hilo.window(d); drawLadder(d, a, b); }
   if (STATIONS.length) statusGrid(STATIONS);
+  void syncZones();
   try {
     (await import("./map")).updatePins([...STATIONS.map(stationPin), ...(VK === "rivers" ? gaugePins() : [])]);
   } catch {
@@ -4796,8 +4840,9 @@ async function main(): Promise<void> {
     void loadForecast();
     const mast = document.querySelector(".mast");
     if (mast) {
-      void mountAdvisories(mast, openWindStrip);
-      window.setInterval(() => void mountAdvisories(mast, openWindStrip), 10 * 60_000);
+      const refresh = () => mountAdvisories(mast, openWindStrip).then(() => syncZones());
+      void refresh();
+      window.setInterval(() => void refresh(), 10 * 60_000);
     }
     wireTheme(redraw);
     wireUnits(redraw);

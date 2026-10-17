@@ -67,6 +67,54 @@ export function onStyle(hook: (map: maplibregl.Map, theme: Theme) => void): void
 
 /** The page theme the map is drawn in. */
 export const mapTheme = (): Theme => theme;
+
+/* NWS marine zones: a zone's outline in brick red while a wind advisory is in force at the page's time (dashed for a
+ * small craft advisory, solid and heavier for a gale or stronger warning). Outlines from NWS (scripts/fetch-zones.py),
+ * loaded on the first call. */
+export interface ZoneAdvisory { id: string; strong: boolean; title: string }
+const ADV_RED: Record<Theme, string> = { dark: "#d24a37", light: "#9e2418" };
+let zoneShapes: { type: "FeatureCollection"; features: { type: "Feature"; properties: { id: string; name: string }; geometry: unknown }[] } | null = null;
+let zoneLoading: Promise<void> | null = null;
+let zoneActive: ZoneAdvisory[] = [];
+
+function applyZones(map: maplibregl.Map, th: Theme): void {
+  if (!zoneShapes || !map.isStyleLoaded()) return;
+  const data = {
+    type: "FeatureCollection" as const,
+    features: zoneShapes.features.flatMap((f) => {
+      const a = zoneActive.find((z) => z.id === f.properties.id);
+      return a ? [{ ...f, properties: { ...f.properties, strong: a.strong, title: a.title } }] : [];
+    }),
+  };
+  const src = map.getSource("adv-zones") as maplibregl.GeoJSONSource | undefined;
+  if (src) src.setData(data as GeoJSON.FeatureCollection);
+  else {
+    map.addSource("adv-zones", { type: "geojson", data: data as GeoJSON.FeatureCollection });
+    // A faint tint inside, so the zone reads as an area; the outline carries the kind.
+    map.addLayer({ id: "adv-zones-fill", type: "fill", source: "adv-zones",
+      paint: { "fill-color": ADV_RED[th], "fill-opacity": ["case", ["get", "strong"], 0.09, 0.05] } });
+    map.addLayer({ id: "adv-zones-sc", type: "line", source: "adv-zones", filter: ["!", ["get", "strong"]],
+      paint: { "line-color": ADV_RED[th], "line-width": 1.6, "line-dasharray": [3, 2], "line-opacity": 0.9 } });
+    map.addLayer({ id: "adv-zones-gl", type: "line", source: "adv-zones", filter: ["get", "strong"],
+      paint: { "line-color": ADV_RED[th], "line-width": 2.6, "line-opacity": 0.95 } });
+  }
+  for (const id of ["adv-zones-sc", "adv-zones-gl"]) if (map.getLayer(id)) map.setPaintProperty(id, "line-color", ADV_RED[th]);
+  if (map.getLayer("adv-zones-fill")) map.setPaintProperty("adv-zones-fill", "fill-color", ADV_RED[th]);
+}
+onStyle((map, th) => applyZones(map, th));
+
+/** Outline these zones (an empty list clears the map). */
+export async function setAdvisoryZones(active: ZoneAdvisory[]): Promise<void> {
+  zoneActive = active;
+  zoneLoading ??= fetch("/nws-zones-lis.json")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => void (zoneShapes = j))
+    .catch(() => undefined);
+  await zoneLoading;
+  const map = await mapReady();
+  applyZones(map, theme);
+}
+
 let select: (id: string) => void = () => {};
 
 // Rivers: the basins (loaded once), the gauge markers while the view is on, and the highlighted basin.

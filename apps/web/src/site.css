@@ -19,6 +19,7 @@
   --now: #decf03; /* this year, live readings */
   --now-glow: rgba(222, 207, 3, 0.8);
   --delayed: #f0b135;
+  --advisory: #d24a37; /* NWS advisories: brick fire-engine red, lifted for the dark ground */
   --button-ink: #111111;
   --strip-bg: linear-gradient(90deg, #2b4457 0%, #1c2b36 45%, #111111 100%);
   --strip-ink: rgba(255, 255, 255, 0.72);
@@ -67,6 +68,7 @@
   --now: #b89300; /* gilded gold, 2.7:1 (Daniel's pick): never color-alone, the boldest line, in the legend and tooltip */
   --now-glow: rgba(184, 147, 0, 0.35);
   --delayed: #a35a00;
+  --advisory: #9e2418; /* NWS advisories: deep brick fire-engine red, 7.6:1 on eggshell */
   --button-ink: #fdfbf6;
   --strip-bg: linear-gradient(90deg, #dce4f0 0%, #efe9dc 50%, #faf7f0 100%);
   --strip-ink: #2b3a5a;
@@ -732,8 +734,10 @@ figure.linked, .station.linked { outline: 2px solid var(--accent-line); outline-
 .status-grid td.standin small.model { display: block; margin-top: 2px; font-style: italic; color: var(--accent); }
 .readout .num .model-num { font-style: italic; opacity: 0.8; }
 .readout .sub.model { color: var(--accent); font-style: italic; }
-.readout .num .adv-num { font-size: 22px; letter-spacing: 0.02em; }
-.readout .sub.advisory { color: var(--accent); }
+/* An NWS advisory or warning in force: capitals in brick red. Not an alarm of our own; the sub-line names NWS. */
+.readout .num .adv-num { display: block; max-width: 13ch; font-size: 19px; line-height: 1.1; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--advisory); }
+.readout .sub.advisory { color: var(--advisory); }
 .more-pop > button:hover, .more-pop > button:focus-visible { color: var(--accent); outline: none; }
 .more-row { display: flex; align-items: center; justify-content: space-between; min-height: 40px; padding: 0 10px 0 18px; }
 .more-label { font: 600 10.5px/1 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }

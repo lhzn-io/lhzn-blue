@@ -38,6 +38,7 @@ interface Palette {
   ramp: { L: [number, number]; C: [number, number]; h: [number, number] }; // strong to pale willow blues, for order
   bands: [string, string]; // surface-minus-bottom threshold shading: outer, inner
   oxygen: [string, string, string]; // dissolved oxygen shading: anoxic, hypoxic, below the growth criterion
+  advisory: [string, string]; // NWS advisories behind the wind, in brick red: small craft, gale and above
   yearStops: { t: number; L: number; C: number; h: number }[];
 }
 
@@ -52,6 +53,7 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     ramp: { L: [0.86, 0.52], C: [0.06, 0.09], h: [225, 255] },
     bands: ["rgba(255,255,255,0.04)", "rgba(127,184,216,0.12)"],
     oxygen: ["rgba(240,177,53,0.26)", "rgba(240,177,53,0.14)", "rgba(240,177,53,0.05)"],
+    advisory: ["rgba(210,74,55,0.16)", "rgba(210,74,55,0.36)"],
     yearStops: [
       { t: 0, L: 0.78, C: 0.07, h: 225 }, // pale willow blue
       { t: 0.3, L: 0.64, C: 0.09, h: 245 },
@@ -68,6 +70,7 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     ramp: { L: [0.36, 0.72], C: [0.13, 0.06], h: [262, 245] },
     bands: ["rgba(28,42,72,0.04)", "rgba(58,120,161,0.12)"],
     oxygen: ["rgba(163,90,0,0.22)", "rgba(163,90,0,0.12)", "rgba(163,90,0,0.045)"],
+    advisory: ["rgba(158,36,24,0.09)", "rgba(158,36,24,0.24)"],
     yearStops: [
       { t: 0, L: 0.42, C: 0.13, h: 262 }, // deep cobalt
       { t: 0.35, L: 0.52, C: 0.11, h: 256 },
@@ -1072,11 +1075,11 @@ const FIGS: Record<Kind, Fig> = {
       const fmtWhen = (t: number) => fmtDate.format(new Date(t * 1000));
       const spans = advisoriesFor(d.meta.id)
         .filter((a) => a.kind in ADV_WIND && a.t1 > x0 && a.t0 < x1)
-        .map((a) => ({ x0: a.t0, x1: a.t1, fill: P.bands[ADV_WIND[a.kind]], title: `${ADV!.kinds[a.kind]}, ${a.zone}: ${fmtWhen(a.t0)} to ${fmtWhen(a.t1)}` }));
+        .map((a) => ({ x0: a.t0, x1: a.t1, fill: P.advisory[ADV_WIND[a.kind]], title: `${ADV!.kinds[a.kind]}, ${a.zone}: ${fmtWhen(a.t0)} to ${fmtWhen(a.t1)}` }));
       return {
         opts: { xs, lines, spans, unit: ` ${u.label}`, zero: true, empty: "No weather data in this window." },
         legend: [[smoothLabel, P.line, 1], ["Wind, hourly", P.line, 0.35], ["Daily peak gust", P.contrast, 0.55]],
-        note: zone ? `shaded: an NWS small craft advisory (lighter) or gale or stronger warning (darker) in force for this station's forecast zone, ${zone} (${ADV!.zones[zone].name})` : undefined,
+        note: zone ? `shaded red: an NWS small craft advisory (lighter) or gale or stronger warning (darker) in force for this station's forecast zone, ${zone} (${ADV!.zones[zone].name})` : undefined,
       };
     },
   },
@@ -3375,7 +3378,7 @@ function weatherReadouts(d: StationData): string[] {
   const out: string[] = [];
   if (!ADV) void loadAdvisories();
   const adv = advisoryAt(d.meta.id, Date.now() / 1000);
-  if (adv) out.push(readoutHtml(`<span class="adv-num">${ADV!.kinds[adv.kind].replace(/ (Advisory|Warning)$/, "")}</span>`, adv.kind.endsWith(".W") ? "Warning" : "Advisory", "advisory", `NWS, zone ${adv.zone}, until ${fmtWhenMin.format(new Date(adv.t1 * 1000))}`, "advisory"));
+  if (adv) out.push(readoutHtml(`<span class="adv-num">${ADV!.kinds[adv.kind]}</span>`, adv.kind.endsWith(".W") ? "Warning" : "Advisory", "advisory", `NWS, zone ${adv.zone}, until ${fmtWhenMin.format(new Date(adv.t1 * 1000))}`, "advisory"));
   const o = d.met?.last;
   const state = o ? obsState({ time: o.time } as LastObs) : "offline";
   const u = WIND_UNITS[WU].label;

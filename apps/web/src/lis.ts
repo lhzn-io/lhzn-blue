@@ -4421,6 +4421,7 @@ const FIELD_CHOICES: { kind: FieldKind | "none"; label: string }[] = [
   { kind: "kd490", label: "Water clarity (Kd490)" },
   { kind: "currents", label: "Surface currents (model)" },
   { kind: "wind", label: "Wind (HRRR)" },
+  { kind: "waves", label: "Waves (NWS model)" },
 ];
 /** The map layers each view offers, and the one it opens with; the others sit under "More layers". */
 const VIEW_LAYERS: Record<VarKey, { offer: FieldKind[]; def: FieldKind | "none" }> = {
@@ -4428,12 +4429,12 @@ const VIEW_LAYERS: Record<VarKey, { offer: FieldKind[]; def: FieldKind | "none" 
   salinity: { offer: ["chl"], def: "none" },
   oxygen: { offer: ["chl"], def: "chl" },
   turbidity: { offer: ["kd490", "chl"], def: "kd490" },
-  wind: { offer: ["wind", "currents"], def: "wind" },
+  wind: { offer: ["wind", "waves", "currents"], def: "wind" },
   tides: { offer: [], def: "none" },
   rivers: { offer: [], def: "none" },
 };
 // A linked layer wins on load; otherwise the view's default. A layer picked by hand lasts until the view changes.
-let fieldPick: FieldKind | "none" = (["sst", "chl", "kd490", "currents", "wind"] as const).find((k) => k === LINK.get("layer")) ?? VIEW_LAYERS[VK].def;
+let fieldPick: FieldKind | "none" = (["sst", "chl", "kd490", "currents", "wind", "waves"] as const).find((k) => k === LINK.get("layer")) ?? VIEW_LAYERS[VK].def;
 /** A linked time ("-6h", "+12h", "-30d"), applied once the time bar has the scale it belongs to. */
 let pendingOffset: { hours: number; scale: "hours" | "days" } | null = (() => {
   const m = /^([+-]?\d+)([hd])$/.exec((LINK.get("t") ?? "").replace(/^ /, "+")); // a "+" in a query string reads as a space
@@ -4483,7 +4484,7 @@ try {
 } catch {
   /* private mode: the normal map */
 }
-const FRAME_SPAN: Record<FieldKind | "none", [number, number]> = { none: [0, 0], currents: [0, 2], wind: [0, 1], sst: [24, 0], chl: [7 * 24, 0], kd490: [7 * 24, 0] };
+const FRAME_SPAN: Record<FieldKind | "none", [number, number]> = { none: [0, 0], currents: [0, 2], wind: [0, 1], waves: [0, 1], sst: [24, 0], chl: [7 * 24, 0], kd490: [7 * 24, 0] };
 const fieldCache = new Map<FieldKind, Promise<FieldData>>();
 
 function fieldData(kind: FieldKind): Promise<FieldData> {
@@ -4491,8 +4492,8 @@ function fieldData(kind: FieldKind): Promise<FieldData> {
     const load: Promise<FieldData> =
       kind === "currents"
         ? Promise.all([getJson<FieldData["mesh"]>(`${DATA}/fields/currents-mesh.json`), getJson<FieldData["currents"]>(`${DATA}/fields/currents.json`)]).then(([mesh, currents]) => ({ mesh, currents }))
-        : kind === "wind"
-          ? getJson<FieldData["wind"]>(`${DATA}/fields/hrrr-wind.json`).then((wind) => ({ wind }))
+        : kind === "wind" || kind === "waves"
+          ? getJson<FieldData["wind"]>(`${DATA}/fields/${kind === "wind" ? "hrrr-wind" : "nwps-waves"}.json`).then((wind) => ({ wind }))
           : getJson<FieldData["raster"]>(`${DATA}/fields/${kind}.json`).then((raster) => ({ raster }));
     fieldCache.set(kind, load.catch((err) => {
       fieldCache.delete(kind); // try again next time

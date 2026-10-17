@@ -40,6 +40,11 @@ STEPS = 145  # the analysis and 144 hourly steps
 KEEP_HOURS = 96  # runs kept in the page's file: past hours from the newest run covering them, with spare
 MAX_KM = 4.0  # the nearest water cell must be this close to the buoy
 KV_KEY = "v1/waves-nwps.json"
+FIELD_KEY = "v1/fields/nwps-waves.json"
+FIELD_BOX = (-74.40, 40.30, -71.40, 41.70)  # the HRRR layer's box (NWPS CG1 ends at 41.40 N)
+FIELD_BACK, FIELD_AHEAD = 24, 72  # hours of frames kept around now
+FIELD_STEP = 0.05  # m per int8 unit (to 6.35 m)
+FIELD_MESH_VERSION = 1
 UA = {"User-Agent": "longhorizon.blue ingest (https://longhorizon.blue; dfry@lhzn.io)"}
 # GRIB short name -> (published name, decimals)
 FIELDS = {"swh": ("hs", 2), "shts": ("swell", 2), "perpw": ("tp", 1), "dirpw": ("dir", 0), "ws": ("wind", 1), "wdir": ("wind_dir", 0)}
@@ -135,6 +140,13 @@ def read_points(data: bytes, pts: dict[str, tuple[float, float]]) -> dict:
         lon = ((fc.longitude.values + 180) % 360) - 180
         wet = np.isfinite(fc["swh"].isel(step=0).values)
         out: dict = {"steps": steps, "points": {}, "cells": {}}
+        # The grid over the map's box, for the layer: height and the direction the waves come from, every step.
+        rows = np.where((lat >= FIELD_BOX[1]) & (lat <= FIELD_BOX[3]))[0]
+        cols = np.where((lon >= FIELD_BOX[0]) & (lon <= FIELD_BOX[2]))[0]
+        stack = lambda name: np.concatenate(  # noqa: E731
+            [(an[name].values[None] if an is not None and name in an else np.full((1, lat.size, lon.size), np.nan)), fc[name].values]
+        )[:, rows][:, :, cols].astype(np.float32)
+        out["grid"] = {"lat": lat[rows], "lon": lon[cols], "hs": stack("swh"), "dir": stack("dirpw")}
         for pid, (x, y) in pts.items():
             dy = (lat[:, None] - y) * 111.2
             dx = (lon[None, :] - x) * 111.2 * math.cos(math.radians(y))
@@ -177,6 +189,67 @@ def page_file(prev: dict | None, new: dict[str, dict], archived: list[str], end:
     }
 
 
+def field_file(prev: dict | None, runs: dict[str, dict], end: datetime) -> dict | None:
+    """The map layer: frames from 24 h back to 72 h ahead, each from the newest run covering its hour; the previous
+    file's frames are kept where no newer run covers them. ``runs``: {issue key: read_points output with "grid"}."""
+    import base64
+
+    from .fields import arrow_levels
+    from .hrrr_grid import corners
+
+    if prev and (prev.get("encoding", {}).get("step") != FIELD_STEP or prev.get("mesh", {}).get("version") != FIELD_MESH_VERSION):
+        prev = None
+    now = end.replace(tzinfo=None, minute=0, second=0, microsecond=0)
+    lo, hi = now - timedelta(hours=FIELD_BACK), now + timedelta(hours=FIELD_AHEAD)
+    frames: dict[str, dict] = {f["valid_time"]: f for f in (prev or {}).get("frames", [])}
+    mesh = (prev or {}).get("mesh")
+    enc = lambda a: base64.b64encode(np.clip(np.round(np.nan_to_num(a) / FIELD_STEP), -127, 127).astype(np.int8).ravel().tobytes()).decode()  # noqa: E731
+    for key in sorted(runs, reverse=True):  # newest first: an older run fills only hours no newer one covers
+        g = runs[key].get("grid")
+        if not g:
+            continue
+        issue = datetime.strptime(key, "%Y-%m-%dT%HZ")
+        lon2, lat2 = np.meshgrid(g["lon"].astype(np.float64), g["lat"].astype(np.float64))
+        if mesh is None:
+            r4 = lambda a: np.round(a, 4).ravel().tolist()  # noqa: E731
+            mesh = {
+                "nx": int(lon2.shape[1]), "ny": int(lon2.shape[0]),
+                "corner_lon": r4(corners(lon2)), "corner_lat": r4(corners(lat2)),
+                "centre_lon": r4(lon2), "centre_lat": r4(lat2),
+                "land": (~np.isfinite(g["hs"]).any(axis=0)).astype(int).ravel().tolist(),
+                "arrow_level": arrow_levels(lon2.ravel() / 2, lat2.ravel() / 2).astype(int).tolist(),
+                "version": FIELD_MESH_VERSION,
+            }
+        for k, lead in enumerate(runs[key]["steps"]):
+            valid = issue + timedelta(hours=lead)
+            if not lo <= valid <= hi:
+                continue
+            vkey = f"{valid:%Y-%m-%dT%H:%MZ}"
+            have = frames.get(vkey)
+            if have and have["cycle"] >= key:
+                continue
+            hs, frm = g["hs"][k].astype(np.float64), g["dir"][k].astype(np.float64)
+            to = np.deg2rad((frm + 180.0) % 360.0)  # where the waves travel
+            frames[vkey] = {"valid_time": vkey, "cycle": key, "lead": int(lead), "u": enc(hs * np.sin(to)), "v": enc(hs * np.cos(to))}
+    if mesh is None:
+        return None
+    kept = sorted((f for f in frames.values() if lo <= datetime.strptime(f["valid_time"], "%Y-%m-%dT%H:%MZ") <= hi), key=lambda f: f["valid_time"])
+    return {
+        "schema": SCHEMA,
+        "kind": "waves",
+        "label": "model forecast",
+        "source": "NWS Nearshore Wave Prediction System (SWAN), WFO New York grid CG1, on the model's own 1.8 km cells",
+        "attribution": "NWS NWPS (NOAA NOMADS)",
+        "field": "significant wave height along the direction the waves travel (east and north components)",
+        "units": "m",
+        "generated_at": iso(end),
+        "box": list(FIELD_BOX),
+        "encoding": {"type": "int8 base64", "step": FIELD_STEP, "clip": round(127 * FIELD_STEP, 2)},
+        "mesh": mesh,
+        "frames": kept,
+    }
+
+
 def publish(store: Store, root: str | None) -> list[str]:
     """Archive the runs on NOMADS not yet kept (when root is given) and refresh the page's file. Returns the runs
     read this time."""
@@ -187,6 +260,7 @@ def publish(store: Store, root: str | None) -> list[str]:
     arch = Archive(root) if root else None
     cutoff = end.replace(tzinfo=None) - timedelta(hours=KEEP_HOURS)
     new: dict[str, dict] = {}
+    grids: dict[str, dict] = {}
     pts = buoys()
     for run in recent_runs(end):
         key = f"{run:%Y-%m-%dT%HZ}"
@@ -204,10 +278,22 @@ def publish(store: Store, root: str | None) -> list[str]:
             log.info("NWPS %s: %s", key, "archived" if arch.put(run, data) else "already archived")
         archived.append(key)
         if run >= cutoff:
-            new[key] = pts_run
+            grids[key] = pts_run
+            new[key] = {k: v for k, v in pts_run.items() if k != "grid"}
         # Written after every run (a run takes about 2 minutes on one vCPU), so a job stopped by its timeout keeps
         # what it read and the next run does not fetch it again.
         store.write_json(KV_KEY, page_file(prev, new, archived, end), max_age=1800)
     if prev is None and not new:
         store.write_json(KV_KEY, page_file(prev, new, archived, end), max_age=1800)
+    # The map layer. The first time (no layer yet), the newest run is read again for its grid.
+    prev_field = store.read_json(FIELD_KEY)
+    if prev_field is None and not grids:
+        for key in sorted((prev or {}).get("runs", {}), reverse=True)[:1]:
+            data = fetch(datetime.strptime(key, "%Y-%m-%dT%HZ"))
+            if data is not None:
+                grids[key] = read_points(data, pts)
+    if grids:
+        field = field_file(prev_field, grids, end)
+        if field is not None:
+            store.write_json(FIELD_KEY, field, max_age=1800)
     return sorted(new)

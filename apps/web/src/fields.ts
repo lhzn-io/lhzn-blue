@@ -12,10 +12,10 @@
 import type maplibregl from "maplibre-gl";
 import { mapReady, mapTheme, onStyle } from "./map";
 
-export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind";
+export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind" | "waves";
 
 export interface RasterField {
-  kind: Exclude<FieldKind, "currents" | "wind">;
+  kind: Exclude<FieldKind, "currents" | "wind" | "waves">;
   units: string;
   scale: number;
   time: string;
@@ -71,7 +71,7 @@ export interface WindField {
 /** The last 90 days of a raster, one frame per UTC day (see the jobs' fields.py for the file layout). */
 export interface RasterHistory {
   header: {
-    kind: Exclude<FieldKind, "currents" | "wind">;
+    kind: Exclude<FieldKind, "currents" | "wind" | "waves">;
     units: string;
     grid: RasterField["grid"];
     days: string[];
@@ -133,6 +133,16 @@ const windStops = (): [number, string][] =>
     : [[0, "#2b2440"], [6, "#3f3366"], [12, "#5d4a92"], [18, "#8167bd"], [25, "#a990dd"], [35, "#d6c7f5"]]
   ).map(([kt, c]) => [(kt as number) * KT, c as string]);
 
+/** Wave colours, m: pale to deep blue-teal on the light basemap and the reverse on the dark one (as wind), a
+ * different hue from wind's violet so the two layers are never confused. */
+const WAVE_TOP = 2.5;
+const waveStops = (): [number, string][] =>
+  mapTheme() === "light"
+    ? [[0, "#eef6f8"], [0.3, "#cfe6ee"], [0.6, "#9dcbdc"], [1.0, "#5ea6c4"], [1.5, "#2d7aa3"], [2.5, "#16466e"]]
+    : [[0, "#16242c"], [0.3, "#1f3a48"], [0.6, "#2d5d73"], [1.0, "#4b8aa4"], [1.5, "#7fb8d8"], [2.5, "#cfe8f3"]];
+const isWaves = () => active === "waves";
+const vecStops = () => (isWaves() ? waveStops() : windStops());
+
 interface Meta {
   title: string;
   short: string;
@@ -149,6 +159,7 @@ const META: Record<FieldKind, Meta> = {
   chl: { title: "Chlorophyll-a", short: "Chlorophyll-a", ramp: "algae", log: true, range: [0.5, 30], unit: "mg/m³", digits: 1, note: "Satellite estimate of the surface; biased high in turbid water and near the shore (a band along the coast is left out)." },
   kd490: { title: "Water clarity (Kd490)", short: "Clarity, Kd490", ramp: "turbid", log: true, range: [0.1, 2], unit: "m⁻¹", digits: 2, note: "Light attenuation at 490 nm, a satellite proxy for murkiness, not a turbidity reading in NTU. Higher is murkier." },
   currents: { title: "Surface currents", short: "Currents", ramp: "speed", log: false, range: [0, 150], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
+  waves: { title: "Waves (NWS NWPS)", short: "Waves, NWPS", ramp: "wind", log: false, range: [0, WAVE_TOP], unit: "m", digits: 2, note: "Model forecast (NWS Nearshore Wave Prediction System, SWAN): significant wave height on the model's own 1.8 km cells; arrows show where the waves travel. These runs carry no currents, so steepening where wind opposes the tide is not in them." },
   wind: { title: "Wind (HRRR)", short: "Wind, HRRR", ramp: "wind", log: false, range: [0, WIND_TOP], unit: "m/s", digits: 1, note: "Model forecast (NOAA HRRR), 10 m above the surface, on the model's own 3 km cells; arrows show where the wind blows toward. Cells HRRR counts as land are fainter." },
 };
 
@@ -541,11 +552,11 @@ function windPointsGeoJSON(w: WindField, k: number) {
 
 /** The wind colour expression on a speed in m/s. */
 function windColour(s: maplibregl.ExpressionSpecification): maplibregl.ExpressionSpecification {
-  return ["interpolate", ["linear"], s, ...windStops().flat()] as maplibregl.ExpressionSpecification;
+  return ["interpolate", ["linear"], s, ...vecStops().flat()] as maplibregl.ExpressionSpecification;
 }
 
 function addWind(map: maplibregl.Map, w: WindField): void {
-  range = META.wind.range!;
+  range = META[isWaves() ? "waves" : "wind"].range!;
   arrowImage(map);
   map.addSource("wind-cells", { type: "geojson", data: windCellsGeoJSON(w) });
   map.addSource("wind-points", { type: "geojson", data: windPointsGeoJSON(w, windFrame) });
@@ -557,7 +568,7 @@ function addWind(map: maplibregl.Map, w: WindField): void {
       source: "wind-cells",
       paint: {
         "fill-color": windColour(["coalesce", ["feature-state", "s"], 0]),
-        "fill-opacity": ["case", ["==", ["feature-state", "s"], null], 0, ["==", ["get", "land"], 1], 0.28, 0.72] as maplibregl.ExpressionSpecification,
+        "fill-opacity": ["case", ["==", ["feature-state", "s"], null], 0, ["==", ["get", "land"], 1], isWaves() ? 0 : 0.28, 0.72] as maplibregl.ExpressionSpecification,
         "fill-antialias": false,
       },
     },
@@ -574,7 +585,7 @@ function addWind(map: maplibregl.Map, w: WindField): void {
       "icon-rotation-alignment": "map",
       "icon-allow-overlap": true,
       "icon-ignore-placement": true,
-      "icon-size": ["interpolate", ["linear"], ["get", "s"], 0, 0.3, 5, 0.46, 15, 0.72],
+      "icon-size": (isWaves() ? ["interpolate", ["linear"], ["get", "s"], 0, 0.3, 1, 0.5, 2.5, 0.72] : ["interpolate", ["linear"], ["get", "s"], 0, 0.3, 5, 0.46, 15, 0.72]) as maplibregl.ExpressionSpecification,
     },
     paint: {
       // One colour per theme, never switching by speed.
@@ -611,6 +622,7 @@ const compass16 = (deg: number) => ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "
 
 /** One cell's wind for the frame shown: speed in the reader's unit and the direction it blows from. */
 function windText(w: WindField, id: number): string {
+  if (isWaves()) return waveText(w, id);
   if (windFrame < 0) return "no HRRR hour at this time";
   const f = w.frames[windFrame];
   const { u, v } = windUV(w, windFrame);
@@ -618,6 +630,17 @@ function windText(w: WindField, id: number): string {
   const un = windUnit();
   const land = w.mesh.land[id] ? ", land cell" : "";
   return `${(Math.hypot(u[id], v[id]) * un.perMs).toFixed(un.digits)} ${un.label} from ${compass16(from)} (${Math.round(from)}&deg;)<br><small>${fmtProbe.format(new Date(f.valid_time))}, HRRR ${f.cycle.slice(11, 13)}Z run, ${f.lead} h ahead${land}</small>`;
+}
+
+/** One cell's waves for the frame shown: significant height (ft and m) and the direction they come from. */
+function waveText(w: WindField, id: number): string {
+  if (windFrame < 0) return "no NWPS hour at this time";
+  if (w.mesh.land[id]) return "land in the wave model";
+  const f = w.frames[windFrame];
+  const { u, v } = windUV(w, windFrame);
+  const h = Math.hypot(u[id], v[id]);
+  const from = ((Math.atan2(-u[id], -v[id]) * 180) / Math.PI + 360) % 360;
+  return `${(h * 3.28084).toFixed(1)} ft (${h.toFixed(2)} m) from ${compass16(from)}<br><small>${fmtProbe.format(new Date(f.valid_time))}, NWPS ${f.cycle.slice(11, 13)}Z run, ${f.lead} h ahead, model</small>`;
 }
 
 /** The frame nearest the timeline's time (now by default), or -1 when the time is outside the model run. */
@@ -657,6 +680,11 @@ const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", 
 
 
 function scaleHtml(meta: Meta): string {
+  if (isWaves()) {
+    const at = (m: number) => `${((m / WAVE_TOP) * 100).toFixed(1)}%`;
+    const stops = waveStops().map(([m, c]) => `${c} ${at(m)}`);
+    return `<div class="field-scale"><span>0</span><i class="field-bar" style="background:linear-gradient(90deg,${stops.join(",")})"></i><span>${(WAVE_TOP * 3.28084).toFixed(0)} ft (${WAVE_TOP} m)</span></div>`;
+  }
   if (active === "wind") {
     const un = windUnit();
     const at = (s: number) => `${((s / WIND_TOP) * 100).toFixed(1)}%`;
@@ -715,13 +743,15 @@ function renderPanel(fallback: HTMLElement): void {
         : w
           ? wf
             ? `${fmtProbe.format(new Date(wf.valid_time))}, ${wf.cycle.slice(11, 13)}Z run`
-            : "no HRRR hour"
+            : isWaves() ? "no NWPS hour" : "no HRRR hour"
           : "";
     const span = r && r.window_days > 2 && oldest - newest >= 1 ? ` Each pixel is the latest clear view in the last ${Math.round(oldest) + 1} days; older pixels are fainter.` : "";
     const run = c
       ? ` Run of ${fmtDay.format(new Date(c.generated_at))}, covering 24h back to 72h ahead; the time bar below moves it.`
       : w
-        ? " Each hour from the newest HRRR run that covers it, 24h back to 48h ahead; the time bar below moves it."
+        ? isWaves()
+          ? " Each hour from the newest NWPS run that covers it (00 and 12 UTC), 24h back to 72h ahead; the time bar below moves it."
+          : " Each hour from the newest HRRR run that covers it, 24h back to 48h ahead; the time bar below moves it."
         : "";
     const credit = r ? r.attribution : c ? c.source : w ? w.attribution : "";
     body = `<div class="field-key"><span class="field-name" title="${meta.title}">${meta.short}</span><span class="field-when">${when}</span>
@@ -857,7 +887,7 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
   if (data.history) range = historyRange(data.history);
   else if (data.raster) range = rangeOf(META[data.raster.kind], data.raster.values.map((v) => (v == null ? NaN : v * data.raster!.scale)));
   else if (data.currents) range = META.currents.range!;
-  else if (data.wind) range = META.wind.range!;
+  else if (data.wind) range = META[isWaves() ? "waves" : "wind"].range!;
   // The panel first, so the picker, colour bar and source show while the map is still loading its tiles.
   const box = document.getElementById("map");
   if (box) renderPanel(box);

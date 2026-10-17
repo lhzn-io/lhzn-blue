@@ -6,8 +6,9 @@ to 48 h on the 00, 06, 12 and 18 UTC cycles. Each cycle is kept twice:
 
 - ``<archive>/YYYY/MM/cycle=YYYYMMDDHH.csv.gz`` (a gs:// prefix, or a local directory): every row, create-only,
   never overwritten or deleted; the long record that verification draws on (Coldline after 30 days).
-- ``v1/forecast-hrrr.json`` (KV): the cycles of the last KEEP_HOURS, per station and field, for the page and for
-  the daily verification (``verify``).
+- ``v1/forecast-hrrr.json`` (KV): the cycles of the last KEEP_HOURS, and the 48 h cycles (00, 06, 12 and 18 UTC)
+  of the last LONG_KEEP_DAYS, per station and field, for the page (its forecast vintage slider) and for the daily
+  verification (``verify``).
 
 `backfill` fills the archive for past cycles (HRRR is on the bucket from 2014-07-30) at fewer leads, split across
 Cloud Run tasks.
@@ -37,6 +38,7 @@ LEADS = list(range(1, 49))  # fetch_points skips the leads a cycle does not carr
 FIELDS = ("u10", "v10", "gust", "t2m", "d2m", "mslp", "vis")
 LOOKBACK_HOURS = 4  # cycles this recent are tried each run; HRRR posts a cycle's last lead within about 2 hours
 KEEP_HOURS = 78  # cycles kept in the page's file: a 48 h lead for a day of valid times, with a few hours spare
+LONG_KEEP_DAYS = 7  # the 48 h cycles kept longer, so the page can compare a week of forecasts with what happened
 # How far a station may reach for HRRR water cells: New London sits on the Thames, narrower than HRRR's 3 km
 # cells, whose nearest water cells are about 7 km away in the Sound. The buoys find theirs within 3 km.
 MAX_KM = 10.0
@@ -122,8 +124,9 @@ def to_csv_gz(df: pd.DataFrame) -> bytes:
 
 
 def page_file(prev: dict | None, new: pd.DataFrame, end: datetime) -> dict:
-    """The last KEEP_HOURS of cycles per station: {station: {issue_time: {field: [values by lead]}, ...}}, with the
-    leads listed once per cycle."""
+    """The last KEEP_HOURS of cycles, and the 48 h cycles of the last LONG_KEEP_DAYS, per station:
+    {station: {issue_time: {field: [values by lead]}, ...}}, with the leads listed once per cycle. The longer record
+    builds up from the cycles already in the file (the job cannot read its archive back)."""
     cycles: dict = {} if not prev else dict(prev.get("cycles", {}))
     for issue, g in new.groupby("issue_time"):
         key = pd.Timestamp(issue).strftime("%Y-%m-%dT%HZ")
@@ -134,7 +137,9 @@ def page_file(prev: dict | None, new: pd.DataFrame, end: datetime) -> dict:
             entry["points"].setdefault(point, {})[field] = [None if pd.isna(v) else round(float(v), 2) for v in s]
         cycles[key] = entry
     cutoff = pd.Timestamp(end).tz_localize(None) - pd.Timedelta(hours=KEEP_HOURS)
-    cycles = {k: v for k, v in sorted(cycles.items()) if pd.Timestamp(k.replace("Z", "")) >= cutoff}
+    long_cutoff = pd.Timestamp(end).tz_localize(None) - pd.Timedelta(days=LONG_KEEP_DAYS)
+    keep = lambda t: t >= cutoff or (t.hour % 6 == 0 and t >= long_cutoff)  # noqa: E731
+    cycles = {k: v for k, v in sorted(cycles.items()) if keep(pd.Timestamp(k.replace("Z", "")))}
     return {
         "schema": SCHEMA,
         "generated_at": iso(end),

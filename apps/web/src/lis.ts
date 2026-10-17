@@ -40,6 +40,7 @@ interface Palette {
   bands: [string, string]; // surface-minus-bottom threshold shading: outer, inner
   oxygen: [string, string, string]; // dissolved oxygen shading: anoxic, hypoxic, below the growth criterion
   advisory: [string, string]; // NWS advisories behind the wind, in brick red: small craft, gale and above
+  miss: string; // a forecast's typical miss, either side of it: faint lavender, apart from the forecast's own blue
   yearStops: { t: number; L: number; C: number; h: number }[];
 }
 
@@ -55,6 +56,7 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     bands: ["rgba(255,255,255,0.04)", "rgba(127,184,216,0.12)"],
     oxygen: ["rgba(240,177,53,0.26)", "rgba(240,177,53,0.14)", "rgba(240,177,53,0.05)"],
     advisory: ["rgba(210,74,55,0.16)", "rgba(210,74,55,0.36)"],
+    miss: "#b7a2dd",
     yearStops: [
       { t: 0, L: 0.78, C: 0.07, h: 225 }, // pale willow blue
       { t: 0.3, L: 0.64, C: 0.09, h: 245 },
@@ -72,6 +74,7 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     bands: ["rgba(28,42,72,0.04)", "rgba(58,120,161,0.12)"],
     oxygen: ["rgba(163,90,0,0.22)", "rgba(163,90,0,0.12)", "rgba(163,90,0,0.045)"],
     advisory: ["rgba(158,36,24,0.09)", "rgba(158,36,24,0.24)"],
+    miss: "#9a84cc",
     yearStops: [
       { t: 0, L: 0.42, C: 0.13, h: 262 }, // deep cobalt
       { t: 0.35, L: 0.52, C: 0.11, h: 256 },
@@ -1002,7 +1005,7 @@ const FIGS: Record<Kind, Fig> = {
         return i < 0 || uu == null || vv == null ? NaN : Math.hypot(uu, vv) * MS_KT;
       };
       // Earlier runs, faint and fainter with age: where they agree the forecast is settled; where they fan out it is not.
-      const older = runs.filter((r) => r !== newest && r.issue <= now).slice(0, 24);
+      const older = vintageRuns(d.meta.id, x0, x1).filter((r) => r !== newest).reverse();
       const runLines: Line[] = older.map((r, i) => ({
         ys: xs.map((t) => windVal(at(r, t))),
         color: P.line,
@@ -1019,24 +1022,24 @@ const FIGS: Record<Kind, Fig> = {
       const m = d.met;
       const lines: Line[] = [
         ...runLines,
-        { ys: fc.map((v, i) => windVal(v + err(xs[i]))), color: P.line, width: 0.9, opacity: 0.6, dash: "2 3", label: "Typical error, high", tip: false },
-        { ys: fc.map((v, i) => windVal(Math.max(0, v - err(xs[i])))), color: P.line, width: 0.9, opacity: 0.6, dash: "2 3", label: "Typical error, low", tip: false },
+        { ys: fc.map((v, i) => windVal(v + err(xs[i]))), color: P.miss, width: 0.9, opacity: 0.7, dash: "2 3", label: "Typical error, high", tip: false },
+        { ys: fc.map((v, i) => windVal(Math.max(0, v - err(xs[i])))), color: P.miss, width: 0.9, opacity: 0.7, dash: "2 3", label: "Typical error, low", tip: false },
         { ys: ahead.map((f) => (f ? windVal(f.gust) : NaN)), color: P.contrast, opacity: 0.5, label: "Forecast gust", dots: true, fmt: fmtU },
-        { ys: fc.map((v) => windVal(v)), color: P.line, width: 2, dash: "6 3", label: "HRRR forecast", fmt: fmtU },
+        { ys: fc.map((v) => windVal(v)), color: P.line, width: 2, dash: "6 3", label: "Stitched forecast", fmt: fmtU },
         { ys: xs.map((t) => windVal(m?.gust?.at(t) ?? NaN)), color: P.contrast, opacity: 0.55, label: "Gust, measured", dots: true, fmt: fmtU },
         { ys: xs.map((t) => windVal(m?.wind?.at(t) ?? NaN)), color: P.now, width: 2.2, label: "Wind, measured", fmt: fmtU },
         { ys: xs.map((t) => m?.dir?.at(t) ?? NaN), color: P.line, label: "From", hidden: true, fmt: (v) => `${compass(v)} (${Math.round(v)}°)` },
       ];
       // The run whose line is nearest the pointer at the hovered hour (the vintage slider follows it).
       const pick = (i: number, yv: number) => {
-        const vals = vintageRuns(d.meta.id).map((r) => ({ r, y: windVal(at(r, xs[i])) })).filter((x) => Number.isFinite(x.y));
+        const vals = vintageRuns(d.meta.id, x0, x1).map((r) => ({ r, y: windVal(at(r, xs[i])) })).filter((x) => Number.isFinite(x.y));
         if (!vals.length) return null;
         return vintageLabel(d.meta.id, vals.reduce((a, b) => (Math.abs(b.y - yv) < Math.abs(a.y - yv) ? b : a)).r);
       };
       return {
         opts: { xs, lines, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" }, empty: "No forecast or measurement in this window.", pick },
-        legend: [["Measured", P.now, 1], ["Forecast (dashed)", P.line, 1], ["Typical miss (dotted)", P.line, 0.6], ["Gusts", P.contrast, 0.55], ["Earlier forecasts", P.line, 0.3]],
-        note: `NOAA HRRR, raw${(() => { const a = hrrrAsOf(d.meta.id, xs); return a ? `, ${a}` : ""; })()} &middot; <a href="${FORECAST_PAGE}">verified at the buoys</a>`,
+        legend: [["Measured", P.now, 1], ["Stitched forecast", P.line, 1], ["Typical miss", P.miss, 0.7], ["Gusts", P.contrast, 0.55], ["Earlier forecasts", P.line, 0.3]],
+        note: `NOAA HRRR, raw &middot; <a href="${FORECAST_PAGE}">verified at the buoys</a>`,
       };
     },
   },
@@ -1195,7 +1198,7 @@ const FIGS: Record<Kind, Fig> = {
       ];
       return {
         opts: { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, marker: hasModel ? { x: Date.now() / 1000, label: "now" } : undefined, empty: `No wave readings in this window. ${wavesText(d.meta.id)} Full record shows what we hold.` },
-        legend: [["Significant height", P.line, 1], ["Highest wave", P.contrast, 0.35], ...(hasModel ? [["NWS wave model, dashed", P.line, 0.7] as [string, string, number]] : [])],
+        legend: [["Significant height", P.line, 1], ["Highest wave", P.contrast, 0.35], ...(hasModel ? [["NWS wave model (NWPS)", P.line, 0.7] as [string, string, number]] : [])],
         note: `significant height: the mean of the highest third of waves, close to what an observer reports${hasModel ? `; dashed: the NWS nearshore wave model (SWAN) at the buoy, the newest run for each hour (ahead: ${nwpsAsOf() || "the newest run"}), a model and not a measurement` : ""}`,
       };
     },
@@ -1236,7 +1239,7 @@ const FIGS: Record<Kind, Fig> = {
       ];
       return {
         opts: { xs, lines, bands, unit: " mb", zero: true, floor: -4, hoverDigits: 1, marker: { x: now, label: "now" }, empty: "No pressure readings in this window." },
-        legend: [["Change over 3 h", P.line, 1], [`HRRR forecast (dashed)${(() => { const a = hrrrAsOf(d.meta.id, xs); return a ? `, ${a}` : ""; })()}`, P.line, 0.7]],
+        legend: [["Change over 3 h", P.line, 1], [`HRRR forecast${(() => { const a = hrrrAsOf(d.meta.id, xs); return a ? `, ${a}` : ""; })()}`, P.line, 0.7]],
         note: "shaded: steady to falling slowly (under 1.6 mb in 3 h), and falling or rising quickly (3.6 to 6); beyond 6 is very rapid",
       };
     },
@@ -3714,20 +3717,28 @@ const activeDepth = (d: StationData, key: Kind): string =>
 const VINTAGE = new Map<string, number>(); // station id -> the chosen run's issue time (epoch seconds)
 const VINTAGE_LISTENERS = new WeakMap<HTMLElement, (e: Event) => void>();
 
-/** The runs the plot draws for a station, oldest first: the earlier runs (faint) and the newest (the dashed line). */
-function vintageRuns(id: string): FcRun[] {
+const RECENT_RUNS = 24; // the last day's hourly runs; before them, only the 48 h runs (00, 06, 12 and 18 UTC)
+
+/** The runs the plot draws for a station between x0 and x1, oldest first: the newest run (the dashed line), the
+ * hourly runs before it for a day, and the 48 h runs before those (the page file keeps them for a week). A run is
+ * drawn when any of its hours falls in the window. */
+function vintageRuns(id: string, x0 = -Infinity, x1 = Infinity): FcRun[] {
   const now = Date.now() / 1000;
-  return (FCST?.runs[id] ?? []).filter((r) => r.issue <= now).slice(0, 25).reverse();
+  const last = (r: FcRun) => r.issue + r.leads[r.leads.length - 1] * HOUR;
+  return (FCST?.runs[id] ?? [])
+    .filter((r) => r.issue <= now)
+    .filter((r, k) => (k <= RECENT_RUNS || r.leads[r.leads.length - 1] > 18) && last(r) >= x0 && r.issue < x1)
+    .reverse();
 }
-/** A run's line label in the plot: the newest is "HRRR forecast", the others "HRRR run <time>". */
+/** A run's line label in the plot: the newest is the stitched forecast's line, the others "HRRR run <time>". */
 function vintageLabel(id: string, r: FcRun): string {
-  const runs = vintageRuns(id);
-  return r === runs[runs.length - 1] ? "HRRR forecast" : `HRRR run ${fmtRun.format(new Date(r.issue * 1000))}`;
+  const now = Date.now() / 1000;
+  return r === (FCST?.runs[id] ?? []).find((q) => q.issue <= now) ? "Stitched forecast" : `HRRR run ${fmtRun.format(new Date(r.issue * 1000))}`;
 }
 
-function mountVintage(d: StationData, plot: HTMLElement): void {
+function mountVintage(d: StationData, plot: HTMLElement, x0?: number, x1?: number): void {
   plot.querySelector(".vintage")?.remove();
-  const runs = vintageRuns(d.meta.id);
+  const runs = vintageRuns(d.meta.id, x0, x1);
   if (runs.length < 2) return;
   const chosen = runs.findIndex((r) => r.issue === VINTAGE.get(d.meta.id));
   const k0 = chosen >= 0 ? chosen : runs.length - 1;
@@ -3735,6 +3746,8 @@ function mountVintage(d: StationData, plot: HTMLElement): void {
   box.className = "vintage";
   box.innerHTML = `<input class="vg-range" type="range" min="0" max="${runs.length - 1}" step="1" value="${k0}" aria-label="Forecast run"><span class="vg-label"></span>`;
   plot.append(box);
+  // In the expanded chart a drag pans and the wheel zooms: not when they start on the slider.
+  for (const type of ["pointerdown", "mousedown", "touchstart", "wheel"]) box.addEventListener(type, (e) => e.stopPropagation());
   const range = box.querySelector<HTMLInputElement>(".vg-range")!;
   const label = box.querySelector<HTMLElement>(".vg-label")!;
   const set = (k: number, picked: boolean) => {
@@ -3778,7 +3791,7 @@ function drawInline(d: StationData, key: Kind): void {
   }
   renderLines($(`${d.meta.id}-${key}`), b.opts);
   $(`${d.meta.id}-${key}-legend`).innerHTML = legendHtml(b);
-  if (key === "next48") mountVintage(d, $(`${d.meta.id}-${key}`));
+  if (key === "next48") mountVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
   if (key === "sb") drawWindStrip(d, x0, x1);
 }
 
@@ -3801,6 +3814,8 @@ function drawZoom(): void {
   const b = FIGS[zoom.key].build(zoom.d, zoom.depth, zoom.x0, zoom.x1, zoom.full);
   renderLines($("zoom-plot"), b.opts);
   $("zoom-legend").innerHTML = legendHtml(b);
+  if (zoom.key === "next48") mountVintage(zoom.d, $("zoom-plot"), zoom.x0, zoom.x1);
+  else $("zoom-plot").querySelector(".vintage")?.remove();
 }
 
 /** Switch between the default view and the full record, and label the toggle for the other one. */

@@ -8,6 +8,7 @@
  * Data: v1/fields/model-grids.json, written by the jobs' model_grids module (a grid per model, frames of int8 u/v).
  */
 import "./site.css";
+import { mountAdvisories } from "./advisory";
 import "./models-page.css";
 import "maplibre-gl/dist/maplibre-gl.css";
 import maplibregl from "maplibre-gl";
@@ -441,3 +442,7 @@ async function main(): Promise<void> {
 }
 
 void main();
+
+// The NWS advisories in force on the Sound, in the masthead (links to the Wind view).
+const mastEl = document.querySelector(".mast");
+if (mastEl) void mountAdvisories(mastEl);

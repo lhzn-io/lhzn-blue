@@ -8,6 +8,7 @@
  * the page's ink for references, amber only for states that must stand out.
  */
 import "./site.css";
+import { mountAdvisories } from "./advisory";
 import "./forecast-page.css";
 import { cssVar, el, niceStep, renderLines, type Line } from "./chart";
 
@@ -806,3 +807,7 @@ async function main(): Promise<void> {
 }
 
 void main();
+
+// The NWS advisories in force on the Sound, in the masthead (links to the Wind view).
+const mastEl = document.querySelector(".mast");
+if (mastEl) void mountAdvisories(mastEl);

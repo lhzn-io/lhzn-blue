@@ -81,6 +81,9 @@ def _main() -> None:
         _shore(lambda: store.write_json("v1/usgs-tidal.json", usgs_tidal.live(
             store.read_json("v1/usgs-tidal.json"), store.read_json("v1/archive/usgs-tidal-pred.json")
         ), max_age=300), "usgs-tidal")
+        _shore(lambda: store.write_json(
+            "v1/advisories-now.json", __import__("lhzn_blue_jobs.advisories", fromlist=["now"]).now(), max_age=300
+        ), "advisories-now")
     elif args.command == "latest":
         # The 15-minute refresh between hourly runs: the buoys' water and weather only.
         build.live(store, quick=True)

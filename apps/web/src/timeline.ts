@@ -34,6 +34,8 @@ const fmtWhen = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York",
 const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
 const fmtHour = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" });
 const fmtDate = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", day: "numeric" });
+const fmtWeekday = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" });
+const fmtMonth = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short" });
 
 /** Epoch seconds of the cursor, or null when it is at now. */
 export function asOf(): number | null {
@@ -58,6 +60,15 @@ export function setScale(kind: ScaleKind): void {
   if (kind === scale) return;
   stop();
   scale = kind;
+  if (root) build();
+  set(offset);
+}
+
+/** How far back the hours scale reaches: two weeks in the Wind view (its strip spans them), a day elsewhere. */
+export function setHoursBack(h: number): void {
+  if (SCALES.hours.past === h) return;
+  SCALES.hours.past = h;
+  if (scale !== "hours") return;
   if (root) build();
   set(offset);
 }
@@ -113,6 +124,7 @@ function sync(): void {
   band.style.left = pct(dx(f0));
   band.style.width = pct(dx(f1) - dx(f0));
   root.querySelector<HTMLElement>(".tl-needle")!.style.left = pct(dx(offset));
+  root.querySelector<HTMLElement>(".tl-knob")!.style.left = pct(dx(offset));
   root.querySelector<HTMLElement>(".tl-cneedle")!.style.left = pct(cx(offset));
   const play = root.querySelector<HTMLButtonElement>(".tl-play")!;
   play.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
@@ -134,11 +146,19 @@ function play(): void {
 }
 
 /** Detail ticks: hours scale every 6h, taller at each local midnight; days scale every week, taller at each month's
- * first day. The forecast's are fainter. */
+ * first day. The forecast's are fainter. Under the ticks, in the track's lower half (no added height), small day
+ * labels: weekdays over a few days, day numbers over two weeks (the month on the 1st), months and weeks over 90 days. */
 function detailTicks(): string {
   const s = SCALES[scale];
   const now = Math.round(Date.now() / 3.6e6);
   const out: string[] = [];
+  const days = (s.past + s.ahead) / 24;
+  let first = true; // the leftmost label carries its month, so every date on the row can be read
+  const mon = (t: Date) => `<b class="tl-mon">${fmtMonth.format(t)}</b> `;
+  const label = (h: number, t: Date, text: string) => {
+    out.push(`<span class="tl-dlabel${h > 0 ? " ahead" : ""}" style="left:${pct(dx(h))}">${first && !text.includes("tl-mon") ? mon(t) : ""}${text}</span>`);
+    first = false;
+  };
   for (let h = -s.past; h <= s.ahead; h += scale === "days" ? 24 : 1) {
     const t = new Date((now + h) * 3.6e6);
     let kind: string | null;
@@ -149,6 +169,16 @@ function detailTicks(): string {
       kind = etHour === 0 ? "day" : etHour % 6 === 0 ? "hour" : null;
     }
     if (kind) out.push(`<i class="tl-tick ${kind}${h > 0 ? " ahead" : ""}" style="left:${pct(dx(h))}"></i>`);
+    // Labels sit just right of their midnight (the day they name follows it); none on "now", which has its own mark.
+    if (h === 0 || dx(h) > 0.97) continue; // a label at the right edge would be cut off
+    if (scale === "days") {
+      if (fmtDate.format(t) === "1") label(h, t, `<b class="tl-mon">${fmtMonth.format(t)}</b>`);
+      else if ((-h / 24) % 7 === 0 && Number(fmtDate.format(t)) > 4) label(h, t, fmtDate.format(t));
+    } else if (Number(fmtHour.format(t)) % 24 === 0) {
+      const d = fmtDate.format(t);
+      // A new month reads "Nov 1" in place; a few-day window names weekdays, with the month on the first.
+      label(h, t, days <= 5 ? (d === "1" ? `${mon(t)}${fmtWeekday.format(t)}` : fmtWeekday.format(t)) : d === "1" ? `${mon(t)}1` : d);
+    }
   }
   return out.join("");
 }
@@ -180,7 +210,7 @@ export function mountTimeline(box: HTMLElement): void {
   root.setAttribute("role", "group");
   root.setAttribute("aria-label", "Time for the map and charts");
   root.innerHTML = `<div class="tl-row"><button type="button" class="tl-play"></button>
-      <div class="tl-track"><span class="tl-ticks" aria-hidden="true"></span><i class="tl-frame" aria-hidden="true"></i><i class="tl-needle" aria-hidden="true"></i>
+      <div class="tl-track"><span class="tl-ticks" aria-hidden="true"></span><i class="tl-frame" aria-hidden="true"></i><i class="tl-needle" aria-hidden="true"></i><i class="tl-knob" aria-hidden="true"></i>
         <input class="tl-range" type="range" value="0"></div>
       <span class="tl-slot"><span class="tl-label" aria-live="polite"></span><button type="button" class="tl-now" hidden>now</button></span></div>
     <div class="tl-row tl-context" aria-hidden="true"><span></span><div class="tl-ctrack"></div><span class="tl-slot"></span></div>`;

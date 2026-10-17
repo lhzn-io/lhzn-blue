@@ -19,6 +19,7 @@ import {
   type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type VarHistory, type WaveFrame,
   type WaveHistory, type MetHistory, type WaveLive, type WaveObs, type YearLine, Daily, type RiverHistory, type RiverLive, type TurbHistory, type TurbFrame,
 } from "./series";
+import { mountAdvisories, WIND_STRIP_HASH } from "./advisory";
 
 const DATA = "/data/v1";
 const $ = (id: string) => document.getElementById(id)!;
@@ -1875,6 +1876,131 @@ function forecastAt(id: string, t: number): FcValue | null {
   return null;
 }
 
+/* ---------- Wind across the Sound (the Wind view, under the table) ----------
+ * One row per station that measures wind, west to east, grouped by NWS zone; each hour coloured by speed on the
+ * map's wind scale. Measured hours first; where a buoy is out, the newest HRRR run fills in, hatched as a model; the
+ * next 48 h are HRRR's forecast. A red ribbon over each zone marks the NWS advisories; a rule marks the page's time. */
+
+const WS_STOPS: Record<Theme, [number, string][]> = {
+  light: [[0, "#f1edf8"], [6, "#d9cdee"], [12, "#b7a2dd"], [18, "#9070c6"], [25, "#6a47a8"], [35, "#3f2477"]],
+  dark: [[0, "#2b2440"], [6, "#3f3366"], [12, "#5d4a92"], [18, "#8167bd"], [25, "#a990dd"], [35, "#d6c7f5"]],
+};
+const WS_BACK = 14 * DAY, WS_AHEAD = 48 * HOUR;
+const WS_REACH = { back: WS_BACK, ahead: 72 * HOUR }; // the time slider's hours scale in this view (timeline.ts)
+const WS = { W: 480, L: 34, R: 4, top: 12, row: 8, ribbon: 3, gap: 7, bot: 13 };
+
+function windColour(kt: number): string {
+  const st = WS_STOPS[currentTheme()];
+  const v = Math.max(0, Math.min(kt, st[st.length - 1][0]));
+  let i = 1;
+  while (i < st.length - 1 && v > st[i][0]) i++;
+  const [k0, c0] = st[i - 1], [k1, c1] = st[i];
+  const f = (v - k0) / (k1 - k0 || 1);
+  const ch = (c: string, j: number) => parseInt(c.slice(1 + 2 * j, 3 + 2 * j), 16);
+  return `rgb(${[0, 1, 2].map((j) => Math.round(ch(c0, j) + (ch(c1, j) - ch(c0, j)) * f)).join(",")})`;
+}
+
+/** The strip's time span (whole hours), shared by the drawing and the click handler. */
+function windStripSpan(): { t0: number; t1: number } {
+  const now = hourOf(Date.now() / 1000);
+  return { t0: now - WS_BACK, t1: now + WS_AHEAD };
+}
+
+function soundWindHtml(stations: StationData[]): string {
+  if (VK !== "wind") return "";
+  if (!ADV) void loadAdvisories();
+  if (!FCST) void loadForecast();
+  // Buoys always (an outage is shown, not hidden); shore stations only where they measure wind (New London does not).
+  const hasWind = (d: StationData) => !!d.met?.wind && Number.isFinite(d.met.wind.lastValid());
+  const rows = stations.filter((d) => d.kind === "buoy" || (d.kind === "shore" && hasWind(d))).sort((a, b) => a.meta.lon - b.meta.lon);
+  if (!rows.length) return "";
+  // Zones in the order their first station appears, west to east; stations keep their order within a zone.
+  const zoneOrder: string[] = [];
+  for (const d of rows) {
+    const z = zoneOf(d.meta.id) ?? "";
+    if (!zoneOrder.includes(z)) zoneOrder.push(z);
+  }
+  const groups = zoneOrder.map((z) => ({ z, rows: rows.filter((d) => (zoneOf(d.meta.id) ?? "") === z) }));
+  const { W, L: X0, R: XR, top, row, ribbon, gap, bot } = WS;
+  const nowS = Date.now() / 1000;
+  const { t0, t1 } = windStripSpan();
+  const pw = W - X0 - XR;
+  const x = (t: number) => X0 + ((t - t0) / (t1 - t0)) * pw;
+  const H = top + groups.reduce((h, g) => h + ribbon + 2 + g.rows.length * row, 0) + gap * (groups.length - 1) + bot;
+  const u = WIND_UNITS[WU];
+  const fmtU = (kt: number) => `${windFmt(kt)} ${u.label}`;
+  let g = `<defs><pattern id="ws-hatch" width="3" height="3" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="3" class="ws-hatch-line"/></pattern></defs>`;
+  g += `<rect x="${x(nowS).toFixed(1)}" y="${top - 2}" width="${(W - XR - x(nowS)).toFixed(1)}" height="${H - top - bot + 2}" class="hi-ahead-band"/>`;
+  let y = top;
+  for (const grp of groups) {
+    // The zone's advisory ribbon.
+    g += `<rect x="${X0}" y="${y}" width="${pw}" height="${ribbon}" class="ws-ribbon"/>`;
+    if (grp.z) {
+      g += `<text x="${X0 - 4}" y="${y + ribbon + 0.5}" text-anchor="end" class="ws-zone">${grp.z}</text>`;
+      const name = ADV?.zones[grp.z]?.name ?? grp.z;
+      for (const a of advisoriesFor(grp.rows[0].meta.id)) {
+        if (!(a.kind in ADV_WIND) || a.t1 <= t0 || a.t0 >= t1) continue;
+        const xa = x(Math.max(t0, a.t0)), xb = x(Math.min(t1, a.t1));
+        g += `<rect x="${xa.toFixed(1)}" y="${y}" width="${Math.max(0.8, xb - xa).toFixed(1)}" height="${ribbon}" class="ws-adv${ADV_WIND[a.kind] ? " ws-adv-hi" : ""}"><title>${ADV!.kinds[a.kind]}, ${grp.z} (${name}): ${fmtWhenMin.format(new Date(a.t0 * 1000))} to ${fmtWhenMin.format(new Date(a.t1 * 1000))}</title></rect>`;
+      }
+    }
+    y += ribbon + 2;
+    for (const d of grp.rows) {
+      g += `<text x="${X0 - 4}" y="${(y + row - 1.5).toFixed(1)}" text-anchor="end"><title>${d.meta.name}</title>${d.meta.id}</text>`;
+      // Hours merged into runs of the same whole-knot speed and source, so the strip stays a few hundred shapes.
+      type Run = { a: number; b: number; kt: number; src: "obs" | "model" | "fcst"; lead?: number };
+      const runs: Run[] = [];
+      for (let h = t0; h < t1; h += HOUR) {
+        const obs = h <= nowS ? d.met?.wind?.at(h) ?? NaN : NaN;
+        let kt = obs, src: Run["src"] = "obs", lead: number | undefined;
+        if (!Number.isFinite(kt)) {
+          // Past hours: a model only where a buoy is out; a shore station's gap stays a gap. Ahead: the forecast.
+          if (h <= nowS && d.kind !== "buoy") continue;
+          const f = forecastAt(d.meta.id, h);
+          if (!f) continue;
+          kt = f.spd;
+          src = h > nowS ? "fcst" : "model";
+          lead = f.lead;
+        }
+        const q = Math.round(kt);
+        const last = runs[runs.length - 1];
+        if (last && last.b === h && last.kt === q && last.src === src) last.b = h + HOUR;
+        else runs.push({ a: h, b: h + HOUR, kt: q, src, lead });
+      }
+      for (const r of runs) {
+        const xa = x(r.a), w = Math.max(0.6, x(r.b) - xa);
+        const what = r.src === "obs" ? "measured" : r.src === "model" ? "HRRR at the station, the newest run for the hour; a model, not a measurement" : "HRRR forecast";
+        g += `<rect x="${xa.toFixed(2)}" y="${y}" width="${w.toFixed(2)}" height="${row - 1}" fill="${windColour(r.kt)}"${r.src === "fcst" ? ' opacity="0.8"' : ""}><title>${d.meta.name}: ${fmtU(r.kt)}, ${fmtWhenMin.format(new Date(r.a * 1000))}${r.b - r.a > HOUR ? ` to ${fmtWhenMin.format(new Date(r.b * 1000))}` : ""} (${what})</title></rect>`;
+        if (r.src === "model") g += `<rect x="${xa.toFixed(2)}" y="${y}" width="${w.toFixed(2)}" height="${row - 1}" fill="url(#ws-hatch)" pointer-events="none"/>`;
+      }
+      y += row;
+    }
+    y += gap;
+  }
+  // Days: a tick at each Eastern midnight, labelled on Mondays; "now" and the page's time.
+  const fmtTick = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", weekday: "short", hour: "numeric", hourCycle: "h23" });
+  for (let h = t0; h <= t1; h += HOUR) {
+    const p = fmtTick.formatToParts(new Date(h * 1000));
+    if (p.find((q) => q.type === "hour")?.value !== "00") continue;
+    g += `<line x1="${x(h).toFixed(1)}" x2="${x(h).toFixed(1)}" y1="${H - bot}" y2="${H - bot + 2.5}" class="ws-tick"/>`;
+    if (p.find((q) => q.type === "weekday")?.value === "Mon")
+      g += `<text x="${x(h).toFixed(1)}" y="${H - 2}" text-anchor="middle">${p.find((q) => q.type === "month")!.value} ${p.find((q) => q.type === "day")!.value}</text>`;
+  }
+  g += `<line x1="${x(nowS).toFixed(1)}" x2="${x(nowS).toFixed(1)}" y1="${top - 4}" y2="${H - bot}" class="ws-now"/><text x="${x(nowS).toFixed(1)}" y="${top - 5}" text-anchor="middle" class="ws-zone">now</text>`;
+  const cur = AT ?? null;
+  if (cur != null && cur >= t0 && cur <= t1) g += `<line x1="${x(cur).toFixed(1)}" x2="${x(cur).toFixed(1)}" y1="${top - 2}" y2="${H - bot}" class="hi-cursor"/>`;
+  // The span the time slider reaches (all of it, in this view): the part a click acts on.
+  const r0 = Math.max(t0, nowS - WS_REACH.back), r1 = Math.min(t1, nowS + WS_REACH.ahead);
+  g += `<rect x="${x(r0).toFixed(1)}" y="${top - 2}" width="${(x(r1) - x(r0)).toFixed(1)}" height="${H - top - bot + 2}" class="ws-hit"><title>Click to move the page's time</title></rect>`;
+  const sw = (fill: string, extra = "") => `<svg width="10" height="9" class="ws-sw" aria-hidden="true"><rect width="10" height="9" fill="${fill}"${extra}/></svg>`;
+  const ramp = `<svg width="64" height="9" class="ws-sw" aria-hidden="true"><defs><linearGradient id="ws-ramp">${WS_STOPS[currentTheme()].map(([k, c]) => `<stop offset="${(k / 35).toFixed(3)}" stop-color="${c}"/>`).join("")}</linearGradient></defs><rect width="64" height="9" fill="url(#ws-ramp)"/></svg>`;
+  return `<section class="ws" id="${WIND_STRIP_HASH.slice(1)}" aria-label="Wind across the Sound">
+    <p class="ol-title">Wind across the Sound <span class="ol-src">west to east, by NWS zone; two weeks back, 48 h ahead &middot; click to move the time</span></p>
+    <svg viewBox="0 0 ${W} ${H}" class="hi-svg ws-svg" role="img" aria-label="Hourly wind at each station, two weeks back to 48 hours ahead, with NWS advisories">${g}</svg>
+    <p class="status-key">0 ${ramp} ${fmtU(35)} &middot; <svg width="10" height="9" class="ws-sw" aria-hidden="true"><rect width="10" height="9" fill="${windColour(16)}"/><rect width="10" height="9" fill="url(#ws-hatch)"/></svg>model where a buoy is out &middot; past now: HRRR forecast &middot; ${sw("var(--advisory)", ' opacity="0.45"')}small craft ${sw("var(--advisory)")}gale or stronger (NWS)</p>
+  </section>`;
+}
+
 /** A table cell holding a forecast: marked as HRRR, with its typical error, never as a measurement. */
 function fcCell(f: FcValue, shown: string, title: string, errText: string): string {
   return `<td class="fcst" title="${title}. HRRR forecast from the ${fmtRun.format(new Date(f.issue * 1000))} run, ${f.lead} h ahead; typically within ${errText} at this lead (verified at the buoys)."><b>${shown}</b><small>HRRR ${errText}</small></td>`;
@@ -1981,16 +2107,6 @@ function advisoriesFor(id: string): Advisory[] {
   out.sort((a, b) => a.t0 - b.t0);
   ADV_CACHE.set(id, out);
   return out;
-}
-
-/** The wind advisory in force at a time (the most severe if several), or null. */
-function advisoryAt(id: string, t: number): Advisory | null {
-  let best: Advisory | null = null;
-  for (const a of advisoriesFor(id)) {
-    if (a.t0 > t) break;
-    if (a.t1 > t && a.kind in ADV_WIND && (!best || ADV_WIND[a.kind] > ADV_WIND[best.kind])) best = a;
-  }
-  return best;
 }
 
 /** The HRRR stand-in for a buoy at a time: only for buoys, and only where the newest run reaches the hour. */
@@ -2987,7 +3103,7 @@ function statusGrid(stations: StationData[]): void {
   $("status").innerHTML = `
     ${shore.length ? `<div class="status-tabs" role="tablist" aria-label="Stations">${tab("buoy", "Buoys", buoys.length)}${tab("shore", "Shore stations", shore.length)}</div>` : ""}
     ${table}
-    <p class="status-key">${key} &middot; lines: last 7 days, each stretched to its own range</p>${outlookHtml(stations)}`;
+    <p class="status-key">${key} &middot; lines: last 7 days, each stretched to its own range</p>${outlookHtml(stations)}${soundWindHtml(stations)}`;
   markOutlookRow();
 }
 
@@ -3045,6 +3161,16 @@ function wireStatusTabs(stations: StationData[]): void {
   box.addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>(".stab");
     if (b) pick(b.dataset.group as Group);
+  });
+  box.addEventListener("click", (e) => {
+    const svg = (e.target as Element).closest<SVGSVGElement>(".ws-svg");
+    if (!svg || !timelineModule || !(e.target as Element).closest(".ws-hit")) return;
+    const r = svg.getBoundingClientRect();
+    const vx = ((e.clientX - r.left) / r.width) * WS.W;
+    const { t0, t1 } = windStripSpan();
+    const t = t0 + ((vx - WS.L) / (WS.W - WS.L - WS.R)) * (t1 - t0);
+    if (t < t0 || t > t1) return;
+    timelineModule.setOffset(Math.round((t - Date.now() / 1000) / HOUR));
   });
   box.addEventListener("keydown", (e) => {
     if (!(e.target as HTMLElement).closest(".stab") || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
@@ -3139,6 +3265,12 @@ function stationPin(d: StationData): Pin {
   }
   const tide = d.kind === "shore" && nextTide(d) ? `<br>Next ${tideText(nextTide(d)!)}` : "";
   return { ...base, state, label: label + tide };
+}
+
+/** The masthead advisory's click on this page: switch to the Wind view, as its tab does, without scrolling (the
+ * banner stays in sight; the advisories run along "Wind across the Sound" under the table). */
+function openWindStrip(): void {
+  if (VK !== "wind") document.querySelector<HTMLButtonElement>('.tab[data-var="wind"]')?.click();
 }
 
 /** The overview table and the map pins at the cursor's time (or the latest readings at now). */
@@ -3376,9 +3508,6 @@ const fmtDo = (v: number) => `${v.toFixed(1)}<small>mg/L</small>`;
 /** Wind, waves, pressure and air at the station (the Wind and waves view). */
 function weatherReadouts(d: StationData): string[] {
   const out: string[] = [];
-  if (!ADV) void loadAdvisories();
-  const adv = advisoryAt(d.meta.id, Date.now() / 1000);
-  if (adv) out.push(readoutHtml(`<span class="adv-num">${ADV!.kinds[adv.kind]}</span>`, adv.kind.endsWith(".W") ? "Warning" : "Advisory", "advisory", `NWS, zone ${adv.zone}, until ${fmtWhenMin.format(new Date(adv.t1 * 1000))}`, "advisory"));
   const o = d.met?.last;
   const state = o ? obsState({ time: o.time } as LastObs) : "offline";
   const u = WIND_UNITS[WU].label;
@@ -4304,6 +4433,7 @@ async function syncField(): Promise<void> {
   const shown = kind !== "none" && (payload.raster || payload.currents || payload.wind) ? kind : null;
   // The time bar: days for a satellite layer once its history is in, hours otherwise.
   const tl = await import("./timeline");
+  tl.setHoursBack(VK === "wind" ? WS_BACK / HOUR : 24);
   if (shown !== "sst" && shown !== "chl" && shown !== "kd490") tl.setScale("hours");
   // The span each frame covers, shaded on the time bar: a 2h model step, a day of SST, a 7-day composite.
   tl.setFrame(...FRAME_SPAN[shown ?? "none"]);
@@ -4664,6 +4794,11 @@ async function main(): Promise<void> {
     };
     void loadTides();
     void loadForecast();
+    const mast = document.querySelector(".mast");
+    if (mast) {
+      void mountAdvisories(mast, openWindStrip);
+      window.setInterval(() => void mountAdvisories(mast, openWindStrip), 10 * 60_000);
+    }
     wireTheme(redraw);
     wireUnits(redraw);
     wireMore();

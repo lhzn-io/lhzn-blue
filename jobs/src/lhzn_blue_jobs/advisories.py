@@ -24,6 +24,7 @@ import json
 import logging
 import math
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -154,6 +155,75 @@ def merge(rows: list[dict], excluded: list | None = None) -> list[list[str]]:
         for i, (s, t) in enumerate(groups):
             out.append([kind, s, t, f"{wfo}.{year}.{kind}.{num:04d}" + (f".{chr(97 + i)}" if i else "")])
     return sorted(out, key=lambda g: (g[1], g[0]))
+
+
+NOW_KEY = "v1/advisories-now.json"
+NWS_ACTIVE = "https://api.weather.gov/alerts/active"
+# Plain names for the page's banner, west to east.
+ZONE_LABELS = {"ANZ335": "western Sound", "ANZ331": "central Sound", "ANZ332": "eastern Sound"}
+
+
+IEM_EVENT = "https://mesonet.agron.iastate.edu/json/vtec_event.py"
+VTEC = re.compile(r"/O\.[A-Z]{3}\.K([A-Z]{3})\.([A-Z]{2})\.([A-Z])\.(\d{4})\.")
+
+
+def _event_times(vtec: str, sent: str, zones: list[str]) -> dict:
+    """When the event was first issued for these zones, and each zone's span, from IEM's record of the event (NWS's
+    active alert carries only its latest update). Empty when the record is unavailable: the banner then shows the
+    update time alone."""
+    m = VTEC.match(vtec)
+    if not m:
+        return {}
+    wfo, ph, sig, etn = m.groups()
+    year = int(sent[:4]) if sent[:4].isdigit() else now_utc().year
+    try:
+        r = requests.get(IEM_EVENT, params={"wfo": wfo, "year": year, "phenomena": ph, "significance": sig, "etn": int(etn)},
+                         headers=UA, timeout=30)
+        r.raise_for_status()
+        rows = [u for u in r.json().get("ugcs", []) if u.get("ugc") in zones]
+    except Exception as exc:  # the banner still works on NWS's own times
+        log.warning("advisories: IEM event %s.%s.%s.%s unavailable (%s)", wfo, ph, sig, etn, exc)
+        return {}
+    if not rows:
+        return {}
+    z = lambda t: t.replace("Z", "+00:00") if t else None  # noqa: E731
+    per = {u["ugc"]: {"issued": z(u.get("utc_product_issue")), "from": z(u.get("utc_issue")), "until": z(u.get("utc_expire"))} for u in rows}
+    return {"issued": min(v["issued"] for v in per.values() if v["issued"]), "by_zone": per}
+
+
+def now() -> dict:
+    """The warnings and advisories in force now for the Sound's zones, from NWS (api.weather.gov), for the page's
+    banner. Refreshed by the hourly live job; the daily record (`publish`) comes from the IEM archive."""
+    r = requests.get(NWS_ACTIVE, params={"zone": ",".join(ZONES)}, headers={**UA, "Accept": "application/geo+json"}, timeout=60)
+    r.raise_for_status()
+    names = set(KINDS.values())
+    alerts = []
+    for f in r.json().get("features", []):
+        p = f.get("properties", {})
+        if p.get("status") != "Actual" or p.get("event") not in names or p.get("messageType") == "Cancel":
+            continue
+        zones = [z for z in ZONES if z in (p.get("geocode", {}).get("UGC") or [])]
+        if not zones:
+            continue
+        vtec = (p.get("parameters", {}).get("VTEC") or [""])[0]
+        kind = next((k for k, v in KINDS.items() if v == p["event"]), "")
+        alert = {
+            "event": p["event"],
+            "kind": kind,
+            "zones": zones,
+            "ends": p.get("ends") or p.get("expires"),
+            "updated": p.get("sent") or p.get("effective"),  # this message: the latest update, not the first issue
+            "vtec": vtec,
+        }
+        alert.update(_event_times(vtec, p.get("sent") or "", zones))
+        alerts.append(alert)
+    return {
+        "schema": SCHEMA,
+        "generated_at": iso(now_utc()),
+        "source": "NWS New York (OKX), active alerts from api.weather.gov",
+        "zones": ZONE_LABELS,
+        "alerts": alerts,
+    }
 
 
 def publish(store: Store) -> dict:

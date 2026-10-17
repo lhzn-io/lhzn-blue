@@ -155,7 +155,15 @@ figure.wide { grid-column: 1 / -1; }
 .map-col { display: flex; flex-direction: column; min-width: 0; } /* the map grows to the right column's height */
 .outage { margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--delayed); background: var(--panel); font: 13px/1.5 var(--sans); color: var(--ink); max-width: 80ch; }
 .outage b { font-weight: 600; }
-.mast .mast-outage { margin: 0; flex: 0 1 auto; align-self: center; }
+.mast .mast-outage { margin: 0; flex: 1 1 340px; align-self: center; } /* narrows so an advisory fits beside it */
+/* An NWS advisory in force: beside the outage note, brick red, a link to the wind across the Sound. */
+.mast .mast-advisory { display: flex; flex: 0 1 auto; flex-direction: column; gap: 4px; margin: 0 0 0 auto; padding: 8px 12px; align-self: center;
+  border-left: 3px solid var(--advisory); background: var(--panel); text-decoration: none; color: var(--ink); max-width: 46ch; }
+.mast .mast-advisory:hover, .mast .mast-advisory:focus-visible { outline: 1px solid var(--advisory); outline-offset: 2px; }
+.mast-advisory .ma-row { display: block; }
+.mast-advisory b { display: block; font: 600 14px/1.2 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--advisory); }
+.mast-advisory .ma-sub { display: block; font: 12px/1.4 var(--sans); color: var(--ink-soft); }
+.mast-advisory .ma-when { display: block; font: 11px/1.4 var(--sans); color: var(--dim); }
 .map-foot { padding: 8px 0 0; font: 10.5px/1.35 var(--sans); color: var(--ink); }
 .field-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 0 0 6px; }
 /* Expand and layer buttons under the zoom controls, in MapLibre's control style; the layer drawer beside them. */
@@ -214,6 +222,15 @@ figure.wide { grid-column: 1 / -1; }
 .tl-frame { position: absolute; top: 50%; height: 8px; margin-top: -4px; background: var(--ink); opacity: 0.13; pointer-events: none; }
 .tl-needle, .tl-cneedle { position: absolute; top: 50%; width: 2px; height: 14px; margin: -7px 0 0 -1px; background: var(--ink); pointer-events: none; }
 .tl-cneedle { width: 1.5px; height: 11px; margin-top: -5.5px; }
+/* A ring to grab at the cursor; it fills while the slider is hovered, dragged or focused. */
+.tl-knob { position: absolute; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; box-sizing: border-box;
+  border: 1.5px solid var(--ink); border-radius: 50%; background: var(--bg); pointer-events: none; transition: background 0.12s; }
+.tl-track:hover .tl-knob, .tl-track:has(.tl-range:active) .tl-knob, .tl-track:has(.tl-range:focus-visible) .tl-knob {
+  background: color-mix(in srgb, var(--ink) 22%, var(--bg)); }
+/* Day labels under the ticks, in the track's lower half. */
+.tl-dlabel { position: absolute; bottom: 0; padding-left: 2px; font: 7.5px/1 var(--mono); color: var(--faint); white-space: nowrap; pointer-events: none; }
+.tl-dlabel.ahead { opacity: 0.7; }
+.tl-dlabel .tl-mon { font-weight: 400; color: var(--faint); opacity: 0.75; letter-spacing: 0.02em; }
 .tl-range { -webkit-appearance: none; appearance: none; position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; background: none; cursor: pointer; opacity: 0; }
 .tl-range:focus-visible { opacity: 1; outline: 1px dotted var(--dim); outline-offset: -3px; }
 .tl-cline { position: absolute; top: 50%; height: 0; border-top: 1px solid var(--faint); }
@@ -954,4 +971,16 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .hi-svg .hi-ahead-band { fill: var(--panel); opacity: 0.6; }
 .hi-svg .hi-obs { stroke: var(--wp-gold); stroke-width: 1.6; }
 .hi-svg .hi-cursor { stroke: var(--ink); stroke-width: 1; opacity: 0.6; }
+/* Wind across the Sound: hourly wind per station, NWS advisories as a red ribbon per zone. */
+
+.ws { margin: 18px 0 0; padding-top: 10px; border-top: 1px solid var(--rule); color: var(--ink); }
+.ws-svg .ws-hit { fill: transparent; cursor: crosshair; }
+.ws-svg .ws-ribbon { fill: var(--rule); }
+.ws-svg .ws-adv { fill: var(--advisory); opacity: 0.45; }
+.ws-svg .ws-adv-hi { opacity: 1; }
+.ws-svg .ws-zone { font-size: 5.5px; fill: var(--faint); letter-spacing: 0.04em; }
+.ws-svg .ws-tick { stroke: var(--faint); stroke-width: 0.6; }
+.ws-svg .ws-now { stroke: var(--now); stroke-width: 0.8; stroke-dasharray: 2 2; }
+.ws-svg .ws-hatch-line { stroke: var(--bg); stroke-width: 1.1; opacity: 0.85; }
+.ws .ws-sw { vertical-align: -1px; margin: 0 3px 0 6px; }
 .status-grid caption .cap-moon { vertical-align: -1px; margin-right: 6px; overflow: visible; }

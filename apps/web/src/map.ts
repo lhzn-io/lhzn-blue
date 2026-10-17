@@ -40,11 +40,13 @@ const STYLES = {
 } as const;
 type Theme = keyof typeof STYLES;
 
-/** The Sound, the map's home view. */
+/** The Sound, the map's home view: the NWS marine zones' extent (ANZ335, ANZ331, ANZ332), to the shore. */
 const HOME: maplibregl.LngLatBoundsLike = [
-  [-73.85, 40.72],
-  [-72.05, 41.38],
+  [-73.83, 40.77],
+  [-71.85, 41.40],
 ];
+/** Around the Sound: a location outside this is not used to centre the map. */
+const NEAR: [[number, number], [number, number]] = [[-74.4, 40.4], [-71.3, 41.8]];
 const BASIN_COLOR: Record<Theme, string> = { dark: "#7fb8d8", light: "#133c8b" };
 
 let current: maplibregl.Map | null = null;
@@ -63,6 +65,20 @@ export const mapReady = (): Promise<maplibregl.Map> => ready;
 export function onStyle(hook: (map: maplibregl.Map, theme: Theme) => void): void {
   styleHooks.push(hook);
   if (current?.isStyleLoaded()) hook(current, theme);
+}
+
+/** Centre the map on a place near the Sound (the reader's own location, when they turn that on), or return to the
+ * whole Sound (null). Returns false when the place is not near the Sound. */
+export async function focusOn(at: { lon: number; lat: number } | null): Promise<boolean> {
+  const map = await mapReady();
+  if (!at) {
+    map.fitBounds(HOME, { padding: map.getContainer().clientWidth < 560 ? 6 : 24, duration: 600 });
+    return true;
+  }
+  const [[x0, y0], [x1, y1]] = NEAR;
+  if (at.lon < x0 || at.lon > x1 || at.lat < y0 || at.lat > y1) return false;
+  map.flyTo({ center: [at.lon, at.lat], zoom: Math.max(map.getZoom(), 9.6), duration: 900 });
+  return true;
 }
 
 /** The page theme the map is drawn in. */
@@ -191,7 +207,7 @@ export function drawMap(container: HTMLElement, pins: Pin[], onSelect: (id: stri
     container,
     style: STYLES[initial],
     bounds: HOME,
-    fitBoundsOptions: { padding: 24 },
+    fitBoundsOptions: { padding: container.clientWidth < 560 ? 6 : 24 },
     canvasContextAttributes: { preserveDrawingBuffer: true }, // Collect paints the map into its image
     // Credits behind the (i) button; set explicitly so they never depend on the style loading.
     attributionControl: {

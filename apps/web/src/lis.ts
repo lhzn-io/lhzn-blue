@@ -3974,6 +3974,9 @@ function updatedStrip(meta: Meta, live: Live): void {
     Object.values(live.met ?? {}).some((m) => m.last_obs?.source === "panel");
   if (down) {
     outage.textContent = `Buoy data unavailable from the server since ${lastOk ? since(lastOk) : "the last update"}.${transcribed ? " Readings since then are transcribed from the LISICOS station panels (provisional)." : ""} ${OPERATOR_NOTE}`;
+    // On phones the note is an icon in the masthead that opens it (styled in site.css).
+    $("outage-dialog-text").textContent = outage.textContent;
+    $("outage-icon").hidden = false;
     outage.hidden = false;
   }
   const draw = () => {
@@ -4020,6 +4023,7 @@ function wireMore(): void {
     setOpen(false);
     if (what === "theme") $("theme-toggle").click();
     else if (what === "collect") window.setTimeout(() => $("collect-open").click());
+    else if (what === "locate") return; // its own handler (wireLocate)
     else window.setTimeout(() => (($("about-drawer") as HTMLDetailsElement).open = true)); // after this click settles
   });
   const count = $("collect-count");
@@ -4742,6 +4746,59 @@ function wireWater(live: Live, stations: StationData[], rebuild: () => void): vo
 }
 
 /** The Light/Dark toggle: light by default; the choice is remembered in this browser only. */
+/** The phone's outage icon: opens the note in a dialog. */
+function wireOutageIcon(): void {
+  const dialog = $("outage-dialog") as HTMLDialogElement;
+  $("outage-icon").addEventListener("click", () => dialog.showModal());
+  $("outage-dialog-close").addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close(); // a click on the backdrop
+  });
+}
+
+/** "Use my location": off by default. Only when the reader turns it on does the browser ask for the location, once per
+ * visit; the map then opens on their part of the Sound. The location is used in this browser only and never sent. */
+function wireLocate(): void {
+  const btn = document.querySelector<HTMLButtonElement>('[data-more="locate"]');
+  if (!btn || !("geolocation" in navigator)) {
+    btn?.remove();
+    return;
+  }
+  let on = false;
+  try {
+    on = localStorage.getItem("lhzn-blue-locate") === "1";
+  } catch {
+    /* private mode: off */
+  }
+  const label = (note = "") => {
+    btn.textContent = `Use my location: ${on ? "on" : "off"}${note}`;
+    btn.setAttribute("aria-pressed", String(on));
+  };
+  const locate = () =>
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const near = await (await import("./map")).focusOn({ lon: pos.coords.longitude, lat: pos.coords.latitude });
+        label(near ? "" : " (not near the Sound)");
+      },
+      () => label(" (not available)"),
+      { maximumAge: 10 * 60_000, timeout: 10_000, enableHighAccuracy: false },
+    );
+  label();
+  if (on) locate();
+  btn.addEventListener("click", async () => {
+    on = !on;
+    try {
+      if (on) localStorage.setItem("lhzn-blue-locate", "1");
+      else localStorage.removeItem("lhzn-blue-locate");
+    } catch {
+      /* private mode: for this visit only */
+    }
+    label();
+    if (on) locate();
+    else void (await import("./map")).focusOn(null);
+  });
+}
+
 function wireTheme(redraw: () => void): void {
   const btn = $("theme-toggle");
   // A moon in the light theme (switch to night), a sun in the dark one (switch to day).
@@ -5018,6 +5075,8 @@ async function main(): Promise<void> {
       window.setInterval(() => void refresh(), 10 * 60_000);
     }
     wireTheme(redraw);
+    wireOutageIcon();
+    wireLocate();
     wireUnits(redraw);
     wireMore();
     // Keep "now" and the ages current on a page left open, and refit axis labels on resize.

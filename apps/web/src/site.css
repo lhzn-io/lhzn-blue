@@ -990,7 +990,7 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 
 /* The forecast vintage slider (next 48 hours): a small slider at the top left, styled like the map's time bar, with
    only the run's time beside it; the chosen run's line is emphasised. */
-.plot path.lit { stroke-opacity: 0.95 !important; stroke-width: 1.8px; }
+.plot path.lit { stroke-opacity: 0.95 !important; stroke-width: 1.8px; stroke-dasharray: 6 3; } /* dashed like the newest forecast: a forecast, not a measurement */
 .plot .vintage { position: absolute; top: 4px; left: 6px; z-index: 3; display: flex; align-items: center; gap: 7px;
   padding: 1px 6px; background: var(--pop-bg); font: 10px/1.6 var(--mono); color: var(--ink-soft); }
 .vintage input[type="range"].vg-range { -webkit-appearance: none; appearance: none; width: 110px; height: 16px; margin: 0; background: transparent; cursor: pointer; }
@@ -1001,3 +1001,22 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .vintage input[type="range"].vg-range::-moz-range-thumb { width: 10px; height: 10px; border: 1.5px solid var(--ink); border-radius: 50%; background: var(--bg); box-sizing: border-box; }
 .vintage input[type="range"].vg-range:hover::-webkit-slider-thumb, .vintage input[type="range"].vg-range:active::-webkit-slider-thumb { background: color-mix(in srgb, var(--ink) 22%, var(--bg)); }
 .vintage input[type="range"].vg-range:hover::-moz-range-thumb, .vintage input[type="range"].vg-range:active::-moz-range-thumb { background: color-mix(in srgb, var(--ink) 22%, var(--bg)); }
+
+/* Phones: the outage note becomes an icon in the masthead that opens it; the advisory box is tighter; the map is shorter
+   (the Sound is long and narrow, so a tall map on a narrow screen shows mostly land). */
+.outage-icon { display: none; }
+.outage-dialog { max-width: min(92vw, 520px); padding: 16px 18px 12px; border: 1px solid var(--rule); border-left: 3px solid var(--delayed);
+  background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); }
+.outage-dialog::backdrop { background: var(--backdrop); }
+.outage-dialog p { margin: 0 0 12px; }
+.outage-dialog button { font: 600 10.5px/1 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; padding: 8px 12px;
+  background: none; border: 1px solid var(--rule); color: var(--ink); cursor: pointer; }
+@media (max-width: 640px) {
+  .mast .mast-outage { display: none; }
+  .mast .outage-icon:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; align-self: flex-start; padding: 6px 9px;
+    border: 1px solid var(--rule); border-left: 3px solid var(--delayed); background: var(--panel); color: var(--ink);
+    font: 600 10px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; }
+  .mast .mast-advisory { padding: 6px 10px; max-width: none; flex: 1 1 100%; margin-left: 0; }
+  .mast-advisory b { font-size: 13px; }
+  .map { height: 230px; }
+}

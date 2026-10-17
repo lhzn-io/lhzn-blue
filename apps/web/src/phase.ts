@@ -1,7 +1,7 @@
 /**
  * The tidal current's phase, as a row under the time bar (Wind & waves): at one of four reference points along the
  * Sound, NECOFS's surface current along the flood axis as a light band (flood up, ebb down) and NOAA's tidal current
- * prediction as a thin line, with NOAA's slack times as ticks and the time bar's cursor through it. A switch picks
+ * prediction as a fine line, with the time bar's cursor through it. A switch picks
  * the point; the label slot reads the phase at the cursor. Data: /data/v1/current-phase.json (the jobs' phase.py).
  *
  * Each point keeps a fixed scale (the job's scale_kt), so the band never rescales as the cursor or the window moves.
@@ -55,7 +55,7 @@ function at(s: Series | null, t: number): number {
 
 const current = () => file?.points.find((p) => p.id === pick) ?? file?.points[0] ?? null;
 
-/** The band, the prediction line and the slack ticks across the time bar's window. */
+/** The band and the prediction line across the time bar's window. */
 function drawTrack(track: HTMLElement): void {
   const p = current();
   const { t0, t1, scale } = detailWindow();
@@ -85,9 +85,8 @@ function drawTrack(track: HTMLElement): void {
     });
     flush();
   }
-  // NOAA: the prediction line and its slack ticks.
+  // NOAA: the prediction line.
   let line = "";
-  let ticks = "";
   const o = p.noaa;
   if (o) {
     const s0 = Date.parse(o.t0) / 1000;
@@ -101,17 +100,13 @@ function drawTrack(track: HTMLElement): void {
       line += `${pen ? "L" : "M"}${x(t).toFixed(1)},${y(v).toFixed(2)}`;
       pen = true;
     });
-    for (const e of o.events) {
-      const t = Date.parse(e.t) / 1000;
-      if (e.type === "slack" && t >= t0 && t <= t1) ticks += `M${x(t).toFixed(1)},${mid - 6}L${x(t).toFixed(1)},${mid + 6}`;
-    }
   }
   const now = Math.round(Date.now() / 3.6e6) * 3600;
   const cur = asOf() ?? now;
   track.innerHTML =
     `<svg class="ph-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">` +
     `<line x1="0" x2="${W}" y1="${mid}" y2="${mid}" class="ph-zero"/>` +
-    `<path d="${band}" class="ph-band"/><path d="${line}" class="ph-noaa"/><path d="${ticks}" class="ph-slack"/>` +
+    `<path d="${band}" class="ph-band"/><path d="${line}" class="ph-noaa"/>` +
     `<line x1="${x(cur).toFixed(1)}" x2="${x(cur).toFixed(1)}" y1="0" y2="${H}" class="ph-cursor"/></svg>` +
     `<span class="ph-flood">flood</span><span class="ph-ebb">ebb</span>`;
 }

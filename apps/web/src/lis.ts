@@ -1173,10 +1173,11 @@ const FIGS: Record<Kind, Fig> = {
     depthTabs: false,
     seasonal: false,
     available: (d) => d.kind === "buoy" && !!wavesOf(d.meta.id)?.sensor,
-    // While the sensor is out, open on the wave model's span (its runs reach about 4 days back and 6 ahead).
+    // While the sensor is out, or the server is not publishing it (readings transcribed from the panel), open on the
+    // wave model's span (its runs reach about 4 days back and 6 ahead), so recent hours are not a sliver at the end.
     window: (d) => {
       const last = lastWave(d.meta.id);
-      const out = !last || obsState({ time: last.time } as LastObs) === "offline";
+      const out = !last || obsState({ time: last.time } as LastObs) === "offline" || !WAVE_LIVE[d.meta.id]?.published;
       return out && NWPS ? [d.now - 4 * DAY, d.now + 6 * DAY] : LEFT(d);
     },
     maxSpan: 2 * 366 * DAY,
@@ -1190,11 +1191,13 @@ const FIGS: Record<Kind, Fig> = {
       if (!NWPS) void loadNwps();
       const model = nwpsSeries(d.meta.id, xs).map(val);
       const hasModel = model.some(Number.isFinite);
+      // Beside a model line, measurements take the measured gold (as in the next-48-hours plot); alone, the series colour.
+      const measured = hasModel ? P.now : P.line;
       const lines: Line[] = [
         ...(w
           ? [
               { ys: xs.map((t) => val(w.hmax?.at(t) ?? NaN)), color: P.contrast, width: 0.7, opacity: 0.35, label: "Highest wave", fmt },
-              { ys: xs.map((t) => val(w.hs?.at(t) ?? NaN)), color: P.line, width: 1.6, label: "Significant height", fmt },
+              { ys: xs.map((t) => val(w.hs?.at(t) ?? NaN)), color: measured, width: 1.6, label: "Significant height", fmt },
               { ys: xs.map((t) => w.tp?.at(t) ?? NaN), color: P.contrast, label: "Dominant period", hidden: true, fmt: (v: number) => `${v.toFixed(1)} s` },
             ]
           : []),
@@ -1202,8 +1205,7 @@ const FIGS: Record<Kind, Fig> = {
       ];
       return {
         opts: { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, marker: hasModel ? { x: Date.now() / 1000, label: "now" } : undefined, empty: `No wave readings in this window. ${wavesText(d.meta.id)} Full record shows what we hold.` },
-        legend: [["Significant height", P.line, 1], ["Highest wave", P.contrast, 0.35], ...(hasModel ? [["NWS wave model (NWPS)", P.line, 0.7] as [string, string, number]] : [])],
-        note: `significant height: the mean of the highest third of waves, close to what an observer reports${hasModel ? `; dashed: the NWS nearshore wave model (SWAN) at the buoy, the newest run for each hour (ahead: ${nwpsAsOf() || "the newest run"}), a model and not a measurement` : ""}`,
+        legend: [["Significant height", measured, 1], ["Highest wave", P.contrast, 0.35], ...(hasModel ? [["NWS wave model (NWPS)", P.line, 0.7] as [string, string, number]] : [])],
       };
     },
   },

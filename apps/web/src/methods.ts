@@ -141,12 +141,14 @@ export const METHODS: Record<string, Method> = {
   waves: {
     title: "Waves",
     shows: "Significant wave height each hour, and each hour's highest single wave (faint). Hovering gives the dominant period.",
-    method: "Significant height is the mean of the highest third of the waves.",
+    method:
+      "Significant height is the mean of the highest third of the waves, close to what an observer reports. Ahead of the " +
+      "last reading, and while the sensor is out, the NWS model line is the Nearshore Wave Prediction System (SWAN) at the " +
+      "buoy's nearest water cell, each hour from the newest run that covers it (runs at 00 and 12 UTC) [[booij1999swan]].",
     caveats:
       "The wave datasets have been unpublished on the data server for long stretches; the record before an outage comes from " +
       "our saved downloads, and the page checks every hour. Heights follow the Units switch. Wave growth in the western Sound " +
-      "is fetch-limited and larger under easterly winds [[shin2021waves]]. While the sensor is out, the dashed line is the " +
-      "NWS Nearshore Wave Prediction System at the buoy, the newest run for each hour: a model, not a measurement.",
+      "is fetch-limited and larger under easterly winds [[shin2021waves]]. The NWS model line is a model, not a measurement.",
   },
   model: {
     title: "Model values while a buoy is out",
@@ -312,7 +314,7 @@ METHODS["current-phase"] = {
   shows:
     "Under the time bar, the tidal current at one of four points along the Sound: the Race, the central Sound (Branford " +
     "Reef, 5 miles south), Execution Rocks and Throgs Neck. Above the line is flood, below it ebb. The filled band is the " +
-    "NECOFS model's surface current (the light band); the thin line is NOAA's tidal current prediction, with its slack times as ticks; " +
+    "NECOFS model's surface current (the light band); the fine line is NOAA's tidal current prediction; " +
     "the vertical line is the time bar's hour. The label reads the phase there and the next slack. Each point keeps a " +
     "fixed scale. Slack and strength differ by hours and knots along the Sound, so pick the point nearest your water; a " +
     "click on the map gives the local current.",

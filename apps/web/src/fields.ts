@@ -1182,6 +1182,7 @@ function pointText(lng: number, lat: number): string {
 const CELL_BACK = 24 * 3600;
 const CELL_AHEAD = 72 * 3600;
 let cellAt: { lng: number; lat: number } | null = null;
+let cellCursor: number | null = null; // the view's own cursor (epoch seconds); set by dragging, the time bar's hour on opening
 let cellDialog: HTMLDialogElement | null = null;
 
 /** A plot row: the series on a fixed 0..top scale across the view's window, midnight ticks, the cursor, the value at
@@ -1218,7 +1219,7 @@ function renderCell(): void {
   const now = Math.round(Date.now() / 3.6e6) * 3600;
   const t0 = now - CELL_BACK;
   const t1 = now + CELL_AHEAD;
-  const cursor = fieldT ?? Date.now() / 1000;
+  const cursor = cellCursor ?? fieldT ?? Date.now() / 1000;
   const un = windUnit();
   const c = sparkColours();
   const metric = un.label === "m/s";
@@ -1282,7 +1283,7 @@ function renderCell(): void {
   const days = midnights(t0, t1).map((t) => `<span style="left:${((((t - t0) / (t1 - t0)) * 100) + 0.5).toFixed(2)}%">${fmtDayShort.format(new Date((t + 6 * 3600) * 1000))}</span>`).join("");
   const nowMark = `<span class="cell-now" style="left:${(((now - t0) / (t1 - t0)) * 100).toFixed(2)}%">now</span>`;
   cellDialog.querySelector(".cell-body")!.innerHTML =
-    `<p class="cell-head"><b>${lat.toFixed(3)} N, ${Math.abs(lng).toFixed(3)} W</b> <span>${fmtProbe.format(new Date(cursor * 1000))}; drag across to move the time</span></p>` +
+    `<p class="cell-head"><b>${lat.toFixed(3)} N, ${Math.abs(lng).toFixed(3)} W</b> <span>${fmtProbe.format(new Date(cursor * 1000))}; drag across the plots to read another hour</span></p>` +
     rows.join("") +
     `<div class="cell-row cell-axis-row"><span></span><div class="cell-axis">${days}${nowMark}</div><span></span></div>` +
     `<p class="cell-note">${notes.join("; ")}. Models, not measurements; fixed scales as on the map. 24 h back to 72 h ahead (HRRR wind to 48 h).</p>`;
@@ -1300,29 +1301,39 @@ function openCell(at: { lng: number; lat: number }): void {
       if (e.target === cellDialog) cellDialog!.close();
     });
     cellDialog.addEventListener("close", () => (cellAt = null));
-    // Dragging across the plots moves the page's time bar to that hour.
+    // Dragging across the plots moves the view's own cursor (to the hour); the page behind stays as it is.
     let dragging = false;
-    const scrub = async (e: PointerEvent) => {
-      const plot = (e.target as Element).closest?.(".cell-plot") as SVGElement | null;
+    const scrub = (e: PointerEvent) => {
+      const plot = cellDialog!.querySelector(".cell-plot");
       if (!plot) return;
       const r = plot.getBoundingClientRect();
       const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
       const now = Math.round(Date.now() / 3.6e6) * 3600;
-      const t = now - CELL_BACK + f * (CELL_BACK + CELL_AHEAD);
-      (await import("./timeline")).setOffset(Math.round((t - now) / 3600));
+      const t = Math.round((now - CELL_BACK + f * (CELL_BACK + CELL_AHEAD)) / 3600) * 3600;
+      if (t === cellCursor) return;
+      cellCursor = t;
+      renderCell();
     };
     cellDialog.addEventListener("pointerdown", (e) => {
       if (!(e.target as Element).closest?.(".cell-plot")) return;
       dragging = true;
-      void scrub(e);
+      scrub(e);
     });
-    cellDialog.addEventListener("pointermove", (e) => dragging && void scrub(e));
+    cellDialog.addEventListener("pointermove", (e) => {
+      if (dragging) scrub(e);
+    });
     window.addEventListener("pointerup", () => (dragging = false));
   }
   cellAt = at;
+  cellCursor = null; // opens at the time bar's hour
   cellDialog.showModal();
   renderCell();
 }
+
+/** Escape closes the map's readout (the cell view, a dialog, closes itself first). */
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && popup && !cellDialog?.open) closeValue();
+});
 
 /** The popup's "Cell detail" link (the popup's HTML is rewritten as the time moves, so one listener on the page). */
 document.addEventListener("click", (e) => {
@@ -1340,7 +1351,7 @@ function frameAt(c: CurrentsField): number {
 export async function setFieldTime(t: number | null): Promise<void> {
   fieldT = t;
   if (probePoint) refreshPopup();
-  if (cellAt) renderCell();
+  if (cellAt && cellCursor == null) renderCell();
   if (data.history) return showHistoryFrame(historyIndex(data.history));
   if (overlay && !data.wat) {
     const k = watFrameAt(overlay);
@@ -1635,7 +1646,7 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
         pointSrc ??= await load().catch(() => ({}));
         const at = { lng: e.lngLat.lng, lat: e.lngLat.lat };
         // 304 px: the widest value line (Current, with its arrow and sparkline) across units and values, in the popup's fonts.
-        await showValue(map, e.lngLat, pointText(at.lng, at.lat), null, null, null, "304px");
+        await showValue(map, e.lngLat, pointText(at.lng, at.lat), null, null, null, "304px", true);
         probePoint = at;
         return;
       }
@@ -1672,13 +1683,13 @@ let popup: maplibregl.Popup | null = null;
 let probe: number | null = null; // the current element the popup reads, so it can follow the timeline
 let probeAt: { lng: number; lat: number } | null = null; // the raster point it reads, for history frames
 
-async function showValue(map: maplibregl.Map, at: maplibregl.LngLat, text: string, element: number | null = null, point: { lng: number; lat: number } | null = null, ovCell: number | null = null, maxWidth = "240px"): Promise<void> {
+async function showValue(map: maplibregl.Map, at: maplibregl.LngLat, text: string, element: number | null = null, point: { lng: number; lat: number } | null = null, ovCell: number | null = null, maxWidth = "240px", closable = false): Promise<void> {
   const ml = (await import("maplibre-gl")).default;
   closeValue();
   probe = element;
   probeAt = point;
   probeOv = ovCell;
-  const p = new ml.Popup({ closeButton: false, className: "pin-pop", maxWidth }).setLngLat(at).setHTML(withOverlay(text)).addTo(map);
+  const p = new ml.Popup({ closeButton: closable, className: "pin-pop", maxWidth }).setLngLat(at).setHTML(withOverlay(text)).addTo(map);
   p.on("close", () => {
     if (popup === p) {
       popup = null;

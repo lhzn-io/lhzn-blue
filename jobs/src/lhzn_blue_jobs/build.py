@@ -545,6 +545,9 @@ def live(store: Store, full: bool = False, quick: bool = False) -> None:
         quick_hours = QUICK_FETCH_HOURS
     out_vars: dict[str, dict] = {var: {} for var in VARS}
     out_datasets: dict = dict(prev_datasets) if quick else {}
+    from . import panels  # the transcribed LISICOS panel readings, while the server is down
+
+    panel_doc = store.read_json(panels.KV_KEY)
     for st in load_stations()["stations"]:
         for ser in st["series"]:
             key = f"{st['id']}_{ser['depth']}"
@@ -558,6 +561,7 @@ def live(store: Store, full: bool = False, quick: bool = False) -> None:
             # The short fetch only when every variable already has a window (a new variable starts full).
             held = key in prev_vars["temp"] and all(key in prev_vars[var] for var in EXTRA_VARS)
             fetch_hours = (quick_hours if quick else LIVE_FETCH_HOURS) if held else LIVE_WINDOW_HOURS
+            fresh_hours: dict[str, pd.Index] = {var: pd.Index([]) for var in VARS}
             try:
                 # The 15-minute refresh reuses the column list the hourly run looked up (one request fewer each).
                 cols = status.get("columns") if quick and status.get("columns") else merlin_columns(ds)
@@ -565,6 +569,7 @@ def live(store: Store, full: bool = False, quick: bool = False) -> None:
                 df = merlin.fetch(ds, end - timedelta(hours=fetch_hours), end + timedelta(hours=1), cols)
                 for var, (col, _, _) in VARS.items():
                     fresh = hourly(df, col)
+                    fresh_hours[var] = fresh.index
                     if not fresh.empty:
                         windows[var] = fresh.combine_first(windows[var]) if not windows[var].empty else fresh
                 last_obs = last_observation(df) or last_obs
@@ -573,11 +578,23 @@ def live(store: Store, full: bool = False, quick: bool = False) -> None:
             except Exception as exc:  # keep the last good values; record the failure
                 log.warning("live fetch failed for %s: %s", ds, exc)
                 status.update({"last_error": f"{iso(end)} {exc.__class__.__name__}: {str(exc)[:200]}"})
+            # Hours the server has not supplied: the transcribed panel readings, marked; the server's always win.
+            ph, plast = panels.water_hourly(panel_doc, st["id"], ser["depth"])
+            marks = {}
             for var, window in windows.items():
+                prev_marks = panels.marks_decode(prev_vars[var].get(key))
+                pcol = ph[var].dropna() if var in ph else None
+                window, marks[var] = panels.fill(window, fresh_hours[var], pcol, prev_marks)
                 window = window[window.index >= window_start]
                 out_vars[var][key] = encode_var(window, var)
+                runs = panels.marks_encode(marks[var], out_vars[var][key].get("t0"))
+                if runs:
+                    out_vars[var][key]["transcribed"] = runs
+            if plast and (not last_obs or plast["time"] > last_obs["time"]):
+                last_obs = plast
             out_vars["temp"][key].update({"last_obs": last_obs, "dataset": ds})
             out_datasets[ds] = status
+    _panel_doc["doc"] = panel_doc
     out_met = live_met(prev.get("met", {}), prev_datasets, out_datasets, end, full=full, quick_hours=quick_hours if quick else None)
     if quick:  # waves and turbidity change slowly and cost more requests: kept from the hourly run
         out_waves, out_turb = prev.get("waves", {}), prev.get("turbidity", {})
@@ -602,6 +619,9 @@ def live_met(prev_met: dict, prev_datasets: dict, out_datasets: dict, end, full:
     """
     out: dict = {}
     window_start = pd.Timestamp(end).floor("h") - pd.Timedelta(hours=MET_WINDOW_HOURS)
+    from . import panels
+
+    panel_doc = _panel_doc.get("doc")
     for st in load_stations()["stations"]:
         ds = (st.get("met") or {}).get("dataset")
         if not ds:
@@ -612,9 +632,11 @@ def live_met(prev_met: dict, prev_datasets: dict, out_datasets: dict, end, full:
         window = decode_frame(before)
         last_obs = before.get("last_obs")
         status = dict(prev_datasets.get(ds, {}))
+        fresh_index = pd.Index([])
         try:
             df = merlin.fetch(ds, end - timedelta(hours=fetch_hours), end + timedelta(hours=1), MET_COLUMNS)
             fresh = met_hourly(df, offset)
+            fresh_index = fresh.index
             window = fresh.combine_first(window) if not window.empty else fresh
             good = df.dropna(subset=["wind_speed"]) if not df.empty else df
             if not good.empty:
@@ -632,13 +654,23 @@ def live_met(prev_met: dict, prev_datasets: dict, out_datasets: dict, end, full:
         except Exception as exc:  # keep the last good values; record the failure
             log.warning("live weather fetch failed for %s: %s", ds, exc)
             status.update({"last_error": f"{iso(end)} {exc.__class__.__name__}: {str(exc)[:200]}"})
+        ph, plast = panels.met_hourly(panel_doc, st["id"])
+        window, marks = panels.fill(window, fresh_index, ph, panels.marks_decode(before))
+        if plast and (not last_obs or plast["time"] > last_obs["time"]):
+            last_obs = plast
         if not window.empty:
             window = window[window.index >= window_start]
         obj = encode_frame(window)
         obj.update({"last_obs": last_obs, "dataset": ds})
+        runs = panels.marks_encode(marks, obj.get("t0"))
+        if runs:
+            obj["transcribed"] = runs
         out[st["id"]] = obj
         out_datasets[ds] = status
     return out
+
+
+_panel_doc: dict = {}  # the panel readings, read once per live run and shared with live_met and waves.live
 
 
 def _num(v) -> float | None:

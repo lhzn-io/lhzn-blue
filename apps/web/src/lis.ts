@@ -2856,6 +2856,12 @@ function sparklineOf(h: Hourly, color: string, unit: string, digits = 1): string
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${title}"><title>${title}</title><path d="${path}" fill="none" stroke="${color}" stroke-width="1.3" stroke-linejoin="round"/>${tick}</svg>`;
 }
 
+/** A reading transcribed from the LISICOS panel image (while their server is down): tagged in the cell and noted in
+ * its tooltip and readout. LISICOS's observation, read by us; provisional until the server's own record returns. */
+const PANEL_NOTE = "transcribed from the LISICOS station panel image while their data server is down; provisional";
+const panelTag = (o?: { source?: string } | null) => (o?.source === "panel" ? " &middot; panel" : "");
+const panelTitle = (o?: { source?: string } | null) => (o?.source === "panel" ? `; ${PANEL_NOTE}` : "");
+
 function cellHtml(d: StationData, depth: string): string {
   if (d.kind === "shore" && VK !== "temp") return `<td class="na" title="Not measured at this station">&middot;</td>`;
   if (!d.depths.includes(depth)) return `<td class="na" title="No ${DEPTH_LABEL[depth].toLowerCase()} sensor published">&middot;</td>`;
@@ -2876,7 +2882,7 @@ function cellHtml(d: StationData, depth: string): string {
   // Oxygen under the hypoxia level is marked in the cell, not only by color.
   const low = VK === "oxygen" && value < DO_LEVELS.hypoxic;
   const status = VK === "oxygen" ? `, ${oxygenStatus(value)}` : "";
-  return `<td class="${state}${low ? " low" : ""}" title="${DEPTH_LABEL[depth]}: ${value.toFixed(V().digits)} ${unitName(VK)}${status}, ${ago(o.time)}">${sparkline(d, depth, state === "live" ? P.now : P.delayed)}<b>${shown}</b><small>${low ? oxygenStatus(value) + " &middot; " : ""}${ago(o.time).replace(" ago", "")}</small></td>`;
+  return `<td class="${state}${low ? " low" : ""}" title="${DEPTH_LABEL[depth]}: ${value.toFixed(V().digits)} ${unitName(VK)}${status}, ${ago(o.time)}${panelTitle(o)}">${sparkline(d, depth, state === "live" ? P.now : P.delayed)}<b>${shown}</b><small>${low ? oxygenStatus(value) + " &middot; " : ""}${ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
 }
 
 /** Latest buoy wind: mean and gust in the chosen unit, a downwind arrow with the compass point it comes
@@ -2915,9 +2921,9 @@ function windCell(d: StationData): string {
   if (state === "offline") return `<td class="offline"><b>--</b><small>no recent wind</small></td>`;
   const u = WIND_UNITS[WU].label;
   const dir = o.dir_deg != null ? compass(o.dir_deg) : "";
-  const title = `Wind ${windFmt(o.wind_kt)} ${u}, gusts ${windFmt(o.gust_kt)} ${u}, from ${dir || "--"}; air ${f1(o.air_f ?? NaN)} F; ${ago(o.time)}`;
+  const title = `Wind ${windFmt(o.wind_kt)} ${u}, gusts ${windFmt(o.gust_kt)} ${u}, from ${dir || "--"}; air ${f1(o.air_f ?? NaN)} F; ${ago(o.time)}${panelTitle(o)}`;
   const spark = d.met?.wind ? sparklineOf(d.met.wind, P.line, "kt") : "";
-  return `<td class="${state} wind" title="${title}">${spark}<b>${o.dir_deg != null ? windArrow(o.dir_deg) : ""}${dir} ${windFmt(o.wind_kt)}<small class="g">${u}</small></b><small>gusts ${windFmt(o.gust_kt)} &middot; ${ago(o.time).replace(" ago", "")}</small></td>`;
+  return `<td class="${state} wind" title="${title}">${spark}<b>${o.dir_deg != null ? windArrow(o.dir_deg) : ""}${dir} ${windFmt(o.wind_kt)}<small class="g">${u}</small></b><small>gusts ${windFmt(o.gust_kt)} &middot; ${ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
 }
 
 /** Waves: the latest significant height and period where published, the outage with its last reading where
@@ -2945,9 +2951,9 @@ function wavesCell(d: StationData): string {
   }
   const last = lastWave(d.meta.id);
   const state = last ? obsState({ time: last.time } as LastObs) : "offline";
-  if (WAVE_LIVE[d.meta.id]?.published && last && state !== "offline") {
+  if ((WAVE_LIVE[d.meta.id]?.published || last?.source === "panel") && last && state !== "offline") {
     const spark = d.waves?.hs ? sparklineOf(d.waves.hs, P.line, "m significant height", 2) : "";
-    return `<td class="${state}" title="Significant wave height ${waveFmt(last.hs_m)} ${waveUnit().label}, highest ${waveFmt(last.hmax_m)}, period ${last.tp_s ?? "--"} s; ${ago(last.time)}">${spark}<b>${waveFmt(last.hs_m)}<small class="g"> ${waveUnit().label}</small></b><small>${last.tp_s != null ? last.tp_s.toFixed(0) + " s &middot; " : ""}${ago(last.time).replace(" ago", "")}</small></td>`;
+    return `<td class="${state}" title="Significant wave height ${waveFmt(last.hs_m)} ${waveUnit().label}, highest ${waveFmt(last.hmax_m)}, period ${last.tp_s ?? "--"} s; ${ago(last.time)}${panelTitle(last)}">${spark}<b>${waveFmt(last.hs_m)}<small class="g"> ${waveUnit().label}</small></b><small>${last.tp_s != null ? last.tp_s.toFixed(0) + " s &middot; " : ""}${ago(last.time).replace(" ago", "")}${panelTag(last)}</small></td>`;
   }
   const mc = waveModel(Date.now() / 1000, wavesText(d.meta.id, true).replace("offline, last reading", "out since"), wavesText(d.meta.id));
   if (mc) return mc;
@@ -2978,7 +2984,7 @@ function airCell(d: StationData): string {
   if (!o || o.air_f == null) return `<td class="na">&middot;</td>`;
   const state = obsState({ time: o.time } as LastObs);
   if (state === "offline") return `<td class="offline"><b>--</b></td>`;
-  return `<td class="${state}" title="Air ${f1(o.air_f)} F, ${ago(o.time)}"><b>${Math.round(o.air_f)}&deg;</b><small>${ago(o.time).replace(" ago", "")}</small></td>`;
+  return `<td class="${state}" title="Air ${f1(o.air_f)} F, ${ago(o.time)}${panelTitle(o)}"><b>${Math.round(o.air_f)}&deg;</b><small>${ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
 }
 
 function pressureCell(d: StationData): string {
@@ -3012,7 +3018,7 @@ function pressureCell(d: StationData): string {
   const end = p ? p.lastValid() : NaN;
   const trend = p && Number.isFinite(end) ? p.at(end) - p.at(end - 3 * HOUR) : NaN;
   const tend = Number.isFinite(trend) ? `${signed(trend)} in 3h` : "";
-  return `<td class="${state}" title="Pressure ${o.pressure_mb.toFixed(1)} mbar${tend ? `, ${tend}` : ""}; ${ago(o.time)}"><b>${o.pressure_mb.toFixed(0)}<small class="g"> mb</small></b><small>${tend || ago(o.time).replace(" ago", "")}</small></td>`;
+  return `<td class="${state}" title="Pressure ${o.pressure_mb.toFixed(1)} mbar${tend ? `, ${tend}` : ""}; ${ago(o.time)}${panelTitle(o)}"><b>${o.pressure_mb.toFixed(0)}<small class="g"> mb</small></b><small>${tend || ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
 }
 
 /** NOAA's predicted water level at a time (ft above MLLW), linear between its hourly values; NaN outside them. */
@@ -3557,7 +3563,7 @@ function depthReadout(d: StationData, depth: string, value: (o: LastObs) => numb
   const state = obsState(o);
   // An old reading is not a current condition: keep it out of the big figure.
   if (state === "offline") return readoutHtml("--", label, about, `no current reading &middot; last ${fmt(v).replace(/<[^>]+>/g, " ")}, ${fmtDate.format(new Date(o.time))}`, "offline");
-  return readoutHtml(fmt(v), label, about, `${o.depth_m ?? "--"} m &middot; ${extra ? extra(o, v) + " &middot; " : ""}${ago(o.time)}`, state, context);
+  return readoutHtml(fmt(v), label, about, `${o.depth_m ?? "--"} m &middot; ${extra ? extra(o, v) + " &middot; " : ""}${ago(o.time)}${o.source === "panel" ? " &middot; transcribed from the LISICOS panel" : ""}`, state, context);
 }
 
 /** Direction and %ile of the view's water variable at one depth, from its 36h mean. */
@@ -3610,7 +3616,7 @@ function weatherReadouts(d: StationData): string[] {
   const u = WIND_UNITS[WU].label;
   if (o?.wind_kt != null && state !== "offline") {
     const dir = o.dir_deg != null ? `from ${compass(o.dir_deg)}` : "";
-    out.push(readoutHtml(`${windFmt(o.wind_kt)}<small>${u}</small>`, "Wind", "wind", `${dir}${dir ? " &middot; " : ""}gusts ${windFmt(o.gust_kt)} ${u} &middot; ${ago(o.time)}`, state,
+    out.push(readoutHtml(`${windFmt(o.wind_kt)}<small>${u}</small>`, "Wind", "wind", `${dir}${dir ? " &middot; " : ""}gusts ${windFmt(o.gust_kt)} ${u} &middot; ${ago(o.time)}${o.source === "panel" ? " &middot; transcribed from the LISICOS panel" : ""}`, state,
       [contextLine(d.met?.wind, "wind", (v) => `${windFmt(v)} ${u}`), veerText(d.met?.dir, d.met?.wind), percentileText(seasonalPercentile(d.metLong?.wind ?? d.met?.wind, SEASONS.wind), "last 3 days")]
         .filter(Boolean)
         .join(" &middot; ")));
@@ -3621,10 +3627,10 @@ function weatherReadouts(d: StationData): string[] {
   }
   if (d.kind === "buoy" && wavesOf(d.meta.id)?.sensor) {
     const w = lastWave(d.meta.id);
-    const live = WAVE_LIVE[d.meta.id]?.published && w && obsState({ time: w.time } as LastObs) !== "offline";
+    const live = (WAVE_LIVE[d.meta.id]?.published || w?.source === "panel") && w && obsState({ time: w.time } as LastObs) !== "offline";
     out.push(
       live
-        ? readoutHtml(`${waveFmt(w!.hs_m)}<small>${waveUnit().label}</small>`, "Waves", "waves", `${w!.tp_s != null ? `${w!.tp_s.toFixed(0)} s period &middot; ` : ""}${ago(w!.time)}`, "",
+        ? readoutHtml(`${waveFmt(w!.hs_m)}<small>${waveUnit().label}</small>`, "Waves", "waves", `${w!.tp_s != null ? `${w!.tp_s.toFixed(0)} s period &middot; ` : ""}${ago(w!.time)}${w!.source === "panel" ? " &middot; transcribed from the LISICOS panel" : ""}`, "",
             contextLine(d.waves?.hs, "waves", (v) => `${waveFmt(v)} ${waveUnit().label}`, { key: "waves", what: "last 3 days" }))
         : readoutHtml("--", "Waves", "waves", wavesText(d.meta.id, true), "offline"),
     );
@@ -3904,8 +3910,11 @@ function updatedStrip(meta: Meta, live: Live): void {
     new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(t));
   // What UConn reported about the outage (by email, Oct 16, 2026); shown only while the server is unreachable.
   const OPERATOR_NOTE = "UConn reports its data server is being upgraded, expected back by mid-November 2026; the Western Sound buoy has a hardware fault awaiting ship time (as of Oct 16).";
+  // While the server is down, the newest readings may be transcribed from LISICOS's panel images.
+  const transcribed = Object.values(live.series ?? {}).some((s) => s.last_obs?.source === "panel") ||
+    Object.values(live.met ?? {}).some((m) => m.last_obs?.source === "panel");
   if (down) {
-    outage.textContent = `Buoy data unavailable since ${lastOk ? since(lastOk) : "the last update"}. ${OPERATOR_NOTE}`;
+    outage.textContent = `Buoy data unavailable from the server since ${lastOk ? since(lastOk) : "the last update"}.${transcribed ? " Readings since then are transcribed from the LISICOS station panels (provisional)." : ""} ${OPERATOR_NOTE}`;
     outage.hidden = false;
   }
   const draw = () => {

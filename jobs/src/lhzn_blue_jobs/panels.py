@@ -420,3 +420,143 @@ def publish(store: Store, archive_root: str | None, run_index: int | None = None
         out["paused_until"] = paused_until
     store.write_json(KV_KEY, out, max_age=300)
     return out
+
+
+# ---------- merging into the hourly record (used by the live job) ----------
+# Our series' depths, and the panel columns that stand for them (BTM2 where a buoy's BTM1 is missing).
+DEPTH_COLUMNS = {"SFC": ("SFC",), "MID": ("MID",), "BTM": ("BTM1", "BTM2")}
+SOURCE = "LISICOS station panel, transcribed (provisional)"
+
+
+def _records(doc: dict | None, stn: str, panel: str) -> list[dict]:
+    return ((doc or {}).get("stations", {}).get(stn, {}) or {}).get(panel, []) or []
+
+
+def water_hourly(doc: dict | None, stn: str, depth: str):
+    """Hourly means of a depth's transcribed water readings (temperature C, salinity, oxygen), indexed by each
+    column's own sensor read time; and the newest reading as a last observation."""
+    import pandas as pd
+
+    rows = []
+    for r in _records(doc, stn, "wq"):
+        v = r["v"]
+        col = next((c for c in DEPTH_COLUMNS[depth] if f"read_{c}" in v), None)
+        if col is None:
+            continue
+        rows.append({"time": pd.Timestamp(v[f"read_{col}"], unit="s", tz="UTC"), "temp": v.get(f"temp_c_{col}"),
+                     "salinity": v.get(f"psu_{col}"), "oxygen": v.get(f"do_mgl_{col}"), "depth": v.get(f"dbar_{col}")})
+    if not rows:
+        return pd.DataFrame(columns=["temp", "salinity", "oxygen"], dtype=float), None
+    df = pd.DataFrame(rows).drop_duplicates("time").sort_values("time")
+    last = df.iloc[-1]
+    num = lambda x: None if x is None or pd.isna(x) else round(float(x), 3)  # noqa: E731
+    last_obs = {"time": iso(last["time"]), "depth_m": num(last["depth"]), "temperature_c": num(last["temp"]),
+                "salinity": num(last["salinity"]), "oxygen_mg_l": num(last["oxygen"]), "source": "panel"}
+    hourly = df.set_index("time")[["temp", "salinity", "oxygen"]].astype(float).resample("h").mean().dropna(how="all")
+    return hourly, last_obs
+
+
+def met_hourly(doc: dict | None, stn: str):
+    """Hourly transcribed weather (wind mean, gust max, speed-weighted direction, air F, pressure mbar) in the live
+    job's columns, and the newest reading. Direction is used as the panel prints it ("deg T"); whether the server's
+    14 degree turn applies to the panel too is settled when the server's record returns."""
+    import pandas as pd
+
+    rows = []
+    for r in _records(doc, stn, "wx"):
+        v = r["v"]
+        pres = v.get("pres_mb", v["pres_inhg"] * 33.8639 if "pres_inhg" in v else None)
+        rows.append({"time": pd.Timestamp(r["t"]), "wind_kt": v.get("wind_kt"), "gust_kt": v.get("gust_kt"),
+                     "dir_deg": v.get("dir_deg"), "air_f": v.get("air_f"), "pressure_mb": pres})
+    cols = ["wind_kt", "gust_kt", "dir_deg", "air_f", "pressure_mb"]
+    if not rows:
+        return pd.DataFrame(columns=cols, dtype=float), None
+    df = pd.DataFrame(rows).drop_duplicates("time").sort_values("time").set_index("time").astype(float)
+    rad = np.deg2rad(df["dir_deg"])
+    w = df["wind_kt"].fillna(0)
+    east = (w * np.sin(rad)).resample("h").sum(min_count=1)
+    north = (w * np.cos(rad)).resample("h").sum(min_count=1)
+    out = pd.DataFrame({
+        "wind_kt": df["wind_kt"].resample("h").mean(), "gust_kt": df["gust_kt"].resample("h").max(),
+        "dir_deg": (np.rad2deg(np.arctan2(east, north)) + 360) % 360, "air_f": df["air_f"].resample("h").mean(),
+        "pressure_mb": df["pressure_mb"].resample("h").mean(),
+    }).dropna(how="all")
+    last = df.iloc[-1]
+    num = lambda x: None if pd.isna(x) else round(float(x), 2)  # noqa: E731
+    last_obs = {"time": iso(df.index[-1]), "wind_kt": num(last["wind_kt"]), "gust_kt": num(last["gust_kt"]),
+                "dir_deg": num(last["dir_deg"]), "air_f": num(last["air_f"]), "pressure_mb": num(last["pressure_mb"]),
+                "source": "panel"}
+    return out, last_obs
+
+
+def wave_hourly(doc: dict | None, stn: str):
+    """Hourly transcribed waves in the live job's columns (heights from the feet figures, the finer ones)."""
+    import pandas as pd
+
+    rows = []
+    for r in _records(doc, stn, "wav"):
+        v = r["v"]
+        ft = lambda k: v[k] * 0.3048 if k in v else None  # noqa: E731
+        rows.append({"time": pd.Timestamp(r["t"]), "hs_m": ft("hs_ft") if "hs_ft" in v else v.get("hs_m"),
+                     "hmax_m": ft("hmax_ft") if "hmax_ft" in v else v.get("hmax_m"), "tp_s": v.get("tp_dom_s"), "ta_s": v.get("tp_avg_s")})
+    cols = ["hs_m", "hmax_m", "tp_s", "ta_s"]
+    if not rows:
+        return pd.DataFrame(columns=cols, dtype=float), None
+    df = pd.DataFrame(rows).drop_duplicates("time").sort_values("time").set_index("time").astype(float)
+    out = pd.DataFrame({"hs_m": df["hs_m"].resample("h").mean(), "hmax_m": df["hmax_m"].resample("h").max(),
+                        "tp_s": df["tp_s"].resample("h").mean(), "ta_s": df["ta_s"].resample("h").mean()}).dropna(how="all")
+    last = df.iloc[-1]
+    num = lambda x: None if pd.isna(x) else round(float(x), 3)  # noqa: E731
+    last_obs = {"time": iso(df.index[-1]), "hs_m": num(last["hs_m"]), "hmax_m": num(last["hmax_m"]),
+                "tp_s": num(last["tp_s"]), "ta_s": num(last["ta_s"]), "source": "panel"}
+    return out, last_obs
+
+
+def marks_decode(obj: dict | None) -> set:
+    """The hours an encoded window marks as transcribed: {"transcribed": [[start index, count], ...]}."""
+    import pandas as pd
+
+    if not obj or not obj.get("t0") or not obj.get("transcribed"):
+        return set()
+    t0 = pd.Timestamp(obj["t0"])
+    return {t0 + pd.Timedelta(hours=i + k) for i, n in obj["transcribed"] for k in range(n)}
+
+
+def marks_encode(hours: set, t0: str | None) -> list[list[int]]:
+    """Runs of transcribed hours as [start index, count] from the window's first hour."""
+    import pandas as pd
+
+    if not hours or not t0:
+        return []
+    base = pd.Timestamp(t0)
+    idx = sorted(int((h - base) / pd.Timedelta(hours=1)) for h in hours if h >= base)
+    runs: list[list[int]] = []
+    for i in idx:
+        if runs and i == runs[-1][0] + runs[-1][1]:
+            runs[-1][1] += 1
+        else:
+            runs.append([i, 1])
+    return runs
+
+
+def fill(window, fresh_index, panel, prev_marks: set):
+    """Fill the window's missing hours from the panel frame (or series); the server's hours always win. Returns the
+    filled window and its transcribed hours: those carried from before or filled now, less any the server supplied."""
+    import pandas as pd
+
+    marks = set(prev_marks) - set(fresh_index)
+    if panel is None or len(panel) == 0:
+        return window, {h for h in marks if h in window.index}
+    if window is None or len(window) == 0:
+        filled = panel
+        new = set(panel.index)
+    else:
+        missing = panel.index.difference(window.index)
+        if isinstance(window, pd.DataFrame) and isinstance(panel, pd.DataFrame):
+            # Hours the server has but with some columns empty are left alone (they are its record).
+            filled = window.combine_first(panel.loc[missing]) if len(missing) else window
+        else:
+            filled = window.combine_first(panel.loc[missing]) if len(missing) else window
+        new = set(missing)
+    marks |= new
+    return filled.sort_index(), {h for h in marks if h in filled.index}

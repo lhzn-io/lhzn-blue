@@ -154,8 +154,11 @@ def live(prev: dict, prev_datasets: dict, out_datasets: dict, end: datetime, sto
     A station's last reading starts from our saved downloads (its archive file) the first time, so an
     offline dataset still has a date; after that it carries forward in live.json.
     """
+    from . import build, panels
+
     out: dict = {}
     window_start = pd.Timestamp(end).floor("h") - pd.Timedelta(hours=MET_WINDOW_HOURS)
+    panel_doc = build._panel_doc.get("doc")
     for st, ds in wave_stations():
         before = prev.get(st["id"], {})
         window = decode_frame(before)
@@ -165,9 +168,12 @@ def live(prev: dict, prev_datasets: dict, out_datasets: dict, end: datetime, sto
         published = before.get("published", False)
         status = dict(prev_datasets.get(ds, {}))
         fetch_hours = LIVE_FETCH_HOURS if before.get("t0") else MET_WINDOW_HOURS
+        fresh_index = pd.Index([])
         try:
             df = _fetch(ds, end - timedelta(hours=fetch_hours), end + timedelta(hours=1))
-            window = _merge(hourly(df), window)
+            fresh = hourly(df)
+            fresh_index = fresh.index
+            window = _merge(fresh, window)
             last_obs = last_observation(df) or last_obs
             published = True
             status.update({"last_ok": iso(end), "rows": int(len(df))})
@@ -178,10 +184,17 @@ def live(prev: dict, prev_datasets: dict, out_datasets: dict, end: datetime, sto
         except Exception as exc:  # server trouble: keep the last good values and the last known status
             log.warning("live wave fetch failed for %s: %s", ds, exc)
             status.update({"last_error": f"{iso(end)} {exc.__class__.__name__}: {str(exc)[:200]}"})
+        ph, plast = panels.wave_hourly(panel_doc, st["id"])
+        window, marks = panels.fill(window, fresh_index, ph, panels.marks_decode(before))
+        if plast and (not last_obs or plast["time"] > last_obs["time"]):
+            last_obs = plast
         if not window.empty:
             window = window[window.index >= window_start]
         obj = encode_frame(window, DECIMALS)
         obj.update({"last_obs": last_obs, "published": published, "checked_at": iso(end), "dataset": ds})
+        runs = panels.marks_encode(marks, obj.get("t0"))
+        if runs:
+            obj["transcribed"] = runs
         out[st["id"]] = obj
         out_datasets[ds] = status
     return out

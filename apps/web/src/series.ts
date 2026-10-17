@@ -20,6 +20,7 @@ export interface LastObs {
   temperature_c: number | null;
   salinity: number | null;
   oxygen_mg_l: number | null;
+  source?: "panel"; // transcribed from the LISICOS station panel image (the server down)
 }
 
 export interface LiveSeries extends Encoded {
@@ -34,6 +35,7 @@ export interface MetObs {
   dir_deg: number | null;
   air_f: number | null;
   pressure_mb: number | null;
+  source?: "panel"; // transcribed from the LISICOS station panel image (the server down)
 }
 
 /** Hourly buoy weather on one grid: wind (kt), peak gust (kt), direction (deg from), air (F), pressure (mbar). */
@@ -176,6 +178,7 @@ export interface WaveObs {
   hmax_m: number | null; // highest wave
   tp_s: number | null; // dominant period
   ta_s: number | null; // average period
+  source?: "panel"; // transcribed from the LISICOS station panel image (the server down)
 }
 
 export interface WaveFrame {

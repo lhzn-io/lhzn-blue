@@ -984,3 +984,6 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .ws-svg .ws-hatch-line { stroke: var(--bg); stroke-width: 1.1; opacity: 0.85; }
 .ws .ws-sw { vertical-align: -1px; margin: 0 3px 0 6px; }
 .status-grid caption .cap-moon { vertical-align: -1px; margin-right: 6px; overflow: visible; }
+
+/* The USGS shore gauges under the buoys: a separate table, a little apart. */
+.status-grid.usgs-wq { margin-top: 18px; }

@@ -1080,7 +1080,7 @@ const FIGS: Record<Kind, Fig> = {
       return {
         opts: { xs, lines, spans, unit: ` ${u.label}`, zero: true, empty: "No weather data in this window." },
         legend: [[smoothLabel, P.line, 1], ["Wind, hourly", P.line, 0.35], ["Daily peak gust", P.contrast, 0.55]],
-        note: zone ? `shaded red: an NWS small craft advisory (lighter) or gale or stronger warning (darker) in force for this station's forecast zone, ${zone} (${ADV!.zones[zone].name})` : undefined,
+        note: zone ? `red: NWS small craft advisory (light), gale or stronger (dark), zone ${zone}` : undefined,
       };
     },
   },
@@ -3156,7 +3156,7 @@ function turbTable(): string {
 
 function statusGrid(stations: StationData[]): void {
   if (VK === "turbidity") {
-    $("status").innerHTML = turbTable() + outlookHtml(STATIONS);
+    $("status").innerHTML = turbTable() + usgsWqHtml() + outlookHtml(STATIONS);
     return;
   }
   if (VK === "rivers") {
@@ -3200,7 +3200,7 @@ function statusGrid(stations: StationData[]): void {
   $("status").innerHTML = `
     ${shore.length ? `<div class="status-tabs" role="tablist" aria-label="Stations">${tab("buoy", "Buoys", buoys.length)}${tab("shore", "Shore stations", shore.length)}</div>` : ""}
     ${table}
-    <p class="status-key">${key} &middot; lines: last 7 days, each stretched to its own range</p>${outlookHtml(stations)}${soundWindHtml(stations)}`;
+    <p class="status-key">${key} &middot; lines: last 7 days, each stretched to its own range</p>${isWater(VK) ? usgsWqHtml() : ""}${outlookHtml(stations)}${soundWindHtml(stations)}`;
   markOutlookRow();
 }
 
@@ -4721,7 +4721,8 @@ interface UsgsTidal {
   generated_at: string;
   stations: Record<string, {
     name: string; short: string; usgs_id: string; lat: number; lon: number; side: string; caveat?: string;
-    series: { t0: string | null; step: number; level_ft?: (number | null)[]; temperature_c?: (number | null)[] };
+    series: { t0: string | null; step: number; level_ft?: (number | null)[]; temperature_c?: (number | null)[];
+      salinity?: (number | null)[]; oxygen_mg_l?: (number | null)[]; turbidity_fnu?: (number | null)[] };
     last: Record<string, { time: string; value: number }>;
     tides?: { pred: { t0: string; step: number; ft: (number | null)[] }; hilo: TideEvent[]; datums_ft: Record<string, number>; flood_ft: Record<string, number | null> };
   }>;
@@ -4751,6 +4752,55 @@ function usgsShoreStations(u: UsgsTidal): StationData[] {
   if (TIDES) TIDES = { ...TIDES, ...USGS_TIDES };
   DEPARTURE.clear();
   return out;
+}
+
+/* ---------- USGS water quality at the shore (a separate source from the buoys) ---------- */
+let USGS_WQ: UsgsTidal | null = null;
+const USGS_VAR: Partial<Record<VarKey, { key: "temperature_c" | "salinity" | "oxygen_mg_l" | "turbidity_fnu"; unit: string; digits: number; f?: (v: number) => number }>> = {
+  temp: { key: "temperature_c", unit: "&deg;F", digits: 1, f: (c) => (c * 9) / 5 + 32 },
+  salinity: { key: "salinity", unit: "", digits: 1 },
+  oxygen: { key: "oxygen_mg_l", unit: "", digits: 1 },
+  turbidity: { key: "turbidity_fnu", unit: " FNU", digits: 1 },
+};
+// What each gauge's water is (so its numbers are read for what they are).
+const USGS_SITE_NOTE: Record<string, string> = {
+  WHOB: "West Harbor, Oyster Bay: a harbor off the western Sound",
+  NORW: "the Norwalk River at the Maritime Aquarium: a river mouth, fresher and more turbid than the open Sound",
+  FLAX: "Flax Pond: a tidal salt-marsh pond behind a narrow inlet, warmer and cooler than the Sound by turns",
+  OLDL: "the Connecticut River at Old Lyme: the river's estuary, nearly fresh at most tides",
+};
+
+/** The USGS shore gauges' water quality for the view's variable, west to east: value, age, 7-day line. */
+function usgsWqHtml(): string {
+  const spec = USGS_VAR[VK];
+  if (!USGS_WQ || !spec) return "";
+  const rows = Object.entries(USGS_WQ.stations)
+    .filter(([, g]) => g.series[spec.key]?.length)
+    .sort(([, a], [, b]) => a.lon - b.lon)
+    .map(([id, g]) => {
+      const vals = g.series[spec.key]!.map((v) => (v == null ? NaN : spec.f ? spec.f(v) : v));
+      const h = new Hourly(Date.parse(g.series.t0!) / 1000, Float64Array.from(vals));
+      const last = g.last[spec.key];
+      const site = `${USGS_SITE_NOTE[id] ?? g.name}. USGS ${g.usgs_id}, provisional data`;
+      const name = `<th scope="row"><a href="https://waterdata.usgs.gov/monitoring-location/USGS-${g.usgs_id}/" title="${site}"><i class="dot shore ${last && hoursOld(last.time) < DELAYED_HOURS ? "live" : last && hoursOld(last.time) < OFFLINE_HOURS ? "delayed" : "offline"}"></i>${g.short}</a></th>`;
+      const spark = sparklineOf(h, P.line, spec.unit.replace(/&deg;/, "°").trim() || unitName(VK), spec.digits);
+      let cell: string;
+      if (AT != null) {
+        const v = h.at(hourOf(AT));
+        cell = atCell(v, `${v.toFixed(spec.digits)}${spec.unit}`, `${g.short}: ${v.toFixed(spec.digits)}${spec.unit}`, spark);
+      } else if (!last || hoursOld(last.time) >= OFFLINE_HOURS) {
+        cell = `<td class="offline"><b>--</b><small>no recent reading</small></td>`;
+      } else {
+        const v = spec.f ? spec.f(last.value) : last.value;
+        const low = VK === "oxygen" && v < DO_LEVELS.hypoxic;
+        cell = `<td class="${hoursOld(last.time) < DELAYED_HOURS ? "live" : "delayed"}${low ? " low" : ""}" title="${g.short}: ${v.toFixed(spec.digits)}${spec.unit}, ${ago(last.time)}; ${site}">${spark}<b>${v.toFixed(spec.digits)}${spec.unit}</b><small>${low ? oxygenStatus(v) + " &middot; " : ""}${ago(last.time).replace(" ago", "")}</small></td>`;
+      }
+      return `<tr>${name}${cell}</tr>`;
+    });
+  if (!rows.length) return "";
+  const what = VK === "turbidity" ? "turbidity (FNU, a different scale from the buoys' NTU)" : `${V().label.toLowerCase()} (${VK === "temp" ? "&deg;F" : unitName(VK)})`;
+  return `<table class="status-grid usgs-wq"><caption>Shore gauges &middot; USGS, west to east: ${what}${AT != null ? ` at ${atLabel(AT)}` : ", latest"}</caption><tbody>${rows.join("")}</tbody></table>
+    <p class="status-key">A separate source from the buoys: USGS water-quality sondes in harbors, a pond and river mouths, near the surface; provisional. Hover a name for what its water is.</p>`;
 }
 
 /** Shore stations from the registry, west to east (their record start years until the history arrives). */
@@ -4816,6 +4866,7 @@ async function main(): Promise<void> {
     }
     // The USGS tidal gauges join the shore stations, all of them west to east after the buoys.
     const ul = await usgsLive;
+    USGS_WQ = ul;
     if (ul) {
       const added = usgsShoreStations(ul);
       if (added.length) {

@@ -1002,9 +1002,25 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .vintage input[type="range"].vg-range:hover::-webkit-slider-thumb, .vintage input[type="range"].vg-range:active::-webkit-slider-thumb { background: color-mix(in srgb, var(--ink) 22%, var(--bg)); }
 .vintage input[type="range"].vg-range:hover::-moz-range-thumb, .vintage input[type="range"].vg-range:active::-moz-range-thumb { background: color-mix(in srgb, var(--ink) 22%, var(--bg)); }
 
-/* Phones: the outage note becomes an icon in the masthead that opens it; the advisory box is tighter; the map is shorter
-   (the Sound is long and narrow, so a tall map on a narrow screen shows mostly land). */
+/* The outage note is an icon in the masthead that opens it in a dialog, on every screen. Phones also get a tighter
+   advisory box and a shorter map (the Sound is long and narrow, so a tall map on a narrow screen shows mostly land). */
+.mast .mast-outage { display: none; }
 .outage-icon { display: none; }
+/* In the byline, after "Alpha": a small chip on the byline's baseline. */
+.mast .outage-icon:not([hidden]) { display: inline-flex; align-items: center; gap: 5px; margin-left: 14px; vertical-align: -3px; padding: 3px 7px;
+  border: 1px solid var(--rule); border-left: 3px solid var(--delayed); background: var(--panel); color: var(--ink);
+  font: 600 9.5px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; }
+.mast .outage-icon svg { width: 12px; height: 12px; }
+/* The note itself, under the chip: shown on hover or keyboard focus where there is a mouse (touch taps open the dialog). */
+.outage-wrap { position: relative; display: inline-block; }
+.outage-pop { display: none; position: absolute; left: 14px; top: calc(100% + 6px); z-index: 20; width: min(420px, 80vw); padding: 10px 12px;
+  border: 1px solid var(--rule); border-left: 3px solid var(--delayed); background: var(--bg); color: var(--ink);
+  font: 13px/1.45 var(--sans); letter-spacing: 0; text-transform: none; white-space: normal; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18); }
+@media (hover: hover) {
+  .outage-wrap:hover .outage-pop:not(:empty), .outage-icon:focus-visible + .outage-pop:not(:empty) { display: block; }
+  .mast .outage-icon:not([hidden]) { cursor: help; }
+}
+.mast .outage-icon:not([hidden]):hover { border-color: var(--ink-mute); border-left-color: var(--delayed); }
 .outage-dialog { max-width: min(92vw, 520px); padding: 16px 18px 12px; border: 1px solid var(--rule); border-left: 3px solid var(--delayed);
   background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); }
 .outage-dialog::backdrop { background: var(--backdrop); }
@@ -1012,10 +1028,7 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .outage-dialog button { font: 600 10.5px/1 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; padding: 8px 12px;
   background: none; border: 1px solid var(--rule); color: var(--ink); cursor: pointer; }
 @media (max-width: 640px) {
-  .mast .mast-outage { display: none; }
-  .mast .outage-icon:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; align-self: flex-start; padding: 6px 9px;
-    border: 1px solid var(--rule); border-left: 3px solid var(--delayed); background: var(--panel); color: var(--ink);
-    font: 600 10px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; }
+  .mast .outage-icon:not([hidden]) { margin: 6px 0 0; } /* wraps under the byline: no indent */
   .mast .mast-advisory { padding: 6px 10px; max-width: none; flex: 1 1 100%; margin-left: 0; }
   .mast-advisory b { font-size: 13px; }
   .map { height: 230px; }
@@ -1034,4 +1047,29 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 /* The wave-current figure in the map readout: waves (wavy) and current (straight) at their true bearings, north up. */
 .pin-pop .pop-vec { float: right; margin: 0 0 2px 8px; color: var(--ink); }
 .pin-pop .pop-vec-ring { stroke: var(--rule); stroke-width: 0.6; }
+.pin-pop .pop-vec-c { fill: var(--faint); }
 .pin-pop .pop-vec-n { font: 600 6.5px/1 var(--sans); fill: var(--ink-mute); text-anchor: middle; dominant-baseline: middle; }
+
+/* The current-phase strip under the time bar, in the ink alone: NECOFS as a light band (flood up, ebb down), NOAA's
+   prediction as a thin line; fill against line tells them apart. */
+.tl-phase .ph-track { height: 28px; }
+.tl-phase .ph-gap { grid-area: play; }
+.ph-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.ph-zero { stroke: var(--faint); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ph-band { fill: var(--ink); fill-opacity: 0.13; stroke: var(--ink); stroke-opacity: 0.35; stroke-width: 0.8; vector-effect: non-scaling-stroke; }
+.ph-noaa { fill: none; stroke: var(--ink); stroke-width: 0.9; stroke-opacity: 0.8; vector-effect: non-scaling-stroke; }
+.ph-slack { fill: none; stroke: var(--ink); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ph-cursor { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
+.ph-flood, .ph-ebb { position: absolute; left: 2px; font: 8.5px/1 var(--mono); color: var(--dim); pointer-events: none; }
+.ph-flood { top: 0; }
+.ph-ebb { bottom: 0; }
+.ph-slot { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; white-space: normal; font-size: 9.5px; }
+.ph-title { color: var(--dim); }
+.ph-pick { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 0; }
+.ph-pick button { font: 9.5px/1.3 var(--mono); color: var(--dim); background: none; border: 0; border-bottom: 1px solid transparent; padding: 0 1px; cursor: pointer; }
+.ph-pick button + button { margin-left: 13px; position: relative; }
+.ph-pick button + button::before { content: "\00b7"; position: absolute; left: -9px; color: var(--faint); pointer-events: none; }
+.ph-pick button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.ph-pick button:hover { color: var(--ink); }
+.ph-info { font: italic 600 9px/1 var(--sans); width: 13px; height: 13px; border-radius: 50%; border: 1px solid var(--rule); background: none; color: var(--dim); cursor: pointer; padding: 0; }
+.ph-read { flex-basis: 100%; color: var(--dim); }

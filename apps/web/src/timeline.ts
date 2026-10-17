@@ -29,6 +29,7 @@ let frame = { back: 0, ahead: 0 }; // the span the map's frame covers, in hours 
 let playing = 0;
 let root: HTMLElement | null = null;
 const listeners = new Set<(t: number | null) => void>();
+const builders = new Set<() => void>(); // rows that share the detail row's scale, redrawn when it changes
 
 const fmtWhen = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" });
 const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
@@ -44,6 +45,24 @@ export function asOf(): number | null {
 
 export function onAsOf(fn: (t: number | null) => void): void {
   listeners.add(fn);
+}
+
+/** The detail row's window: its scale and its first and last hour (epoch seconds), for rows drawn on the same scale. */
+export function detailWindow(): { scale: ScaleKind; t0: number; t1: number } {
+  const s = SCALES[scale];
+  const now = Math.round(Date.now() / 3.6e6) * 3600;
+  return { scale, t0: now - s.past * 3600, t1: now + s.ahead * 3600 };
+}
+
+/** Call fn whenever the detail row is rebuilt (a new scale or reach), and once now if the row exists. */
+export function onBuild(fn: () => void): void {
+  builders.add(fn);
+  if (root) fn();
+}
+
+/** The time rows' element, for a row placed with them (before the context row). */
+export function timelineRoot(): HTMLElement | null {
+  return root;
 }
 
 function set(h: number): void {
@@ -200,6 +219,7 @@ function build(): void {
     `<i class="tl-bracket" style="left:${pct(cx(-s.past))};width:${pct(cx(s.ahead) - cx(-s.past))}"></i>` +
     `<i class="tl-tick now" style="left:${pct(cx(0))}"></i><i class="tl-cneedle"></i>` +
     marks.map(([h, t], i) => `<span class="tl-mark${i === 0 ? " first" : i === marks.length - 1 ? " last" : ""}" style="left:${pct(cx(h))}">${t}</span>`).join("");
+  builders.forEach((fn) => fn());
 }
 
 /** The time rows, below the map: play, the detail row with its label in a fixed slot, then the context row. */

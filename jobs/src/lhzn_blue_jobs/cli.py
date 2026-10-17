@@ -107,6 +107,7 @@ def _main() -> None:
         _shore(lambda: __import__("lhzn_blue_jobs.model_grids", fromlist=["publish"]).publish(store), "model grids")
         _shore(lambda: __import__("lhzn_blue_jobs.nwps", fromlist=["publish"]).publish(store, args.nwps), "nwps")
         _shore(lambda: __import__("lhzn_blue_jobs.hrrr_history", fromlist=["update"]).update(store), "hrrr history")
+        _shore(lambda: __import__("lhzn_blue_jobs.phase", fromlist=["publish"]).publish(store), "current phase")
     elif args.command == "hrrr-history-seed":
         from . import hrrr_history
 

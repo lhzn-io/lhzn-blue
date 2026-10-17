@@ -937,6 +937,36 @@ function waveLine(w: WindField, lng: number, lat: number): string | null {
   return `<b>Waves</b> ${(h * 3.28084).toFixed(1)} ft (${h.toFixed(2)} m) from ${compass16(from)}<br>${runNote(w.frames[k], "NWPS")}`;
 }
 
+const fmtClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+
+/** The current's tidal phase at an element for frame k: building or easing, and when it next turns (the along-axis
+ * component crossing zero, between the 2 h steps), on the axis of the element's strongest current in the run. */
+function localPhase(c: CurrentsField, id: number, k: number): string {
+  let best = 0;
+  let ax = 0;
+  let ay = 1;
+  for (let j = 0; j < c.steps; j++) {
+    const s = Math.hypot(c.u[j][id], c.v[j][id]);
+    if (s > best) [best, ax, ay] = [s, c.u[j][id] / s, c.v[j][id] / s];
+  }
+  if (best < 10) return "weak tidal current"; // under 10 cm/s (0.2 kt) at its strongest
+  const along = (j: number) => c.u[j][id] * ax + c.v[j][id] * ay;
+  const t = (j: number) => Date.parse(c.t0) / 1000 + j * c.step;
+  let slack: number | null = null;
+  for (let j = k; j < c.steps - 1; j++) {
+    const a = along(j);
+    const b = along(j + 1);
+    if (a * b < 0) {
+      slack = t(j) + (a / (a - b)) * c.step;
+      break;
+    }
+  }
+  const trend = k + 1 < c.steps && Math.abs(along(k + 1)) > Math.abs(along(k)) ? "building" : "easing";
+  if (slack == null) return trend;
+  const rounded = Math.round(slack / 600) * 600; // to 10 minutes: the steps are 2 h apart
+  return `${trend}, turns about ${fmtClock.format(new Date(rounded * 1000))}`;
+}
+
 /** The NECOFS surface current at the element nearest the point (within 2 km), for the timeline's time. */
 function currentLine(src: { mesh: CurrentsMesh; currents: CurrentsField }, lng: number, lat: number): string | null {
   const { mesh: m, currents: c } = src;
@@ -954,26 +984,25 @@ function currentLine(src: { mesh: CurrentsMesh; currents: CurrentsField }, lng: 
   const v = c.v[k][id];
   const un = windUnit();
   const toward = ((Math.atan2(u, v) * 180) / Math.PI + 360) % 360;
-  const when = fmtProbe.format(new Date(Date.parse(c.t0) + k * c.step * 1000));
-  return `<b>Current</b> ${((Math.hypot(u, v) / 100) * un.perMs).toFixed(un.digits + 1)} ${un.label} toward ${compass16(toward)} (${Math.round(toward)}&deg;)<br><small>${when}, NECOFS surface layer, model</small>`;
+  return `<b>Current</b> ${((Math.hypot(u, v) / 100) * un.perMs).toFixed(un.digits + 1)} ${un.label} toward ${compass16(toward)} (${Math.round(toward)}&deg;)<br><small>${localPhase(c, id, k)} &middot; NECOFS</small>`;
 }
 
-/** Two arrows across a north-up ring, each from the bearing it comes from, through the centre, to the bearing it heads
- * toward: opposed, they lie on top of each other pointing apart; across, they make an X. The waves are a wavy line in
- * the waves layer's blue-teal, the current a straight line in the currents layer's yellow-green, so the line style
- * tells them apart without colour. */
+/** Two half-length arrows on a north-up ring, each running in from the bearing it comes from and ending at the centre:
+ * opposed, their heads meet head-on; aligned, they stack, coming in from the same side; across, they form a V. The
+ * waves are a wavy line in the waves layer's blue-teal, the current a straight line in the currents layer's
+ * yellow-green, so the line style tells them apart without colour. */
 function vectorsSvg(waveTo: number, currentTo: number): string {
-  const R = 19;
+  const R = 20;
   let wave = `M0 ${R}`;
-  for (let y = R; y >= -R; y -= 0.5) wave += `L${(1.3 * Math.sin((y / 5) * Math.PI)).toFixed(2)} ${y}`;
-  const head = `M-3 ${-R + 4.5}L0 ${-R}L3 ${-R + 4.5}`;
+  for (let y = R; y >= 0.5; y -= 0.5) wave += `L${(1.3 * Math.sin((y / 4.5) * Math.PI)).toFixed(2)} ${y}`;
+  const head = "M-3.2 4.8L0 0.4L3.2 4.8";
   const light = mapTheme() === "light";
   const arrow = (d: string, deg: number, colour: string) =>
     `<g transform="rotate(${Math.round(deg)})" stroke="${colour}"><path d="${d}${head}" fill="none"/></g>`;
   return `<svg class="pop-vec" viewBox="-24 -29 48 53" width="48" height="53" role="img" aria-label="Waves toward ${compass16(waveTo)}, current toward ${compass16(currentTo)}">` +
-    `<circle r="22" fill="none" class="pop-vec-ring"/><text x="0" y="-26" class="pop-vec-n">N</text>` +
+    `<circle r="22" fill="none" class="pop-vec-ring"/><circle r="1" class="pop-vec-c"/><text x="0" y="-26" class="pop-vec-n">N</text>` +
     `<g stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round">` +
-    `${arrow(`M0 ${R}L0 ${-R}`, currentTo, light ? "#5f920c" : "#c2c43a")}${arrow(wave, waveTo, light ? "#2d7aa3" : "#7fb8d8")}</g></svg>`;
+    `${arrow(`M0 ${R}L0 0.4`, currentTo, light ? "#5f920c" : "#c2c43a")}${arrow(wave, waveTo, light ? "#2d7aa3" : "#7fb8d8")}</g></svg>`;
 }
 
 /** The waves' and the current's headings at a point (degrees toward), from the waves layer and the currents field,

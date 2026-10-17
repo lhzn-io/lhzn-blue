@@ -49,6 +49,7 @@ const FILES: Record<string, number> = {
   "v1/fields/hrrr-wind.json": 600,
   "v1/fields/nwps-waves.json": 1800,
   "v1/fields/wind-against-tide.json": 1800,
+  "v1/current-phase.json": 1800,
   // HRRR's last forecast before each hour, per station (from 2024).
   ...Object.fromEntries(["WLIS", "EXRX", "ARTG", "CLIS", "KPTN", "BRPT", "NWHV", "NLON"].map((id) => [`v1/hrrr-history/${id}.json`, 3600])),
   "v1/fields/model-grids.json": 3600,

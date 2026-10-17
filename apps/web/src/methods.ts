@@ -307,6 +307,29 @@ export const METHODS: Record<string, Method> = {
   },
 };
 
+METHODS["current-phase"] = {
+  title: "Current at a reference point",
+  shows:
+    "Under the time bar, the tidal current at one of four points along the Sound: the Race, the central Sound (Branford " +
+    "Reef, 5 miles south), Execution Rocks and Throgs Neck. Above the line is flood, below it ebb. The filled band is the " +
+    "NECOFS model's surface current (the light band); the thin line is NOAA's tidal current prediction, with its slack times as ticks; " +
+    "the vertical line is the time bar's hour. The label reads the phase there and the next slack. Each point keeps a " +
+    "fixed scale. Slack and strength differ by hours and knots along the Sound, so pick the point nearest your water; a " +
+    "click on the map gives the local current.",
+  method:
+    "NOAA: CO-OPS tidal current predictions at harmonic stations LIS1001 (The Race), LIS1021 (Branford Reef), LIS1036 " +
+    "(Execution Rocks) and LIS1038 (Throgs Neck Bridge), at the bin nearest the surface (6 to 14 ft), every 30 minutes, " +
+    "with NOAA's slack and maximum times. NECOFS: the FVCOM surface current at the model element nearest each station " +
+    "(within 1 km), projected onto NOAA's flood direction there, every 2 hours [[chen2006fvcom]]. Flood runs west through " +
+    "the Race and the central Sound and east at Throgs Neck, so each point has its own axis.",
+  caveats:
+    "Both are predictions: NOAA's from the tides alone, without wind or river flow; NECOFS's from a model run with them. " +
+    "Against NOAA over October 16 to 20, 2026, NECOFS kept time within about 10 minutes at the Race and Throgs Neck and " +
+    "ran about 40 minutes early in the central Sound; it reached about 60 percent of NOAA's strength at the Race (the jet " +
+    "is narrower than the model's mesh resolves) and matched it within about 30 percent elsewhere. At Execution Rocks the " +
+    "current is weak and irregular, and the two agree least.",
+};
+
 METHODS.trends = {
   title: "Trends and %iles",
   shows:

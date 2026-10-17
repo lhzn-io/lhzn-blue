@@ -3317,6 +3317,17 @@ function wireStatusTabs(stations: StationData[]): void {
   });
 }
 
+/** The current-phase strip under the time bar (Wind & waves, hours scale): loaded once, shown or hidden as the view
+ * and scale change. */
+let phaseLoad: Promise<import("./phase").PhaseFile | null> | null = null;
+async function syncPhase(hours: boolean): Promise<void> {
+  const show = VK === "wind" && hours;
+  const ph = await import("./phase");
+  if (show) phaseLoad ??= getJson<import("./phase").PhaseFile>(`${DATA}/current-phase.json`).catch(() => null);
+  const u = WIND_UNITS[WU];
+  ph.setPhase(show ? await phaseLoad : null, show, { label: u.label, perKt: u.factor, digits: 1 });
+}
+
 /** The time bar along the map's foot moves the currents and a rule on every chart (wired once). */
 let timelineWired = false;
 async function wireTimeline(box: HTMLElement): Promise<void> {
@@ -3333,6 +3344,7 @@ async function wireTimeline(box: HTMLElement): Promise<void> {
     import("./fields").then((f) => f.setFieldTime(t)).catch(() => undefined);
   });
   applyPendingOffset("hours"); // after the listener, so a linked time reaches the charts, the table and the pins
+  void syncPhase(tl.position().scale === "hours");
 }
 
 /** A station's map pin: its latest readings, or its observations at the timeline cursor's time. */
@@ -4024,6 +4036,7 @@ function updatedStrip(meta: Meta, live: Live): void {
     outage.textContent = `Buoy data unavailable from the server since ${lastOk ? since(lastOk) : "the last update"}.${transcribed ? " Readings since then are transcribed from the LISICOS station panels (provisional)." : ""} ${OPERATOR_NOTE}`;
     // On phones the note is an icon in the masthead that opens it (styled in site.css).
     $("outage-dialog-text").textContent = outage.textContent;
+    $("outage-pop").textContent = outage.textContent;
     $("outage-icon").hidden = false;
     outage.hidden = false;
   }
@@ -4669,6 +4682,7 @@ async function syncField(): Promise<void> {
   if (shown !== "sst" && shown !== "chl" && shown !== "kd490") tl.setScale("hours");
   // The span each frame covers, shaded on the time bar: a 2h model step, a day of SST, a 7-day composite.
   tl.setFrame(...FRAME_SPAN[shown ?? "none"]);
+  void syncPhase(tl.position().scale === "hours");
   try {
     const fields = await import("./fields");
     void fields.showField(shown, payload, fieldControls());
@@ -4831,7 +4845,10 @@ function wireWater(live: Live, stations: StationData[], rebuild: () => void): vo
 /** The phone's outage icon: opens the note in a dialog. */
 function wireOutageIcon(): void {
   const dialog = $("outage-dialog") as HTMLDialogElement;
-  $("outage-icon").addEventListener("click", () => dialog.showModal());
+  // With a mouse the note shows on hover or focus (site.css); a tap on a touch screen opens it in the dialog.
+  $("outage-icon").addEventListener("click", () => {
+    if (!matchMedia("(hover: hover)").matches) dialog.showModal();
+  });
   $("outage-dialog-close").addEventListener("click", () => dialog.close());
   dialog.addEventListener("click", (e) => {
     if (e.target === dialog) dialog.close(); // a click on the backdrop

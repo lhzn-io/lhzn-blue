@@ -1030,7 +1030,7 @@ const FIGS: Record<Kind, Fig> = {
       return {
         opts: { xs, lines, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" }, empty: "No forecast or measurement in this window." },
         legend: [["Measured", P.now, 1], ["Forecast (dashed)", P.line, 1], ["Typical miss (dotted)", P.line, 0.6], ["Gusts", P.contrast, 0.55], ["Earlier forecasts", P.line, 0.3]],
-        note: `NOAA HRRR, raw &middot; <a href="${FORECAST_PAGE}">verified at the buoys</a>`,
+        note: `NOAA HRRR, raw${(() => { const a = hrrrAsOf(d.meta.id, xs); return a ? `, ${a}` : ""; })()} &middot; <a href="${FORECAST_PAGE}">verified at the buoys</a>`,
       };
     },
   },
@@ -1190,7 +1190,7 @@ const FIGS: Record<Kind, Fig> = {
       return {
         opts: { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, marker: hasModel ? { x: Date.now() / 1000, label: "now" } : undefined, empty: `No wave readings in this window. ${wavesText(d.meta.id)} Full record shows what we hold.` },
         legend: [["Significant height", P.line, 1], ["Highest wave", P.contrast, 0.35], ...(hasModel ? [["NWS wave model, dashed", P.line, 0.7] as [string, string, number]] : [])],
-        note: `significant height: the mean of the highest third of waves, close to what an observer reports${hasModel ? "; dashed: the NWS nearshore wave model (SWAN) at the buoy, the newest run for each hour, a model and not a measurement" : ""}`,
+        note: `significant height: the mean of the highest third of waves, close to what an observer reports${hasModel ? `; dashed: the NWS nearshore wave model (SWAN) at the buoy, the newest run for each hour (ahead: ${nwpsAsOf() || "the newest run"}), a model and not a measurement` : ""}`,
       };
     },
   },
@@ -1230,7 +1230,7 @@ const FIGS: Record<Kind, Fig> = {
       ];
       return {
         opts: { xs, lines, bands, unit: " mb", zero: true, floor: -4, hoverDigits: 1, marker: { x: now, label: "now" }, empty: "No pressure readings in this window." },
-        legend: [["Change over 3 h", P.line, 1], ["HRRR forecast (dashed)", P.line, 0.7]],
+        legend: [["Change over 3 h", P.line, 1], [`HRRR forecast (dashed)${(() => { const a = hrrrAsOf(d.meta.id, xs); return a ? `, ${a}` : ""; })()}`, P.line, 0.7]],
         note: "shaded: steady to falling slowly (under 1.6 mb in 3 h), and falling or rising quickly (3.6 to 6); beyond 6 is very rapid",
       };
     },
@@ -1997,13 +1997,35 @@ function soundWindHtml(stations: StationData[]): string {
   return `<section class="ws" id="${WIND_STRIP_HASH.slice(1)}" aria-label="Wind across the Sound">
     <p class="ol-title">Wind across the Sound <span class="ol-src">west to east, by NWS zone; two weeks back, 48 h ahead &middot; click to move the time</span></p>
     <svg viewBox="0 0 ${W} ${H}" class="hi-svg ws-svg" role="img" aria-label="Hourly wind at each station, two weeks back to 48 hours ahead, with NWS advisories">${g}</svg>
-    <p class="status-key">0 ${ramp} ${fmtU(35)} &middot; <svg width="10" height="9" class="ws-sw" aria-hidden="true"><rect width="10" height="9" fill="${windColour(16)}"/><rect width="10" height="9" fill="url(#ws-hatch)"/></svg>model where a buoy is out &middot; past now: HRRR forecast &middot; ${sw("var(--advisory)", ' opacity="0.45"')}small craft ${sw("var(--advisory)")}gale or stronger (NWS)</p>
+    <p class="status-key">0 ${ramp} ${fmtU(35)} &middot; <svg width="10" height="9" class="ws-sw" aria-hidden="true"><rect width="10" height="9" fill="${windColour(16)}"/><rect width="10" height="9" fill="url(#ws-hatch)"/></svg>model where a buoy is out &middot; past now: HRRR forecast${(() => { const a = hrrrAsOf(rows[0].meta.id, Array.from({ length: 48 }, (_, i) => hourOf(nowS) + (i + 1) * HOUR)); return a ? `, ${a}` : ""; })()} &middot; ${sw("var(--advisory)", ' opacity="0.45"')}small craft ${sw("var(--advisory)")}gale or stronger (NWS)</p>
   </section>`;
 }
 
 /** A table cell holding a forecast: marked as HRRR, with its typical error, never as a measurement. */
 function fcCell(f: FcValue, shown: string, title: string, errText: string): string {
   return `<td class="fcst" title="${title}. HRRR forecast from the ${fmtRun.format(new Date(f.issue * 1000))} run, ${f.lead} h ahead; typically within ${errText} at this lead (verified at the buoys)."><b>${shown}</b><small>HRRR ${errText}</small></td>`;
+}
+
+/** The forecast's vintage over some hours at a station: the HRRR run behind each stretch, in order (the hourly runs
+ * reach 18 h, the 00, 06, 12 and 18 UTC runs 48 h, so a 48 h forecast is usually two runs). "" before the runs load. */
+function hrrrAsOf(id: string, ts: number[]): string {
+  const segs: { issue: number; from: number }[] = [];
+  const nowH = hourOf(Date.now() / 1000);
+  for (const t of ts) {
+    if (t < nowH) continue;
+    const f = forecastAt(id, hourOf(t));
+    if (!f) continue;
+    if (segs[segs.length - 1]?.issue !== f.issue) segs.push({ issue: f.issue, from: hourOf(t) });
+  }
+  if (!segs.length) return "";
+  const run = (issue: number) => `${fmtRun.format(new Date(issue * 1000))} run`;
+  return `as of the ${run(segs[0].issue)}${segs.slice(1, 3).map((g) => `, then the ${run(g.issue)} from ${fmtWhenMin.format(new Date(g.from * 1000))}`).join("")}`;
+}
+
+/** The newest NWS wave model run: "as of the Fri 8 PM run". */
+function nwpsAsOf(): string {
+  const r = NWPS?.runs[0];
+  return r ? `as of the ${fmtRun.format(new Date(r.issue * 1000))} run` : "";
 }
 
 /* ---------- Model stand-ins while a buoy's sensors are out ----------
@@ -2323,7 +2345,7 @@ function outlookHtml(stations: StationData[]): string {
     [g && g !== d ? `Tide <small>${g.meta.name}</small>` : "Tide", olTides(g, t0), hi ? `high ${hi.ft.toFixed(1)} ft ${shortWhen(Date.parse(hi.t), true)}` : "--"],
   ];
   return `<section class="outlook" aria-label="The next 48 hours at ${d.meta.name}">
-    <p class="ol-title">Next 48 h &middot; ${d.meta.name} <span class="ol-hint">pick a row above</span><span class="ol-src">NOAA HRRR, raw &middot; <a href="${FORECAST_PAGE}">verified at the buoys</a></span></p>
+    <p class="ol-title">Next 48 h &middot; ${d.meta.name} <span class="ol-hint">pick a row above</span><span class="ol-src">NOAA HRRR, raw${(() => { const a = hrrrAsOf(d.meta.id, ts); return a ? `, ${a}` : ""; })()} &middot; <a href="${FORECAST_PAGE}">verified at the buoys</a></span></p>
     ${rows.map(([k, sp, txt]) => `<div class="ol-row"><span class="ol-k">${k}</span>${sp}<span class="ol-v">${txt}</span></div>`).join("")}
   </section>`;
 }
@@ -2922,6 +2944,10 @@ function airCell(d: StationData): string {
     if (f && Number.isFinite(f.air)) return fcCell(f, `${Math.round(f.air)}&deg;`, `Air ${f1(f.air)} F`, `&plusmn;${f.airErr.toFixed(0)}&deg;`);
   }
   if (AT != null) {
+    if (!Number.isFinite(d.met?.air?.at(AT) ?? NaN)) {
+      const f = hrrrStandIn(d, AT);
+      if (f && Number.isFinite(f.air)) return standInCell("no reading", `No air temperature at ${atLabel(AT)}`, `model ${Math.round(f.air)}&deg;`, `HRRR at the buoy: air ${f1(f.air)} F; ${runText(f.issue, f.lead)}, typically within ${f.airErr.toFixed(0)} F`);
+    }
     if (!d.met?.air) return `<td class="na">&middot;</td>`;
     const v = d.met.air.at(AT);
     return atCell(v, `${Math.round(v)}&deg;`, `Air ${f1(v)} F`);
@@ -2949,6 +2975,10 @@ function pressureCell(d: StationData): string {
     }
   }
   if (AT != null) {
+    if (!Number.isFinite(p?.at(AT) ?? NaN)) {
+      const f = hrrrStandIn(d, AT);
+      if (f && Number.isFinite(f.pres)) return standInCell("no reading", `No pressure at ${atLabel(AT)}`, `model ${f.pres.toFixed(0)} mb`, `HRRR at the buoy: pressure ${f.pres.toFixed(1)} mbar; ${runText(f.issue, f.lead)}`);
+    }
     if (!p) return `<td class="na">&middot;</td>`;
     const v = p.at(AT);
     const tend = p.at(AT) - p.at(AT - 3 * HOUR);
@@ -3130,12 +3160,12 @@ function statusGrid(stations: StationData[]): void {
       ? isWater(VK)
         ? `${open("buoy")}<caption>${AT != null ? `${V().label} at ${atLabel(AT)}, west to east (${VK === "temp" ? "&deg;F" : unitName(VK)})` : `Latest readings, west to east: ${what}`}</caption>${head(DEPTHS.map((d) => DEPTH_LABEL[d]))}
       <tbody>${buoys.map((d) => `<tr>${name(d)}${DEPTHS.map((dep) => cellHtml(d, dep)).join("")}</tr>`).join("")}</tbody></table>`
-        : `${open("buoy")}<caption>${AT != null ? `${atFuture() ? "Forecast" : "Weather and waves"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and waves (${waveUnit().label})${AT != null && atFuture() ? ` &middot; HRRR, raw, <a href="${FORECAST_PAGE}">verified at the buoys</a>` : ""}</caption>${head(["Wind", "Air", "Pressure", "Waves"])}
+        : `${open("buoy")}<caption>${AT != null ? `${atFuture() ? "Forecast" : "Weather and waves"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and waves (${waveUnit().label})${AT != null && atFuture() ? ` &middot; HRRR, raw${(() => { const f = stations.length ? forecastAt(stations[0].meta.id, hourOf(AT!)) : null; return f ? `, the ${fmtRun.format(new Date(f.issue * 1000))} run` : ""; })()}, <a href="${FORECAST_PAGE}">verified at the buoys</a>` : ""}</caption>${head(["Wind", "Air", "Pressure", "Waves"])}
       <tbody>${buoys.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${wavesCell(d)}</tr>`).join("")}</tbody></table>`
       : isWater(VK)
         ? `${open("shore")}<caption>${AT != null ? `Water at ${atLabel(AT)}` : "Latest readings"}, west to east: ${VK === "temp" ? "water temperature (&deg;F)" : `water temperature only (no ${V().label.toLowerCase()} sensors)`} and water level</caption>${head(["Water", "Level", "Next tide"])}
       <tbody>${shore.map((d) => `<tr>${name(d)}${cellHtml(d, "SFC")}${levelCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`
-        : `${open("shore")}<caption>${AT != null ? `${atFuture() ? "Forecast" : "Weather"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and the next tide${AT != null && atFuture() ? ` &middot; HRRR, raw, <a href="${FORECAST_PAGE}">verified at the buoys</a>` : ""}</caption>${head(["Wind", "Air", "Pressure", "Next tide"])}
+        : `${open("shore")}<caption>${AT != null ? `${atFuture() ? "Forecast" : "Weather"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and the next tide${AT != null && atFuture() ? ` &middot; HRRR, raw${(() => { const f = stations.length ? forecastAt(stations[0].meta.id, hourOf(AT!)) : null; return f ? `, the ${fmtRun.format(new Date(f.issue * 1000))} run` : ""; })()}, <a href="${FORECAST_PAGE}">verified at the buoys</a>` : ""}</caption>${head(["Wind", "Air", "Pressure", "Next tide"])}
       <tbody>${shore.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`;
   const tab = (g: Group, label: string, n: number) =>
     `<button type="button" role="tab" class="stab" id="stab-${g}" data-group="${g}" aria-selected="${SG === g}" aria-controls="status-panel" tabindex="${SG === g ? 0 : -1}">${label}<small>${n}</small></button>`;
@@ -3281,7 +3311,12 @@ function stationPin(d: StationData): Pin {
       Number.isFinite(water) ? `${d.kind === "shore" ? "Water" : DEPTH_LABEL[dep]} ${pinValue(k, water)}` : "",
       Number.isFinite(wind) ? `wind ${Number.isFinite(dir) ? compass(dir) + " " : ""}${windFmt(wind)} ${WIND_UNITS[WU].label}` : "",
     ].filter(Boolean);
-    const label = parts.length ? `${parts.join("<br>")}<br>observed ${atLabel(AT)}` : `no ${atFuture() ? "forecast" : "reading"} at ${atLabel(AT)}`;
+    // A buoy without its own wind at that hour: the model under the fault, marked as such.
+    const f = !Number.isFinite(wind) ? hrrrStandIn(d, AT) : null;
+    const model = f ? `<i>Model, not measured: wind ${compass(f.dir)} ${windFmt(f.spd)} ${WIND_UNITS[WU].label} (HRRR)</i>` : "";
+    const label = parts.length
+      ? `${parts.join("<br>")}<br>observed ${atLabel(AT)}${model ? `<br>${model}` : ""}`
+      : `no ${atFuture() ? "forecast" : "reading"} at ${atLabel(AT)}${model ? `<br>${model}` : ""}`;
     return { ...base, state: parts.length ? overallState(d) : "offline", label };
   }
   const o = d.obs[dep];

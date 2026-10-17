@@ -50,7 +50,9 @@ FIT_DAYS = 365
 FIT_EVERY = timedelta(days=30)
 PRED_AFTER_DAYS = 400
 CHUNK_DAYS = 30  # rivers.continuous reads on page by page where a series is logged every few minutes
-SHORE_FILE = Path(__file__).resolve().parents[3] / "stations" / "shore.json"
+SHORE_FILE = Path(
+    os.environ.get("LHZN_BLUE_SHORE_STATIONS", Path(__file__).resolve().parents[3] / "stations" / "shore.json")
+)
 M_FT = 3.28084
 DECIMALS = {"level_ft": 2, "temperature_c": 2, "salinity": 2, "oxygen_mg_l": 2, "ph": 2, "turbidity_fnu": 1,
             "chlorophyll_ug_l": 1, "fchl_rfu": 2}

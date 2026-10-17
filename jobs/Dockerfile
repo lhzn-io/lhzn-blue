@@ -8,5 +8,6 @@ RUN pip install --no-cache-dir /app/jobs
 ENV LHZN_BLUE_STATIONS=/app/stations/stations.json \
     LHZN_BLUE_SHORE_STATIONS=/app/stations/shore.json \
     LHZN_BLUE_RIVERS=/app/stations/rivers.json \
+    LHZN_BLUE_USGS_TIDAL=/app/stations/usgs-tidal.json \
     PYTHONUNBUFFERED=1
 ENTRYPOINT ["lhzn-blue-jobs"]

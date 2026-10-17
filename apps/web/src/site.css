@@ -1020,3 +1020,12 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
   .mast-advisory b { font-size: 13px; }
   .map { height: 230px; }
 }
+
+/* Wind against tide: a categorical key, one swatch per level. */
+.field-scale.wat-scale { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.wat-scale span { display: inline-flex; align-items: center; gap: 5px; }
+.wat-scale svg { display: inline-block; border: 1px solid var(--rule); }
+
+/* The wind-against-tide overlay's row in the map key, and the rule between a value and the overlay's cell. */
+.field-overlay { margin-top: 6px; }
+.pin-pop hr.pop-rule { border: 0; border-top: 1px solid var(--rule); margin: 6px 0; }

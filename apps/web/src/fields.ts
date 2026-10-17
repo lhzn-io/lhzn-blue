@@ -12,10 +12,10 @@
 import type maplibregl from "maplibre-gl";
 import { mapReady, mapTheme, onStyle } from "./map";
 
-export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind" | "waves";
+export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind" | "waves" | "wat";
 
 export interface RasterField {
-  kind: Exclude<FieldKind, "currents" | "wind" | "waves">;
+  kind: Exclude<FieldKind, "currents" | "wind" | "waves" | "wat">;
   units: string;
   scale: number;
   time: string;
@@ -71,7 +71,7 @@ export interface WindField {
 /** The last 90 days of a raster, one frame per UTC day (see the jobs' fields.py for the file layout). */
 export interface RasterHistory {
   header: {
-    kind: Exclude<FieldKind, "currents" | "wind" | "waves">;
+    kind: Exclude<FieldKind, "currents" | "wind" | "waves" | "wat">;
     units: string;
     grid: RasterField["grid"];
     days: string[];
@@ -85,7 +85,24 @@ export interface RasterHistory {
   body: Uint8Array;
 }
 
+/** Wind against tide (see the jobs' wat.py): on the NWPS grid (regular lon-lat), the cells where the NECOFS current
+ * opposes and steepens the NWPS waves. Each frame lists only those cells (indices into the grid) with level (1 to
+ * 4), steepness ratio in tenths (255: blocking), current east and north in cm/s, wave height in cm, peak period in
+ * tenths of a second and the direction the waves travel. */
+export interface WatField {
+  generated_at: string;
+  source: string;
+  attribution: string;
+  grid: { lon0: number; lat0: number; dlon: number; dlat: number; nx: number; ny: number };
+  cells: number[];
+  arrow_level: number[];
+  frames: { valid_time: string; cycle: string; lead: number; currents_run: string; i: number[]; lv: number[]; s: number[]; u: number[]; v: number[]; hs: number[]; tp: number[]; to: number[] }[];
+}
+
 export interface FieldData {
+  wat?: WatField;
+  /** Wind against tide drawn over the field (not with a wat field itself). */
+  overlay?: WatField;
   raster?: RasterField;
   history?: RasterHistory;
   mesh?: CurrentsMesh;
@@ -110,6 +127,8 @@ export interface FieldControls {
   onPick: (kind: FieldKind | "none") => void;
   wide: boolean;
   onWide: (wide: boolean) => void;
+  /** An overlay the view offers (wind against tide), whether it is on, and its switch. */
+  overlay?: { label: string; on: boolean; onToggle: (on: boolean) => void };
   /** The reader's speed unit (from the page's Units switch), for the currents key and values. */
   speed: { label: string; perCms: number; digits: number };
 }
@@ -160,6 +179,7 @@ const META: Record<FieldKind, Meta> = {
   kd490: { title: "Water clarity (Kd490)", short: "Clarity, Kd490", ramp: "turbid", log: true, range: [0.1, 2], unit: "m⁻¹", digits: 2, note: "Light attenuation at 490 nm, a satellite proxy for murkiness, not a turbidity reading in NTU. Higher is murkier." },
   currents: { title: "Surface currents", short: "Currents", ramp: "speed", log: false, range: [0, 150], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
   waves: { title: "Waves (NWS NWPS)", short: "Waves, NWPS", ramp: "wind", log: false, range: [0, WAVE_TOP], unit: "m", digits: 2, note: "Model forecast (NWS Nearshore Wave Prediction System, SWAN): significant wave height on the model's own 1.8 km cells; arrows show where the waves travel. These runs carry no currents, so steepening where wind opposes the tide is not in them." },
+  wat: { title: "Wind against tide", short: "Wind against tide", ramp: "wind", log: false, unit: "", digits: 0, note: "A model-derived index, not an observation and not an NWS product: where the NECOFS current runs against the NWPS waves and steepens them (linear theory). Shoals, rips and overfalls finer than the 1.8 km cells are not in it." },
   wind: { title: "Wind (HRRR)", short: "Wind, HRRR", ramp: "wind", log: false, range: [0, WIND_TOP], unit: "m/s", digits: 1, note: "Model forecast (NOAA HRRR), 10 m above the surface, on the model's own 3 km cells; arrows show where the wind blows toward. Cells HRRR counts as land are fainter." },
 };
 
@@ -190,6 +210,11 @@ let data: FieldData = {};
 let range: [number, number] = [0, 1];
 let frame = 0; // the currents frame on the map (-1: the timeline's time is outside the model run)
 let windFrame = -1; // the wind frame on the map (-1: no HRRR hour at the timeline's time)
+let watFrame = -1; // the wind-against-tide frame on the map (-1: none within the hour)
+let overlay: WatField | null = null; // wind against tide over another field
+let probeOv: number | null = null; // the overlay cell the popup reads, under the base value
+/** The wind-against-tide field on the map: the layer itself, or the overlay. */
+const watOf = (): WatField | null => data.wat ?? overlay;
 let fieldT: number | null = null; // the page timeline's time (epoch seconds), or null for now
 let controls: FieldControls | null = null;
 let panel: HTMLElement | null = null;
@@ -271,8 +296,8 @@ function historyRange(h: RasterHistory): [number, number] {
   return r;
 }
 
-const LAYER_IDS = ["field-raster", "cur-fill", "cur-arrows", "wind-fill", "wind-arrows"];
-const SOURCE_IDS = ["field-raster", "cur-mesh", "cur-points", "wind-cells", "wind-points"];
+const LAYER_IDS = ["field-raster", "cur-fill", "cur-arrows", "wind-fill", "wind-arrows", "wat-fill", "wat-arrows"];
+const SOURCE_IDS = ["field-raster", "cur-mesh", "cur-points", "wind-cells", "wind-points", "wat-cells", "wat-points"];
 
 function clear(map: maplibregl.Map): void {
   for (const id of LAYER_IDS) if (map.getLayer(id)) map.removeLayer(id);
@@ -467,7 +492,7 @@ function paintFrame(map: maplibregl.Map): void {
     for (let i = 0; i < u.length; i++) map.setFeatureState({ source: "cur-mesh", id: i }, { s: Math.hypot(u[i], v[i]) });
   }
   (map.getSource("cur-points") as maplibregl.GeoJSONSource).setData(pointsGeoJSON(m, c, frame));
-  if (popup && probe != null) popup.setHTML(currentText(c, probe));
+  refreshPopup();
 }
 
 const fmtProbe = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" });
@@ -608,7 +633,7 @@ function paintWind(map: maplibregl.Map): void {
     for (let i = 0; i < n; i++) map.setFeatureState({ source: "wind-cells", id: i }, { s: Math.hypot(u[i], v[i]) });
   }
   (map.getSource("wind-points") as maplibregl.GeoJSONSource).setData(windPointsGeoJSON(w, windFrame));
-  if (popup && probe != null) popup.setHTML(windText(w, probe));
+  refreshPopup();
 }
 
 /** The reader's unit for wind, from the page's speed setting (given per cm/s for currents). */
@@ -643,6 +668,217 @@ function waveText(w: WindField, id: number): string {
   return `${(h * 3.28084).toFixed(1)} ft (${h.toFixed(2)} m) from ${compass16(from)}<br><small>${fmtProbe.format(new Date(f.valid_time))}, NWPS ${f.cycle.slice(11, 13)}Z run, ${f.lead} h ahead, model</small>`;
 }
 
+/* ---------- Wind against tide ---------- */
+
+const WAT_LABELS = ["", "Current steepening the waves", "Steep, short seas likely", "Breaking seas likely", "Waves blocked by the current"];
+const WAT_SHORT = ["", "steepening", "steep", "breaking", "blocked"];
+/** Tide-rip hatching per level, after the chart symbol for rips and overfalls: rows of wavy lines in the map's ink,
+ * drawn with a fine pen. The patterns are fixed (they never rescale with the hours shown), and the step to the
+ * densest, heavier pen is kept for blocking, so the heaviest marks appear only on outlier days. [row spacing px, pen
+ * width px] in CSS pixels. */
+const RIP: [number, number][] = [[0, 0], [10, 0.5], [7, 0.5], [5, 0.55], [3, 0.8]];
+const ripInk = () => (mapTheme() === "light" ? "#1c2a48" : "#f4f1e8");
+
+/** One level's tile: 16 px wide (two wavelengths), one row of the wave, drawn at twice the resolution so a 0.5 px
+ * pen is one device pixel. */
+function ripTile(level: number, ink: string, ratio = 2): ImageData {
+  const [gap, pen] = RIP[level];
+  const w = 16 * ratio;
+  const h = gap * ratio;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const g = c.getContext("2d")!;
+  g.strokeStyle = ink;
+  g.lineWidth = pen * ratio;
+  g.lineCap = "round";
+  const amp = Math.min(1.2, gap / 4) * ratio;
+  g.beginPath();
+  for (let x = -1; x <= w + 1; x += 1) {
+    const y = h / 2 - amp * Math.sin((x / w) * 4 * Math.PI);
+    if (x === -1) g.moveTo(x, y);
+    else g.lineTo(x, y);
+  }
+  g.stroke();
+  return g.getImageData(0, 0, w, h);
+}
+
+/** The level patterns and a fine-pen arrow, as map images named for the theme (a theme switch adds its own set). */
+function ripImages(map: maplibregl.Map): string {
+  const theme = mapTheme();
+  const ink = ripInk();
+  for (let l = 1; l <= 4; l++) {
+    const name = `rip-${theme}-${l}`;
+    if (!map.hasImage(name)) map.addImage(name, ripTile(l, ink), { pixelRatio: 2 });
+  }
+  const arrow = `rip-arrow-${theme}-3`; // -3: one heavier pen, no halo
+  if (!map.hasImage(arrow)) {
+    const r = 2;
+    const c = document.createElement("canvas");
+    c.width = c.height = 20 * r;
+    const g = c.getContext("2d")!;
+    g.lineCap = "round";
+    g.lineJoin = "round";
+    const arrowPath = () => {
+      g.beginPath();
+      g.moveTo(10 * r, 17.5 * r); // shaft, pointing up (north); the layer rotates it
+      g.lineTo(10 * r, 3 * r);
+      g.moveTo(6 * r, 7.5 * r); // open head
+      g.lineTo(10 * r, 3 * r);
+      g.lineTo(14 * r, 7.5 * r);
+    };
+    // One pen in the map's ink, about 3.5 times the hatching's, so the arrows read apart from the rows.
+    g.strokeStyle = ink;
+    g.lineWidth = 1.8 * r;
+    arrowPath();
+    g.stroke();
+    map.addImage(arrow, g.getImageData(0, 0, c.width, c.height), { pixelRatio: r });
+  }
+  return theme;
+}
+
+/** A level's pattern as an inline SVG swatch for the key (the same rows and pen as on the map). */
+function ripSwatch(level: number): string {
+  const [gap, pen] = RIP[level];
+  const amp = Math.min(1.2, gap / 4);
+  const rows = [];
+  for (let y = gap / 2; y < 12; y += gap) {
+    let d = "";
+    for (let x = 0; x <= 24; x += 1) d += `${x ? "L" : "M"}${x} ${(y - amp * Math.sin((x / 16) * 4 * Math.PI)).toFixed(2)}`;
+    rows.push(`<path d="${d}" fill="none" stroke="${ripInk()}" stroke-width="${pen}" stroke-linecap="round"/>`);
+  }
+  return `<svg width="24" height="12" viewBox="0 0 24 12" aria-hidden="true">${rows.join("")}</svg>`;
+}
+
+function watFrameAt(w: WatField): number {
+  const t = fieldT ?? Date.now() / 1000;
+  let best = -1;
+  let gap = Infinity;
+  w.frames.forEach((f, k) => {
+    const d = Math.abs(Date.parse(f.valid_time) / 1000 - t);
+    if (d < gap) [best, gap] = [k, d];
+  });
+  return gap <= 3600 ? best : -1;
+}
+
+/** The frame's active cells, each its own square with its level and cell index. */
+function watCellsGeoJSON(w: WatField, k: number) {
+  if (k < 0) return { type: "FeatureCollection" as const, features: [] };
+  const f = w.frames[k];
+  const { lon0, lat0, dlon, dlat, nx } = w.grid;
+  return {
+    type: "FeatureCollection" as const,
+    features: f.i.map((c, j) => {
+      const x = lon0 + dlon * (c % nx);
+      const y = lat0 + dlat * Math.floor(c / nx);
+      const [x0, x1, y0, y1] = [x - dlon / 2, x + dlon / 2, y - dlat / 2, y + dlat / 2];
+      return { type: "Feature" as const, properties: { cell: c, lv: f.lv[j] }, geometry: { type: "Polygon" as const, coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] } };
+    }),
+  };
+}
+
+const watArrowLevel = new WeakMap<WatField, Map<number, number>>();
+
+/** Arrows for the current at the active cells, pointing where the water goes. */
+function watPointsGeoJSON(w: WatField, k: number) {
+  if (k < 0) return { type: "FeatureCollection" as const, features: [] };
+  let levels = watArrowLevel.get(w);
+  if (!levels) {
+    levels = new Map(w.cells.map((c, j) => [c, w.arrow_level[j]]));
+    watArrowLevel.set(w, levels);
+  }
+  const f = w.frames[k];
+  const { lon0, lat0, dlon, dlat, nx } = w.grid;
+  return {
+    type: "FeatureCollection" as const,
+    features: f.i.map((c, j) => ({
+      type: "Feature" as const,
+      properties: { level: levels!.get(c) ?? 6, lv: f.lv[j], s: Math.hypot(f.u[j], f.v[j]), d: (Math.atan2(f.u[j], f.v[j]) * 180) / Math.PI },
+      geometry: { type: "Point" as const, coordinates: [lon0 + dlon * (c % nx), lat0 + dlat * Math.floor(c / nx)] },
+    })),
+  };
+}
+
+function addWat(map: maplibregl.Map, w: WatField, arrows = true): void {
+  const theme = ripImages(map);
+  map.addSource("wat-cells", { type: "geojson", data: watCellsGeoJSON(w, watFrame) });
+  map.addSource("wat-points", { type: "geojson", data: watPointsGeoJSON(w, watFrame) });
+  map.addLayer(
+    {
+      id: "wat-fill",
+      type: "fill",
+      source: "wat-cells",
+      paint: {
+        "fill-pattern": ["match", ["get", "lv"], 1, `rip-${theme}-1`, 2, `rip-${theme}-2`, 3, `rip-${theme}-3`, `rip-${theme}-4`] as maplibregl.ExpressionSpecification,
+        "fill-antialias": false,
+      },
+    },
+    beneathLabels(map),
+  );
+  const shown = (level: number): maplibregl.ExpressionSpecification => ["case", ["<=", ["get", "level"], level], 0.95, 0];
+  // Over a field with its own arrows (wind, waves, currents) the current's arrows are left out: one set per map.
+  if (arrows) map.addLayer({
+    id: "wat-arrows",
+    type: "symbol",
+    source: "wat-points",
+    layout: {
+      "icon-image": `rip-arrow-${theme}-3`,
+      "icon-rotate": ["get", "d"],
+      "icon-rotation-alignment": "map",
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+      "icon-size": ["interpolate", ["linear"], ["get", "s"], 30, 0.55, 80, 0.75, 150, 1],
+    },
+    paint: {
+      "icon-opacity": ["step", ["zoom"], shown(0), 8.6, shown(1), 9.4, shown(2), 10.2, shown(3), 11, shown(6)] as maplibregl.ExpressionSpecification,
+    },
+  });
+  paintWat(map);
+}
+
+/** Draw the frame shown (nothing outside the model hours): its cells' hatching and the arrows. */
+function paintWat(map: maplibregl.Map): void {
+  const w = watOf();
+  if (!w || !map.getSource("wat-cells")) return;
+  (map.getSource("wat-cells") as maplibregl.GeoJSONSource).setData(watCellsGeoJSON(w, watFrame));
+  (map.getSource("wat-points") as maplibregl.GeoJSONSource).setData(watPointsGeoJSON(w, watFrame));
+  refreshPopup();
+}
+
+/** The open popup's text for the frame shown: the base layer's value, and the overlay's cell below it. */
+function refreshPopup(): void {
+  if (!popup) return;
+  let base: string | null = null;
+  if (probe != null) {
+    if (data.wat) base = watText(data.wat, probe);
+    else if (data.wind) base = windText(data.wind, probe);
+    else if (data.currents) base = currentText(data.currents, probe);
+  }
+  if (base != null) popup.setHTML(withOverlay(base));
+}
+
+/** A value's text with the overlay's cell under it (when the overlay is on and the click hit one of its cells). */
+function withOverlay(text: string): string {
+  if (!overlay || data.wat || probeOv == null) return text;
+  return `${text}<hr class="pop-rule">${watText(overlay, probeOv)}`;
+}
+
+/** One cell for the frame shown: the level, the current against the waves, and how much steeper they get. */
+function watText(w: WatField, cell: number): string {
+  if (watFrame < 0) return "no model hour at this time";
+  const f = w.frames[watFrame];
+  const when = `<small>${fmtProbe.format(new Date(f.valid_time))}, NWPS ${f.cycle.slice(11, 13)}Z run with NECOFS currents; a model-derived index</small>`;
+  const j = f.i.indexOf(cell);
+  if (j < 0) return `No meaningful wave-current interaction here<br>${when}`;
+  const un = windUnit();
+  const spd = (Math.hypot(f.u[j], f.v[j]) / 100) * un.perMs;
+  const toward = ((Math.atan2(f.u[j], f.v[j]) * 180) / Math.PI + 360) % 360;
+  const from = (f.to[j] + 180) % 360;
+  const s = f.s[j];
+  const effect = s >= 255 ? "the current is strong enough to stop these waves, which break at its edge" : `waves up to ${(s / 10).toFixed(1)} times steeper than in slack water`;
+  return `<b>${WAT_LABELS[f.lv[j]]}</b><br>Current ${spd.toFixed(un.digits)} ${un.label} toward ${compass16(toward)} against ${((f.hs[j] / 100) * 3.28084).toFixed(1)} ft, ${(f.tp[j] / 10).toFixed(1)} s waves from ${compass16(from)}: ${effect}<br>${when}`;
+}
+
 /** The frame nearest the timeline's time (now by default), or -1 when the time is outside the model run. */
 function frameAt(c: CurrentsField): number {
   const k = Math.round(((fieldT ?? Date.now() / 1000) - Date.parse(c.t0) / 1000) / c.step);
@@ -653,6 +889,23 @@ function frameAt(c: CurrentsField): number {
 export async function setFieldTime(t: number | null): Promise<void> {
   fieldT = t;
   if (data.history) return showHistoryFrame(historyIndex(data.history));
+  if (overlay && !data.wat) {
+    const k = watFrameAt(overlay);
+    if (k !== watFrame) {
+      watFrame = k;
+      const box = document.getElementById("map");
+      if (box) renderPanel(box);
+      paintWat(await mapReady());
+    }
+  }
+  if (data.wat) {
+    const k = watFrameAt(data.wat);
+    if (k === watFrame) return;
+    watFrame = k;
+    const box = document.getElementById("map");
+    if (box) renderPanel(box);
+    return paintWat(await mapReady());
+  }
   if (data.wind) {
     const k = windFrameAt(data.wind);
     if (k === windFrame) return;
@@ -679,7 +932,10 @@ export async function setFieldTime(t: number | null): Promise<void> {
 const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
 
 
-function scaleHtml(meta: Meta): string {
+function scaleHtml(meta: Meta, ripKey = false): string {
+  if (ripKey || active === "wat") {
+    return `<div class="field-scale wat-scale">${[1, 2, 3, 4].map((l) => `<span>${ripSwatch(l)}${WAT_SHORT[l]}</span>`).join("")}</div>`;
+  }
   if (isWaves()) {
     const at = (m: number) => `${((m / WAVE_TOP) * 100).toFixed(1)}%`;
     const stops = waveStops().map(([m, c]) => `${c} ${at(m)}`);
@@ -728,13 +984,19 @@ function renderPanel(fallback: HTMLElement): void {
     const r = data.raster;
     const c = data.currents;
     const w = data.wind;
+    const wt = data.wat;
+    const tf = wt && watFrame >= 0 ? wt.frames[watFrame] : null;
     // The dates of the data, not of the job: from the oldest pixel in a composite to the newest.
     const ages = r ? r.age_days.filter((a): a is number => a != null) : [];
     const newest = ages.length ? Math.min(...ages) : 0;
     const oldest = ages.length ? Math.max(...ages) : 0;
     const day = (age: number) => new Date(Date.parse(r!.time) - age * 86400e3);
     const wf = w && windFrame >= 0 ? w.frames[windFrame] : null;
-    const when = r
+    const when = wt
+      ? tf
+        ? `${fmtProbe.format(new Date(tf.valid_time))}, NWPS ${tf.cycle.slice(11, 13)}Z run`
+        : "no model hour"
+      : r
       ? daySpan(day(r.window_days > 2 ? oldest : newest), day(newest))
       : c
         ? frame >= 0
@@ -746,27 +1008,36 @@ function renderPanel(fallback: HTMLElement): void {
             : isWaves() ? "no NWPS hour" : "no HRRR hour"
           : "";
     const span = r && r.window_days > 2 && oldest - newest >= 1 ? ` Each pixel is the latest clear view in the last ${Math.round(oldest) + 1} days; older pixels are fainter.` : "";
-    const run = c
+    const run = wt
+      ? " Every 2 hours from 24h back to 72h ahead: the newest NWPS run for each hour with the day's NECOFS currents; the time bar below moves it."
+      : c
       ? ` Run of ${fmtDay.format(new Date(c.generated_at))}, covering 24h back to 72h ahead; the time bar below moves it.`
       : w
         ? isWaves()
           ? " Each hour from the newest NWPS run that covers it (00 and 12 UTC), 24h back to 72h ahead; the time bar below moves it."
           : " Each hour from the newest HRRR run that covers it, 24h back to 48h ahead; the time bar below moves it."
         : "";
-    const credit = r ? r.attribution : c ? c.source : w ? w.attribution : "";
+    const credit = wt ? wt.attribution : r ? r.attribution : c ? c.source : w ? w.attribution : "";
     body = `<div class="field-key"><span class="field-name" title="${meta.title}">${meta.short}</span><span class="field-when">${when}</span>
       <button type="button" class="field-info" aria-haspopup="dialog" aria-label="About this layer" title="About this layer">i</button></div>
       ${scaleHtml(meta)}
       <p class="field-note" hidden><b>${meta.title}.</b> ${meta.note}${span}${run} <span class="field-credit">${credit}</span></p>`;
+    if (overlay && !wt) {
+      const of = watFrame >= 0 ? overlay.frames[watFrame] : null;
+      body += `<div class="field-key field-overlay"><span class="field-name" title="${META.wat.title}">+ ${META.wat.short}</span><span class="field-when">${of ? `NWPS ${of.cycle.slice(11, 13)}Z run` : "no model hour"}</span>
+        <button type="button" class="field-info" data-about="map-wat" aria-haspopup="dialog" aria-label="About wind against tide" title="About wind against tide">i</button></div>
+        ${scaleHtml(META.wat, true)}`;
+    }
   }
   panel.innerHTML = body;
   container.prepend(panel);
-  const info = panel.querySelector<HTMLButtonElement>(".field-info")!;
-  info.addEventListener("click", () => {
-    if (!active) return;
-    // The page shows the layer's explanation in its About dialog (lis.ts listens).
-    document.dispatchEvent(new CustomEvent("lhzn-about", { detail: { key: `map-${active}` } }));
-  });
+  panel.querySelectorAll<HTMLButtonElement>(".field-info").forEach((info) =>
+    info.addEventListener("click", () => {
+      if (!active) return;
+      // The page shows the layer's explanation in its About dialog (lis.ts listens).
+      document.dispatchEvent(new CustomEvent("lhzn-about", { detail: { key: info.dataset.about ?? `map-${active}` } }));
+    }),
+  );
 }
 
 /* ---------- Map controls: expand and layers ---------- */
@@ -798,8 +1069,10 @@ function renderDrawer(): void {
   const main = controls.choices.filter((c) => !c.more);
   const more = controls.choices.filter((c) => c.more);
   const open = more.some((c) => c.kind === controls!.chosen);
+  const ov = controls.overlay;
   drawer.innerHTML = `<p class="layers-title">Layer</p>${main.map(btn).join("")}` +
-    (more.length ? `<details class="layers-more"${open ? " open" : ""}><summary>More layers</summary>${more.map(btn).join("")}</details>` : "");
+    (more.length ? `<details class="layers-more"${open ? " open" : ""}><summary>More layers</summary>${more.map(btn).join("")}</details>` : "") +
+    (ov ? `<p class="layers-title">Overlay</p><button type="button" class="layers-choice layers-overlay" aria-pressed="${ov.on}">${ov.label}</button>` : "");
 }
 
 function closeDrawer(): void {
@@ -818,7 +1091,8 @@ function openDrawer(container: HTMLElement): void {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>(".layers-choice");
     if (!b || !controls) return;
     closeDrawer();
-    controls.onPick(b.dataset.kind as FieldKind | "none");
+    if (b.classList.contains("layers-overlay")) controls.overlay?.onToggle(!controls.overlay.on);
+    else controls.onPick(b.dataset.kind as FieldKind | "none");
   });
   container.appendChild(drawer);
   layersButton?.setAttribute("aria-expanded", "true");
@@ -862,17 +1136,21 @@ function addControls(map: maplibregl.Map): void {
 function draw(map: maplibregl.Map): void {
   clear(map);
   if (!active) return;
-  if (data.raster) addRaster(map, data.raster);
+  if (data.wat) addWat(map, data.wat);
+  else if (data.raster) addRaster(map, data.raster);
   else if (data.mesh && data.currents) addCurrents(map, data.mesh, data.currents);
   else if (data.wind) addWind(map, data.wind);
+  if (overlay && !data.wat) addWat(map, overlay, !(data.wind || data.currents));
 }
 
 /** Show a field (or none) with its data, and the panel with the page's controls. */
 export async function showField(kind: FieldKind | null, payload: FieldData, ctl: FieldControls): Promise<void> {
-  const sameLayer = kind === active && payload.raster === shownRaster && payload.currents === data.currents && payload.wind === data.wind;
+  const sameLayer = kind === active && payload.raster === shownRaster && payload.currents === data.currents && payload.wind === data.wind && payload.wat === data.wat && (payload.overlay ?? null) === overlay;
   if (!sameLayer) closeValue(); // a value from another layer
   active = kind;
   data = kind ? { ...payload } : {};
+  overlay = kind && kind !== "wat" ? (payload.overlay ?? null) : null;
+  delete data.overlay;
   shownRaster = payload.raster;
   controls = ctl;
   histIndex = -1;
@@ -882,8 +1160,9 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
   }
   if (data.currents) frame = frameAt(data.currents);
   if (data.wind) windFrame = windFrameAt(data.wind);
-  if (sameLayer && popup && probe != null && data.currents) popup.setHTML(currentText(data.currents, probe)); // e.g. the unit changed
-  if (sameLayer && popup && probe != null && data.wind) popup.setHTML(windText(data.wind, probe));
+  const wat = watOf();
+  watFrame = wat ? watFrameAt(wat) : -1;
+  if (sameLayer) refreshPopup(); // e.g. the unit changed
   if (data.history) range = historyRange(data.history);
   else if (data.raster) range = rangeOf(META[data.raster.kind], data.raster.values.map((v) => (v == null ? NaN : v * data.raster!.scale)));
   else if (data.currents) range = META.currents.range!;
@@ -904,15 +1183,24 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
         if (text) void showValue(map, e.lngLat, text, null, { lng: e.lngLat.lng, lat: e.lngLat.lat });
         return;
       }
+      const wt = data.wat;
+      if (wt) {
+        const hit = map.queryRenderedFeatures(e.point, { layers: ["wat-fill"] })[0];
+        const cell = hit ? Number(hit.properties?.cell) : NaN;
+        if (Number.isFinite(cell)) void showValue(map, e.lngLat, watText(wt, cell), cell);
+        return;
+      }
+      const ovHit = overlay && map.getLayer("wat-fill") ? map.queryRenderedFeatures(e.point, { layers: ["wat-fill"] })[0] : undefined;
+      const ovCell = ovHit ? Number(ovHit.properties?.cell) : NaN;
       const w = data.wind;
       if (w) {
         const cell = map.queryRenderedFeatures(e.point, { layers: ["wind-fill"] })[0];
-        if (cell && typeof cell.id === "number") void showValue(map, e.lngLat, windText(w, cell.id), cell.id);
+        if (cell && typeof cell.id === "number") void showValue(map, e.lngLat, windText(w, cell.id), cell.id, null, Number.isFinite(ovCell) ? ovCell : null);
         return;
       }
       const hit = map.queryRenderedFeatures(e.point, { layers: ["cur-fill"] })[0];
       const c = data.currents;
-      if (hit && c && typeof hit.id === "number") void showValue(map, e.lngLat, currentText(c, hit.id), hit.id);
+      if (hit && c && typeof hit.id === "number") void showValue(map, e.lngLat, currentText(c, hit.id), hit.id, null, Number.isFinite(ovCell) ? ovCell : null);
     });
   }
   draw(map);
@@ -922,12 +1210,13 @@ let popup: maplibregl.Popup | null = null;
 let probe: number | null = null; // the current element the popup reads, so it can follow the timeline
 let probeAt: { lng: number; lat: number } | null = null; // the raster point it reads, for history frames
 
-async function showValue(map: maplibregl.Map, at: maplibregl.LngLat, text: string, element: number | null = null, point: { lng: number; lat: number } | null = null): Promise<void> {
+async function showValue(map: maplibregl.Map, at: maplibregl.LngLat, text: string, element: number | null = null, point: { lng: number; lat: number } | null = null, ovCell: number | null = null): Promise<void> {
   const ml = (await import("maplibre-gl")).default;
   closeValue();
   probe = element;
   probeAt = point;
-  const p = new ml.Popup({ closeButton: false, className: "pin-pop" }).setLngLat(at).setHTML(text).addTo(map);
+  probeOv = ovCell;
+  const p = new ml.Popup({ closeButton: false, className: "pin-pop" }).setLngLat(at).setHTML(withOverlay(text)).addTo(map);
   p.on("close", () => {
     if (popup === p) {
       popup = null;
@@ -943,4 +1232,5 @@ function closeValue(): void {
   popup = null;
   probe = null;
   probeAt = null;
+  probeOv = null;
 }

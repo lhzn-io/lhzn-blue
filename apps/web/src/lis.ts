@@ -4502,17 +4502,19 @@ const FIELD_CHOICES: { kind: FieldKind | "none"; label: string }[] = [
   { kind: "waves", label: "Waves (NWS model)" },
 ];
 /** The map layers each view offers, and the one it opens with; the others sit under "More layers". */
-const VIEW_LAYERS: Record<VarKey, { offer: FieldKind[]; def: FieldKind | "none" }> = {
+const VIEW_LAYERS: Record<VarKey, { offer: FieldKind[]; def: FieldKind | "none"; overlay?: boolean }> = {
   temp: { offer: ["sst"], def: "sst" },
   salinity: { offer: ["chl"], def: "none" },
   oxygen: { offer: ["chl"], def: "chl" },
   turbidity: { offer: ["kd490", "chl"], def: "kd490" },
-  wind: { offer: ["wind", "waves", "currents"], def: "wind" },
+  wind: { offer: ["wind", "waves", "currents"], def: "wind", overlay: true }, // the wind-against-tide overlay
   tides: { offer: [], def: "none" },
   rivers: { offer: [], def: "none" },
 };
 // A linked layer wins on load; otherwise the view's default. A layer picked by hand lasts until the view changes.
 let fieldPick: FieldKind | "none" = (["sst", "chl", "kd490", "currents", "wind", "waves"] as const).find((k) => k === LINK.get("layer")) ?? VIEW_LAYERS[VK].def;
+/** Wind against tide over the map's field (Wind & waves only): on by link ("ov=wat"), or picked in the layer menu. */
+let overlayWat = LINK.get("ov") === "wat" || LINK.get("layer") === "wat";
 /** A linked time ("-6h", "+12h", "-30d"), applied once the time bar has the scale it belongs to. */
 let pendingOffset: { hours: number; scale: "hours" | "days" } | null = (() => {
   const m = /^([+-]?\d+)([hd])$/.exec((LINK.get("t") ?? "").replace(/^ /, "+")); // a "+" in a query string reads as a space
@@ -4524,6 +4526,7 @@ function linkUrl(plot?: string): string {
   const p = new URLSearchParams();
   p.set("view", VK); // always: a visitor's remembered view would otherwise win
   if (fieldPick !== "none") p.set("layer", fieldPick);
+  if (overlayWat && VIEW_LAYERS[VK].overlay) p.set("ov", "wat");
   const tl = timelineModule?.position();
   if (tl && tl.offset !== 0) p.set("t", tl.scale === "days" ? `${Math.round(tl.offset / 24)}d` : `${tl.offset > 0 ? "+" : ""}${tl.offset}h`);
   const q = p.toString();
@@ -4562,13 +4565,15 @@ try {
 } catch {
   /* private mode: the normal map */
 }
-const FRAME_SPAN: Record<FieldKind | "none", [number, number]> = { none: [0, 0], currents: [0, 2], wind: [0, 1], waves: [0, 1], sst: [24, 0], chl: [7 * 24, 0], kd490: [7 * 24, 0] };
+const FRAME_SPAN: Record<FieldKind | "none", [number, number]> = { none: [0, 0], currents: [0, 2], wind: [0, 1], waves: [0, 1], wat: [0, 2], sst: [24, 0], chl: [7 * 24, 0], kd490: [7 * 24, 0] };
 const fieldCache = new Map<FieldKind, Promise<FieldData>>();
 
 function fieldData(kind: FieldKind): Promise<FieldData> {
   if (!fieldCache.has(kind)) {
     const load: Promise<FieldData> =
-      kind === "currents"
+      kind === "wat"
+        ? getJson<FieldData["wat"]>(`${DATA}/fields/wind-against-tide.json`).then((wat) => ({ wat }))
+        : kind === "currents"
         ? Promise.all([getJson<FieldData["mesh"]>(`${DATA}/fields/currents-mesh.json`), getJson<FieldData["currents"]>(`${DATA}/fields/currents.json`)]).then(([mesh, currents]) => ({ mesh, currents }))
         : kind === "wind" || kind === "waves"
           ? getJson<FieldData["wind"]>(`${DATA}/fields/${kind === "wind" ? "hrrr-wind" : "nwps-waves"}.json`).then((wind) => ({ wind }))
@@ -4606,16 +4611,25 @@ function applyWide(): void {
 
 async function syncField(): Promise<void> {
   applyWide();
-  const kind = fieldPick;
-  let payload: FieldData = {};
-  if (kind !== "none") {
+  // Wind against tide: over the chosen field, or on its own when no field is chosen.
+  let ov: FieldData["wat"];
+  if (overlayWat && VIEW_LAYERS[VK].overlay) {
     try {
-      payload = await fieldData(kind);
+      ov = (await fieldData("wat")).wat;
     } catch (err) {
       console.error(err);
     }
   }
-  const shown = kind !== "none" && (payload.raster || payload.currents || payload.wind) ? kind : null;
+  const kind: FieldKind | "none" = fieldPick === "none" && ov ? "wat" : fieldPick;
+  let payload: FieldData = {};
+  if (kind !== "none") {
+    try {
+      payload = kind === "wat" ? { wat: ov } : { ...(await fieldData(kind)), overlay: ov };
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  const shown = kind !== "none" && (payload.raster || payload.currents || payload.wind || payload.wat) ? kind : null;
   // The time bar: days for a satellite layer once its history is in, hours otherwise.
   const tl = await import("./timeline");
   tl.setHoursBack(VK === "wind" ? WS_BACK / HOUR : 24);
@@ -4646,6 +4660,17 @@ function fieldControls(): import("./fields").FieldControls {
       return [...ordered, ...FIELD_CHOICES.filter((c) => !ordered.includes(c)).map((c) => ({ ...c, more: true }))];
     })(),
     chosen: fieldPick,
+    overlay: VIEW_LAYERS[VK].overlay
+      ? {
+          label: "Wind against tide",
+          on: overlayWat,
+          onToggle: (on) => {
+            overlayWat = on;
+            void syncField();
+            syncUrl(true);
+          },
+        }
+      : undefined,
     onPick: (k) => {
       fieldPick = k;
       void syncField();

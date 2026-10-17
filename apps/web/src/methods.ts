@@ -79,14 +79,18 @@ export const METHODS: Record<string, Method> = {
     title: "The next 48 hours",
     shows:
       "Wind and gusts at the station: measured over the last day and a half, and forecast by NOAA's HRRR model for the " +
-      "next two days. The dashed line is the newest forecast for each hour; the dotted lines show how far such a forecast " +
-      "typically misses at that lead time; dots are gusts. Each faint line is an earlier HRRR run: where they bunch " +
-      "together, the model has been consistent; where they spread apart, it has not, and the timing or strength is less " +
-      "certain. Each run reaches 18 or 48 hours ahead, so fewer lines remain further out.",
+      "next two days. The stitched forecast (the bold blue line) takes each hour from the newest run that reaches it; the " +
+      "lavender lines either side show how far such a forecast typically misses at that lead time; dots are gusts. Each " +
+      "faint line is an earlier HRRR run: where they bunch together, the model has been consistent; where they spread " +
+      "apart, it has not, and the timing or strength is less certain. The slider at the top left picks a run (so does " +
+      "hovering its line) and draws it dashed, with the time it was issued; the expanded chart pans back through a week " +
+      "of runs.",
     method:
-      "HRRR (3 km, hourly) is read at the station's nearest water cells. The typical " +
-      "error is the mean absolute difference between HRRR and the four buoys at each lead time since January 2024; about " +
-      "6 in 10 forecast hours fall within it.",
+      "HRRR (3 km, run every hour) is read at the station's nearest water cells [[dowell2022hrrr]]. Hourly runs reach 18 " +
+      "hours ahead and the 00, 06, 12 and 18 UTC runs 48, so beyond 18 hours the stitched forecast comes from the latest " +
+      "48-hour run, which can be up to 6 hours older than the newest. The plot keeps every run of the last day and the " +
+      "48-hour runs of the last week. The typical error is the mean absolute difference between HRRR and the four buoys at " +
+      "each lead time since January 2024; about 6 in 10 forecast hours fall within it.",
     caveats:
       "Raw model output, not corrected. One model only; other models are not shown. For decisions afloat, use the " +
       "National Weather Service marine forecast. " +
@@ -254,13 +258,48 @@ export const METHODS: Record<string, Method> = {
     method: "The NECOFS FVCOM forecast (UMass Dartmouth), every 2 hours [[chen2003fvcom]] [[chen2006fvcom]].",
     caveats: "A model forecast, not a measurement. Speeds follow the Units switch.",
   },
+  "map-waves": {
+    title: "Waves (NWS model)",
+    shows:
+      "Forecast significant wave height on the model's own 1.8 km cells, shaded by height, with arrows in the direction the " +
+      "waves travel; 24 hours back to 72 hours ahead.",
+    method:
+      "The NWS Nearshore Wave Prediction System, which runs the SWAN spectral wave model [[booij1999swan]], from the New York " +
+      "forecast office at 00 and 12 UTC on its CG1 grid, forced by the office's forecast winds. Each hour comes from the " +
+      "newest run that covers it. Colours: an ordered ramp after cmocean [[thyng2016cmocean]].",
+    caveats: "A model forecast, not a measurement. These runs carry no currents, so steepening where the tide opposes the waves is not in them.",
+  },
+  "map-wat": {
+    title: "Wind against tide",
+    shows:
+      "Where the tidal current runs against the waves and steepens them, on the wave model's 1.8 km cells, every 2 hours from " +
+      "24 hours back to 72 hours ahead, in four levels: the current steepening the waves; steep, short seas likely; breaking " +
+      "seas likely; and the waves blocked by the current (they break at its edge). Arrows show where the opposing current runs. " +
+      "Clicking a cell gives the current, the waves and how much steeper they get. It is an overlay: the layer menu lays it " +
+      "over the wind, waves or currents layer (their arrows then stand for the overlay's), or shows it on its own.",
+    method:
+      "The waves (height, peak period and direction) are the NWS NWPS forecast (SWAN [[booij1999swan]]); the current is the " +
+      "NECOFS FVCOM surface layer [[chen2006fvcom]] averaged over each wave cell. With r the current along the waves' direction divided by their deep-water speed (gT/2\u03c0), " +
+      "conservation of wave action gives how much shorter and higher the waves get [[longuet1961currents]]; the waves stop where " +
+      "r reaches -0.25. Levels: steepening when the current makes the waves 20 percent steeper or more; steep at 60 percent, or at " +
+      "20 percent when the waves reach a steepness of 1/25; breaking at r of -0.20, or at 60 percent with a steepness of 1/15; " +
+      "blocked at -0.25. Each level is what the current adds: wind waves in the Sound are often steep in slack water. Breaking " +
+      "and blocked need waves of 0.4 m (1.3 ft) or more. Nothing is shown where the current is under 0.3 m/s (0.6 kt) or the waves under 0.2 m. Drawn as " +
+      "tide-rip hatching, after the chart symbol for rips and overfalls [[noaa2019chart1]]: finer rows for the lower levels, the densest and " +
+      "heaviest kept for blocking. The patterns are fixed and do not rescale with the hours shown.",
+    caveats:
+      "A model-derived index: not an observation and not an NWS product; NWS advisories come first. Linear, deep-water theory " +
+      "for waves entering the current from slack water. Shoals, rips and overfalls finer than the cells (the Race, Plum Gut and " +
+      "Hell Gate in detail), boat wakes, and wave groups are not in it. The thresholds are a first estimate, to be checked against " +
+      "the buoys' wave records.",
+  },
   "map-wind": {
     title: "Wind (HRRR)",
     shows:
       "Forecast wind 10 m above the surface on the model's own 3 km cells, shaded by speed, with arrows in the direction " +
       "the wind blows toward; 24 hours back to 48 hours ahead.",
     method:
-      "NOAA's High-Resolution Rapid Refresh (HRRR), read through forcingkit. Each hour comes from the newest run that covers " +
+      "NOAA's High-Resolution Rapid Refresh (HRRR) [[dowell2022hrrr]], read through forcingkit. Each hour comes from the newest run that covers " +
       "it: hourly runs reach 18 hours ahead, the 00, 06, 12 and 18 UTC runs 48 hours. Values are raw: no smoothing between " +
       "cells. Cells HRRR counts as land are drawn fainter, so the coastline is the model's.",
     caveats: "A model forecast, not a measurement; the past hours are short-lead forecasts, not observations. Speeds follow the Units switch.",
@@ -308,6 +347,11 @@ export const REF_LABELS: Record<string, string> = {
   wang2009kd490: "Wang, Son and Harding (2009), Kd(490) in turbid waters",
   chen2003fvcom: "Chen, Liu and Beardsley (2003), FVCOM",
   chen2006fvcom: "Chen, Beardsley and Cowles (2006), the FVCOM system",
+  dowell2022hrrr: "Dowell et al. (2022), the High-Resolution Rapid Refresh (HRRR)",
+  booij1999swan: "Booij, Ris and Holthuijsen (1999), the SWAN wave model",
+  noaa2019chart1: "NOAA and NGA (2019), U.S. Chart No. 1",
+  thyng2016cmocean: "Thyng et al. (2016), cmocean: colormaps for oceanography",
+  longuet1961currents: "Longuet-Higgins and Stewart (1961), short gravity waves on steady non-uniform currents",
   sts_monitoring: "Save the Sound, water quality monitoring programs",
 };
 

@@ -27,6 +27,7 @@ from pathlib import Path
 import numpy as np
 import requests
 
+from . import wat
 from .build import SCHEMA, Store, iso, load_stations, now_utc
 
 log = logging.getLogger(__name__)
@@ -146,7 +147,7 @@ def read_points(data: bytes, pts: dict[str, tuple[float, float]]) -> dict:
         stack = lambda name: np.concatenate(  # noqa: E731
             [(an[name].values[None] if an is not None and name in an else np.full((1, lat.size, lon.size), np.nan)), fc[name].values]
         )[:, rows][:, :, cols].astype(np.float32)
-        out["grid"] = {"lat": lat[rows], "lon": lon[cols], "hs": stack("swh"), "dir": stack("dirpw")}
+        out["grid"] = {"lat": lat[rows], "lon": lon[cols], "hs": stack("swh"), "dir": stack("dirpw"), "tp": stack("perpw")}
         for pid, (x, y) in pts.items():
             dy = (lat[:, None] - y) * 111.2
             dx = (lon[None, :] - x) * 111.2 * math.cos(math.radians(y))
@@ -285,9 +286,14 @@ def publish(store: Store, root: str | None) -> list[str]:
         store.write_json(KV_KEY, page_file(prev, new, archived, end), max_age=1800)
     if prev is None and not new:
         store.write_json(KV_KEY, page_file(prev, new, archived, end), max_age=1800)
-    # The map layer. The first time (no layer yet), the newest run is read again for its grid.
+    # The map layers. The newest run is read again for its grid when a layer is missing, or when the currents have a
+    # newer run than the wind-against-tide layer was built from (once a day).
     prev_field = store.read_json(FIELD_KEY)
-    if prev_field is None and not grids:
+    prev_wat = store.read_json(wat.KEY)
+    currents, mesh = store.read_json("v1/fields/currents.json"), store.read_json("v1/fields/currents-mesh.json")
+    built_from = max((f.get("currents_run", "") for f in (prev_wat or {}).get("frames", [])), default="")
+    stale = currents is not None and mesh is not None and built_from < currents["generated_at"]
+    if (prev_field is None or stale) and not grids:
         for key in sorted((prev or {}).get("runs", {}), reverse=True)[:1]:
             data = fetch(datetime.strptime(key, "%Y-%m-%dT%HZ"))
             if data is not None:
@@ -296,4 +302,8 @@ def publish(store: Store, root: str | None) -> list[str]:
         field = field_file(prev_field, grids, end)
         if field is not None:
             store.write_json(FIELD_KEY, field, max_age=1800)
+        if currents is not None and mesh is not None:
+            layer = wat.build(prev_wat, grids, currents, mesh, end)
+            if layer is not None:
+                store.write_json(wat.KEY, layer, max_age=1800)
     return sorted(new)

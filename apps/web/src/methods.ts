@@ -105,7 +105,7 @@ export const METHODS: Record<string, Method> = {
       "The bold line is hourly for the last two days, then smoothed more the older it is: a two-sided exponential moving " +
       "average whose half-life widens from 1 hour two days back to 6 hours two weeks back and a day a month back, so recent " +
       "hours keep their detail and earlier weeks read as a trend. The average runs forward and back so peaks are not delayed, " +
-      "and restarts after a gap.",
+      "and restarts after a gap. Where the station has no reading, a dashed line gives HRRR's last forecast before each hour (the run issued 1 hour before) at the station [[dowell2022hrrr]], from January 2024: the model's stand-in for the record, never a measurement. Against the four buoys over the 100 days to October 2026 it was within 2.4 to 2.8 kt on average (mean absolute error) with a bias under 1 kt.",
     caveats:
       "The plot shows the last 100 days. Speeds follow the Units switch. Directions are turned to true north: the server's " +
       "read about 14 degrees clockwise of NDBC's records of the same buoys, close to the local magnetic variation. Shading " +
@@ -113,8 +113,8 @@ export const METHODS: Record<string, Method> = {
   },
   air: {
     title: "Air and water temperature",
-    shows: "Hourly air temperature and surface water temperature.",
-    sources: "The station's weather sensors and its surface sensor.",
+    shows: "Hourly air temperature and surface water temperature. Where the station has no air reading, a dashed line gives HRRR's 2 m air temperature from its last forecast before each hour (a model, not a measurement) [[dowell2022hrrr]].",
+    sources: "The station's weather sensors and its surface sensor; NOAA HRRR for the dashed stand-in.",
   },
   hilo: {
     title: "Highs and lows",
@@ -181,7 +181,7 @@ export const METHODS: Record<string, Method> = {
     title: "Pressure tendency",
     shows: "How fast the barometer is changing: the change over 3 hours, observed and then forecast by HRRR (dashed). A falling barometer comes before wind; the faster it falls, the more.",
     method: "Observed: the station's hourly mean minus that of 3 hours before. Forecast: the same from HRRR's sea-level pressure at the station. Shaded bands follow the UK shipping forecast's terms: steady to falling slowly under 1.6 mb in 3 hours, quickly 3.6 to 6, very rapidly beyond 6.",
-    caveats: "The buoy barometer and HRRR's sea-level pressure differ by up to about 1 mb, so the dashed line can start a little off the observed one.",
+    caveats: "The buoy barometer and HRRR's sea-level pressure differ by up to about 1 mb, so the dashed line can start a little off the observed one. Where the station has no reading, a fainter dashed line gives the same change from HRRR's last forecast before each hour (a model stand-in, not a measurement).",
   },
   flow: {
     title: "Flow against normal",

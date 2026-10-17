@@ -1071,8 +1071,10 @@ const FIGS: Record<Kind, Fig> = {
         const i = Math.round((t - xs[0]) / step);
         if (i >= 0 && i < xs.length) peakYs[i] = windVal(g);
       }
+      const hh = hrrrHist(d.meta.id);
       const lines: Line[] = m
         ? [
+            ...(hh?.wind ? [{ ys: xs.map((t) => (Number.isFinite(m.wind?.at(t) ?? NaN) ? NaN : windVal(hh.wind!.at(t)))), color: P.line, width: 1, opacity: 0.7, dash: "4 3", label: HRRR_HIST_LABEL, fmt: fmtU }] : []),
             { ys: peakYs, color: P.contrast, opacity: 0.55, label: "Daily peak gust", dots: true, fmt: fmtU },
             { ys: xs.map((t) => windVal(m.wind?.at(t) ?? NaN)), color: P.line, width: 0.7, opacity: 0.22, label: "Wind, hourly", fmt: fmtU },
             { ys: xs.map((t) => windVal(m.gust?.at(t) ?? NaN)), color: P.contrast, label: "Gust, hourly", hidden: true, fmt: fmtU },
@@ -1088,7 +1090,7 @@ const FIGS: Record<Kind, Fig> = {
         .map((a) => ({ x0: a.t0, x1: a.t1, fill: P.advisory[ADV_WIND[a.kind]], title: `${ADV!.kinds[a.kind]}, ${a.zone}: ${fmtWhen(a.t0)} to ${fmtWhen(a.t1)}` }));
       return {
         opts: { xs, lines, spans, unit: ` ${u.label}`, zero: true, empty: "No weather data in this window." },
-        legend: [[smoothLabel, P.line, 1], ["Wind, hourly", P.line, 0.35], ["Daily peak gust", P.contrast, 0.55]],
+        legend: [[smoothLabel, P.line, 1], ["Wind, hourly", P.line, 0.35], ["Daily peak gust", P.contrast, 0.55], ...(hh?.wind ? [[HRRR_HIST_LABEL, P.line, 0.7] as [string, string, number]] : [])],
         note: zone ? `red: NWS small craft advisory (light), gale or stronger (dark), zone ${zone}` : undefined,
       };
     },
@@ -1114,9 +1116,11 @@ const FIGS: Record<Kind, Fig> = {
         { ys: xs.map((t) => water?.at(t) ?? NaN), color: P.depth[top], width: 1.6, label },
         { ys: xs.map((t) => d.met?.air?.at(t) ?? NaN), color: P.second, width: 1.3, label: "Air" },
       ];
+      const hh = hrrrHist(d.meta.id);
+      if (hh?.air) lines.push({ ys: xs.map((t) => (Number.isFinite(d.met?.air?.at(t) ?? NaN) ? NaN : hh.air!.at(t))), color: P.second, width: 1, opacity: 0.7, dash: "4 3", label: "Air, HRRR (last forecast before each hour)" });
       return {
         opts: { xs, lines, unit: "°F", empty: emptyNote(d) },
-        legend: [[label, P.depth[top], 1], ["Air", P.second, 1]],
+        legend: [[label, P.depth[top], 1], ["Air", P.second, 1], ...(hh?.air ? [["Air, HRRR before each hour", P.second, 0.7] as [string, string, number]] : [])],
       };
     },
   },
@@ -1226,7 +1230,10 @@ const FIGS: Record<Kind, Fig> = {
         const a = forecastAt(d.meta.id, t), b = forecastAt(d.meta.id, t - 3 * HOUR);
         return a && b && Number.isFinite(a.pres) && Number.isFinite(b.pres) ? a.pres - b.pres : NaN;
       });
+      const hh = hrrrHist(d.meta.id)?.pressure;
+      const past = xs.map((t, i) => (hh && t <= now && !Number.isFinite(obs[i]) ? hh.at(t) - hh.at(t - 3 * HOUR) : NaN));
       const lines: Line[] = [
+        ...(hh ? [{ ys: past, color: P.line, width: 1, opacity: 0.7, dash: "4 3", label: HRRR_HIST_LABEL, fmt: mb }] : []),
         { ys: obs, color: P.line, width: 1.5, label: "Change over 3 h", fmt: mb },
         { ys: fc, color: P.line, width: 1.5, dash: "6 3", label: "HRRR forecast", fmt: mb },
         { ys: xs.map((t) => p?.at(t) ?? NaN), color: P.line, label: "Pressure", hidden: true, fmt: (v) => `${v.toFixed(1)} mb` },
@@ -1239,7 +1246,7 @@ const FIGS: Record<Kind, Fig> = {
       ];
       return {
         opts: { xs, lines, bands, unit: " mb", zero: true, floor: -4, hoverDigits: 1, marker: { x: now, label: "now" }, empty: "No pressure readings in this window." },
-        legend: [["Change over 3 h", P.line, 1], [`HRRR forecast${(() => { const a = hrrrAsOf(d.meta.id, xs); return a ? `, ${a}` : ""; })()}`, P.line, 0.7]],
+        legend: [["Change over 3 h", P.line, 1], ...(hh ? [[HRRR_HIST_LABEL, P.line, 0.7] as [string, string, number]] : []), [`HRRR forecast${(() => { const a = hrrrAsOf(d.meta.id, xs); return a ? `, ${a}` : ""; })()}`, P.line, 0.7]],
         note: "shaded: steady to falling slowly (under 1.6 mb in 3 h), and falling or rising quickly (3.6 to 6); beyond 6 is very rapid",
       };
     },
@@ -1848,6 +1855,32 @@ function loadForecast(): Promise<void> {
     .catch(() => undefined);
   return fcstLoading;
 }
+
+/** HRRR's last forecast before each hour at a station (lead 1 to 3 h, from 2024; the jobs' hrrr_history.py): the
+ * model's stand-in for the record where the station is out. Loaded per station when a plot first asks. */
+const HRRR_HIST = new Map<string, Met | null>();
+const hrrrHistLoading = new Set<string>();
+function hrrrHist(id: string): Met | null {
+  if (HRRR_HIST.has(id)) return HRRR_HIST.get(id)!;
+  if (!hrrrHistLoading.has(id)) {
+    hrrrHistLoading.add(id);
+    getJson<{ t0: string | null; wind_kt?: (number | null)[]; gust_kt?: (number | null)[]; dir_deg?: (number | null)[]; air_f?: (number | null)[]; pressure_mb?: (number | null)[] }>(`${DATA}/hrrr-history/${id}.json`)
+      .then((h) => {
+        HRRR_HIST.set(id, {
+          wind: Hourly.fromArray(h.t0, h.wind_kt),
+          gust: Hourly.fromArray(h.t0, h.gust_kt),
+          dir: Hourly.fromArray(h.t0, h.dir_deg),
+          air: Hourly.fromArray(h.t0, h.air_f),
+          pressure: Hourly.fromArray(h.t0, h.pressure_mb),
+          last: null,
+        });
+        fcstRedraw();
+      })
+      .catch(() => HRRR_HIST.set(id, null));
+  }
+  return null;
+}
+const HRRR_HIST_LABEL = "HRRR, last forecast before each hour"; // drawn only where the station has no reading
 
 /** The typical error (mean absolute, verified at the buoys) at a lead, between the verified leads. */
 function typicalError(id: string, lead: number, key: keyof FcStats): number {

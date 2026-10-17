@@ -94,6 +94,7 @@ WRITABLE = re.compile(
     r"|v1/archive/(forecast-verification-sums|usgs-tidal-pred)\.json"
     r"|v1/fields/(sst|chl|kd490|currents|currents-mesh|hrrr-wind|model-grids|nwps-waves|wind-against-tide)\.json"
     r"|v1/fields/(sst|chl|kd490)-90d\.bin"
+    r"|v1/hrrr-history/(WLIS|EXRX|ARTG|CLIS|KPTN|BRPT|NWHV|NLON)\.json"
 )
 MAX_OBJECT_BYTES = 8 * 1024 * 1024
 STATIONS_FILE = Path(

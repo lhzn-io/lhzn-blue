@@ -912,8 +912,77 @@ function nearestCell(m: WindField["mesh"], lng: number, lat: number, maxKm: numb
   return Math.sqrt(d2) * 111.2 <= maxKm ? best : -1;
 }
 
-const runNote = (f: { valid_time: string; cycle: string; lead: number }, model: string) =>
-  `<small>${fmtProbe.format(new Date(f.valid_time))}, ${model} ${f.cycle.slice(11, 13)}Z run, ${f.lead} h ahead</small>`;
+
+/* Trend arrows and sparklines for the point readout. */
+const SPARK_BACK = 6 * 3600; // the sparkline: 6 h before the time bar's hour to 42 h after
+const SPARK_AHEAD = 42 * 3600;
+
+const fmtMidnight = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" });
+const fmtDayShort = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" });
+
+/** Local midnights (America/New_York) between two times, epoch seconds. */
+function midnights(t0: number, t1: number): number[] {
+  const out: number[] = [];
+  for (let t = Math.ceil(t0 / 3600) * 3600; t <= t1; t += 3600) if (Number(fmtMidnight.format(new Date(t * 1000))) % 24 === 0) out.push(t);
+  return out;
+}
+
+/** The highest value ahead of the cursor within the sparkline's window, with its time. */
+function peakAhead(pts: [number, number][], cursor: number): [number, number] | null {
+  let best: [number, number] | null = null;
+  for (const [t, v] of pts) if (t >= cursor && t <= cursor + SPARK_AHEAD && Number.isFinite(v) && (!best || v > best[1])) best = [t, v];
+  return best;
+}
+
+/** A word-sized sparkline on a fixed 0..top scale from 6 h before the time bar's hour to 42 h after: faint ticks at
+ * local midnights, the hour marked, a dot at the peak ahead. */
+function sparkSvg(pts: [number, number][], top: number, cursor: number, colour: string): string {
+  const W = 54;
+  const H = 14;
+  const t0 = cursor - SPARK_BACK;
+  const t1 = cursor + SPARK_AHEAD;
+  const x = (t: number) => ((t - t0) / (t1 - t0)) * W;
+  const y = (v: number) => H - 1 - (Math.max(0, Math.min(top, v)) / top) * (H - 2);
+  let d = "";
+  let pen = false;
+  for (const [t, v] of pts) {
+    if (t < t0 - 3 * 3600 || t > t1 + 3 * 3600 || !Number.isFinite(v)) {
+      pen = false;
+      continue;
+    }
+    d += `${pen ? "L" : "M"}${x(t).toFixed(1)},${y(v).toFixed(1)}`;
+    pen = true;
+  }
+  const ticks = midnights(t0, t1).map((t) => `<line x1="${x(t).toFixed(1)}" x2="${x(t).toFixed(1)}" y1="${H - 4}" y2="${H}" class="pop-spark-tick"/>`).join("");
+  const pk = peakAhead(pts, cursor);
+  const dot = pk ? `<circle cx="${x(pk[0]).toFixed(1)}" cy="${y(pk[1]).toFixed(1)}" r="1.4" fill="${colour}"/>` : "";
+  const cx = x(cursor).toFixed(1);
+  return `<svg class="pop-spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="6 hours back to 42 hours ahead"><title>6 h back to 42 h ahead; ticks at midnight; dot at the peak</title>` +
+    `<line x1="0" x2="${W}" y1="${H - 0.5}" y2="${H - 0.5}" class="pop-spark-base"/>${ticks}` +
+    `<path d="${d}" fill="none" stroke="${colour}" stroke-width="1" stroke-linejoin="round"/>${dot}<line x1="${cx}" x2="${cx}" y1="0" y2="${H}" class="pop-spark-cur"/></svg>`;
+}
+
+/** A value of (time, value) points at t, linear between them; NaN outside. */
+function valueAt(pts: [number, number][], t: number): number {
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ta, a] = pts[i];
+    const [tb, b] = pts[i + 1];
+    if (t >= ta && t <= tb) return a + ((b - a) * (t - ta)) / (tb - ta || 1);
+  }
+  return NaN;
+}
+
+/** A model cell's speed (m/s for wind, m for waves) at every frame of a wind-shaped field, in time order. */
+function cellSeries(w: WindField, id: number): [number, number][] {
+  return w.frames
+    .map((f, k) => {
+      const { u, v } = windUV(w, k);
+      return [Date.parse(f.valid_time) / 1000, Math.hypot(u[id], v[id])] as [number, number];
+    })
+    .sort((a, b) => a[0] - b[0]);
+}
+
+const sparkColours = () => (mapTheme() === "light" ? { wind: "#3f2477", waves: "#2d7aa3", current: "#5f920c" } : { wind: "#b7a2dd", waves: "#7fb8d8", current: "#c2c43a" });
 
 function windLine(w: WindField, lng: number, lat: number): string | null {
   const id = nearestCell(w.mesh, lng, lat, 3);
@@ -923,7 +992,14 @@ function windLine(w: WindField, lng: number, lat: number): string | null {
   const { u, v } = windUV(w, k);
   const from = ((Math.atan2(-u[id], -v[id]) * 180) / Math.PI + 360) % 360;
   const un = windUnit();
-  return `<b>Wind</b> ${(Math.hypot(u[id], v[id]) * un.perMs).toFixed(un.digits)} ${un.label} from ${compass16(from)} (${Math.round(from)}&deg;)${w.mesh.land[id] ? ", land cell" : ""}<br>${runNote(w.frames[k], "HRRR")}`;
+  const t = fieldT ?? Date.now() / 1000;
+  const pts = cellSeries(w, id);
+  const dKt = (valueAt(pts, t + 3 * 3600) - valueAt(pts, t)) * 1.943844;
+  const word = !Number.isFinite(dKt) || Math.abs(dKt) < 2 ? "steady" : dKt > 0 ? "rising" : "easing";
+  const pk = peakAhead(pts, t);
+  const peak = pk ? `; peak ${(pk[1] * un.perMs).toFixed(un.digits)} ${un.label} ${fmtProbe.format(new Date(pk[0] * 1000))}` : "";
+  return `<span class="pop-l1"><b>Wind</b> ${(Math.hypot(u[id], v[id]) * un.perMs).toFixed(un.digits)} ${un.label} from ${compass16(from)}${sparkSvg(pts, 35 * 0.514444, t, sparkColours().wind)}</span>` +
+    `<br><small>${word}${peak}${w.mesh.land[id] ? ", land cell" : ""}</small>`;
 }
 
 function waveLine(w: WindField, lng: number, lat: number): string | null {
@@ -934,7 +1010,16 @@ function waveLine(w: WindField, lng: number, lat: number): string | null {
   const { u, v } = windUV(w, k);
   const h = Math.hypot(u[id], v[id]);
   const from = ((Math.atan2(-u[id], -v[id]) * 180) / Math.PI + 360) % 360;
-  return `<b>Waves</b> ${(h * 3.28084).toFixed(1)} ft (${h.toFixed(2)} m) from ${compass16(from)}<br>${runNote(w.frames[k], "NWPS")}`;
+  const t = fieldT ?? Date.now() / 1000;
+  const pts = cellSeries(w, id);
+  const d = valueAt(pts, t + 3 * 3600) - valueAt(pts, t);
+  const word = !Number.isFinite(d) || Math.abs(d) < 0.1 ? "steady" : d > 0 ? "building" : "easing";
+  const metric = windUnit().label === "m/s";
+  const ht = (m: number) => (metric ? `${m.toFixed(2)} m` : `${(m * 3.28084).toFixed(1)} ft`);
+  const pk = peakAhead(pts, t);
+  const peak = pk ? `; peak ${ht(pk[1])} ${fmtProbe.format(new Date(pk[0] * 1000))}` : "";
+  return `<span class="pop-l1"><b>Waves</b> ${ht(h)} from ${compass16(from)}${sparkSvg(pts, 2.5, t, sparkColours().waves)}</span>` +
+    `<br><small>${word}${peak}</small>`;
 }
 
 const fmtClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
@@ -984,7 +1069,11 @@ function currentLine(src: { mesh: CurrentsMesh; currents: CurrentsField }, lng: 
   const v = c.v[k][id];
   const un = windUnit();
   const toward = ((Math.atan2(u, v) * 180) / Math.PI + 360) % 360;
-  return `<b>Current</b> ${((Math.hypot(u, v) / 100) * un.perMs).toFixed(un.digits + 1)} ${un.label} toward ${compass16(toward)} (${Math.round(toward)}&deg;)<br><small>${localPhase(c, id, k)} &middot; NECOFS</small>`;
+  const t = fieldT ?? Date.now() / 1000;
+  const t0 = Date.parse(c.t0) / 1000;
+  const pts: [number, number][] = c.u.map((uk, j) => [t0 + j * c.step, Math.hypot(uk[id], c.v[j][id]) / 100]);
+  return `<span class="pop-l1"><b>Current</b> ${((Math.hypot(u, v) / 100) * un.perMs).toFixed(un.digits + 1)} ${un.label} toward ${compass16(toward)}${sparkSvg(pts, 1.5, t, sparkColours().current)}</span>` +
+    `<br><small>${localPhase(c, id, k)}</small>`;
 }
 
 /** Two half-length arrows on a north-up ring, each running in from the bearing it comes from and ending at the centre:
@@ -1083,8 +1172,163 @@ function pointText(lng: number, lat: number): string {
     src.currents ? currentLine(src.currents, lng, lat) : null,
     src.wat ? watLine(src.wat, lng, lat, !!overlay || !!data.wat, headingsAt(src, lng, lat)) : null,
   ].filter((l): l is string => !!l);
-  return lines.length ? lines.join('<hr class="pop-rule">') : "No model cell here";
+  if (!lines.length) return "No model cell here";
+  return lines.join('<hr class="pop-rule">') + '<hr class="pop-rule"><button type="button" class="pop-detail">Cell detail</button>';
 }
+
+
+/* ---------- Cell detail: one cell's models on one time axis ---------- */
+
+const CELL_BACK = 24 * 3600;
+const CELL_AHEAD = 72 * 3600;
+let cellAt: { lng: number; lat: number } | null = null;
+let cellDialog: HTMLDialogElement | null = null;
+
+/** A plot row: the series on a fixed 0..top scale across the view's window, midnight ticks, the cursor, the value at
+ * the cursor written at the right (Tufte's direct label). */
+function cellRow(label: string, unit: string, pts: [number, number][], top: number, scale: number, digits: number, colour: string, t0: number, t1: number, cursor: number): string {
+  const W = 600;
+  const H = 54;
+  const x = (t: number) => ((t - t0) / (t1 - t0)) * W;
+  const y = (v: number) => H - 2 - (Math.max(0, Math.min(top, v)) / top) * (H - 6);
+  let d = "";
+  let pen = false;
+  for (const [t, v] of pts) {
+    if (t < t0 || t > t1 || !Number.isFinite(v)) {
+      pen = false;
+      continue;
+    }
+    d += `${pen ? "L" : "M"}${x(t).toFixed(1)},${y(v).toFixed(2)}`;
+    pen = true;
+  }
+  const ticks = midnights(t0, t1).map((t) => `<line x1="${x(t).toFixed(1)}" x2="${x(t).toFixed(1)}" y1="0" y2="${H}" class="cell-tick"/>`).join("");
+  const now = valueAt(pts, cursor);
+  const read = Number.isFinite(now) ? `${(now * scale).toFixed(digits)} ${unit}` : "--";
+  return `<div class="cell-row"><span class="cell-label">${label}<small>0 to ${(top * scale).toFixed(0)} ${unit}</small></span>` +
+    `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="cell-plot">${ticks}<line x1="0" x2="${W}" y1="${H - 2}" y2="${H - 2}" class="cell-base"/>` +
+    `<path d="${d}" fill="none" stroke="${colour}" stroke-width="1.4" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>` +
+    `<line x1="${x(cursor).toFixed(1)}" x2="${x(cursor).toFixed(1)}" y1="0" y2="${H}" class="cell-cursor"/></svg><span class="cell-read">${read}</span></div>`;
+}
+
+/** Draw the open cell view for the time bar's hour. */
+function renderCell(): void {
+  if (!cellDialog || !cellAt || !cellDialog.open) return;
+  const src = pointSrc ?? {};
+  const { lng, lat } = cellAt;
+  const now = Math.round(Date.now() / 3.6e6) * 3600;
+  const t0 = now - CELL_BACK;
+  const t1 = now + CELL_AHEAD;
+  const cursor = fieldT ?? Date.now() / 1000;
+  const un = windUnit();
+  const c = sparkColours();
+  const metric = un.label === "m/s";
+  const rows: string[] = [];
+  const notes: string[] = [];
+  if (src.wind) {
+    const id = nearestCell(src.wind.mesh, lng, lat, 3);
+    if (id >= 0) {
+      rows.push(cellRow("Wind", un.label, cellSeries(src.wind, id), 35 * 0.514444, un.perMs, un.digits, c.wind, t0, t1, cursor));
+      const k = windFrameAt(src.wind);
+      if (k >= 0) notes.push(`wind HRRR ${src.wind.frames[k].cycle.slice(11, 13)}Z run, ${src.wind.frames[k].lead} h ahead`);
+    }
+  }
+  if (src.waves) {
+    const id = nearestCell(src.waves.mesh, lng, lat, 2);
+    if (id >= 0 && !src.waves.mesh.land[id]) {
+      rows.push(cellRow("Waves", metric ? "m" : "ft", cellSeries(src.waves, id), 2.5, metric ? 1 : 3.28084, metric ? 2 : 1, c.waves, t0, t1, cursor));
+      const k = windFrameAt(src.waves);
+      if (k >= 0) notes.push(`waves NWPS ${src.waves.frames[k].cycle.slice(11, 13)}Z run`);
+    }
+  }
+  if (src.currents) {
+    const { mesh: m, currents: cur } = src.currents;
+    const cos = Math.cos((lat * Math.PI) / 180);
+    let e = -1;
+    let d2 = Infinity;
+    m.centres.forEach(([x0, y0], i) => {
+      const dd = ((x0 - lng) * cos) ** 2 + (y0 - lat) ** 2;
+      if (dd < d2) [e, d2] = [i, dd];
+    });
+    if (e >= 0 && Math.sqrt(d2) * 111.2 <= 2) {
+      const s0 = Date.parse(cur.t0) / 1000;
+      const pts: [number, number][] = cur.u.map((uk, j) => [s0 + j * cur.step, Math.hypot(uk[e], cur.v[j][e]) / 100]);
+      rows.push(cellRow("Current", un.label, pts, 1.5, un.perMs, un.digits + 1, c.current, t0, t1, cursor));
+      notes.push(`current NECOFS run of ${fmtDay.format(new Date(cur.generated_at))}`);
+    }
+  }
+  if (src.wat) {
+    const g = src.wat.grid;
+    const i = Math.round((lng - g.lon0) / g.dlon);
+    const j = Math.round((lat - g.lat0) / g.dlat);
+    if (i >= 0 && i < g.nx && j >= 0 && j < g.ny) {
+      const cellIx = j * g.nx + i;
+      const W = 600;
+      const x = (t: number) => ((t - t0) / (t1 - t0)) * W;
+      let blocks = "";
+      for (const f of src.wat.frames) {
+        const t = Date.parse(f.valid_time) / 1000;
+        const k = f.i.indexOf(cellIx);
+        if (k < 0 || t < t0 || t > t1) continue;
+        blocks += `<rect x="${x(t - 3600).toFixed(1)}" width="${(x(t + 3600) - x(t - 3600)).toFixed(1)}" y="0" height="14" class="cell-lv cell-lv${f.lv[k]}"><title>${WAT_LABELS[f.lv[k]]}, ${fmtProbe.format(new Date(t * 1000))}</title></rect>`;
+      }
+      const wf = src.wat.frames[watFrameAt(src.wat)];
+      const k = wf ? wf.i.indexOf(cellIx) : -1;
+      const now = k >= 0 ? WAT_LABELS[wf!.lv[k]].toLowerCase() : "none";
+      rows.push(`<div class="cell-row"><span class="cell-label">Wave-current<small>darker: steeper</small></span><svg viewBox="0 0 ${W} 14" preserveAspectRatio="none" class="cell-plot cell-band">` +
+        `${midnights(t0, t1).map((t) => `<line x1="${x(t).toFixed(1)}" x2="${x(t).toFixed(1)}" y1="0" y2="14" class="cell-tick"/>`).join("")}${blocks}` +
+        `<line x1="${x(cursor).toFixed(1)}" x2="${x(cursor).toFixed(1)}" y1="0" y2="14" class="cell-cursor"/></svg><span class="cell-read">${now}</span></div>`);
+    }
+  }
+  const days = midnights(t0, t1).map((t) => `<span style="left:${((((t - t0) / (t1 - t0)) * 100) + 0.5).toFixed(2)}%">${fmtDayShort.format(new Date((t + 6 * 3600) * 1000))}</span>`).join("");
+  const nowMark = `<span class="cell-now" style="left:${(((now - t0) / (t1 - t0)) * 100).toFixed(2)}%">now</span>`;
+  cellDialog.querySelector(".cell-body")!.innerHTML =
+    `<p class="cell-head"><b>${lat.toFixed(3)} N, ${Math.abs(lng).toFixed(3)} W</b> <span>${fmtProbe.format(new Date(cursor * 1000))}; drag across to move the time</span></p>` +
+    rows.join("") +
+    `<div class="cell-row cell-axis-row"><span></span><div class="cell-axis">${days}${nowMark}</div><span></span></div>` +
+    `<p class="cell-note">${notes.join("; ")}. Models, not measurements; fixed scales as on the map. 24 h back to 72 h ahead (HRRR wind to 48 h).</p>`;
+}
+
+function openCell(at: { lng: number; lat: number }): void {
+  if (!cellDialog) {
+    cellDialog = document.createElement("dialog");
+    cellDialog.className = "cell-dialog";
+    cellDialog.setAttribute("aria-label", "Cell detail");
+    cellDialog.innerHTML = `<div class="cell-body"></div><button type="button" class="cell-close">Close</button>`;
+    document.body.append(cellDialog);
+    cellDialog.querySelector(".cell-close")!.addEventListener("click", () => cellDialog!.close());
+    cellDialog.addEventListener("click", (e) => {
+      if (e.target === cellDialog) cellDialog!.close();
+    });
+    cellDialog.addEventListener("close", () => (cellAt = null));
+    // Dragging across the plots moves the page's time bar to that hour.
+    let dragging = false;
+    const scrub = async (e: PointerEvent) => {
+      const plot = (e.target as Element).closest?.(".cell-plot") as SVGElement | null;
+      if (!plot) return;
+      const r = plot.getBoundingClientRect();
+      const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      const now = Math.round(Date.now() / 3.6e6) * 3600;
+      const t = now - CELL_BACK + f * (CELL_BACK + CELL_AHEAD);
+      (await import("./timeline")).setOffset(Math.round((t - now) / 3600));
+    };
+    cellDialog.addEventListener("pointerdown", (e) => {
+      if (!(e.target as Element).closest?.(".cell-plot")) return;
+      dragging = true;
+      void scrub(e);
+    });
+    cellDialog.addEventListener("pointermove", (e) => dragging && void scrub(e));
+    window.addEventListener("pointerup", () => (dragging = false));
+  }
+  cellAt = at;
+  cellDialog.showModal();
+  renderCell();
+}
+
+/** The popup's "Cell detail" link (the popup's HTML is rewritten as the time moves, so one listener on the page). */
+document.addEventListener("click", (e) => {
+  const b = (e.target as Element).closest?.(".pop-detail");
+  if (b && probePoint) openCell({ ...probePoint });
+});
 
 /** The frame nearest the timeline's time (now by default), or -1 when the time is outside the model run. */
 function frameAt(c: CurrentsField): number {
@@ -1096,6 +1340,7 @@ function frameAt(c: CurrentsField): number {
 export async function setFieldTime(t: number | null): Promise<void> {
   fieldT = t;
   if (probePoint) refreshPopup();
+  if (cellAt) renderCell();
   if (data.history) return showHistoryFrame(historyIndex(data.history));
   if (overlay && !data.wat) {
     const k = watFrameAt(overlay);
@@ -1389,8 +1634,8 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
         const load = controls.point;
         pointSrc ??= await load().catch(() => ({}));
         const at = { lng: e.lngLat.lng, lat: e.lngLat.lat };
-        // 286 px: the widest one-liner (Current) at the 95th percentile across units and values, measured in the popup's fonts.
-        await showValue(map, e.lngLat, pointText(at.lng, at.lat), null, null, null, "286px");
+        // 304 px: the widest value line (Current, with its arrow and sparkline) across units and values, in the popup's fonts.
+        await showValue(map, e.lngLat, pointText(at.lng, at.lat), null, null, null, "304px");
         probePoint = at;
         return;
       }

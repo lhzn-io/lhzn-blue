@@ -2342,11 +2342,29 @@ function outlookHtml(stations: StationData[]): string {
     ["Gusts", olSpark(ts, gust.map(windVal), t0, "max"), `${windFmt(gk)} ${u} ${shortWhen(at(gust, gk))}`],
     ["Pressure", olSpark(ts, pres, t0, "min"), `${pl.toFixed(0)} mb ${shortWhen(at(pres, pl))}`],
     ["Air", olSpark(ts, air, t0, "max"), airs.length ? `${Math.round(Math.min(...airs))} to ${Math.round(Math.max(...airs))}&deg;F` : "--"],
-    [g && g !== d ? `Tide <small>${g.meta.name}</small>` : "Tide", olTides(g, t0), hi ? `high ${hi.ft.toFixed(1)} ft ${shortWhen(Date.parse(hi.t), true)}` : "--"],
   ];
+  // Waves: the NWS wave model at a buoy (the newest run for each hour), in place of the tide curve; a shore station,
+  // which the wave model does not reach, keeps its tide row. The next high tide stays as a line under the rows.
+  if (!NWPS) void loadNwps();
+  const hs = d.kind === "buoy" ? ts.map((t) => nwpsAt(d.meta.id, t)?.hs ?? NaN) : [];
+  const hsOk = fin(hs);
+  const tideText = hi ? `high ${hi.ft.toFixed(1)} ft ${shortWhen(Date.parse(hi.t), true)}` : "--";
+  if (hsOk.length >= 6) {
+    const wu = waveUnit();
+    const hk = Math.max(...hsOk);
+    const pkW = nwpsAt(d.meta.id, ts[hs.indexOf(hk)]);
+    rows.push([`Waves <small>model</small>`, olSpark(ts, hs.map((m) => m * wu.factor), t0, "max"),
+      `${waveFmt(hk)} ${wu.label} ${shortWhen(at(hs, hk))}${pkW && Number.isFinite(pkW.tp) ? ` &middot; ${pkW.tp.toFixed(0)} s` : ""} <small>NWPS, ${nwpsAsOf().replace(/^as of the /, "")}</small>`]);
+  } else {
+    rows.push([g && g !== d ? `Tide <small>${g.meta.name}</small>` : "Tide", olTides(g, t0), tideText]);
+  }
+  const tideLine = hsOk.length >= 6 && hi
+    ? `<p class="status-key ol-tide">Next high tide ${g && g !== d ? `at ${g.meta.name} ` : ""}${hi.ft.toFixed(1)} ft, ${shortWhen(Date.parse(hi.t), true)}</p>`
+    : "";
   return `<section class="outlook" aria-label="The next 48 hours at ${d.meta.name}">
     <p class="ol-title">Next 48 h &middot; ${d.meta.name} <span class="ol-hint">pick a row above</span><span class="ol-src">NOAA HRRR, raw${(() => { const a = hrrrAsOf(d.meta.id, ts); return a ? `, ${a}` : ""; })()} &middot; <a href="${FORECAST_PAGE}">verified at the buoys</a></span></p>
     ${rows.map(([k, sp, txt]) => `<div class="ol-row"><span class="ol-k">${k}</span>${sp}<span class="ol-v">${txt}</span></div>`).join("")}
+    ${tideLine}
   </section>`;
 }
 

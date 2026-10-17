@@ -67,6 +67,7 @@ def _main() -> None:
             "v1/shore-history.json", shore.history(store.read_json("v1/shore-history.json"), build.now_utc()), max_age=3600
         ))
         _shore(lambda: store.write_json("v1/shore-tides.json", tides.build(), max_age=3600), "tides")
+        _shore(lambda: __import__("lhzn_blue_jobs.advisories", fromlist=["publish"]).publish(store), "advisories")
         _shore(lambda: store.write_json(
             "v1/rivers-history.json", rivers.history(store.read_json("v1/rivers-history.json")), max_age=3600
         ), "rivers")

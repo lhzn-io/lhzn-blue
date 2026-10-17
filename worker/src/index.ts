@@ -39,6 +39,7 @@ const FILES: Record<string, number> = {
   "v1/rivers-history.json": 300,
   "v1/usgs-tidal.json": 300,
   "v1/waves-nwps.json": 1800,
+  "v1/advisories.json": 3600,
   "v1/fields/sst.json": 3600,
   "v1/fields/chl.json": 3600,
   "v1/fields/kd490.json": 3600,

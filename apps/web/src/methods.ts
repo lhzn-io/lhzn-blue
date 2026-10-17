@@ -104,7 +104,8 @@ export const METHODS: Record<string, Method> = {
       "and restarts after a gap.",
     caveats:
       "The plot shows the last 100 days. Speeds follow the Units switch. Directions are turned to true north: the server's " +
-      "read about 14 degrees clockwise of NDBC's records of the same buoys, close to the local magnetic variation.",
+      "read about 14 degrees clockwise of NDBC's records of the same buoys, close to the local magnetic variation. Shading " +
+      "marks the NWS marine advisories in force for the station's zone (see the Advisory readout's note).",
   },
   air: {
     title: "Air and water temperature",
@@ -140,7 +141,37 @@ export const METHODS: Record<string, Method> = {
     caveats:
       "The wave datasets have been unpublished on the data server for long stretches; the record before an outage comes from " +
       "our saved downloads, and the page checks every hour. Heights follow the Units switch. Wave growth in the western Sound " +
-      "is fetch-limited and larger under easterly winds [[shin2021waves]].",
+      "is fetch-limited and larger under easterly winds [[shin2021waves]]. While the sensor is out, the dashed line is the " +
+      "NWS Nearshore Wave Prediction System at the buoy, the newest run for each hour: a model, not a measurement.",
+  },
+  model: {
+    title: "Model values while a buoy is out",
+    shows:
+      "While a buoy's sensor is out, the table, readouts and map show what a model gives at the buoy for the same hour, " +
+      "under the fault and marked as a model. They are not measurements, and the outage stays shown as one.",
+    method:
+      "Wind, gusts, air temperature and pressure: the newest NOAA HRRR run (3 km) that covers the hour, read at the buoy; " +
+      "now that is a run issued about an hour before. Waves: the newest run of the NWS Nearshore Wave Prediction System " +
+      "(SWAN on a 1.8 km grid, run by NWS New York at 00 and 12 UTC) at the water cell nearest the buoy, at most 0.4 km away.",
+    sources: "NOAA HRRR; NWS Nearshore Wave Prediction System (NOAA NOMADS). Every NWPS run is archived as published.",
+    caveats:
+      "HRRR's typical error at each lead is measured against the buoys' own records (the Forecast verification page). " +
+      "NWPS is forced by the forecasters' wind grids rather than by observations, and has not yet been checked against the " +
+      "buoys here; that check starts when their wave sensors return.",
+  },
+  advisory: {
+    title: "NWS marine advisories",
+    shows:
+      "The advisory or warning NWS New York has in force for the station's forecast zone, and (shaded behind the wind plot) " +
+      "the ones in force over the plotted days: small craft advisories lighter, gale and stronger warnings darker.",
+    method:
+      "Each event is merged from the products that issued, extended or cancelled it, from its earliest start to its " +
+      "latest end. Each station takes the marine zone that contains it, or the nearest (harbour gauges lie inside the " +
+      "coastline). Before April 2021 the eastern Sound was one zone (ANZ330), and its events stand for both of today's.",
+    sources: "NWS New York (OKX) VTEC products, from the Iowa Environmental Mesonet archive (2005 on); zone outlines from api.weather.gov.",
+    caveats:
+      "An advisory is a forecast decision for a whole zone, not a measurement at the station. Two archive rows (one 2012 " +
+      "event whose end the archive lost) are left out.",
   },
   pressure: {
     title: "Pressure tendency",

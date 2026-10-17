@@ -37,12 +37,20 @@ export interface Band {
   fill: string;
 }
 
+export interface Span {
+  x0: number; // epoch seconds
+  x1: number;
+  fill: string;
+  title?: string;
+}
+
 export interface ChartOptions {
   xs: number[];
   lines: Line[];
   unit: string; // appended to values, e.g. "°F"
   zero?: boolean; // emphasize y = 0
   bands?: Band[];
+  spans?: Span[]; // shaded time intervals, full height
   marker?: { x: number; label: string }; // a vertical rule, e.g. "now"
   hoverDigits?: number;
   floor?: number; // the value axis reaches at least down to this (keeps a reference level in view)
@@ -211,6 +219,15 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     const ya = py(Math.min(hi, Math.max(lo, b.y1)));
     const yb = py(Math.min(hi, Math.max(lo, b.y0)));
     svg.append(el("rect", { x: 0, y: ya, width: W, height: Math.max(0, yb - ya), fill: b.fill }));
+  }
+  // Time spans (e.g. an advisory in force), full height, under the rules and lines.
+  for (const s of o.spans ?? []) {
+    if (s.x1 <= x0 || s.x0 >= x1) continue;
+    const xa = px(Math.max(x0, s.x0));
+    const xb = px(Math.min(x1, s.x1));
+    const r = el("rect", { x: xa, y: 0, width: Math.max(1, xb - xa), height: H, fill: s.fill });
+    if (s.title) r.append(Object.assign(document.createElementNS("http://www.w3.org/2000/svg", "title"), { textContent: s.title }));
+    svg.append(r);
   }
 
   // Time rules: every rule drawn, labels thinned to what the plot width can hold.

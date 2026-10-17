@@ -1067,9 +1067,16 @@ const FIGS: Record<Kind, Fig> = {
             { ys: xs.map((t) => m.dir?.at(t) ?? NaN), color: P.line, label: "From", hidden: true, fmt: (v) => `${compass(v)} (${Math.round(v)}°)` },
           ]
         : [];
+      if (!ADV) void loadAdvisories();
+      const zone = zoneOf(d.meta.id);
+      const fmtWhen = (t: number) => fmtDate.format(new Date(t * 1000));
+      const spans = advisoriesFor(d.meta.id)
+        .filter((a) => a.kind in ADV_WIND && a.t1 > x0 && a.t0 < x1)
+        .map((a) => ({ x0: a.t0, x1: a.t1, fill: P.bands[ADV_WIND[a.kind]], title: `${ADV!.kinds[a.kind]}, ${a.zone}: ${fmtWhen(a.t0)} to ${fmtWhen(a.t1)}` }));
       return {
-        opts: { xs, lines, unit: ` ${u.label}`, zero: true, empty: "No weather data in this window." },
+        opts: { xs, lines, spans, unit: ` ${u.label}`, zero: true, empty: "No weather data in this window." },
         legend: [[smoothLabel, P.line, 1], ["Wind, hourly", P.line, 0.35], ["Daily peak gust", P.contrast, 0.55]],
+        note: zone ? `shaded: an NWS small craft advisory (lighter) or gale or stronger warning (darker) in force for this station's forecast zone, ${zone} (${ADV!.zones[zone].name})` : undefined,
       };
     },
   },
@@ -1917,6 +1924,71 @@ function nwpsSeries(id: string, xs: number[]): number[] {
 }
 
 const hourOf = (t: number) => Math.floor(t / HOUR) * HOUR;
+
+/* ---------- NWS marine advisories (M14) ----------
+ * Warnings and advisories NWS New York issued for each station's forecast zone, from the IEM VTEC archive. Before
+ * April 2021 the eastern Sound was one zone (ANZ330), whose events stand for both of today's eastern zones. */
+
+interface Advisories {
+  kinds: Record<string, string>;
+  zones: Record<string, { name: string; stations: string[] }>;
+  retired: Record<string, { until: string; into: string[]; name: string }>;
+  events: Record<string, [string, string, string, string][]>;
+}
+interface Advisory { kind: string; t0: number; t1: number; zone: string }
+let ADV: Advisories | null = null;
+let advLoading: Promise<void> | null = null;
+const ADV_CACHE = new Map<string, Advisory[]>();
+// Shaded behind the wind: small craft (lighter), gale and stronger (darker). Fog and the rest are not about wind.
+const ADV_WIND: Record<string, 0 | 1> = { "SC.Y": 0, "SE.W": 0, "GL.W": 1, "SR.W": 1, "HF.W": 1, "TR.W": 1, "HU.W": 1 };
+
+function loadAdvisories(): Promise<void> {
+  advLoading ??= getJson<Advisories>(`${DATA}/advisories.json`)
+    .then((a) => {
+      ADV = a;
+      ADV_CACHE.clear();
+      fcstRedraw();
+    })
+    .catch(() => undefined);
+  return advLoading;
+}
+
+const advTime = (s: string) => Date.parse(s.replace(/Z$/, ":00Z")) / 1000;
+
+function zoneOf(id: string): string | null {
+  for (const [z, v] of Object.entries(ADV?.zones ?? {})) if (v.stations.includes(id)) return z;
+  return null;
+}
+
+/** A station's advisories, oldest first: its zone's, and the retired zone's before the split. */
+function advisoriesFor(id: string): Advisory[] {
+  if (!ADV) return [];
+  const hit = ADV_CACHE.get(id);
+  if (hit) return hit;
+  const z = zoneOf(id);
+  const out: Advisory[] = [];
+  if (z) {
+    for (const [old, r] of Object.entries(ADV.retired ?? {})) {
+      if (!r.into.includes(z)) continue;
+      const until = advTime(r.until);
+      for (const e of ADV.events[old] ?? []) if (advTime(e[1]) < until) out.push({ kind: e[0], t0: advTime(e[1]), t1: Math.min(advTime(e[2]), until), zone: old });
+    }
+    for (const e of ADV.events[z] ?? []) out.push({ kind: e[0], t0: advTime(e[1]), t1: advTime(e[2]), zone: z });
+  }
+  out.sort((a, b) => a.t0 - b.t0);
+  ADV_CACHE.set(id, out);
+  return out;
+}
+
+/** The wind advisory in force at a time (the most severe if several), or null. */
+function advisoryAt(id: string, t: number): Advisory | null {
+  let best: Advisory | null = null;
+  for (const a of advisoriesFor(id)) {
+    if (a.t0 > t) break;
+    if (a.t1 > t && a.kind in ADV_WIND && (!best || ADV_WIND[a.kind] > ADV_WIND[best.kind])) best = a;
+  }
+  return best;
+}
 
 /** The HRRR stand-in for a buoy at a time: only for buoys, and only where the newest run reaches the hour. */
 function hrrrStandIn(d: StationData, t: number): FcValue | null {
@@ -3301,6 +3373,9 @@ const fmtDo = (v: number) => `${v.toFixed(1)}<small>mg/L</small>`;
 /** Wind, waves, pressure and air at the station (the Wind and waves view). */
 function weatherReadouts(d: StationData): string[] {
   const out: string[] = [];
+  if (!ADV) void loadAdvisories();
+  const adv = advisoryAt(d.meta.id, Date.now() / 1000);
+  if (adv) out.push(readoutHtml(`<span class="adv-num">${ADV!.kinds[adv.kind].replace(/ (Advisory|Warning)$/, "")}</span>`, adv.kind.endsWith(".W") ? "Warning" : "Advisory", "advisory", `NWS, zone ${adv.zone}, until ${fmtWhenMin.format(new Date(adv.t1 * 1000))}`, "advisory"));
   const o = d.met?.last;
   const state = o ? obsState({ time: o.time } as LastObs) : "offline";
   const u = WIND_UNITS[WU].label;

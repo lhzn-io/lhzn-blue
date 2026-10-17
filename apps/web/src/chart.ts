@@ -56,6 +56,9 @@ export interface ChartOptions {
   floor?: number; // the value axis reaches at least down to this (keeps a reference level in view)
   ceil?: number; // the value axis stops here; higher values run along the top edge (the tooltip keeps the true value)
   empty?: string; // message (HTML) when the window holds no data
+  /** The label of the line under the pointer (e.g. a forecast run) for the hovered sample and the value at the
+   * pointer, or null; reported to the page as a "linepick" event on the plot when it changes. */
+  pick?: (i: number, value: number) => string | null;
 }
 
 const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "short", day: "numeric" });
@@ -117,6 +120,11 @@ function timeRules(x0: number, x1: number): [number, string][] {
 }
 
 /** Emphasize the lines whose label starts with `label` and dim the rest; null restores all. */
+/** Emphasise one line by its label (or none): drawn darker and heavier, the rest unchanged. */
+export function emphasise(plot: HTMLElement, label: string | null): void {
+  plot.querySelectorAll<SVGPathElement>("path[data-label]").forEach((p) => p.classList.toggle("lit", label !== null && p.dataset.label === label));
+}
+
 export function highlight(plot: HTMLElement, label: string | null): void {
   plot.querySelectorAll<SVGPathElement>("path[data-label]").forEach((p) => {
     const on = label === null || (p.dataset.label ?? "").startsWith(label);
@@ -320,7 +328,8 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   svg.append(cursor);
   const hd = o.hoverDigits ?? 1;
   const tipLines = o.lines.filter((l) => l.tip !== false).reverse();
-  const show = (clientX: number) => {
+  let picked: string | null = null;
+  const show = (clientX: number, clientY?: number) => {
     const t = timeAt(clientX);
     const i = Math.max(0, Math.min(xs.length - 1, Math.round((t - x0) / (xs[1] - xs[0]))));
     const xx = px(xs[i]);
@@ -359,6 +368,13 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     tip!.hidden = false;
     tip!.style.left = side === "left" ? `${x + 10}px` : "";
     tip!.style.right = side === "left" ? "" : `${outer.width - x + 10}px`;
+    if (o.pick && clientY != null) {
+      const label = o.pick(i, lo + (1 - (clientY - box.top) / box.height) * (hi - lo));
+      if (label && label !== picked) {
+        picked = label;
+        plot.dispatchEvent(new CustomEvent("linepick", { detail: label }));
+      }
+    }
   };
   const hide = () => {
     cursor.setAttribute("visibility", "hidden");
@@ -366,7 +382,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     marks!.replaceChildren();
   };
   svg.onpointermove = (e) => {
-    if (e.pointerType === "mouse" || plot.dataset.zoom === "1") show(e.clientX);
+    if (e.pointerType === "mouse" || plot.dataset.zoom === "1") show(e.clientX, e.clientY);
   };
   svg.onpointerleave = hide;
   return rendered;

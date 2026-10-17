@@ -5,7 +5,7 @@ import "./site.css";
 import promptTemplate from "../../../configs/prompts/visitor_prompt.txt?raw";
 import registry from "../../../stations/stations.json";
 import shoreRegistry from "../../../stations/shore.json";
-import { highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
+import { emphasise, highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
 import { wireHints } from "./hints";
 import { BUOY_SENSORS, METHODS, methodHtml, REF_LABELS } from "./methods";
 import { mountCollect } from "./collect";
@@ -1027,8 +1027,14 @@ const FIGS: Record<Kind, Fig> = {
         { ys: xs.map((t) => windVal(m?.wind?.at(t) ?? NaN)), color: P.now, width: 2.2, label: "Wind, measured", fmt: fmtU },
         { ys: xs.map((t) => m?.dir?.at(t) ?? NaN), color: P.line, label: "From", hidden: true, fmt: (v) => `${compass(v)} (${Math.round(v)}°)` },
       ];
+      // The run whose line is nearest the pointer at the hovered hour (the vintage slider follows it).
+      const pick = (i: number, yv: number) => {
+        const vals = vintageRuns(d.meta.id).map((r) => ({ r, y: windVal(at(r, xs[i])) })).filter((x) => Number.isFinite(x.y));
+        if (!vals.length) return null;
+        return vintageLabel(d.meta.id, vals.reduce((a, b) => (Math.abs(b.y - yv) < Math.abs(a.y - yv) ? b : a)).r);
+      };
       return {
-        opts: { xs, lines, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" }, empty: "No forecast or measurement in this window." },
+        opts: { xs, lines, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" }, empty: "No forecast or measurement in this window.", pick },
         legend: [["Measured", P.now, 1], ["Forecast (dashed)", P.line, 1], ["Typical miss (dotted)", P.line, 0.6], ["Gusts", P.contrast, 0.55], ["Earlier forecasts", P.line, 0.3]],
         note: `NOAA HRRR, raw${(() => { const a = hrrrAsOf(d.meta.id, xs); return a ? `, ${a}` : ""; })()} &middot; <a href="${FORECAST_PAGE}">verified at the buoys</a>`,
       };
@@ -3703,6 +3709,58 @@ function stationReadouts(d: StationData): string[] {
 const activeDepth = (d: StationData, key: Kind): string =>
   document.querySelector<HTMLButtonElement>(`#${d.meta.id} .tab[data-fig="${key}"][aria-pressed="true"]`)?.dataset.depth ?? d.depths[0];
 
+/* ---------- Forecast vintage: which run's forecast the next-48-hours plot emphasises ---------- */
+
+const VINTAGE = new Map<string, number>(); // station id -> the chosen run's issue time (epoch seconds)
+const VINTAGE_LISTENERS = new WeakMap<HTMLElement, (e: Event) => void>();
+
+/** The runs the plot draws for a station, oldest first: the earlier runs (faint) and the newest (the dashed line). */
+function vintageRuns(id: string): FcRun[] {
+  const now = Date.now() / 1000;
+  return (FCST?.runs[id] ?? []).filter((r) => r.issue <= now).slice(0, 25).reverse();
+}
+/** A run's line label in the plot: the newest is "HRRR forecast", the others "HRRR run <time>". */
+function vintageLabel(id: string, r: FcRun): string {
+  const runs = vintageRuns(id);
+  return r === runs[runs.length - 1] ? "HRRR forecast" : `HRRR run ${fmtRun.format(new Date(r.issue * 1000))}`;
+}
+
+function mountVintage(d: StationData, plot: HTMLElement): void {
+  plot.querySelector(".vintage")?.remove();
+  const runs = vintageRuns(d.meta.id);
+  if (runs.length < 2) return;
+  const chosen = runs.findIndex((r) => r.issue === VINTAGE.get(d.meta.id));
+  const k0 = chosen >= 0 ? chosen : runs.length - 1;
+  const box = document.createElement("div");
+  box.className = "vintage";
+  box.innerHTML = `<input class="vg-range" type="range" min="0" max="${runs.length - 1}" step="1" value="${k0}" aria-label="Forecast run"><span class="vg-label"></span>`;
+  plot.append(box);
+  const range = box.querySelector<HTMLInputElement>(".vg-range")!;
+  const label = box.querySelector<HTMLElement>(".vg-label")!;
+  const set = (k: number, picked: boolean) => {
+    const r = runs[k];
+    label.textContent = `HRRR, as of ${fmtRun.format(new Date(r.issue * 1000))}`;
+    range.value = String(k);
+    range.setAttribute("aria-valuetext", label.textContent);
+    if (picked) VINTAGE.set(d.meta.id, r.issue);
+    emphasise(plot, picked || chosen >= 0 ? vintageLabel(d.meta.id, r) : null);
+  };
+  set(k0, false);
+  range.addEventListener("input", () => set(Number(range.value), true));
+  // The plot element outlives each drawing: one hover listener at a time.
+  const old = VINTAGE_LISTENERS.get(plot);
+  if (old) plot.removeEventListener("linepick", old);
+  const onPick = (e: Event) => {
+    const k = runs.findIndex((r) => vintageLabel(d.meta.id, r) === (e as CustomEvent<string>).detail);
+    if (k >= 0) {
+      VINTAGE.set(d.meta.id, runs[k].issue);
+      set(k, true);
+    }
+  };
+  VINTAGE_LISTENERS.set(plot, onPick);
+  plot.addEventListener("linepick", onPick);
+}
+
 function drawInline(d: StationData, key: Kind): void {
   if (!shows(d, key)) return;
   const [x0, x1] = FIGS[key].window(d);
@@ -3720,6 +3778,7 @@ function drawInline(d: StationData, key: Kind): void {
   }
   renderLines($(`${d.meta.id}-${key}`), b.opts);
   $(`${d.meta.id}-${key}-legend`).innerHTML = legendHtml(b);
+  if (key === "next48") mountVintage(d, $(`${d.meta.id}-${key}`));
   if (key === "sb") drawWindStrip(d, x0, x1);
 }
 

@@ -987,3 +987,17 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 
 /* The USGS shore gauges under the buoys: a separate table, a little apart. */
 .status-grid.usgs-wq { margin-top: 18px; }
+
+/* The forecast vintage slider (next 48 hours): a small slider at the top left, styled like the map's time bar, with
+   only the run's time beside it; the chosen run's line is emphasised. */
+.plot path.lit { stroke-opacity: 0.95 !important; stroke-width: 1.8px; }
+.plot .vintage { position: absolute; top: 4px; left: 6px; z-index: 3; display: flex; align-items: center; gap: 7px;
+  padding: 1px 6px; background: var(--pop-bg); font: 10px/1.6 var(--mono); color: var(--ink-soft); }
+.vintage input[type="range"].vg-range { -webkit-appearance: none; appearance: none; width: 110px; height: 16px; margin: 0; background: transparent; cursor: pointer; }
+.vintage input[type="range"].vg-range::-webkit-slider-runnable-track { height: 1px; background: var(--dim); }
+.vintage input[type="range"].vg-range::-moz-range-track { height: 1px; background: var(--dim); }
+.vintage input[type="range"].vg-range::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; margin-top: -4.5px; border: 1.5px solid var(--ink);
+  border-radius: 50%; background: var(--bg); box-sizing: border-box; }
+.vintage input[type="range"].vg-range::-moz-range-thumb { width: 10px; height: 10px; border: 1.5px solid var(--ink); border-radius: 50%; background: var(--bg); box-sizing: border-box; }
+.vintage input[type="range"].vg-range:hover::-webkit-slider-thumb, .vintage input[type="range"].vg-range:active::-webkit-slider-thumb { background: color-mix(in srgb, var(--ink) 22%, var(--bg)); }
+.vintage input[type="range"].vg-range:hover::-moz-range-thumb, .vintage input[type="range"].vg-range:active::-moz-range-thumb { background: color-mix(in srgb, var(--ink) 22%, var(--bg)); }

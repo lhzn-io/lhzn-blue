@@ -1028,7 +1028,7 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 
 /* The wind-against-tide overlay's row in the map key, and the rule between a value and the overlay's cell. */
 .field-overlay { margin-top: 6px; }
-.pin-pop hr.pop-rule { border: 0; border-top: 1px solid var(--rule); margin: 6px 0; }
+.pin-pop hr.pop-rule { border: 0; border-top: 1px solid var(--rule); margin: 6px 0; clear: both; }
 .pin-pop .pop-src { white-space: nowrap; }
 
 /* The wave-current figure in the map readout: waves (wavy) and current (straight) at their true bearings, north up. */

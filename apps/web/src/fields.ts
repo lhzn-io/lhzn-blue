@@ -976,9 +976,37 @@ function vectorsSvg(waveTo: number, currentTo: number): string {
     `${arrow(`M0 ${R}L0 ${-R}`, currentTo, light ? "#5f920c" : "#c2c43a")}${arrow(wave, waveTo, light ? "#2d7aa3" : "#7fb8d8")}</g></svg>`;
 }
 
+/** The waves' and the current's headings at a point (degrees toward), from the waves layer and the currents field,
+ * for the compass where the wind-against-tide file has no cell. */
+function headingsAt(src: PointSources, lng: number, lat: number): { waveTo: number; currentTo: number; along: number } | null {
+  const w = src.waves;
+  const c = src.currents;
+  if (!w || !c) return null;
+  const id = nearestCell(w.mesh, lng, lat, 2);
+  const k = windFrameAt(w);
+  const kc = frameAt(c.currents);
+  if (id < 0 || k < 0 || kc < 0 || w.mesh.land[id]) return null;
+  const { u, v } = windUV(w, k);
+  const cos = Math.cos((lat * Math.PI) / 180);
+  let e = -1;
+  let d2 = Infinity;
+  c.mesh.centres.forEach(([x, y], i) => {
+    const d = ((x - lng) * cos) ** 2 + (y - lat) ** 2;
+    if (d < d2) [e, d2] = [i, d];
+  });
+  if (e < 0 || Math.sqrt(d2) * 111.2 > 2) return null;
+  const deg = (a: number, b: number) => ((Math.atan2(a, b) * 180) / Math.PI + 360) % 360;
+  const waveTo = deg(u[id], v[id]);
+  const cu = c.currents.u[kc][e];
+  const cv = c.currents.v[kc][e];
+  const rad = (waveTo * Math.PI) / 180;
+  // along: cm/s of the current in the waves' direction (negative: opposing them).
+  return { waveTo, currentTo: deg(cu, cv), along: cu * Math.sin(rad) + cv * Math.cos(rad) };
+}
+
 /** Wind against tide at the point: the cell's level whenever it has one, factored into its parts; "none" only while
  * the overlay is on. */
-function watLine(w: WatField, lng: number, lat: number, on: boolean): string | null {
+function watLine(w: WatField, lng: number, lat: number, on: boolean, heads: { waveTo: number; currentTo: number; along: number } | null = null): string | null {
   const { lon0, lat0, dlon, dlat, nx, ny } = w.grid;
   const i = Math.round((lng - lon0) / dlon);
   const j = Math.round((lat - lat0) / dlat);
@@ -987,7 +1015,14 @@ function watLine(w: WatField, lng: number, lat: number, on: boolean): string | n
   if (k < 0) return on ? "No wave-current model hour at this time" : null;
   const cell = j * nx + i;
   const f = w.frames[k];
-  if (!f.i.includes(cell)) return on ? `No wave-current steepening<br><small>${fmtProbe.format(new Date(f.valid_time))}, model-derived</small>` : null;
+  if (!f.i.includes(cell)) {
+    if (!on) return null;
+    const fig = heads ? vectorsSvg(heads.waveTo, heads.currentTo) : "";
+    const un = windUnit();
+    const part = heads ? `${((Math.abs(heads.along) / 100) * un.perMs).toFixed(un.digits + 1)} ${un.label} ${heads.along < 0 ? "opposing" : "following"}` : "";
+    const what = heads ? `Waves from ${compass16((heads.waveTo + 180) % 360)}, current toward ${compass16(heads.currentTo)}, ${part}.` : "";
+    return `No wave-current steepening<br><small>${fig}${what}</small><hr class="pop-rule"><small class="pop-src">${fmtProbe.format(new Date(f.valid_time))}, NWPS + NECOFS (model)</small>`;
+  }
   const j2 = f.i.indexOf(cell);
   const un = windUnit();
   const kt = (cms: number) => `${((cms / 100) * un.perMs).toFixed(un.digits + 1)} ${un.label}`; // currents: a decimal finer than wind
@@ -1017,7 +1052,7 @@ function pointText(lng: number, lat: number): string {
     src.wind ? windLine(src.wind, lng, lat) : null,
     src.waves ? waveLine(src.waves, lng, lat) : null,
     src.currents ? currentLine(src.currents, lng, lat) : null,
-    src.wat ? watLine(src.wat, lng, lat, !!overlay || !!data.wat) : null,
+    src.wat ? watLine(src.wat, lng, lat, !!overlay || !!data.wat, headingsAt(src, lng, lat)) : null,
   ].filter((l): l is string => !!l);
   return lines.length ? lines.join('<hr class="pop-rule">') : "No model cell here";
 }

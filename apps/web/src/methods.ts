@@ -280,7 +280,8 @@ export const METHODS: Record<string, Method> = {
     method:
       "The waves (height, peak period and direction) are the NWS NWPS forecast (SWAN [[booij1999swan]]); the current is the " +
       "NECOFS FVCOM surface layer [[chen2006fvcom]] averaged over each wave cell. With r the current along the waves' direction divided by their deep-water speed (gT/2\u03c0), " +
-      "conservation of wave action gives how much shorter and higher the waves get [[longuet1961currents]]; the waves stop where " +
+      "conservation of wave action gives how much closer together (wavelength) and higher the crests get while the period " +
+      "holds [[longuet1961currents]]; the waves stop where " +
       "r reaches -0.25. Levels: steepening when the current makes the waves 20 percent steeper or more; steep at 60 percent, or at " +
       "20 percent when the waves reach a steepness of 1/25; breaking at r of -0.20, or at 60 percent with a steepness of 1/15; " +
       "blocked at -0.25. Each level is what the current adds: wind waves in the Sound are often steep in slack water. Breaking " +

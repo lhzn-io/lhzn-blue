@@ -4660,6 +4660,15 @@ function fieldControls(): import("./fields").FieldControls {
       return [...ordered, ...FIELD_CHOICES.filter((c) => !ordered.includes(c)).map((c) => ({ ...c, more: true }))];
     })(),
     chosen: fieldPick,
+    // Wind & waves: a click reads wind, waves and wind against tide at its point, whatever layer shows.
+    point: VIEW_LAYERS[VK].overlay
+      ? async () => {
+          const [w, v, c, t] = await Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("currents"), fieldData("wat")]);
+          const ok = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : undefined);
+          const cur = ok(c);
+          return { wind: ok(w)?.wind, waves: ok(v)?.wind, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined, wat: ok(t)?.wat };
+        }
+      : undefined,
     overlay: VIEW_LAYERS[VK].overlay
       ? {
           label: "Wind against tide",

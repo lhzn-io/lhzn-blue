@@ -120,6 +120,14 @@ export async function decodeHistory(buf: ArrayBuffer): Promise<RasterHistory> {
   return { header, body: raw.subarray(8 + n) };
 }
 
+/** The fields a point readout draws on: HRRR wind and NWPS waves (both on their model cells) and wind against tide. */
+export interface PointSources {
+  wind?: WindField;
+  waves?: WindField;
+  currents?: { mesh: CurrentsMesh; currents: CurrentsField };
+  wat?: WatField;
+}
+
 /** Controls the page passes in: the layer picker and the full-width toggle. */
 export interface FieldControls {
   choices: { kind: FieldKind | "none"; label: string; more?: boolean }[];
@@ -127,6 +135,8 @@ export interface FieldControls {
   onPick: (kind: FieldKind | "none") => void;
   wide: boolean;
   onWide: (wide: boolean) => void;
+  /** The models a click reads at its point whatever the layer (Wind & waves): loaded on the first click. */
+  point?: () => Promise<PointSources>;
   /** An overlay the view offers (wind against tide), whether it is on, and its switch. */
   overlay?: { label: string; on: boolean; onToggle: (on: boolean) => void };
   /** The reader's speed unit (from the page's Units switch), for the currents key and values. */
@@ -848,6 +858,10 @@ function paintWat(map: maplibregl.Map): void {
 /** The open popup's text for the frame shown: the base layer's value, and the overlay's cell below it. */
 function refreshPopup(): void {
   if (!popup) return;
+  if (probePoint) {
+    popup.setHTML(pointText(probePoint.lng, probePoint.lat));
+    return;
+  }
   let base: string | null = null;
   if (probe != null) {
     if (data.wat) base = watText(data.wat, probe);
@@ -879,6 +893,135 @@ function watText(w: WatField, cell: number): string {
   return `<b>${WAT_LABELS[f.lv[j]]}</b><br>Current ${spd.toFixed(un.digits)} ${un.label} toward ${compass16(toward)} against ${((f.hs[j] / 100) * 3.28084).toFixed(1)} ft, ${(f.tp[j] / 10).toFixed(1)} s waves from ${compass16(from)}: ${effect}<br>${when}`;
 }
 
+/* ---------- Point readout (Wind & waves): every model at the clicked point ---------- */
+
+let pointSrc: PointSources | null = null; // loaded on the first click
+let probePoint: { lng: number; lat: number } | null = null; // the point the popup reads
+
+/** The model cell whose centre is nearest a point, or -1 beyond maxKm (outside the model's grid). */
+function nearestCell(m: WindField["mesh"], lng: number, lat: number, maxKm: number): number {
+  const c = Math.cos((lat * Math.PI) / 180);
+  let best = -1;
+  let d2 = Infinity;
+  for (let i = 0; i < m.centre_lon.length; i++) {
+    const dx = (m.centre_lon[i] - lng) * c;
+    const dy = m.centre_lat[i] - lat;
+    const d = dx * dx + dy * dy;
+    if (d < d2) [best, d2] = [i, d];
+  }
+  return Math.sqrt(d2) * 111.2 <= maxKm ? best : -1;
+}
+
+const runNote = (f: { valid_time: string; cycle: string; lead: number }, model: string) =>
+  `<small>${fmtProbe.format(new Date(f.valid_time))}, ${model} ${f.cycle.slice(11, 13)}Z run, ${f.lead} h ahead</small>`;
+
+function windLine(w: WindField, lng: number, lat: number): string | null {
+  const id = nearestCell(w.mesh, lng, lat, 3);
+  if (id < 0) return null;
+  const k = windFrameAt(w);
+  if (k < 0) return "<b>Wind</b> no HRRR hour at this time";
+  const { u, v } = windUV(w, k);
+  const from = ((Math.atan2(-u[id], -v[id]) * 180) / Math.PI + 360) % 360;
+  const un = windUnit();
+  return `<b>Wind</b> ${(Math.hypot(u[id], v[id]) * un.perMs).toFixed(un.digits)} ${un.label} from ${compass16(from)} (${Math.round(from)}&deg;)${w.mesh.land[id] ? ", land cell" : ""}<br>${runNote(w.frames[k], "HRRR")}`;
+}
+
+function waveLine(w: WindField, lng: number, lat: number): string | null {
+  const id = nearestCell(w.mesh, lng, lat, 2);
+  if (id < 0 || w.mesh.land[id]) return null;
+  const k = windFrameAt(w);
+  if (k < 0) return "<b>Waves</b> no NWPS hour at this time";
+  const { u, v } = windUV(w, k);
+  const h = Math.hypot(u[id], v[id]);
+  const from = ((Math.atan2(-u[id], -v[id]) * 180) / Math.PI + 360) % 360;
+  return `<b>Waves</b> ${(h * 3.28084).toFixed(1)} ft (${h.toFixed(2)} m) from ${compass16(from)}<br>${runNote(w.frames[k], "NWPS")}`;
+}
+
+/** The NECOFS surface current at the element nearest the point (within 2 km), for the timeline's time. */
+function currentLine(src: { mesh: CurrentsMesh; currents: CurrentsField }, lng: number, lat: number): string | null {
+  const { mesh: m, currents: c } = src;
+  const cos = Math.cos((lat * Math.PI) / 180);
+  let id = -1;
+  let d2 = Infinity;
+  m.centres.forEach(([x, y], i) => {
+    const d = ((x - lng) * cos) ** 2 + (y - lat) ** 2;
+    if (d < d2) [id, d2] = [i, d];
+  });
+  if (id < 0 || Math.sqrt(d2) * 111.2 > 2) return null;
+  const k = frameAt(c);
+  if (k < 0) return "<b>Current</b> no model hour at this time";
+  const u = c.u[k][id];
+  const v = c.v[k][id];
+  const un = windUnit();
+  const toward = ((Math.atan2(u, v) * 180) / Math.PI + 360) % 360;
+  const when = fmtProbe.format(new Date(Date.parse(c.t0) + k * c.step * 1000));
+  return `<b>Current</b> ${((Math.hypot(u, v) / 100) * un.perMs).toFixed(un.digits + 1)} ${un.label} toward ${compass16(toward)} (${Math.round(toward)}&deg;)<br><small>${when}, NECOFS surface layer, model</small>`;
+}
+
+/** Two arrows across a north-up ring, each from the bearing it comes from, through the centre, to the bearing it heads
+ * toward: opposed, they lie on top of each other pointing apart; across, they make an X. The waves are a wavy line in
+ * the waves layer's blue-teal, the current a straight line in the currents layer's yellow-green, so the line style
+ * tells them apart without colour. */
+function vectorsSvg(waveTo: number, currentTo: number): string {
+  const R = 19;
+  let wave = `M0 ${R}`;
+  for (let y = R; y >= -R; y -= 0.5) wave += `L${(1.3 * Math.sin((y / 5) * Math.PI)).toFixed(2)} ${y}`;
+  const head = `M-3 ${-R + 4.5}L0 ${-R}L3 ${-R + 4.5}`;
+  const light = mapTheme() === "light";
+  const arrow = (d: string, deg: number, colour: string) =>
+    `<g transform="rotate(${Math.round(deg)})" stroke="${colour}"><path d="${d}${head}" fill="none"/></g>`;
+  return `<svg class="pop-vec" viewBox="-24 -29 48 53" width="48" height="53" role="img" aria-label="Waves toward ${compass16(waveTo)}, current toward ${compass16(currentTo)}">` +
+    `<circle r="22" fill="none" class="pop-vec-ring"/><text x="0" y="-26" class="pop-vec-n">N</text>` +
+    `<g stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round">` +
+    `${arrow(`M0 ${R}L0 ${-R}`, currentTo, light ? "#5f920c" : "#c2c43a")}${arrow(wave, waveTo, light ? "#2d7aa3" : "#7fb8d8")}</g></svg>`;
+}
+
+/** Wind against tide at the point: the cell's level whenever it has one, factored into its parts; "none" only while
+ * the overlay is on. */
+function watLine(w: WatField, lng: number, lat: number, on: boolean): string | null {
+  const { lon0, lat0, dlon, dlat, nx, ny } = w.grid;
+  const i = Math.round((lng - lon0) / dlon);
+  const j = Math.round((lat - lat0) / dlat);
+  if (i < 0 || i >= nx || j < 0 || j >= ny) return null;
+  const k = watFrameAt(w);
+  if (k < 0) return on ? "No wave-current model hour at this time" : null;
+  const cell = j * nx + i;
+  const f = w.frames[k];
+  if (!f.i.includes(cell)) return on ? `No wave-current steepening<br><small>${fmtProbe.format(new Date(f.valid_time))}, model-derived</small>` : null;
+  const j2 = f.i.indexOf(cell);
+  const un = windUnit();
+  const kt = (cms: number) => `${((cms / 100) * un.perMs).toFixed(un.digits + 1)} ${un.label}`; // currents: a decimal finer than wind
+  const cu = f.u[j2];
+  const cv = f.v[j2];
+  const to = (f.to[j2] * Math.PI) / 180;
+  const against = -(cu * Math.sin(to) + cv * Math.cos(to)); // cm/s of the current running against the waves
+  const tp = f.tp[j2] / 10;
+  const r = -(against / 100) / ((9.81 * tp) / (2 * Math.PI));
+  // Linear theory for waves entering the current from slack water: the period holds, the crests close up (wavelength
+  // ratio c^2) and rise (height ratio 1 / sqrt(c (c + 2r))), so the waves steepen.
+  const cr = r > -0.25 ? (1 + Math.sqrt(1 + 4 * r)) / 2 : NaN;
+  const closer = Math.round((1 - cr ** 2) * 100);
+  const higher = Math.round((1 / Math.sqrt(cr * (cr + 2 * r)) - 1) * 100);
+  const sr = f.s[j2];
+  const effect = sr >= 255 ? "Waves blocked: they break at the current's edge" : `Crests ${closer}% closer, ${higher}% higher, up to ${(sr / 10).toFixed(1)}&times; steeper`;
+  return `<b>${WAT_LABELS[f.lv[j2]]}</b>` +
+    `<br><small>${vectorsSvg(f.to[j2], ((Math.atan2(cu, cv) * 180) / Math.PI + 360) % 360)}${((f.hs[j2] / 100) * 3.28084).toFixed(1)} ft ${tp.toFixed(1)} s waves from ${compass16((f.to[j2] + 180) % 360)}, ${kt(against)} opposing. ` +
+    `${effect} (r ${r.toFixed(2)}).</small>` +
+    `<hr class="pop-rule"><small class="pop-src">${fmtProbe.format(new Date(f.valid_time))}, NWPS ${f.cycle.slice(11, 13)}Z + NECOFS (model)</small>`;
+}
+
+/** The readout at a point: wind, waves, the current (when its layer shows), and wind against tide. */
+function pointText(lng: number, lat: number): string {
+  const src = pointSrc ?? {};
+  const lines = [
+    src.wind ? windLine(src.wind, lng, lat) : null,
+    src.waves ? waveLine(src.waves, lng, lat) : null,
+    src.currents ? currentLine(src.currents, lng, lat) : null,
+    src.wat ? watLine(src.wat, lng, lat, !!overlay || !!data.wat) : null,
+  ].filter((l): l is string => !!l);
+  return lines.length ? lines.join('<hr class="pop-rule">') : "No model cell here";
+}
+
 /** The frame nearest the timeline's time (now by default), or -1 when the time is outside the model run. */
 function frameAt(c: CurrentsField): number {
   const k = Math.round(((fieldT ?? Date.now() / 1000) - Date.parse(c.t0) / 1000) / c.step);
@@ -888,6 +1031,7 @@ function frameAt(c: CurrentsField): number {
 /** Follow the page timeline: the currents move to its time; satellite fields are daily and keep their dates. */
 export async function setFieldTime(t: number | null): Promise<void> {
   fieldT = t;
+  if (probePoint) refreshPopup();
   if (data.history) return showHistoryFrame(historyIndex(data.history));
   if (overlay && !data.wat) {
     const k = watFrameAt(overlay);
@@ -1175,8 +1319,17 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
     clickBound = true;
     addControls(map);
     onStyle((m) => draw(m)); // a theme switch drops the layers; draw them again
-    map.on("click", (e) => {
+    map.on("click", async (e) => {
       const r = data.raster;
+      if (controls?.point) {
+        const load = controls.point;
+        pointSrc ??= await load().catch(() => ({}));
+        const at = { lng: e.lngLat.lng, lat: e.lngLat.lat };
+        // 286 px: the widest one-liner (Current) at the 95th percentile across units and values, measured in the popup's fonts.
+        await showValue(map, e.lngLat, pointText(at.lng, at.lat), null, null, null, "286px");
+        probePoint = at;
+        return;
+      }
       if (!active) return;
       if (r) {
         const text = rasterText(r, e.lngLat.lng, e.lngLat.lat);
@@ -1210,18 +1363,19 @@ let popup: maplibregl.Popup | null = null;
 let probe: number | null = null; // the current element the popup reads, so it can follow the timeline
 let probeAt: { lng: number; lat: number } | null = null; // the raster point it reads, for history frames
 
-async function showValue(map: maplibregl.Map, at: maplibregl.LngLat, text: string, element: number | null = null, point: { lng: number; lat: number } | null = null, ovCell: number | null = null): Promise<void> {
+async function showValue(map: maplibregl.Map, at: maplibregl.LngLat, text: string, element: number | null = null, point: { lng: number; lat: number } | null = null, ovCell: number | null = null, maxWidth = "240px"): Promise<void> {
   const ml = (await import("maplibre-gl")).default;
   closeValue();
   probe = element;
   probeAt = point;
   probeOv = ovCell;
-  const p = new ml.Popup({ closeButton: false, className: "pin-pop" }).setLngLat(at).setHTML(withOverlay(text)).addTo(map);
+  const p = new ml.Popup({ closeButton: false, className: "pin-pop", maxWidth }).setLngLat(at).setHTML(withOverlay(text)).addTo(map);
   p.on("close", () => {
     if (popup === p) {
       popup = null;
       probe = null;
       probeAt = null;
+      probePoint = null;
     }
   });
   popup = p;
@@ -1233,4 +1387,5 @@ function closeValue(): void {
   probe = null;
   probeAt = null;
   probeOv = null;
+  probePoint = null;
 }

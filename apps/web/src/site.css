@@ -1029,3 +1029,9 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 /* The wind-against-tide overlay's row in the map key, and the rule between a value and the overlay's cell. */
 .field-overlay { margin-top: 6px; }
 .pin-pop hr.pop-rule { border: 0; border-top: 1px solid var(--rule); margin: 6px 0; }
+.pin-pop .pop-src { white-space: nowrap; }
+
+/* The wave-current figure in the map readout: waves (wavy) and current (straight) at their true bearings, north up. */
+.pin-pop .pop-vec { float: right; margin: 0 0 2px 8px; color: var(--ink); }
+.pin-pop .pop-vec-ring { stroke: var(--rule); stroke-width: 0.6; }
+.pin-pop .pop-vec-n { font: 600 6.5px/1 var(--sans); fill: var(--ink-mute); text-anchor: middle; dominant-baseline: middle; }

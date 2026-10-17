@@ -40,6 +40,11 @@ def _main() -> None:
         default=os.environ.get("LHZN_BLUE_FORECASTS"),
         help="forecast: local directory or gs://bucket/prefix for the HRRR archive (env LHZN_BLUE_FORECASTS)",
     )
+    parser.add_argument(
+        "--nwps",
+        default=os.environ.get("LHZN_BLUE_NWPS"),
+        help="forecast: local directory or gs://bucket/prefix for the NWPS wave model archive (env LHZN_BLUE_NWPS)",
+    )
     parser.add_argument("--start", help="forecast-backfill: first cycle, UTC (e.g. 2024-01-01T00)")
     parser.add_argument("--end", help="forecast-backfill: last cycle, UTC")
     parser.add_argument("--vintage", help="import-archive: fallback snapshot folder when stations.json names none")
@@ -91,6 +96,7 @@ def _main() -> None:
         logging.getLogger("lhzn_blue_jobs.forecast").info("cycles archived: %s", done or "none new")
         _shore(lambda: __import__("lhzn_blue_jobs.hrrr_grid", fromlist=["publish"]).publish(store), "hrrr grid")
         _shore(lambda: __import__("lhzn_blue_jobs.model_grids", fromlist=["publish"]).publish(store), "model grids")
+        _shore(lambda: __import__("lhzn_blue_jobs.nwps", fromlist=["publish"]).publish(store, args.nwps), "nwps")
     elif args.command == "forecast-backfill":
         from . import forecast
 

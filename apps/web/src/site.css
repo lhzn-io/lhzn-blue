@@ -727,6 +727,11 @@ figure.linked, .station.linked { outline: 2px solid var(--accent-line); outline-
 .more-pop > .more-link:hover, .more-pop > .more-link:focus-visible { color: var(--accent); outline: none; }
 .status-grid td.fcst b { color: var(--ink); font-style: italic; font-weight: 400; }
 .status-grid td.fcst small { color: var(--accent); }
+/* A model value under a buoy's fault: italic and in the accent, so it never reads as a measurement. */
+.status-grid td.offline.standin small { white-space: normal; overflow-wrap: anywhere; }
+.status-grid td.standin small.model { display: block; margin-top: 2px; font-style: italic; color: var(--accent); }
+.readout .num .model-num { font-style: italic; opacity: 0.8; }
+.readout .sub.model { color: var(--accent); font-style: italic; }
 .more-pop > button:hover, .more-pop > button:focus-visible { color: var(--accent); outline: none; }
 .more-row { display: flex; align-items: center; justify-content: space-between; min-height: 40px; padding: 0 10px 0 18px; }
 .more-label { font: 600 10.5px/1 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }

@@ -1149,7 +1149,12 @@ const FIGS: Record<Kind, Fig> = {
     depthTabs: false,
     seasonal: false,
     available: (d) => d.kind === "buoy" && !!wavesOf(d.meta.id)?.sensor,
-    window: LEFT,
+    // While the sensor is out, open on the wave model's span (its runs reach about 4 days back and 6 ahead).
+    window: (d) => {
+      const last = lastWave(d.meta.id);
+      const out = !last || obsState({ time: last.time } as LastObs) === "offline";
+      return out && NWPS ? [d.now - 4 * DAY, d.now + 6 * DAY] : LEFT(d);
+    },
     maxSpan: 2 * 366 * DAY,
     start: (d) => d.waves?.hs?.t0 ?? d.now,
     build: (d, _depth, x0, x1) => {
@@ -1158,17 +1163,23 @@ const FIGS: Record<Kind, Fig> = {
       const u = waveUnit();
       const val = (m: number) => m * u.factor;
       const fmt = (v: number) => `${v.toFixed(u.digits)} ${u.label}`;
-      const lines: Line[] = w
-        ? [
-            { ys: xs.map((t) => val(w.hmax?.at(t) ?? NaN)), color: P.contrast, width: 0.7, opacity: 0.35, label: "Highest wave", fmt },
-            { ys: xs.map((t) => val(w.hs?.at(t) ?? NaN)), color: P.line, width: 1.6, label: "Significant height", fmt },
-            { ys: xs.map((t) => w.tp?.at(t) ?? NaN), color: P.contrast, label: "Dominant period", hidden: true, fmt: (v) => `${v.toFixed(1)} s` },
-          ]
-        : [];
+      if (!NWPS) void loadNwps();
+      const model = nwpsSeries(d.meta.id, xs).map(val);
+      const hasModel = model.some(Number.isFinite);
+      const lines: Line[] = [
+        ...(w
+          ? [
+              { ys: xs.map((t) => val(w.hmax?.at(t) ?? NaN)), color: P.contrast, width: 0.7, opacity: 0.35, label: "Highest wave", fmt },
+              { ys: xs.map((t) => val(w.hs?.at(t) ?? NaN)), color: P.line, width: 1.6, label: "Significant height", fmt },
+              { ys: xs.map((t) => w.tp?.at(t) ?? NaN), color: P.contrast, label: "Dominant period", hidden: true, fmt: (v: number) => `${v.toFixed(1)} s` },
+            ]
+          : []),
+        ...(hasModel ? [{ ys: model, color: P.line, width: 1.2, dash: "5 3", label: "NWS wave model (NWPS)", fmt }] : []),
+      ];
       return {
-        opts: { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, empty: `No wave readings in this window. ${wavesText(d.meta.id)} Full record shows what we hold.` },
-        legend: [["Significant height", P.line, 1], ["Highest wave", P.contrast, 0.35]],
-        note: "significant height: the mean of the highest third of waves, close to what an observer reports",
+        opts: { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, marker: hasModel ? { x: Date.now() / 1000, label: "now" } : undefined, empty: `No wave readings in this window. ${wavesText(d.meta.id)} Full record shows what we hold.` },
+        legend: [["Significant height", P.line, 1], ["Highest wave", P.contrast, 0.35], ...(hasModel ? [["NWS wave model, dashed", P.line, 0.7] as [string, string, number]] : [])],
+        note: `significant height: the mean of the highest third of waves, close to what an observer reports${hasModel ? "; dashed: the NWS nearshore wave model (SWAN) at the buoy, the newest run for each hour, a model and not a measurement" : ""}`,
       };
     },
   },
@@ -1859,6 +1870,77 @@ function fcCell(f: FcValue, shown: string, title: string, errText: string): stri
   return `<td class="fcst" title="${title}. HRRR forecast from the ${fmtRun.format(new Date(f.issue * 1000))} run, ${f.lead} h ahead; typically within ${errText} at this lead (verified at the buoys)."><b>${shown}</b><small>HRRR ${errText}</small></td>`;
 }
 
+/* ---------- Model stand-ins while a buoy's sensors are out ----------
+ * For an hour with no reading, the newest model run that covers it, at the buoy: HRRR (3 km) for wind, air and
+ * pressure; NWS NWPS (SWAN, about 1.8 km) for waves. Shown under the fault, never in its place, and labelled as a
+ * model; the outage stays an open fault. */
+
+interface NwpsRun { issue: number; steps: number[]; points: Record<string, Record<string, (number | null)[]>> }
+interface NwpsValue { hs: number; tp: number; dir: number; lead: number; issue: number }
+let NWPS: { runs: NwpsRun[]; cells: Record<string, { lat: number; lon: number; km: number }> } | null = null;
+let nwpsLoading: Promise<void> | null = null;
+
+function loadNwps(): Promise<void> {
+  nwpsLoading ??= getJson<{ cells: Record<string, { lat: number; lon: number; km: number }>; runs: Record<string, { steps: number[]; points: NwpsRun["points"] }> }>(`${DATA}/waves-nwps.json`)
+    .then((p) => {
+      const runs = Object.entries(p.runs).map(([k, r]) => ({ issue: Date.parse(k.replace(/Z$/, ":00Z")) / 1000, steps: r.steps, points: r.points }));
+      runs.sort((a, b) => b.issue - a.issue);
+      NWPS = { runs, cells: p.cells };
+      fcstRedraw();
+    })
+    .catch(() => undefined);
+  return nwpsLoading;
+}
+
+/** The newest NWPS run's waves at a buoy for an hour (epoch seconds), or null where no run covers it. */
+function nwpsAt(id: string, t: number): NwpsValue | null {
+  for (const r of NWPS?.runs ?? []) {
+    const lead = Math.round((t - r.issue) / HOUR);
+    if (lead < 0 || Math.abs(t - r.issue - lead * HOUR) > 60) continue;
+    const i = r.steps.indexOf(lead);
+    const p = r.points[id];
+    const hs = i < 0 || !p ? null : p.hs?.[i];
+    if (hs == null) continue;
+    return { hs, tp: p.tp?.[i] ?? NaN, dir: p.dir?.[i] ?? NaN, lead, issue: r.issue };
+  }
+  return null;
+}
+
+/** NWPS waves on a time grid (for the wave plot): the newest run covering each hour, linear between hours. */
+function nwpsSeries(id: string, xs: number[]): number[] {
+  return xs.map((t) => {
+    const h = Math.floor(t / HOUR) * HOUR;
+    const a = nwpsAt(id, h), b = nwpsAt(id, h + HOUR);
+    if (!a) return NaN;
+    return b ? a.hs + ((b.hs - a.hs) * (t - h)) / HOUR : a.hs;
+  });
+}
+
+const hourOf = (t: number) => Math.floor(t / HOUR) * HOUR;
+
+/** The HRRR stand-in for a buoy at a time: only for buoys, and only where the newest run reaches the hour. */
+function hrrrStandIn(d: StationData, t: number): FcValue | null {
+  if (d.kind !== "buoy") return null;
+  if (!FCST) void loadForecast();
+  return forecastAt(d.meta.id, hourOf(t));
+}
+
+function runText(issue: number, lead: number): string {
+  return `${fmtRun.format(new Date(issue * 1000))} run, ${lead} h ahead`;
+}
+
+/** A fault cell with the model's value under it: the fault first ("--", why), then the model, marked as such. */
+function standInCell(fault: string, faultTitle: string, model: string, modelTitle: string, cls = ""): string {
+  return `<td class="offline standin${cls ? ` ${cls}` : ""}" title="${faultTitle}"><b>--</b><small>${fault}</small><small class="model" title="${modelTitle}. A model value, not a measurement; the buoy's own sensor is out.">${model}</small></td>`;
+}
+
+function windModelCell(d: StationData, t: number, fault: string, faultTitle: string): string | null {
+  const f = hrrrStandIn(d, t);
+  if (!f) return null;
+  const u = WIND_UNITS[WU].label;
+  return standInCell(fault, faultTitle, `model ${compass(f.dir)} ${windFmt(f.spd)} ${u}`, `HRRR at the buoy: wind ${windFmt(f.spd)} ${u} from ${compass(f.dir)}, gusts ${windFmt(f.gust)} ${u}; ${runText(f.issue, f.lead)}, typically within ${windFmt(f.err)} ${u}`);
+}
+
 const FORECAST_PAGE = "/long-island-sound/forecast/";
 
 /* ---------- Outlook: the next 48 hours at one station ---------- */
@@ -2535,6 +2617,11 @@ function windCell(d: StationData): string {
   }
   if (AT != null) {
     const m = d.met;
+    const atV = m?.wind?.at(AT) ?? NaN;
+    if (!Number.isFinite(atV)) {
+      const mc = windModelCell(d, AT, "no reading", `No wind reading at ${atLabel(AT)}`);
+      if (mc) return mc;
+    }
     if (!m?.wind) return `<td class="na">&middot;</td>`;
     const v = m.wind.at(AT);
     const dir = m.dir?.at(AT) ?? NaN;
@@ -2544,6 +2631,11 @@ function windCell(d: StationData): string {
     return atCell(v, `${Number.isFinite(dir) ? windArrow(dir) : ""}${from} ${windFmt(v)}<small class="g">${u}</small>`, `Wind ${windFmt(v)} ${u} from ${from || "--"}, gusts ${windFmt(gust)} ${u}`, sparklineOf(m.wind, P.line, "kt"), `gusts ${windFmt(gust)}`);
   }
   const o = d.met?.last;
+  const nowState = o && o.wind_kt != null ? obsState({ time: o.time } as LastObs) : "offline";
+  if (nowState === "offline") {
+    const mc = windModelCell(d, Date.now() / 1000, "no recent wind", o ? `No wind reading since ${fmtDate.format(new Date(o.time))}` : "No wind reading");
+    if (mc) return mc;
+  }
   if (!o || o.wind_kt == null) return `<td class="na">&middot;</td>`;
   const state = obsState({ time: o.time } as LastObs);
   if (state === "offline") return `<td class="offline"><b>--</b><small>no recent wind</small></td>`;
@@ -2561,8 +2653,20 @@ function wavesCell(d: StationData): string {
   if (!w) return `<td class="na">&middot;</td>`;
   const panel = panelsOf(d.meta.id).waves;
   if (!w.sensor) return `<td class="na" title="${wavesText(d.meta.id)}"><small>no sensor</small></td>`;
+  if (!NWPS) void loadNwps();
+  const waveModel = (t: number, fault: string, faultTitle: string): string | null => {
+    const m = nwpsAt(d.meta.id, hourOf(t));
+    if (!m) return null;
+    const u = waveUnit().label;
+    return standInCell(fault, faultTitle, `model ${waveFmt(m.hs)} ${u}${Number.isFinite(m.tp) ? ` &middot; ${m.tp.toFixed(0)} s` : ""}`,
+      `NWS nearshore wave model (NWPS) at the buoy: significant height ${waveFmt(m.hs)} ${u}${Number.isFinite(m.tp) ? `, period ${m.tp.toFixed(1)} s` : ""}${Number.isFinite(m.dir) ? ` from ${compass(m.dir)}` : ""}; ${runText(m.issue, m.lead)}, forced by NWS forecast winds`, "waves");
+  };
   if (AT != null) {
     const v = d.waves?.hs?.at(AT) ?? NaN;
+    if (!Number.isFinite(v) && !atFuture()) {
+      const mc = waveModel(AT, "no reading", `No wave reading at ${atLabel(AT)}`);
+      if (mc) return mc;
+    }
     return atCell(v, `${waveFmt(v)}<small class="g"> ${waveUnit().label}</small>`, `Significant wave height ${waveFmt(v)} ${waveUnit().label}`);
   }
   const last = lastWave(d.meta.id);
@@ -2571,6 +2675,8 @@ function wavesCell(d: StationData): string {
     const spark = d.waves?.hs ? sparklineOf(d.waves.hs, P.line, "m significant height", 2) : "";
     return `<td class="${state}" title="Significant wave height ${waveFmt(last.hs_m)} ${waveUnit().label}, highest ${waveFmt(last.hmax_m)}, period ${last.tp_s ?? "--"} s; ${ago(last.time)}">${spark}<b>${waveFmt(last.hs_m)}<small class="g"> ${waveUnit().label}</small></b><small>${last.tp_s != null ? last.tp_s.toFixed(0) + " s &middot; " : ""}${ago(last.time).replace(" ago", "")}</small></td>`;
   }
+  const mc = waveModel(Date.now() / 1000, wavesText(d.meta.id, true).replace("offline, last reading", "out since"), wavesText(d.meta.id));
+  if (mc) return mc;
   const inner = `<b>--</b><small>${wavesText(d.meta.id, true)}</small>`;
   return `<td class="offline waves" title="${wavesText(d.meta.id)}">${panel ? `<a href="${panel}">${inner}</a>` : inner}</td>`;
 }
@@ -2587,6 +2693,10 @@ function airCell(d: StationData): string {
     return atCell(v, `${Math.round(v)}&deg;`, `Air ${f1(v)} F`);
   }
   const o = d.met?.last;
+  if (!o || o.air_f == null || obsState({ time: o.time } as LastObs) === "offline") {
+    const f = hrrrStandIn(d, Date.now() / 1000);
+    if (f && Number.isFinite(f.air)) return standInCell("offline", "No recent air temperature", `model ${Math.round(f.air)}&deg;`, `HRRR at the buoy: air ${f1(f.air)} F; ${runText(f.issue, f.lead)}, typically within ${f.airErr.toFixed(0)} F`);
+  }
   if (!o || o.air_f == null) return `<td class="na">&middot;</td>`;
   const state = obsState({ time: o.time } as LastObs);
   if (state === "offline") return `<td class="offline"><b>--</b></td>`;
@@ -2609,6 +2719,10 @@ function pressureCell(d: StationData): string {
     const v = p.at(AT);
     const tend = p.at(AT) - p.at(AT - 3 * HOUR);
     return atCell(v, `${v.toFixed(0)}<small class="g"> mb</small>`, `Pressure ${v.toFixed(1)} mbar`, "", Number.isFinite(tend) ? `${signed(tend)} in 3h` : "");
+  }
+  if (!o || o.pressure_mb == null || obsState({ time: o.time } as LastObs) === "offline") {
+    const f = hrrrStandIn(d, Date.now() / 1000);
+    if (f && Number.isFinite(f.pres)) return standInCell("offline", "No recent pressure", `model ${f.pres.toFixed(0)} mb`, `HRRR at the buoy: pressure ${f.pres.toFixed(1)} mbar; ${runText(f.issue, f.lead)}`);
   }
   if (!o || o.pressure_mb == null) return `<td class="na">&middot;</td>`;
   const state = obsState({ time: o.time } as LastObs);
@@ -2938,7 +3052,16 @@ function stationPin(d: StationData): Pin {
         ? `${DEPTH_LABEL[dep]} ${pinValue(k, lv)}, ${ago(o.time)}${wind ? `<br>${wind}` : ""}`
         : "no reading";
   const waves = wavesText(d.meta.id, true);
-  const label = waves ? `${reading}<br>Waves: ${waves}` : reading.replace(/^Surface /, d.kind === "shore" ? "Water " : "Surface ");
+  let label = waves ? `${reading}<br>Waves: ${waves}` : reading.replace(/^Surface /, d.kind === "shore" ? "Water " : "Surface ");
+  if (d.kind === "buoy" && (!w || obsState({ time: w.time } as LastObs) === "offline")) {
+    const f = hrrrStandIn(d, Date.now() / 1000);
+    const m = nwpsAt(d.meta.id, hourOf(Date.now() / 1000));
+    const model = [
+      f ? `wind ${compass(f.dir)} ${windFmt(f.spd)} ${WIND_UNITS[WU].label} (HRRR)` : "",
+      m && wavesOf(d.meta.id)?.sensor ? `waves ${waveFmt(m.hs)} ${waveUnit().label} (NWPS)` : "",
+    ].filter(Boolean);
+    if (model.length) label += `<br><i>Model, not measured: ${model.join(", ")}</i>`;
+  }
   const tide = d.kind === "shore" && nextTide(d) ? `<br>Next ${tideText(nextTide(d)!)}` : "";
   return { ...base, state, label: label + tide };
 }
@@ -3187,7 +3310,11 @@ function weatherReadouts(d: StationData): string[] {
       [contextLine(d.met?.wind, "wind", (v) => `${windFmt(v)} ${u}`), veerText(d.met?.dir, d.met?.wind), percentileText(seasonalPercentile(d.metLong?.wind ?? d.met?.wind, SEASONS.wind), "last 3 days")]
         .filter(Boolean)
         .join(" &middot; ")));
-  } else out.push(readoutHtml("--", "Wind", "wind", "no recent reading", "offline"));
+  } else {
+    out.push(readoutHtml("--", "Wind", "wind", "no recent reading", "offline"));
+    const f = hrrrStandIn(d, Date.now() / 1000);
+    if (f) out.push(readoutHtml(`<span class="model-num">${windFmt(f.spd)}</span><small>${u}</small>`, "Wind, model", "model", `HRRR at the buoy, from ${compass(f.dir)}, gusts ${windFmt(f.gust)} ${u} &middot; ${runText(f.issue, f.lead)} &middot; not a measurement`, "model"));
+  }
   if (d.kind === "buoy" && wavesOf(d.meta.id)?.sensor) {
     const w = lastWave(d.meta.id);
     const live = WAVE_LIVE[d.meta.id]?.published && w && obsState({ time: w.time } as LastObs) !== "offline";
@@ -3197,6 +3324,11 @@ function weatherReadouts(d: StationData): string[] {
             contextLine(d.waves?.hs, "waves", (v) => `${waveFmt(v)} ${waveUnit().label}`, { key: "waves", what: "last 3 days" }))
         : readoutHtml("--", "Waves", "waves", wavesText(d.meta.id, true), "offline"),
     );
+    if (!live) {
+      if (!NWPS) void loadNwps();
+      const m = nwpsAt(d.meta.id, hourOf(Date.now() / 1000));
+      if (m) out.push(readoutHtml(`<span class="model-num">${waveFmt(m.hs)}</span><small>${waveUnit().label}</small>`, "Waves, model", "model", `NWS wave model (NWPS) at the buoy${Number.isFinite(m.tp) ? `, ${m.tp.toFixed(0)} s period` : ""} &middot; ${runText(m.issue, m.lead)} &middot; not a measurement`, "model"));
+    }
   }
   if (o?.pressure_mb != null && state !== "offline") {
     const ctx = contextLine(d.met?.pressure, "pressure", (v) => `${v.toFixed(1)} mb`, { key: "pressure", what: "last day", long: d.metLong?.pressure });

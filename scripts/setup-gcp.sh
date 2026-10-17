@@ -52,6 +52,8 @@ gcloud secrets add-iam-policy-binding "$CF_TOKEN_SECRET" "${P[@]}" \
 SNAP_BUCKET="${SNAPSHOT_STORE#gs://}"; SNAP_BUCKET="${SNAP_BUCKET%%/*}"
 SNAP_PREFIX="${SNAPSHOT_STORE#gs://$SNAP_BUCKET}"; SNAP_PREFIX="${SNAP_PREFIX#/}"
 FC_PREFIX="${FORECAST_STORE#gs://$SNAP_BUCKET}"; FC_PREFIX="${FC_PREFIX#/}"
+NWPS_STORE="${NWPS_STORE:-${FORECAST_STORE%/*}/nwps-okx}"  # the NWPS wave model runs (same bucket)
+NWPS_PREFIX="${NWPS_STORE#gs://$SNAP_BUCKET}"; NWPS_PREFIX="${NWPS_PREFIX#/}"
 gcloud storage buckets add-iam-policy-binding "gs://$SNAP_BUCKET" "${P[@]}" \
   --member "serviceAccount:$JOB_SA" --role roles/storage.objectCreator >/dev/null
 # Copies older than 30 days move to Coldline (read rarely, kept indefinitely). The second prefix covers the
@@ -59,7 +61,7 @@ gcloud storage buckets add-iam-policy-binding "gs://$SNAP_BUCKET" "${P[@]}" \
 LIFECYCLE="$(mktemp)"
 cat > "$LIFECYCLE" <<JSON
 {"rule": [{"action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
-           "condition": {"age": 30, "matchesStorageClass": ["STANDARD"], "matchesPrefix": ["${SNAP_PREFIX%/}/", "/${SNAP_PREFIX%/}/", "${FC_PREFIX%/}/"]}}]}
+           "condition": {"age": 30, "matchesStorageClass": ["STANDARD"], "matchesPrefix": ["${SNAP_PREFIX%/}/", "/${SNAP_PREFIX%/}/", "${FC_PREFIX%/}/", "${NWPS_PREFIX%/}/"]}}]}
 JSON
 gcloud storage buckets update "gs://$SNAP_BUCKET" "${P[@]}" --lifecycle-file "$LIFECYCLE" >/dev/null
 rm -f "$LIFECYCLE"

@@ -12,6 +12,7 @@
 #   USGS_KEY_SECRET  optional: Secret Manager secret holding a USGS Water Data API key (api.data.gov)
 #   SNAPSHOT_STORE   gs://bucket/prefix the snapshot job saves the server's datasets to
 #   FORECAST_STORE   gs://bucket/prefix the forecast job archives HRRR at the stations to
+#   NWPS_STORE       optional: gs://bucket/prefix for the NWPS wave model runs (default: nwps-okx beside FORECAST_STORE)
 # Scheduling is separate (scripts/schedule-jobs.sh), so redeploying code does not touch triggers.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -40,6 +41,7 @@ YAML
 gcloud builds submit "$CTX" --project "$GCP_PROJECT" --region "$GCP_REGION" \
   --config "$CTX/cloudbuild.yaml" --service-account "projects/${GCP_PROJECT}/serviceAccounts/${JOB_SA}"
 
+NWPS_STORE="${NWPS_STORE:-${FORECAST_STORE%/*}/nwps-okx}"
 SECRETS="CLOUDFLARE_API_TOKEN=${CF_TOKEN_SECRET}:latest"
 [ -n "${USGS_KEY_SECRET:-}" ] && SECRETS="${SECRETS},USGS_API_KEY=${USGS_KEY_SECRET}:latest"
 
@@ -51,7 +53,7 @@ for mode in live latest history fields snapshot forecast; do
   gcloud run jobs deploy "lhzn-blue-${mode}" \
     --project "$GCP_PROJECT" --region "$GCP_REGION" --image "$IMAGE" \
     --service-account "$JOB_SA" --args "$mode" \
-    --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_SNAPSHOTS=${SNAPSHOT_STORE},LHZN_BLUE_FORECASTS=${FORECAST_STORE}" \
+    --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_SNAPSHOTS=${SNAPSHOT_STORE},LHZN_BLUE_FORECASTS=${FORECAST_STORE},LHZN_BLUE_NWPS=${NWPS_STORE}" \
     --set-secrets "$SECRETS" \
     --tasks 1 --max-retries 1 --task-timeout "${TIMEOUT[$mode]}" \
     --cpu 1 --memory "${MEMORY[$mode]}"

@@ -1072,7 +1072,7 @@ const FIGS: Record<Kind, Fig> = {
         const i = Math.round((t - xs[0]) / step);
         if (i >= 0 && i < xs.length) peakYs[i] = windVal(g);
       }
-      const hh = hrrrHist(d.meta.id);
+      const hh = hrrrHist(d.meta.id, xs[0], xs[xs.length - 1], (t) => m?.wind?.at(t) ?? NaN);
       const lines: Line[] = m
         ? [
             ...(hh?.wind ? [{ ys: xs.map((t) => (Number.isFinite(m.wind?.at(t) ?? NaN) ? NaN : windVal(hh.wind!.at(t)))), color: P.line, width: 1, opacity: 0.7, dash: "4 3", label: HRRR_HIST_LABEL, fmt: fmtU }] : []),
@@ -1117,7 +1117,7 @@ const FIGS: Record<Kind, Fig> = {
         { ys: xs.map((t) => water?.at(t) ?? NaN), color: P.depth[top], width: 1.6, label },
         { ys: xs.map((t) => d.met?.air?.at(t) ?? NaN), color: P.second, width: 1.3, label: "Air" },
       ];
-      const hh = hrrrHist(d.meta.id);
+      const hh = hrrrHist(d.meta.id, xs[0], xs[xs.length - 1], (t) => d.met?.air?.at(t) ?? NaN);
       if (hh?.air) lines.push({ ys: xs.map((t) => (Number.isFinite(d.met?.air?.at(t) ?? NaN) ? NaN : hh.air!.at(t))), color: P.second, width: 1, opacity: 0.7, dash: "4 3", label: "Air, HRRR (last forecast before each hour)" });
       return {
         opts: { xs, lines, unit: "°F", empty: emptyNote(d) },
@@ -1249,7 +1249,7 @@ const FIGS: Record<Kind, Fig> = {
         const a = forecastAt(d.meta.id, t), b = forecastAt(d.meta.id, t - 3 * HOUR);
         return a && b && Number.isFinite(a.pres) && Number.isFinite(b.pres) ? a.pres - b.pres : NaN;
       });
-      const hh = hrrrHist(d.meta.id)?.pressure;
+      const hh = hrrrHist(d.meta.id, xs[0], xs[xs.length - 1], (t) => p?.at(t) ?? NaN)?.pressure;
       const past = xs.map((t, i) => (hh && t <= now && !Number.isFinite(obs[i]) ? hh.at(t) - hh.at(t - 3 * HOUR) : NaN));
       const lines: Line[] = [
         ...(hh ? [{ ys: past, color: P.line, width: 1, opacity: 0.7, dash: "4 3", label: HRRR_HIST_LABEL, fmt: mb }] : []),
@@ -1886,13 +1886,20 @@ function loadForecast(): Promise<void> {
  * model's stand-in for the record where the station is out. Loaded per station when a plot first asks. */
 const HRRR_HIST = new Map<string, Met | null>();
 const hrrrHistLoading = new Set<string>();
-function hrrrHist(id: string): Met | null {
-  if (HRRR_HIST.has(id)) return HRRR_HIST.get(id)!;
-  if (!hrrrHistLoading.has(id)) {
-    hrrrHistLoading.add(id);
-    getJson<{ t0: string | null; wind_kt?: (number | null)[]; gust_kt?: (number | null)[]; dir_deg?: (number | null)[]; air_f?: (number | null)[]; pressure_mb?: (number | null)[] }>(`${DATA}/hrrr-history/${id}.json`)
+type HistFile = { t0: string | null; wind_kt?: (number | null)[]; gust_kt?: (number | null)[]; dir_deg?: (number | null)[]; air_f?: (number | null)[]; pressure_mb?: (number | null)[] };
+const RECENT_HIST = 99 * DAY; // the recent file holds 100 days (the inline plots reach 96 back); a day to spare
+
+/** A station's HRRR history file ("WLIS" or "WLIS-recent"), loaded once; undefined while loading. A missing recent
+ * file falls back to the full one. */
+function histFile(name: string, id: string): Met | null | undefined {
+  if (HRRR_HIST.has(name)) return HRRR_HIST.get(name);
+  if (!hrrrHistLoading.has(name)) {
+    hrrrHistLoading.add(name);
+    const get = (n: string) => getJson<HistFile>(`${DATA}/hrrr-history/${n}.json`);
+    get(name)
+      .catch((err) => (name !== id ? get(id) : Promise.reject(err)))
       .then((h) => {
-        HRRR_HIST.set(id, {
+        HRRR_HIST.set(name, {
           wind: Hourly.fromArray(h.t0, h.wind_kt),
           gust: Hourly.fromArray(h.t0, h.gust_kt),
           dir: Hourly.fromArray(h.t0, h.dir_deg),
@@ -1902,9 +1909,28 @@ function hrrrHist(id: string): Met | null {
         });
         requestFcstRedraw();
       })
-      .catch(() => HRRR_HIST.set(id, null));
+      .catch(() => HRRR_HIST.set(name, null));
   }
-  return null;
+  return undefined;
+}
+
+/** HRRR's last forecast before each hour, for a plot from x0 to x1: fetched only when the window has past hours
+ * without a reading (the last 3 h are left out, as readings arrive late), from the recent file when the window lies
+ * within it and the full one otherwise (a zoomed plot at full range). */
+function hrrrHist(id: string, x0: number, x1: number, observed: (t: number) => number): Met | null {
+  const nowS = Date.now() / 1000;
+  const end = Math.min(x1, nowS - 3 * HOUR);
+  let gap = false;
+  for (let t = Math.ceil(x0 / HOUR) * HOUR; t <= end; t += HOUR) {
+    if (!Number.isFinite(observed(t))) {
+      gap = true;
+      break;
+    }
+  }
+  if (!gap) return null;
+  if (x0 >= nowS - RECENT_HIST) return histFile(`${id}-recent`, id) ?? null;
+  // The full file; the recent one, if already in, meanwhile.
+  return histFile(id, id) ?? HRRR_HIST.get(`${id}-recent`) ?? null;
 }
 const HRRR_HIST_LABEL = "HRRR, last forecast before each hour"; // drawn only where the station has no reading
 

@@ -4,6 +4,7 @@ is the model's closest stand-in for what happened, labelled as a model on the pa
 
 Published per station as ``v1/hrrr-history/<ID>.json``: one hourly frame (``encode_frame``) from 2024-01-01 with
 ``wind_kt``, ``gust_kt``, ``dir_deg`` (from), ``air_f``, ``pressure_mb`` and ``lead_h`` (the lead used each hour).
+``v1/hrrr-history/<ID>-recent.json`` holds the last RECENT_DAYS in the same format, for the page's inline plots.
 
 - ``seed``: once, from the archive of every cycle (``forecast.Archive``), read where the archive can be read (the
   jobs may only create objects in it, so this runs with a person's credentials).
@@ -31,10 +32,11 @@ MAX_LEAD = 3  # hours: a valid hour without a cycle in the 3 h before it is left
 MS_KT = 1.943844
 DECIMALS = {"wind_kt": 1, "gust_kt": 1, "dir_deg": 0, "air_f": 1, "pressure_mb": 1, "lead_h": 0}
 FIELDS = ("u10", "v10", "gust", "t2m", "mslp")
+RECENT_DAYS = 100  # the page's inline plots reach 96 days back
 
 
-def key(station: str) -> str:
-    return f"v1/hrrr-history/{station}.json"
+def key(station: str, recent: bool = False) -> str:
+    return f"v1/hrrr-history/{station}{'-recent' if recent else ''}.json"
 
 
 def frames(wide: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -79,6 +81,9 @@ def _write(store: Store, per_station: dict[str, pd.DataFrame], end) -> list[str]
         obj = encode_frame(frame, DECIMALS)
         obj.update({"station": sid, "source": "NOAA HRRR, read at the station through forcingkit; each hour from the most recent cycle before it (lead 1 to 3 h)", "generated_at": iso(end)})
         store.write_json(key(sid), obj, max_age=3600)
+        recent = encode_frame(frame[frame.index >= end - pd.Timedelta(days=RECENT_DAYS)], DECIMALS)
+        recent.update({k: obj[k] for k in ("station", "source", "generated_at")})
+        store.write_json(key(sid, recent=True), recent, max_age=3600)
         done.append(sid)
     return done
 

@@ -124,8 +124,17 @@ export async function decodeHistory(buf: ArrayBuffer): Promise<RasterHistory> {
   return { header, body: raw.subarray(8 + n) };
 }
 
+/** Charted water turbulence (NOAA ENC) with NOAA's tidal current events at the nearest prediction station (see the
+ * jobs' rips.py): [time, signed knots, "s" slack | "f" flood | "e" ebb]. */
+export interface RipsField {
+  source: string;
+  predictions: string;
+  features: { type: "Feature"; geometry: { type: string; coordinates: unknown }; properties: { kind: string; at: [number, number]; station: { id: string; name: string; km: number; events: [string, number, string][] } | null } }[];
+}
+
 /** The fields a point readout draws on: HRRR wind and NWPS waves (both on their model cells) and wind against tide. */
 export interface PointSources {
+  rips?: RipsField;
   sst?: RasterField;
   zones?: { features: { properties: { id: string }; geometry: { type: string; coordinates: unknown } }[] };
   wind?: WindField;
@@ -315,8 +324,8 @@ function historyRange(h: RasterHistory): [number, number] {
   return r;
 }
 
-const LAYER_IDS = ["field-raster", "cur-fill", "cur-arrows", "wind-fill", "wind-arrows", "comfort-fill", "wat-fill", "wat-arrows"];
-const SOURCE_IDS = ["field-raster", "cur-mesh", "cur-points", "wind-cells", "wind-points", "comfort-cells", "wat-cells", "wat-points"];
+const LAYER_IDS = ["field-raster", "cur-fill", "cur-arrows", "wind-fill", "wind-arrows", "comfort-fill", "rips-area", "rips-mark", "wat-fill", "wat-arrows"];
+const SOURCE_IDS = ["field-raster", "cur-mesh", "cur-points", "wind-cells", "wind-points", "comfort-cells", "rips", "wat-cells", "wat-points"];
 
 function clear(map: maplibregl.Map): void {
   for (const id of LAYER_IDS) if (map.getLayer(id)) map.removeLayer(id);
@@ -972,12 +981,12 @@ function advisoryAt(zone: string | null, t: number): { rank: number; name: strin
   return best;
 }
 
-type ComfortKey = "wind" | "waves" | "current" | "wat" | "rule30" | "advisory" | "cold";
+type ComfortKey = "wind" | "waves" | "current" | "wat" | "rule30" | "rip" | "advisory" | "cold";
 
 /** The comfort rules for one place and hour, shared by a click's readout and the map: wind, waves, current (kayaks)
  * and wind against tide (wl, 0 to 4) each set a level by the boat's steps; the worst wins; three at Uncomfortable make
  * it Hazardous; an advisory floor (the readout only; 0 for none) applies; cold water (sst, C) raises it one step. */
-function comfortLevel(x: { kt: number; hs: number; curKt: number; wl: number; sst: number }, boat: Boat, floor = 0): { level: number; f: { level: number; key: ComfortKey }[] } | null {
+function comfortLevel(x: { kt: number; hs: number; curKt: number; wl: number; sst: number; rip?: boolean }, boat: Boat, floor = 0): { level: number; f: { level: number; key: ComfortKey }[] } | null {
   const b = BOATS[boat];
   const f: { level: number; key: ComfortKey }[] = [];
   if (Number.isFinite(x.kt)) f.push({ level: stepLevel(x.kt, b.wind), key: "wind" });
@@ -989,6 +998,11 @@ function comfortLevel(x: { kt: number; hs: number; curKt: number; wl: number; ss
   if (!f.length) return null;
   let level = Math.max(...f.map((y) => y.level));
   if (f.filter((y) => y.level >= 2).length >= 3) level = 3; // three factors at Uncomfortable compound
+  // A charted rip nearby with the tide running there: one step up.
+  if (x.rip && level < 3) {
+    level += 1;
+    f.push({ level, key: "rip" });
+  }
   if (floor > 0) {
     level = Math.max(level, floor);
     f.push({ level: floor, key: "advisory" });
@@ -999,6 +1013,52 @@ function comfortLevel(x: { kt: number; hs: number; curKt: number; wl: number; ss
     f.push({ level, key: "cold" });
   }
   return { level, f };
+}
+
+/* ---------- Charted rips ---------- */
+
+const RIP_NEAR_KM = 1.3; // a cell centre this close to a charted rip (the far corner of a 1.8 km cell)
+const ripTimes = new WeakMap<object, number[]>();
+
+/** Whether NOAA predicts the tide running at a rip's station at time t: past the first sixth of the half-cycle from
+ * slack and short of the last; with the half-cycle's peak (kt). */
+function ripRunning(st: NonNullable<RipsField["features"][number]["properties"]["station"]>, t: number): { on: boolean; peak: number } {
+  let ts = ripTimes.get(st);
+  if (!ts) {
+    ts = st.events.map((e) => Date.parse(e[0]) / 1000);
+    ripTimes.set(st, ts);
+  }
+  let s0 = -1;
+  let s1 = -1;
+  for (let i = 0; i < ts.length; i++) {
+    if (st.events[i][2] !== "s") continue;
+    if (ts[i] <= t) s0 = i;
+    else {
+      s1 = i;
+      break;
+    }
+  }
+  if (s0 < 0 || s1 < 0) return { on: false, peak: 0 };
+  const half = ts[s1] - ts[s0];
+  let peak = 0;
+  for (let i = s0 + 1; i < s1; i++) peak = Math.max(peak, Math.abs(st.events[i][1]));
+  return { on: t - ts[s0] >= half / 6 && ts[s1] - t >= half / 6, peak };
+}
+
+/** The charted rips (with a station) within RIP_NEAR_KM of a point. */
+function ripsNear(r: RipsField | undefined, lng: number, lat: number): RipsField["features"] {
+  if (!r) return [];
+  const cos = Math.cos((lat * Math.PI) / 180);
+  return r.features.filter((f) => f.properties.station && Math.hypot((f.properties.at[0] - lng) * cos, f.properties.at[1] - lat) * 111.2 <= RIP_NEAR_KM);
+}
+
+/** The first rip near a point with the tide running there at t, if any. */
+function ripOn(r: RipsField | undefined, lng: number, lat: number, t: number): { kind: string; peak: number; station: string } | null {
+  for (const f of ripsNear(r, lng, lat)) {
+    const run = ripRunning(f.properties.station!, t);
+    if (run.on) return { kind: f.properties.kind, peak: run.peak, station: f.properties.station!.name };
+  }
+  return null;
 }
 
 /** The comfort level at a point and time for a boat class, with the factors that set it. */
@@ -1051,7 +1111,10 @@ function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat:
   const zone = zoneAt(src.zones, lng, lat);
   const adv = advisoryAt(zone, t);
   const sst = src.sst ? rasterValueAt(src.sst, lng, lat)?.v ?? NaN : NaN;
-  const c = comfortLevel({ kt, hs, curKt, wl, sst }, boat, adv.rank === 2 ? 3 : adv.rank === 1 ? b.sca : 0);
+  // Charted rips are read from the clicked NWPS cell's centre, as the map reads them.
+  const rc = src.waves ? nearestCell(src.waves.mesh, lng, lat, 2) : -1;
+  const rip = rc >= 0 ? ripOn(src.rips, src.waves!.mesh.centre_lon[rc], src.waves!.mesh.centre_lat[rc], t) : ripOn(src.rips, lng, lat, t);
+  const c = comfortLevel({ kt, hs, curKt, wl, sst, rip: !!rip }, boat, adv.rank === 2 ? 3 : adv.rank === 1 ? b.sca : 0);
   if (!c) return null;
   const text = (k: ComfortKey): string =>
     k === "wind" ? `wind ${(kt / 1.943844 * un.perMs).toFixed(un.digits)} ${un.label}`
@@ -1059,6 +1122,7 @@ function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat:
     : k === "current" ? `current ${(curKt / 1.943844 * un.perMs).toFixed(un.digits + 1)} ${un.label}`
     : k === "wat" ? WAT_LABELS[wl].toLowerCase()
     : k === "rule30" ? "breaking waves near 30% of the boat's length"
+    : k === "rip" ? `charted ${rip!.kind} nearby, tide running (NOAA, ${rip!.peak.toFixed(1)} kt peak)`
     : k === "advisory" ? (adv.rank === 2 ? adv.name : "small craft advisory")
     : `water ${metric ? `${sst.toFixed(0)} C` : `${((sst * 9) / 5 + 32).toFixed(0)} F`}`;
   const f = c.f.map((x) => ({ level: x.level, text: text(x.key) }));
@@ -1071,7 +1135,7 @@ function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat:
 
 /** Per NWPS mesh: the cells the field shades (water, and shore cells that touch water) and, for each, its HRRR cell,
  * its NECOFS element (kayaks; within 2 km) and its sea surface temperature, worked out once per set of models. */
-interface ComfortGrid { cells: number[]; hrrr: Int32Array; elem: Int32Array | null; sst: Float32Array; windMesh: unknown; curMesh: unknown; sstRef: unknown }
+interface ComfortGrid { cells: number[]; hrrr: Int32Array; elem: Int32Array | null; sst: Float32Array; rips: number[][]; windMesh: unknown; curMesh: unknown; sstRef: unknown; ripsRef: unknown }
 const comfortGrids = new WeakMap<WindField["mesh"], ComfortGrid>();
 
 function comfortGridOf(src: PointSources): ComfortGrid | null {
@@ -1084,7 +1148,7 @@ function comfortGridOf(src: PointSources): ComfortGrid | null {
     const shore = shoreOf(m);
     const cells: number[] = [];
     for (let i = 0; i < m.land.length; i++) if (!m.land[i] || shore[i]) cells.push(i);
-    g = { cells, hrrr: new Int32Array(0), elem: null, sst: new Float32Array(0), windMesh: null, curMesh: null, sstRef: null };
+    g = { cells, hrrr: new Int32Array(0), elem: null, sst: new Float32Array(0), rips: [], windMesh: null, curMesh: null, sstRef: null, ripsRef: null };
     comfortGrids.set(m, g);
   }
   if (g.windMesh !== w.mesh) {
@@ -1094,6 +1158,11 @@ function comfortGridOf(src: PointSources): ComfortGrid | null {
   if (g.sstRef !== (src.sst ?? null)) {
     g.sst = Float32Array.from(g.cells, (id) => (src.sst ? rasterValueAt(src.sst, m.centre_lon[id], m.centre_lat[id])?.v ?? NaN : NaN));
     g.sstRef = src.sst ?? null;
+  }
+  if (g.ripsRef !== (src.rips ?? null)) {
+    const feats = src.rips?.features ?? [];
+    g.rips = g.cells.map((id) => ripsNear(src.rips, m.centre_lon[id], m.centre_lat[id]).map((f) => feats.indexOf(f)));
+    g.ripsRef = src.rips ?? null;
   }
   const cm = src.currents?.mesh ?? null;
   if (g.curMesh !== cm) {
@@ -1182,13 +1251,14 @@ function comfortLevels(src: PointSources, t: number, boat: Boat): { g: ComfortGr
   const wat = src.wat ? watLevelsAt(src.wat, t) : null;
   const cur = BOATS[boat].current && src.currents && g.elem ? currentKtAt(src.currents.currents, t) : null;
   const land = src.waves!.mesh.land;
+  const ripOnNow = (src.rips?.features ?? []).map((f) => (f.properties.station ? ripRunning(f.properties.station, t).on : false));
   g.cells.forEach((id, n) => {
     const h = g.hrrr[n];
     const kt = h >= 0 ? wind[h] * 1.943844 : NaN;
     if (!Number.isFinite(kt)) return;
     const hs = waves && !land[id] ? waves[id] : NaN;
     const e = g.elem ? g.elem[n] : -1;
-    const c = comfortLevel({ kt, hs, curKt: cur && e >= 0 ? cur[e] : NaN, wl: wat ? wat[id] : 0, sst: g.sst[n] }, boat);
+    const c = comfortLevel({ kt, hs, curKt: cur && e >= 0 ? cur[e] : NaN, wl: wat ? wat[id] : 0, sst: g.sst[n], rip: g.rips[n].some((k) => ripOnNow[k]) }, boat);
     if (c) lv[n] = c.level;
   });
   return { g, lv };
@@ -1236,10 +1306,57 @@ function addComfort(map: maplibregl.Map, src: PointSources): void {
 function paintComfort(map: maplibregl.Map): void {
   const src = data.comfort;
   if (!src || !map.getSource("comfort-cells")) return;
-  const r = comfortLevels(src, fieldT ?? Date.now() / 1000, controls?.boat ?? "console");
+  const t = fieldT ?? Date.now() / 1000;
+  const r = comfortLevels(src, t, controls?.boat ?? "console");
   if (!r) return;
   r.g.cells.forEach((id, n) => map.setFeatureState({ source: "comfort-cells", id }, { lv: r.lv[n] }));
+  if (src.rips && map.getSource("rips")) {
+    src.rips.features.forEach((f, i) => map.setFeatureState({ source: "rips", id: i }, { on: !!f.properties.station && ripRunning(f.properties.station, t).on }));
+  }
   refreshPopup();
+}
+
+/** The rip mark: three short fine-pen waves, drawn in the ink of the map's theme. */
+const RIP_SVG = '<path d="M1 3.5q2-2 4 0t4 0 4 0M3 7.5q2-2 4 0t4 0 4 0M1 11.5q2-2 4 0t4 0 4 0" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>';
+function ripImage(map: maplibregl.Map): void {
+  if (map.hasImage("rip-mark")) map.removeImage("rip-mark");
+  const px = 2;
+  const c = document.createElement("canvas");
+  c.width = 18 * px;
+  c.height = 14 * px;
+  const g = c.getContext("2d")!;
+  g.scale(px, px);
+  g.strokeStyle = comfortInk();
+  g.lineWidth = 1;
+  g.lineCap = "round";
+  for (const y of [3.5, 7.5, 11.5]) {
+    const x0 = y === 7.5 ? 3 : 1;
+    g.beginPath();
+    g.moveTo(x0, y);
+    for (let k = 0; k < 3; k++) {
+      g.quadraticCurveTo(x0 + 4 * k + 1, y - 2, x0 + 4 * k + 2, y);
+      g.quadraticCurveTo(x0 + 4 * k + 3, y + 2, x0 + 4 * k + 4, y);
+    }
+    g.stroke();
+  }
+  map.addImage("rip-mark", g.getImageData(0, 0, c.width, c.height), { pixelRatio: px });
+}
+
+/** Charted rips over the comfort shading: a mark at each, breakers' areas outlined; full ink while NOAA predicts the
+ * tide running there, faint otherwise. */
+function addRips(map: maplibregl.Map, r: RipsField): void {
+  ripImage(map);
+  map.addSource("rips", { type: "geojson", data: { type: "FeatureCollection", features: r.features.map((f, i) => ({ ...f, id: i })) } as GeoJSON.FeatureCollection });
+  const on: maplibregl.ExpressionSpecification = ["case", ["boolean", ["feature-state", "on"], false], 1, 0.35];
+  map.addLayer({ id: "rips-area", type: "line", source: "rips", filter: ["==", ["geometry-type"], "Polygon"], paint: { "line-color": comfortInk(), "line-width": 0.8, "line-dasharray": [2, 2], "line-opacity": on } });
+  map.addLayer({
+    id: "rips-mark",
+    type: "symbol",
+    source: "rips",
+    filter: ["==", ["geometry-type"], "Point"],
+    layout: { "icon-image": "rip-mark", "icon-allow-overlap": true, "icon-ignore-placement": true, "icon-size": ["interpolate", ["linear"], ["zoom"], 7, 0.7, 11, 1.1] },
+    paint: { "icon-opacity": on },
+  });
 }
 
 /** Four small squares, filled to the level: a word-sized gauge in the ink. */
@@ -1819,7 +1936,8 @@ const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", 
 
 function scaleHtml(meta: Meta, ripKey = false): string {
   if (active === "comfort" && !ripKey) {
-    return `<div class="field-scale comfort-scale">${COMFORT_WORDS.map((w, i) => `<span><i style="background:${comfortInk()};opacity:${COMFORT_SHADE[i] + 0.05}"></i>${w}</span>`).join("")}</div>`;
+    const rip = data.comfort?.rips ? `<span class="comfort-rip" title="Charted tide rips (NOAA charts); dark while NOAA predicts the tide running there, which raises comfort a step nearby"><svg viewBox="0 0 18 14" width="18" height="14" aria-hidden="true">${RIP_SVG}</svg>charted rips</span>` : "";
+    return `<div class="field-scale comfort-scale">${COMFORT_WORDS.map((w, i) => `<span><i style="background:${comfortInk()};opacity:${COMFORT_SHADE[i] + 0.05}"></i>${w}</span>`).join("")}${rip}</div>`;
   }
   if (ripKey || active === "wat") {
     return `<div class="field-scale wat-scale">${[1, 2, 3, 4].map((l) => `<span>${ripSwatch(l)}${WAT_SHORT[l]}</span>`).join("")}</div>`;
@@ -2039,6 +2157,10 @@ function draw(map: maplibregl.Map): void {
   else if (data.wind) addWind(map, data.wind);
   else if (data.comfort) addComfort(map, data.comfort);
   if (overlay && !data.wat) addWat(map, overlay, !(data.wind || data.currents));
+  if (data.comfort?.rips) {
+    addRips(map, data.comfort.rips);
+    paintComfort(map);
+  }
   drawProbeCell(map); // after a theme switch, the outline comes back on top
 }
 

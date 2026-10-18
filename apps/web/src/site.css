@@ -1181,3 +1181,6 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .comfort-scale span { display: inline-flex; align-items: center; gap: 5px; }
 .comfort-scale i { display: inline-block; width: 14px; height: 10px; border: 1px solid var(--rule); }
 .field-name svg { vertical-align: -1px; margin-right: 2px; }
+
+/* The rip mark in the comfort key: the map's fine pen. */
+.comfort-scale .comfort-rip svg { color: var(--ink); }

@@ -4703,6 +4703,10 @@ try {
 const FRAME_SPAN: Record<FieldKind | "none", [number, number]> = { none: [0, 0], comfort: [0, 1], currents: [0, 2], wind: [0, 1], waves: [0, 1], wat: [0, 2], sst: [24, 0], chl: [7 * 24, 0], kd490: [7 * 24, 0] };
 const fieldCache = new Map<FieldKind, Promise<FieldData>>();
 
+/** Charted rips with NOAA's tidal current events (small; for the comfort index), loaded once; null when missing. */
+let ripsLoad: Promise<import("./fields").RipsField | null> | null = null;
+const ripsData = () => (ripsLoad ??= getJson<import("./fields").RipsField>(`${DATA}/fields/rips.json`).catch(() => null));
+
 /** Comfort on the map: the models it reads (the NECOFS current only for kayaks), each from its own cache, as one
  * payload object per set so a redraw for the same set keeps the open readout. */
 const comfortCache = new Map<string, Promise<FieldData>>();
@@ -4712,13 +4716,13 @@ function comfortData(): Promise<FieldData> {
     const ok = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : undefined);
     comfortCache.set(
       key,
-      Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("wat"), fieldData("sst"), key === "kayak" ? fieldData("currents") : Promise.resolve({} as FieldData)]).then(([w, v, t, s, c]) => {
+      Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("wat"), fieldData("sst"), key === "kayak" ? fieldData("currents") : Promise.resolve({} as FieldData), ripsData()]).then(([w, v, t, s, c, r]) => {
         const cur = ok(c);
         if (!ok(w)?.wind || !ok(v)?.wind) {
           comfortCache.delete(key); // try again next time
           throw new Error("comfort: wind or waves did not load");
         }
-        return { comfort: { wind: ok(w)?.wind, waves: ok(v)?.wind, wat: ok(t)?.wat, sst: ok(s)?.raster, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined } };
+        return { comfort: { wind: ok(w)?.wind, waves: ok(v)?.wind, wat: ok(t)?.wat, sst: ok(s)?.raster, rips: ok(r) ?? undefined, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined } };
       }),
     );
   }
@@ -4823,10 +4827,10 @@ function fieldControls(): import("./fields").FieldControls {
     // Wind & waves: a click reads wind, waves and wind against tide at its point, whatever layer shows.
     point: VIEW_LAYERS[VK].overlay
       ? async () => {
-          const [w, v, c, t, s, z] = await Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("currents"), fieldData("wat"), fieldData("sst"), getJson<NonNullable<import("./fields").PointSources["zones"]>>("/nws-zones-lis.json")]);
+          const [w, v, c, t, s, z, r] = await Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("currents"), fieldData("wat"), fieldData("sst"), getJson<NonNullable<import("./fields").PointSources["zones"]>>("/nws-zones-lis.json"), ripsData()]);
           const ok = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : undefined);
           const cur = ok(c);
-          return { wind: ok(w)?.wind, waves: ok(v)?.wind, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined, wat: ok(t)?.wat, sst: ok(s)?.raster, zones: ok(z) };
+          return { wind: ok(w)?.wind, waves: ok(v)?.wind, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined, wat: ok(t)?.wat, sst: ok(s)?.raster, zones: ok(z), rips: ok(r) ?? undefined };
         }
       : undefined,
     overlay: VIEW_LAYERS[VK].overlay

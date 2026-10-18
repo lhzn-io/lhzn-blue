@@ -351,10 +351,13 @@ METHODS["map-comfort"] = {
   method:
     "The comfort index of a click's readout, for every NWPS wave cell (1.8 km) at the time bar's hour: HRRR wind from the " +
     "nearest HRRR cell, NWPS waves, the wind-against-tide level and, for kayaks, the NECOFS current, by the steps for " +
-    "the boat set in the byline; cold water raises a level. Shore cells (harbours, coves) carry wind only.",
+    "the boat set in the byline; cold water raises a level. Within 1.3 km of a tide rip, overfall, eddy or breakers " +
+    "charted on NOAA's electronic charts, comfort goes up a step while NOAA's tidal current predictions at the nearest " +
+    "station (within 5 km) have the tide running: from a sixth of the way past slack to a sixth before the next. " +
+    "The marks are dark while it runs. Shore cells (harbours, coves) carry wind only.",
   caveats:
     "Advisories are not in the shading: the masthead and the brick zone lines show them, and a click's readout includes " +
-    "them. No shading beyond HRRR's 48 hours. Shoals and rips finer than the cells are not in it.",
+    "them. No shading beyond HRRR's 48 hours. Rips form at many uncharted reefs and points too; gusts are not in it yet.",
 };
 
 METHODS.trends = {

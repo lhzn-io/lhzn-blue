@@ -31,6 +31,7 @@ const fmtTime = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York",
 
 let file: PhaseFile | null = null;
 let row: HTMLElement | null = null;
+let foot: HTMLElement | null = null; // the readout, as a footnote below the time sliders
 let visible = false;
 let pick = (() => {
   try {
@@ -136,7 +137,7 @@ function render(): void {
   row.querySelector<HTMLElement>(".ph-pick")!.innerHTML = (file?.points ?? [])
     .map((q) => `<button type="button" data-id="${q.id}" aria-pressed="${q.id === p?.id}" title="${q.name}${q.noaa ? ` (NOAA ${q.noaa.station})` : ""}">${SHORT[q.id] ?? q.name}</button>`)
     .join("");
-  row.querySelector<HTMLElement>(".ph-read")!.innerHTML = readout();
+  if (foot) foot.innerHTML = `<span class="ph-foot-k">${SHORT[p?.id ?? ""] ?? ""}:</span> ${readout()}`;
   drawTrack(row.querySelector<HTMLElement>(".ph-track")!);
 }
 
@@ -147,9 +148,12 @@ function mount(): void {
   row.className = "tl-row tl-phase";
   row.innerHTML =
     `<span class="tl-slot ph-slot"><span class="ph-title">Current at</span> <span class="ph-pick" role="group" aria-label="Reference point"></span>` +
-    `<button type="button" class="ph-info" aria-label="About the current strip" title="About the current strip">i</button> <span class="ph-read"></span></span>` +
+    `<button type="button" class="ph-info" aria-label="About the current strip" title="About the current strip">i</button></span>` +
     `<span class="ph-gap"></span><div class="tl-track ph-track"></div>`;
   root.insertBefore(row, root.querySelector(".tl-context"));
+  foot = document.createElement("p");
+  foot.className = "ph-foot";
+  root.appendChild(foot);
   row.querySelector(".ph-pick")!.addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
     if (!b) return;
@@ -173,5 +177,6 @@ export function setPhase(data: PhaseFile | null, show: boolean, speed?: { label:
   mount();
   visible = show && !!file;
   if (row) row.hidden = !visible;
+  if (foot) foot.hidden = !visible;
   if (visible) render();
 }

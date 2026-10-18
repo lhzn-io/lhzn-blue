@@ -1489,8 +1489,7 @@ function renderPanel(fallback: HTMLElement): void {
     if (overlay && !wt) {
       const of = watFrame >= 0 ? overlay.frames[watFrame] : null;
       body += `<div class="field-key field-overlay"><span class="field-name" title="${META.wat.title}">+ ${META.wat.short}</span><span class="field-when">${of ? `NWPS ${of.cycle.slice(11, 13)}Z run` : "no model hour"}</span>
-        <button type="button" class="field-info" data-about="map-wat" aria-haspopup="dialog" aria-label="About wind against tide" title="About wind against tide">i</button></div>
-        ${scaleHtml(META.wat, true)}`;
+        <button type="button" class="field-info" data-about="map-wat" aria-haspopup="dialog" aria-label="About wind against tide" title="About wind against tide">i</button>${scaleHtml(META.wat, true)}</div>`;
     }
   }
   panel.innerHTML = body;

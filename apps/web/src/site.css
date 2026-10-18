@@ -1040,7 +1040,8 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .wat-scale svg { display: inline-block; border: 1px solid var(--rule); }
 
 /* The wind-against-tide overlay's row in the map key, and the rule between a value and the overlay's cell. */
-.field-overlay { margin-top: 6px; }
+.field-overlay { flex-wrap: wrap; align-items: center; }
+.field-overlay .wat-scale { display: inline-flex; margin-left: 6px; } /* the hatch key on the layer's own line */
 .pin-pop hr.pop-rule { border: 0; border-top: 1px solid var(--rule); margin: 6px 0; clear: both; }
 .pin-pop .pop-src { white-space: nowrap; }
 
@@ -1071,7 +1072,8 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .ph-pick button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--ink); }
 .ph-pick button:hover { color: var(--ink); }
 .ph-info { font: italic 600 9px/1 var(--sans); width: 13px; height: 13px; border-radius: 50%; border: 1px solid var(--rule); background: none; color: var(--dim); cursor: pointer; padding: 0; }
-.ph-read { flex-basis: 100%; color: var(--dim); }
+.ph-foot { margin: 4px 0 0 28px; font: 9.5px/1.4 var(--mono); color: var(--dim); } /* the strip's reading, under the sliders */
+.ph-foot-k { color: var(--ink-mute); }
 
 /* The point readout's trend arrows and sparklines (after each model's value). */
 .pin-pop .pop-spark { vertical-align: -2px; margin-left: 6px; }

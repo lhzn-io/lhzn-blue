@@ -326,10 +326,10 @@ METHODS["current-phase"] = {
     "the Race and the central Sound and east at Throgs Neck, so each point has its own axis.",
   caveats:
     "Both are predictions: NOAA's from the tides alone, without wind or river flow; NECOFS's from a model run with them. " +
-    "Against NOAA over October 16 to 20, 2026, NECOFS kept time within about 10 minutes at the Race and Throgs Neck and " +
-    "ran about 40 minutes early in the central Sound; it reached about 60 percent of NOAA's strength at the Race (the jet " +
-    "is narrower than the model's mesh resolves) and matched it within about 30 percent elsewhere. At Execution Rocks the " +
-    "current is weak and irregular, and the two agree least.",
+    "Against NOAA over October 3 to 20, 2026, NECOFS kept time within about 10 minutes at the Race, the central Sound and " +
+    "Throgs Neck (correlation 0.93 to 0.98) and ran about 40 minutes early at Execution Rocks, where the current is weak and " +
+    "irregular (0.80). It reached about 65 percent of NOAA's strength at the Race and Throgs Neck (the jets are narrower " +
+    "than the model's mesh resolves) and ran about a third stronger in the central Sound.",
 };
 
 METHODS.trends = {

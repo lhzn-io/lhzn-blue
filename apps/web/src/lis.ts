@@ -1850,6 +1850,13 @@ interface FcValue { spd: number; dir: number; gust: number; air: number; pres: n
 let FCST: { runs: Record<string, FcRun[]>; ver: Verification | null; generated: number } | null = null;
 let fcstLoading: Promise<void> | null = null;
 let fcstRedraw: () => void = () => undefined;
+let fcstPending = 0;
+/** Data arriving together (eight station histories, the forecasts, the advisories) costs one redraw, a moment after the
+ * last arrival, not one each. */
+function requestFcstRedraw(): void {
+  window.clearTimeout(fcstPending);
+  fcstPending = window.setTimeout(() => fcstRedraw(), 60);
+}
 const MS_KT = 1.943844;
 const fmtRun = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" });
 
@@ -1869,7 +1876,7 @@ function loadForecast(): Promise<void> {
       }
       Object.values(runs).forEach((r) => r.sort((a, b) => b.issue - a.issue));
       FCST = { runs, ver, generated: Date.parse(page.generated_at) / 1000 };
-      fcstRedraw();
+      requestFcstRedraw();
     })
     .catch(() => undefined);
   return fcstLoading;
@@ -1893,7 +1900,7 @@ function hrrrHist(id: string): Met | null {
           pressure: Hourly.fromArray(h.t0, h.pressure_mb),
           last: null,
         });
-        fcstRedraw();
+        requestFcstRedraw();
       })
       .catch(() => HRRR_HIST.set(id, null));
   }
@@ -2105,7 +2112,7 @@ function loadNwps(): Promise<void> {
       const runs = Object.entries(p.runs).map(([k, r]) => ({ issue: Date.parse(k.replace(/Z$/, ":00Z")) / 1000, steps: r.steps, points: r.points }));
       runs.sort((a, b) => b.issue - a.issue);
       NWPS = { runs, cells: p.cells };
-      fcstRedraw();
+      requestFcstRedraw();
     })
     .catch(() => undefined);
   return nwpsLoading;
@@ -2159,7 +2166,7 @@ function loadAdvisories(): Promise<void> {
     .then((a) => {
       ADV = a;
       ADV_CACHE.clear();
-      fcstRedraw();
+      requestFcstRedraw();
     })
     .catch(() => undefined);
   return advLoading;

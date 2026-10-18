@@ -68,7 +68,8 @@ export function wireHints(): void {
   document.addEventListener("focusin", (e) => {
     const el = target(e);
     hide();
-    if (el) {
+    // Keyboard focus only: a click focuses a button too, and its hint would cover what the click opened.
+    if (el && (e.target as Element).matches?.(":focus-visible")) {
       owner = el;
       show(el);
     }

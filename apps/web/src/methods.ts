@@ -304,7 +304,7 @@ export const METHODS: Record<string, Method> = {
     method:
       "NOAA's High-Resolution Rapid Refresh (HRRR) [[dowell2022hrrr]], read through forcingkit. Each hour comes from the newest run that covers " +
       "it: hourly runs reach 18 hours ahead, the 00, 06, 12 and 18 UTC runs 48 hours. Values are raw: no smoothing between " +
-      "cells. Cells HRRR counts as land are drawn fainter, so the coastline is the model's.",
+      "cells. Cells HRRR counts as land are drawn fainter inland; land cells touching water (harbours, coves, the shore) are drawn like water, and a click there says it is a land cell.",
     caveats: "A model forecast, not a measurement; the past hours are short-lead forecasts, not observations. Speeds follow the Units switch.",
   },
 };
@@ -330,6 +330,19 @@ METHODS["current-phase"] = {
     "Throgs Neck (correlation 0.93 to 0.98) and ran about 40 minutes early at Execution Rocks, where the current is weak and " +
     "irregular (0.80). It reached about 65 percent of NOAA's strength at the Race and Throgs Neck (the jets are narrower " +
     "than the model's mesh resolves) and ran about a third stronger in the central Sound.",
+};
+
+METHODS.comfort = {
+  title: "Comfort for small craft",
+  // No Shows row: the readout and the charts below say it, and the modal fits without scrolling.
+  shows: "",
+  method:
+    "The worst factor below for your boat, from HRRR wind, NWPS waves, the wave-current level and (kayaks) NECOFS " +
+    "current. Steps follow Beaufort, WMO sea states and the NWS small craft advisory; the 30% rule, post-Fastnet (1979) " +
+    "capsize tests.",
+  caveats:
+    "A guide, not a go or no-go: boat, crew and handling matter more. Gusts, visibility and thunderstorms are not in it " +
+    "yet; the thresholds are a first set, to be checked against the buoys.",
 };
 
 METHODS.trends = {

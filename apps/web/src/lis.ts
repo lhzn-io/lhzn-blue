@@ -8,6 +8,7 @@ import shoreRegistry from "../../../stations/shore.json";
 import { emphasise, highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
 import { wireHints } from "./hints";
 import { BUOY_SENSORS, METHODS, methodHtml, REF_LABELS } from "./methods";
+import { BOATS, boatIcon, boatLabel, boatPickerHtml, comfortTableHtml } from "./comfort-thresholds";
 import { mountCollect } from "./collect";
 import { percentileText, SEASONS, seasonalPercentile, smoothByAge, trend, trendText, TRENDS, veerText } from "./trends";
 import type { Pin } from "./map";
@@ -1203,8 +1204,24 @@ const FIGS: Record<Kind, Fig> = {
           : []),
         ...(hasModel ? [{ ys: model, color: P.line, width: 1.2, dash: "5 3", label: "NWS wave model (NWPS)", fmt }] : []),
       ];
+      // Earlier NWPS runs, faint and fainter with age (as the HRRR runs in the next-48-hours plot).
+      const nruns = hasModel ? nwpsRuns(d.meta.id, x0, x1) : [];
+      const older = nruns.slice(0, -1).reverse();
+      lines.unshift(...older.map((r, i) => ({
+        ys: xs.map((t) => val(nwpsRunAt(r, d.meta.id, t))),
+        color: P.line,
+        width: 0.8,
+        opacity: 0.32 - (0.24 * i) / Math.max(1, older.length - 1),
+        label: nwpsLabel(r),
+        tip: false,
+      })));
+      // The run whose line is nearest the pointer at the hovered hour (the slider follows it).
+      const pick = (i: number, yv: number) => {
+        const vals = nruns.map((r) => ({ r, y: val(nwpsRunAt(r, d.meta.id, xs[i])) })).filter((x) => Number.isFinite(x.y));
+        return vals.length ? nwpsLabel(vals.reduce((a, b) => (Math.abs(b.y - yv) < Math.abs(a.y - yv) ? b : a)).r) : null;
+      };
       return {
-        opts: { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, marker: hasModel ? { x: Date.now() / 1000, label: "now" } : undefined, empty: `No wave readings in this window. ${wavesText(d.meta.id)} Full record shows what we hold.` },
+        opts: { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, pick: hasModel ? pick : undefined, marker: hasModel ? { x: Date.now() / 1000, label: "now" } : undefined, empty: `No wave readings in this window. ${wavesText(d.meta.id)} Full record shows what we hold.` },
         legend: [["Significant height", measured, 1], ["Highest wave", P.contrast, 0.35], ...(hasModel ? [["NWS wave model (NWPS)", P.line, 0.7] as [string, string, number]] : [])],
       };
     },
@@ -3784,10 +3801,42 @@ function vintageLabel(id: string, r: FcRun): string {
 }
 
 function mountVintage(d: StationData, plot: HTMLElement, x0?: number, x1?: number): void {
+  mountRunSlider(plot, { store: d.meta.id, model: "HRRR", runs: vintageRuns(d.meta.id, x0, x1), lineLabel: (r) => vintageLabel(d.meta.id, r as FcRun) });
+}
+
+/** The NWPS runs the Waves plot draws for a buoy between x0 and x1, oldest first (the newest is the stitched line). */
+function nwpsRuns(id: string, x0 = -Infinity, x1 = Infinity): NwpsRun[] {
+  return (NWPS?.runs ?? [])
+    .filter((r) => r.points[id] && r.issue < x1 && r.issue + r.steps[r.steps.length - 1] * HOUR >= x0)
+    .reverse();
+}
+/** An NWPS run's line label: the newest is the stitched model line, the others "NWPS run <time>". */
+function nwpsLabel(r: NwpsRun): string {
+  return r === NWPS?.runs[0] ? "NWS wave model (NWPS)" : `NWPS run ${fmtRun.format(new Date(r.issue * 1000))}`;
+}
+/** One NWPS run's significant height at a buoy for a time, linear between its hours. */
+function nwpsRunAt(r: NwpsRun, id: string, t: number): number {
+  const f = (t - r.issue) / HOUR;
+  const a = Math.floor(f);
+  const hs = r.points[id]?.hs;
+  const at = (lead: number) => {
+    const i = r.steps.indexOf(lead);
+    return i < 0 ? NaN : hs?.[i] ?? NaN;
+  };
+  const va = at(a);
+  return f === a ? va : va + (at(a + 1) - va) * (f - a);
+}
+function mountNwpsVintage(d: StationData, plot: HTMLElement, x0?: number, x1?: number): void {
+  mountRunSlider(plot, { store: `${d.meta.id}:nwps`, model: "NWPS", runs: nwpsRuns(d.meta.id, x0, x1), lineLabel: (r) => nwpsLabel(r as NwpsRun) });
+}
+
+/** A version slider on a plot: picks one of a model's runs (oldest to newest), shows only "<model>, as of <run>", and
+ * emphasises that run's line; hovering a run's line moves it. The choice is kept per plot (store key). */
+function mountRunSlider(plot: HTMLElement, o: { store: string; model: string; runs: { issue: number }[]; lineLabel: (r: { issue: number }) => string }): void {
   plot.querySelector(".vintage")?.remove();
-  const runs = vintageRuns(d.meta.id, x0, x1);
+  const runs = o.runs;
   if (runs.length < 2) return;
-  const chosen = runs.findIndex((r) => r.issue === VINTAGE.get(d.meta.id));
+  const chosen = runs.findIndex((r) => r.issue === VINTAGE.get(o.store));
   const k0 = chosen >= 0 ? chosen : runs.length - 1;
   const box = document.createElement("div");
   box.className = "vintage";
@@ -3799,11 +3848,11 @@ function mountVintage(d: StationData, plot: HTMLElement, x0?: number, x1?: numbe
   const label = box.querySelector<HTMLElement>(".vg-label")!;
   const set = (k: number, picked: boolean) => {
     const r = runs[k];
-    label.textContent = `HRRR, as of ${fmtRun.format(new Date(r.issue * 1000))}`;
+    label.textContent = `${o.model}, as of ${fmtRun.format(new Date(r.issue * 1000))}`;
     range.value = String(k);
     range.setAttribute("aria-valuetext", label.textContent);
-    if (picked) VINTAGE.set(d.meta.id, r.issue);
-    emphasise(plot, picked || chosen >= 0 ? vintageLabel(d.meta.id, r) : null);
+    if (picked) VINTAGE.set(o.store, r.issue);
+    emphasise(plot, picked || chosen >= 0 ? o.lineLabel(r) : null);
   };
   set(k0, false);
   range.addEventListener("input", () => set(Number(range.value), true));
@@ -3811,9 +3860,9 @@ function mountVintage(d: StationData, plot: HTMLElement, x0?: number, x1?: numbe
   const old = VINTAGE_LISTENERS.get(plot);
   if (old) plot.removeEventListener("linepick", old);
   const onPick = (e: Event) => {
-    const k = runs.findIndex((r) => vintageLabel(d.meta.id, r) === (e as CustomEvent<string>).detail);
+    const k = runs.findIndex((r) => o.lineLabel(r) === (e as CustomEvent<string>).detail);
     if (k >= 0) {
-      VINTAGE.set(d.meta.id, runs[k].issue);
+      VINTAGE.set(o.store, runs[k].issue);
       set(k, true);
     }
   };
@@ -3839,6 +3888,7 @@ function drawInline(d: StationData, key: Kind): void {
   renderLines($(`${d.meta.id}-${key}`), b.opts);
   $(`${d.meta.id}-${key}-legend`).innerHTML = legendHtml(b);
   if (key === "next48") mountVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
+  if (key === "waves") mountNwpsVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
   if (key === "sb") drawWindStrip(d, x0, x1);
 }
 
@@ -3862,6 +3912,7 @@ function drawZoom(): void {
   renderLines($("zoom-plot"), b.opts);
   $("zoom-legend").innerHTML = legendHtml(b);
   if (zoom.key === "next48") mountVintage(zoom.d, $("zoom-plot"), zoom.x0, zoom.x1);
+  else if (zoom.key === "waves") mountNwpsVintage(zoom.d, $("zoom-plot"), zoom.x0, zoom.x1);
   else $("zoom-plot").querySelector(".vintage")?.remove();
 }
 
@@ -4224,6 +4275,8 @@ function openAbout(key: string, d: StationData | null): void {
     stationId: d?.meta.id ?? "",
     kind: d?.kind ?? "",
   });
+  // The comfort index's thresholds, as a table with the reader's boat marked.
+  if (key === "comfort") $("about-dialog-body").querySelector(".about-list")?.insertAdjacentHTML("afterend", comfortTableHtml(BOAT, WU === "ms"));
   if (!dialog.open) dialog.showModal();
 }
 
@@ -4384,7 +4437,7 @@ function methodText(key: string): string {
   const m = METHODS[key];
   if (!m) return "";
   const plain = (t?: string) => (t ?? "").replace(/\[\[([a-z0-9_]+)\]\]/g, (_, k: string) => `(${REF_LABELS[k] ?? k})`).replace(/\{variable\}/g, isWater(VK) ? V().label.toLowerCase() : "the reading").replace(/\{station\}/g, "the station");
-  return [`- ${m.title}: ${plain(m.shows)}`, m.method ? `  Method: ${plain(m.method)}` : "", m.caveats ? `  Caveats: ${plain(m.caveats)}` : ""].filter(Boolean).join("\n");
+  return [`- ${m.title}${m.shows ? `: ${plain(m.shows)}` : ""}`, m.method ? `  Method: ${plain(m.method)}` : "", m.caveats ? `  Caveats: ${plain(m.caveats)}` : ""].filter(Boolean).join("\n");
 }
 
 /** The prompt for the collected items: the data of their stations (all stations when nothing is collected), the
@@ -4709,13 +4762,14 @@ function fieldControls(): import("./fields").FieldControls {
       return [...ordered, ...FIELD_CHOICES.filter((c) => !ordered.includes(c)).map((c) => ({ ...c, more: true }))];
     })(),
     chosen: fieldPick,
+    boat: BOAT,
     // Wind & waves: a click reads wind, waves and wind against tide at its point, whatever layer shows.
     point: VIEW_LAYERS[VK].overlay
       ? async () => {
-          const [w, v, c, t] = await Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("currents"), fieldData("wat")]);
+          const [w, v, c, t, s, z] = await Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("currents"), fieldData("wat"), fieldData("sst"), getJson<NonNullable<import("./fields").PointSources["zones"]>>("/nws-zones-lis.json")]);
           const ok = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : undefined);
           const cur = ok(c);
-          return { wind: ok(w)?.wind, waves: ok(v)?.wind, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined, wat: ok(t)?.wat };
+          return { wind: ok(w)?.wind, waves: ok(v)?.wind, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined, wat: ok(t)?.wat, sst: ok(s)?.raster, zones: ok(z) };
         }
       : undefined,
     overlay: VIEW_LAYERS[VK].overlay
@@ -4854,6 +4908,71 @@ function wireOutageIcon(): void {
   $("outage-dialog-close").addEventListener("click", () => dialog.close());
   dialog.addEventListener("click", (e) => {
     if (e.target === dialog) dialog.close(); // a click on the backdrop
+  });
+}
+
+/** The boat class for the comfort index (the menu's Boat setting): paddle craft, small boat (5 to 8 m, the default),
+ * large boat (8 to 15 m); kept in this browser. */
+let BOAT: import("./fields").Boat = (() => {
+  try {
+    const b = localStorage.getItem("lhzn-blue-boat");
+    // Earlier saved choices (paddle craft, small boat, large boat) map to the nearest class.
+    const old: Record<string, import("./fields").Boat> = { paddle: "kayak", small: "console", large: "big" };
+    return b === "kayak" || b === "skiff" || b === "console" || b === "big" ? b : old[b ?? ""] ?? "console";
+  } catch {
+    return "console";
+  }
+})();
+/** The boat picker in the menu and in the comfort charts: one listener for every picker on the page. */
+function wireBoat(): void {
+  const slot = document.querySelector("[data-boat-slot]");
+  if (slot) slot.insertAdjacentHTML("beforeend", boatPickerHtml(BOAT));
+  // Up front, in the byline: the chosen boat's icon (its name and length as the tooltip); a click opens the picker.
+  const mast = document.querySelector<HTMLElement>("[data-boat-mast]");
+  const chip = () => `${BOATS[BOAT].name} \u00b7 ${Math.round(BOATS[BOAT].loa * 3.28084)} ft`;
+  const spoken = () => `Boat for the comfort index: ${boatLabel(BOAT)}`;
+  if (mast) {
+    mast.innerHTML = `<button type="button" class="boat-now" aria-haspopup="true" aria-expanded="false" title="${chip()}" aria-label="${spoken()}">${boatIcon(BOAT, 12)}</button>` +
+      `<span class="boat-pop" hidden>${boatPickerHtml(BOAT)}</span>`;
+  }
+  const now = mast?.querySelector<HTMLButtonElement>(".boat-now");
+  const pop = mast?.querySelector<HTMLElement>(".boat-pop");
+  const openPop = (open: boolean) => {
+    if (!pop || !now) return;
+    pop.hidden = !open;
+    now.setAttribute("aria-expanded", String(open));
+  };
+  now?.addEventListener("click", () => openPop(!!pop?.hidden));
+  document.addEventListener("click", (e) => {
+    if (pop && !pop.hidden && !(e.target as Element).closest?.("[data-boat-mast]")) openPop(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && pop && !pop.hidden) {
+      openPop(false);
+      now?.focus();
+    }
+  });
+  document.addEventListener("click", (e) => {
+    const b = (e.target as Element).closest?.("button[data-boat]") as HTMLButtonElement | null;
+    if (!b) return;
+    e.stopPropagation(); // the menu stays open
+    BOAT = b.dataset.boat as typeof BOAT;
+    try {
+      localStorage.setItem("lhzn-blue-boat", BOAT);
+    } catch {
+      /* private mode: for this visit */
+    }
+    document.querySelectorAll<HTMLButtonElement>("button[data-boat]").forEach((x) => x.setAttribute("aria-checked", String(x.dataset.boat === BOAT)));
+    if (now) {
+      now.innerHTML = boatIcon(BOAT, 12);
+      now.title = chip();
+      now.setAttribute("aria-label", spoken());
+    }
+    if (b.closest("[data-boat-mast]")) openPop(false);
+    // The comfort charts, if open, redraw for the new boat.
+    const chart = document.querySelector("#about-dialog-body .comfort-chart");
+    if (chart) chart.outerHTML = comfortTableHtml(BOAT, WU === "ms");
+    void syncField();
   });
 }
 
@@ -5178,6 +5297,7 @@ async function main(): Promise<void> {
     wireTheme(redraw);
     wireOutageIcon();
     wireLocate();
+    wireBoat();
     wireUnits(redraw);
     wireMore();
     // Keep "now" and the ages current on a page left open, and refit axis labels on resize.

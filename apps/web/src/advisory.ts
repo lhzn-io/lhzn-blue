@@ -23,10 +23,8 @@ const RANK = ["HF.W", "HU.W", "TR.W", "SR.W", "GL.W", "SE.W", "SC.Y", "MA.W", "M
 export const WIND_STRIP_HASH = "#wind-strip";
 export const WIND_VIEW_URL = "/long-island-sound/?view=wind";
 
-function listParts(names: string[]): string {
-  if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
+/** NWS's marine forecast page for a zone (ANZ335 -> forecast.weather.gov/shmrn.php?mz=anz335). */
+export const zoneForecastUrl = (zone: string) => `https://forecast.weather.gov/shmrn.php?mz=${zone.toLowerCase()}`;
 
 /** Fetch the alerts in force and show them in the masthead; `onOpen` handles the click on the Sound page itself
  * (switch to the Wind view), elsewhere the link navigates. */
@@ -57,21 +55,24 @@ export async function mountAdvisories(mast: Element, onOpen?: () => void): Promi
   const first = (ts: string[]) => ts.reduce((m, t) => (Date.parse(t) < Date.parse(m) ? t : m));
   const last = (ts: string[]) => ts.reduce((m, t) => (Date.parse(t) > Date.parse(m) ? t : m));
   const rows = [...lines.values()].sort((x, y) => RANK.indexOf(x.a.kind) - RANK.indexOf(y.a.kind));
-  const link = document.createElement("a");
+  // A box, not a link, so it can hold the NWS forecast links; it still opens the Wind view (click or Enter).
+  const link = document.createElement("div");
   link.className = "mast-advisory";
-  link.href = WIND_VIEW_URL;
-  link.setAttribute("role", "status");
+  link.tabIndex = 0;
+  link.setAttribute("role", "link");
+  link.dataset.href = WIND_VIEW_URL;
   link.innerHTML = rows
     .map(({ a, zones, issued, updated }) => {
       const parts = order.filter((z) => zones.has(z));
-      const where = parts.length === order.length ? "the whole Sound" : listParts(parts.map((z) => now.zones[z]));
       const until = a.ends ? `until ${fmtEnd.format(new Date(a.ends))}` : "";
       const when = [
         issued.length ? `issued ${fmtEnd.format(new Date(first(issued)))}` : "",
         updated.length ? `updated ${fmtEnd.format(new Date(last(updated)))}` : "",
       ].filter(Boolean).join(" &middot; ");
-      return `<span class="ma-row"><b>${a.event}</b><span class="ma-sub">${where}${until ? ` &middot; ${until}` : ""}</span>` +
-        `<span class="ma-when">${when}${when ? " &middot; " : ""}NWS</span></span>`;
+      const nws = parts.map((z) => `<a href="${zoneForecastUrl(z)}" target="_blank" rel="noopener" title="NWS marine forecast, ${now.zones[z]} (${z})">${now.zones[z].replace(/ Sound$/, "")}</a>`).join(" &middot; ");
+      // The zones in force, each a link to its NWS marine forecast, in place of a "where" phrase.
+      return `<span class="ma-row"><b>${a.event}</b><span class="ma-sub">${nws}${until ? ` &middot; ${until}` : ""}</span>` +
+        `<span class="ma-when">${when}</span></span>`;
     })
     .join("");
   // The tooltip: each zone's own span (an advisory can start at different times along the Sound).
@@ -79,12 +80,14 @@ export async function mountAdvisories(mast: Element, onOpen?: () => void): Promi
     order.flatMap((z) => spans.filter(([zz]) => zz === z).map(([, sp]) =>
       `${a.event}, ${now.zones[z]} (${z}): issued ${sp.issued ? fmtEnd.format(new Date(sp.issued)) : "?"}, in force ${sp.from ? fmtEnd.format(new Date(sp.from)) : "?"} to ${sp.until ? fmtEnd.format(new Date(sp.until)) : "?"}`)));
   link.title = ["Issued by the National Weather Service (New York).", ...detail].join("\n");
-  if (onOpen) {
-    link.addEventListener("click", (e) => {
-      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
-      e.preventDefault();
-      onOpen();
-    });
-  }
+  const open = () => (onOpen ? onOpen() : location.assign(WIND_VIEW_URL));
+  link.addEventListener("click", (e) => {
+    if ((e.target as Element).closest("a")) return; // an NWS forecast link: let it open
+    if (e.metaKey || e.ctrlKey) return void window.open(WIND_VIEW_URL, "_blank");
+    open();
+  });
+  link.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !(e.target as Element).closest("a")) open();
+  });
   mast.append(link);
 }

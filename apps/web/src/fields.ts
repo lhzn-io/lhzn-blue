@@ -10,6 +10,8 @@
  * quadrilateral per cell, with land cells (HRRR's mask) fainter.
  */
 import type maplibregl from "maplibre-gl";
+import { alertsNow, zoneForecastUrl } from "./advisory";
+import { BOATS, COMFORT_WORDS, type Boat } from "./comfort-thresholds";
 import { mapReady, mapTheme, onStyle } from "./map";
 
 export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind" | "waves" | "wat";
@@ -122,6 +124,8 @@ export async function decodeHistory(buf: ArrayBuffer): Promise<RasterHistory> {
 
 /** The fields a point readout draws on: HRRR wind and NWPS waves (both on their model cells) and wind against tide. */
 export interface PointSources {
+  sst?: RasterField;
+  zones?: { features: { properties: { id: string }; geometry: { type: string; coordinates: unknown } }[] };
   wind?: WindField;
   waves?: WindField;
   currents?: { mesh: CurrentsMesh; currents: CurrentsField };
@@ -137,6 +141,8 @@ export interface FieldControls {
   onWide: (wide: boolean) => void;
   /** The models a click reads at its point whatever the layer (Wind & waves): loaded on the first click. */
   point?: () => Promise<PointSources>;
+  /** The boat class the comfort index is for (the menu's Boat setting). */
+  boat?: Boat;
   /** An overlay the view offers (wind against tide), whether it is on, and its switch. */
   overlay?: { label: string; on: boolean; onToggle: (on: boolean) => void };
   /** The reader's speed unit (from the page's Units switch), for the currents key and values. */
@@ -190,7 +196,7 @@ const META: Record<FieldKind, Meta> = {
   currents: { title: "Surface currents", short: "Currents", ramp: "speed", log: false, range: [0, 150], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
   waves: { title: "Waves (NWS NWPS)", short: "Waves, NWPS", ramp: "wind", log: false, range: [0, WAVE_TOP], unit: "m", digits: 2, note: "Model forecast (NWS Nearshore Wave Prediction System, SWAN): significant wave height on the model's own 1.8 km cells; arrows show where the waves travel. These runs carry no currents, so steepening where wind opposes the tide is not in them." },
   wat: { title: "Wind against tide", short: "Wind against tide", ramp: "wind", log: false, unit: "", digits: 0, note: "A model-derived index, not an observation and not an NWS product: where the NECOFS current runs against the NWPS waves and steepens them (linear theory). Shoals, rips and overfalls finer than the 1.8 km cells are not in it." },
-  wind: { title: "Wind (HRRR)", short: "Wind, HRRR", ramp: "wind", log: false, range: [0, WIND_TOP], unit: "m/s", digits: 1, note: "Model forecast (NOAA HRRR), 10 m above the surface, on the model's own 3 km cells; arrows show where the wind blows toward. Cells HRRR counts as land are fainter." },
+  wind: { title: "Wind (HRRR)", short: "Wind, HRRR", ramp: "wind", log: false, range: [0, WIND_TOP], unit: "m/s", digits: 1, note: "Model forecast (NOAA HRRR), 10 m above the surface, on the model's own 3 km cells; arrows show where the wind blows toward. Cells HRRR counts as land are fainter inland; on the shore (harbours, coves) they are drawn like water." },
 };
 
 const hex = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
@@ -551,9 +557,38 @@ function windFrameAt(w: WindField): number {
   return gap <= 3600 ? best : -1;
 }
 
+/** Cells the model counts as land but that touch a water cell (any of the 8 around): harbours, coves and the shore,
+ * where HRRR's 3 km cells straddle the coastline. They are drawn like water cells; only inland cells are faint. */
+const shoreCells = new WeakMap<WindField["mesh"], Uint8Array>();
+function shoreOf(m: WindField["mesh"]): Uint8Array {
+  let s = shoreCells.get(m);
+  if (s) return s;
+  s = new Uint8Array(m.land.length);
+  for (let j = 0; j < m.ny; j++) {
+    for (let i = 0; i < m.nx; i++) {
+      const id = j * m.nx + i;
+      if (!m.land[id]) continue;
+      for (let dj = -1; dj <= 1 && !s[id]; dj++) {
+        for (let di = -1; di <= 1; di++) {
+          const jj = j + dj;
+          const ii = i + di;
+          if (jj >= 0 && jj < m.ny && ii >= 0 && ii < m.nx && !m.land[jj * m.nx + ii]) {
+            s[id] = 1;
+            break;
+          }
+        }
+      }
+    }
+  }
+  shoreCells.set(m, s);
+  return s;
+}
+
 /** Each HRRR cell as its own quadrilateral, from the corners the job published. */
 function windCellsGeoJSON(w: WindField) {
-  const { nx, ny, corner_lon: x, corner_lat: y, land } = w.mesh;
+  const { nx, ny, corner_lon: x, corner_lat: y, land: isLand } = w.mesh;
+  const shore = shoreOf(w.mesh);
+  const land = isLand.map((v, i) => (v && !shore[i] ? 1 : 0)); // inland only: shore cells draw as water
   const c = (j: number, i: number) => [x[j * (nx + 1) + i], y[j * (nx + 1) + i]];
   const features = [];
   for (let j = 0; j < ny; j++) {
@@ -572,13 +607,14 @@ function windCellsGeoJSON(w: WindField) {
 
 function windPointsGeoJSON(w: WindField, k: number) {
   const m = w.mesh;
+  const shore = shoreOf(m);
   const uv = k >= 0 ? windUV(w, k) : null;
   return {
     type: "FeatureCollection" as const,
     features: uv
       ? m.centre_lon.map((lon, i) => ({
           type: "Feature" as const,
-          properties: { level: m.arrow_level[i], land: m.land[i], s: Math.hypot(uv.u[i], uv.v[i]), d: (Math.atan2(uv.u[i], uv.v[i]) * 180) / Math.PI },
+          properties: { level: m.arrow_level[i], land: m.land[i] && !shore[i] ? 1 : 0, s: Math.hypot(uv.u[i], uv.v[i]), d: (Math.atan2(uv.u[i], uv.v[i]) * 180) / Math.PI },
           geometry: { type: "Point" as const, coordinates: [lon, m.centre_lat[i]] },
         }))
       : [],
@@ -893,9 +929,164 @@ function watText(w: WatField, cell: number): string {
   return `<b>${WAT_LABELS[f.lv[j]]}</b><br>Current ${spd.toFixed(un.digits)} ${un.label} toward ${compass16(toward)} against ${((f.hs[j] / 100) * 3.28084).toFixed(1)} ft, ${(f.tp[j] / 10).toFixed(1)} s waves from ${compass16(from)}: ${effect}<br>${when}`;
 }
 
+
+/* ---------- Small-craft comfort index ---------- */
+
+export type { Boat } from "./comfort-thresholds";
+const stepLevel = (v: number, steps: number[]) => (v >= steps[2] ? 3 : v >= steps[1] ? 2 : v >= steps[0] ? 1 : 0);
+
+/** The NWS zone (id) containing a point, from the zone outlines. */
+function zoneAt(zones: PointSources["zones"], lng: number, lat: number): string | null {
+  const inRing = (ring: number[][]) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i];
+      const [xj, yj] = ring[j];
+      if (yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  };
+  for (const f of zones?.features ?? []) {
+    const polys = f.geometry.type === "Polygon" ? [f.geometry.coordinates as number[][][]] : (f.geometry.coordinates as number[][][][]);
+    if (polys.some((poly) => inRing(poly[0]) && !poly.slice(1).some(inRing))) return f.properties.id;
+  }
+  return null;
+}
+
+/** The strongest NWS advisory or warning in force for a zone at a time: 0 none, 1 small craft, 2 gale or worse. */
+function advisoryAt(zone: string | null, t: number): { rank: number; name: string } {
+  let best = { rank: 0, name: "" };
+  if (!zone) return best;
+  for (const a of alertsNow()?.alerts ?? []) {
+    const span = a.by_zone?.[zone];
+    if (!span) continue;
+    const from = Date.parse(span.from ?? span.issued ?? "") / 1000;
+    const until = Date.parse(span.until ?? a.ends ?? "") / 1000;
+    if (!(t >= (Number.isFinite(from) ? from : -Infinity) && t < (Number.isFinite(until) ? until : Infinity))) continue;
+    const rank = a.kind === "SC.Y" ? 1 : 2;
+    if (rank > best.rank) best = { rank, name: a.event.toLowerCase() };
+  }
+  return best;
+}
+
+/** The comfort level at a point and time for a boat class, with the factors that set it. */
+function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat: Boat): { level: number; why: string[]; partial: boolean; zone: string | null; advisory: string } | null {
+  const b = BOATS[boat];
+  const un = windUnit();
+  const metric = un.label === "m/s";
+  const f: { level: number; text: string }[] = [];
+  let partial = false;
+  let hs = NaN;
+  if (src.wind) {
+    const id = nearestCell(src.wind.mesh, lng, lat, 3);
+    const kt = id >= 0 ? valueAt(cellSeries(src.wind, id), t) * 1.943844 : NaN;
+    if (Number.isFinite(kt)) f.push({ level: stepLevel(kt, b.wind), text: `wind ${(kt / 1.943844 * un.perMs).toFixed(un.digits)} ${un.label}` });
+    else partial = true;
+  }
+  if (src.waves) {
+    const id = nearestCell(src.waves.mesh, lng, lat, 2);
+    hs = id >= 0 && !src.waves.mesh.land[id] ? valueAt(cellSeries(src.waves, id), t) : NaN;
+    if (Number.isFinite(hs)) f.push({ level: stepLevel(hs, b.hs), text: `waves ${metric ? `${hs.toFixed(1)} m` : `${(hs * 3.28084).toFixed(1)} ft`}` });
+  }
+  if (b.current && src.currents) {
+    const { mesh: m, currents: c } = src.currents;
+    const cos = Math.cos((lat * Math.PI) / 180);
+    let e = -1;
+    let d2 = Infinity;
+    m.centres.forEach(([x, y], i) => {
+      const d = ((x - lng) * cos) ** 2 + (y - lat) ** 2;
+      if (d < d2) [e, d2] = [i, d];
+    });
+    if (e >= 0 && Math.sqrt(d2) * 111.2 <= 2) {
+      const s0 = Date.parse(c.t0) / 1000;
+      const kt = valueAt(c.u.map((uk, j) => [s0 + j * c.step, Math.hypot(uk[e], c.v[j][e]) / 100] as [number, number]), t) * 1.943844;
+      if (Number.isFinite(kt)) f.push({ level: stepLevel(kt, b.current), text: `current ${(kt / 1.943844 * un.perMs).toFixed(un.digits + 1)} ${un.label}` });
+    }
+  }
+  if (src.wat) {
+    const g = src.wat.grid;
+    const i = Math.round((lng - g.lon0) / g.dlon);
+    const j = Math.round((lat - g.lat0) / g.dlat);
+    let wl = 0;
+    let best = Infinity;
+    for (const fr of src.wat.frames) {
+      const d = Math.abs(Date.parse(fr.valid_time) / 1000 - t);
+      if (d < best && d <= 3600) {
+        best = d;
+        const k = fr.i.indexOf(j * g.nx + i);
+        wl = k >= 0 ? fr.lv[k] : 0;
+      }
+    }
+    if (wl > 0) f.push({ level: b.wat[wl], text: WAT_LABELS[wl].toLowerCase() });
+    // Breaking waves near 30% of the boat's length can capsize it beam-on (model tests after the 1979 Fastnet race).
+    if (wl >= 3 && Number.isFinite(hs) && 1.8 * hs >= 0.3 * b.loa) f.push({ level: 3, text: "breaking waves near 30% of the boat's length" });
+  }
+  if (!f.length) return null;
+  let level = Math.max(...f.map((x) => x.level));
+  if (f.filter((x) => x.level >= 2).length >= 3) level = 3; // three factors at Uncomfortable compound
+  const zone = zoneAt(src.zones, lng, lat);
+  const adv = advisoryAt(zone, t);
+  if (adv.rank === 2) {
+    level = 3;
+    f.push({ level: 3, text: adv.name });
+  } else if (adv.rank === 1) {
+    level = Math.max(level, b.sca);
+    f.push({ level: b.sca, text: "small craft advisory" });
+  }
+  // Cold water: under 15 C raises the level by one where anything else is already Moderate or worse (always for paddle craft).
+  const sst = src.sst ? rasterValueAt(src.sst, lng, lat)?.v ?? NaN : NaN;
+  if (Number.isFinite(sst) && sst < 15 && (level >= 1 || boat === "kayak") && level < 3) {
+    level += 1;
+    f.push({ level, text: `water ${metric ? `${sst.toFixed(0)} C` : `${((sst * 9) / 5 + 32).toFixed(0)} F`}` });
+  }
+  const why = f.filter((x) => x.level >= level).map((x) => x.text);
+  return { level, why: why.length ? why : f.filter((x) => x.level === Math.max(...f.map((y) => y.level))).map((x) => x.text), partial, zone, advisory: adv.rank === 2 ? adv.name : adv.rank === 1 ? "small craft advisory" : "" };
+}
+
+/** Four small squares, filled to the level: a word-sized gauge in the ink. */
+function comfortGauge(level: number): string {
+  return `<svg class="pop-gauge" viewBox="0 0 30 8" width="30" height="8" aria-hidden="true">${[0, 1, 2, 3]
+    .map((k) => `<rect x="${k * 7.5 + 0.5}" y="0.5" width="6" height="7" class="${k <= level ? "on" : "off"}"/>`)
+    .join("")}</svg>`;
+}
+
+function comfortLine(src: PointSources, lng: number, lat: number): string | null {
+  const boat = controls?.boat ?? "console";
+  const t = fieldT ?? Date.now() / 1000;
+  const c = comfortAt(src, lng, lat, t, boat);
+  if (!c) return null;
+  return `<span class="pop-l1"><b>${BOATS[boat].name}: ${COMFORT_WORDS[c.level]}</b> ${comfortGauge(c.level)} <button type="button" class="pop-about" data-about="comfort" aria-label="About the comfort index">i</button></span>` +
+    `<br><small>${c.level ? `limited by ${c.why.map((w) => (w === c.advisory && c.zone ? `<a href="${zoneForecastUrl(c.zone)}" target="_blank" rel="noopener" title="NWS marine forecast for ${c.zone}">${w}</a>` : w)).join("; ")}` : "within comfortable limits"}${c.partial ? "; beyond the wind forecast" : ""}</small>`;
+}
+
 /* ---------- Point readout (Wind & waves): every model at the clicked point ---------- */
 
 let pointSrc: PointSources | null = null; // loaded on the first click
+let probeRing: [number, number][] | null = null; // the clicked cell's outline (lon, lat corners) while its readout is open
+
+/** The clicked model cell as a ring: the wave model's cell, or HRRR's where the waves have none (land, the edge). */
+function cellRing(src: PointSources, lng: number, lat: number): [number, number][] | null {
+  for (const [w, km] of [[src.waves, 2], [src.wind, 3]] as const) {
+    if (!w) continue;
+    const id = nearestCell(w.mesh, lng, lat, km);
+    if (id < 0 || (w === src.waves && w.mesh.land[id])) continue;
+    const { nx, corner_lon: x, corner_lat: y } = w.mesh;
+    const j = Math.floor(id / nx);
+    const i = id % nx;
+    const c = (jj: number, ii: number): [number, number] => [x[jj * (nx + 1) + ii], y[jj * (nx + 1) + ii]];
+    return [c(j, i), c(j, i + 1), c(j + 1, i + 1), c(j + 1, i), c(j, i)];
+  }
+  return null;
+}
+
+/** Draw (or clear) the clicked cell's outline, above the fields and below the labels. */
+function drawProbeCell(map: maplibregl.Map): void {
+  if (map.getLayer("probe-cell")) map.removeLayer("probe-cell");
+  if (map.getSource("probe-cell")) map.removeSource("probe-cell");
+  if (!probeRing) return;
+  map.addSource("probe-cell", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: probeRing } } });
+  map.addLayer({ id: "probe-cell", type: "line", source: "probe-cell", paint: { "line-color": mapTheme() === "light" ? "#1c2a48" : "#f4f1e8", "line-width": 2 } }, beneathLabels(map));
+}
 let probePoint: { lng: number; lat: number } | null = null; // the point the popup reads
 
 /** The model cell whose centre is nearest a point, or -1 beyond maxKm (outside the model's grid). */
@@ -1167,6 +1358,7 @@ function watLine(w: WatField, lng: number, lat: number, on: boolean, heads: { wa
 function pointText(lng: number, lat: number): string {
   const src = pointSrc ?? {};
   const lines = [
+    comfortLine(src, lng, lat),
     src.wind ? windLine(src.wind, lng, lat) : null,
     src.waves ? waveLine(src.waves, lng, lat) : null,
     src.currents ? currentLine(src.currents, lng, lat) : null,
@@ -1280,6 +1472,21 @@ function renderCell(): void {
         `<line x1="${x(cursor).toFixed(1)}" x2="${x(cursor).toFixed(1)}" y1="0" y2="14" class="cell-cursor"/></svg><span class="cell-read">${now}</span></div>`);
     }
   }
+  {
+    const boat = controls?.boat ?? "console";
+    const W = 600;
+    const x = (t: number) => ((t - t0) / (t1 - t0)) * W;
+    let blocks = "";
+    for (let t = t0; t <= t1; t += 3600) {
+      const cf = comfortAt(src, lng, lat, t, boat);
+      if (!cf || cf.partial) continue;
+      blocks += `<rect x="${x(t - 1800).toFixed(1)}" width="${(x(t + 1800) - x(t - 1800)).toFixed(1)}" y="0" height="14" class="cell-cf cell-cf${cf.level}"><title>${COMFORT_WORDS[cf.level]}, ${fmtProbe.format(new Date(t * 1000))}${cf.level ? `: ${cf.why.join("; ")}` : ""}</title></rect>`;
+    }
+    const now = comfortAt(src, lng, lat, cursor, boat);
+    rows.unshift(`<div class="cell-row"><span class="cell-label">Comfort<small>${BOATS[boat].name.toLowerCase()}</small></span><svg viewBox="0 0 ${W} 14" preserveAspectRatio="none" class="cell-plot cell-band">` +
+      `${midnights(t0, t1).map((t) => `<line x1="${x(t).toFixed(1)}" x2="${x(t).toFixed(1)}" y1="0" y2="14" class="cell-tick"/>`).join("")}${blocks}` +
+      `<line x1="${x(cursor).toFixed(1)}" x2="${x(cursor).toFixed(1)}" y1="0" y2="14" class="cell-cursor"/></svg><span class="cell-read">${now ? COMFORT_WORDS[now.level].toLowerCase() : "--"}</span></div>`);
+  }
   const days = midnights(t0, t1).map((t) => `<span style="left:${((((t - t0) / (t1 - t0)) * 100) + 0.5).toFixed(2)}%">${fmtDayShort.format(new Date((t + 6 * 3600) * 1000))}</span>`).join("");
   const nowMark = `<span class="cell-now" style="left:${(((now - t0) / (t1 - t0)) * 100).toFixed(2)}%">now</span>`;
   cellDialog.querySelector(".cell-body")!.innerHTML =
@@ -1330,9 +1537,15 @@ function openCell(at: { lng: number; lat: number }): void {
   renderCell();
 }
 
+/** The readout's (i) buttons open their About entry (lis.ts listens). */
+document.addEventListener("click", (e) => {
+  const b = (e.target as Element).closest?.(".pop-about") as HTMLElement | null;
+  if (b?.dataset.about) document.dispatchEvent(new CustomEvent("lhzn-about", { detail: { key: b.dataset.about } }));
+});
+
 /** Escape closes the map's readout (the cell view, a dialog, closes itself first). */
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && popup && !cellDialog?.open) closeValue();
+  if (e.key === "Escape" && popup && !document.querySelector("dialog[open]")) closeValue();
 });
 
 /** The popup's "Cell detail" link (the popup's HTML is rewritten as the time moves, so one listener on the page). */
@@ -1604,6 +1817,7 @@ function draw(map: maplibregl.Map): void {
   else if (data.mesh && data.currents) addCurrents(map, data.mesh, data.currents);
   else if (data.wind) addWind(map, data.wind);
   if (overlay && !data.wat) addWat(map, overlay, !(data.wind || data.currents));
+  drawProbeCell(map); // after a theme switch, the outline comes back on top
 }
 
 /** Show a field (or none) with its data, and the panel with the page's controls. */
@@ -1645,8 +1859,11 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
         pointSrc ??= await load().catch(() => ({}));
         const at = { lng: e.lngLat.lng, lat: e.lngLat.lat };
         // 304 px: the widest value line (Current, with its arrow and sparkline) across units and values, in the popup's fonts.
-        await showValue(map, e.lngLat, pointText(at.lng, at.lat), null, null, null, "304px", true);
+        const ring = pointSrc ? cellRing(pointSrc, at.lng, at.lat) : null;
+        await showValue(map, e.lngLat, pointText(at.lng, at.lat), null, null, null, "304px", true, ring);
         probePoint = at;
+        probeRing = ring;
+        drawProbeCell(map);
         return;
       }
       if (!active) return;
@@ -1682,19 +1899,28 @@ let popup: maplibregl.Popup | null = null;
 let probe: number | null = null; // the current element the popup reads, so it can follow the timeline
 let probeAt: { lng: number; lat: number } | null = null; // the raster point it reads, for history frames
 
-async function showValue(map: maplibregl.Map, at: maplibregl.LngLat, text: string, element: number | null = null, point: { lng: number; lat: number } | null = null, ovCell: number | null = null, maxWidth = "240px", closable = false): Promise<void> {
+async function showValue(map: maplibregl.Map, at: maplibregl.LngLat, text: string, element: number | null = null, point: { lng: number; lat: number } | null = null, ovCell: number | null = null, maxWidth = "240px", closable = false, beside: [number, number][] | null = null): Promise<void> {
   const ml = (await import("maplibre-gl")).default;
   closeValue();
   probe = element;
   probeAt = point;
   probeOv = ovCell;
-  const p = new ml.Popup({ closeButton: closable, className: "pin-pop", maxWidth }).setLngLat(at).setHTML(withOverlay(text)).addTo(map);
+  // Beside a cell: anchored on the side with more room, just past the cell's edge, so the cell stays in view.
+  let place: { anchor?: maplibregl.PositionAnchor; offset?: [number, number] } = {};
+  if (beside) {
+    const c = map.project(at);
+    const xs = beside.map((q) => map.project(q).x);
+    const right = map.getContainer().clientWidth - c.x > c.x;
+    place = right ? { anchor: "left", offset: [Math.max(...xs) - c.x + 10, 0] } : { anchor: "right", offset: [Math.min(...xs) - c.x - 10, 0] };
+  }
+  const p = new ml.Popup({ closeButton: closable, className: "pin-pop", maxWidth, focusAfterOpen: false, ...place }).setLngLat(at).setHTML(withOverlay(text)).addTo(map);
   p.on("close", () => {
     if (popup === p) {
       popup = null;
       probe = null;
       probeAt = null;
       probePoint = null;
+      clearProbeCell();
     }
   });
   popup = p;
@@ -1707,4 +1933,11 @@ function closeValue(): void {
   probeAt = null;
   probeOv = null;
   probePoint = null;
+  clearProbeCell();
+}
+
+function clearProbeCell(): void {
+  if (!probeRing) return;
+  probeRing = null;
+  void mapReady().then(drawProbeCell);
 }

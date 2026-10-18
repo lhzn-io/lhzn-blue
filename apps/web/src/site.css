@@ -1111,3 +1111,67 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .pin-pop .maplibregl-popup-close-button { top: 2px; right: 4px; width: 18px; height: 18px; padding: 0; font: 15px/1 var(--sans); color: var(--dim); background: none; border: 0; }
 .pin-pop .maplibregl-popup-close-button:hover { color: var(--ink); background: none; }
 .pin-pop .pop-l1:first-child { padding-right: 14px; }
+
+/* The comfort index: a four-square gauge in the ink (readout) and a band of levels (cell view). */
+.pin-pop .pop-gauge { vertical-align: 0; margin-left: 6px; }
+.pin-pop .pop-gauge rect { stroke: var(--ink); stroke-width: 0.8; }
+.pin-pop .pop-gauge .on { fill: var(--ink); } .pin-pop .pop-gauge .off { fill: none; stroke-opacity: 0.4; }
+.cell-cf0 { fill: var(--ink); fill-opacity: 0.04; } .cell-cf1 { fill: var(--ink); fill-opacity: 0.2; }
+.cell-cf2 { fill: var(--ink); fill-opacity: 0.45; } .cell-cf3 { fill: var(--ink); fill-opacity: 0.85; }
+.pin-pop .pop-about { font: italic 600 9px/1 var(--sans); width: 13px; height: 13px; margin-left: 4px; border-radius: 50%; border: 1px solid var(--rule); background: none; color: var(--dim); cursor: pointer; padding: 0; vertical-align: 1px; }
+
+/* The comfort thresholds table in its About entry; the reader's boat marked. */
+.comfort-table { border-collapse: collapse; margin: 10px 0 4px; font: 11.5px/1.4 var(--mono); }
+.comfort-table caption { text-align: left; font: 10.5px/1.4 var(--mono); color: var(--dim); padding-bottom: 4px; }
+.comfort-table th, .comfort-table td { padding: 3px 10px 3px 0; text-align: left; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.comfort-table thead th { font: 600 11px/1.2 var(--sans); color: var(--accent); }
+.comfort-table tbody th { font-weight: 400; color: var(--dim); }
+.comfort-table .sel { color: var(--ink); font-weight: 600; }
+
+/* The comfort thresholds as strip charts (shades as the cell view's comfort band). */
+.comfort-chart { margin: 12px 0 4px; color: var(--ink); }
+.comfort-strip { display: block; width: 100%; max-width: 560px; margin: 4px 0 8px; overflow: visible; }
+.comfort-strip .ct-title { font: 600 10.5px/1 var(--sans); letter-spacing: 0.08em; fill: var(--accent); text-transform: uppercase; }
+.comfort-strip .ct-name { font: 10.5px/1 var(--mono); fill: var(--dim); }
+.comfort-strip .ct-name.sel { fill: var(--ink); font-weight: 600; }
+.comfort-strip .ct-step { font: 8.5px/1 var(--mono); fill: var(--dim); text-anchor: middle; }
+.comfort-strip .ct-step.sel { fill: var(--ink); }
+.comfort-strip .ct-tick { font: 9px/1 var(--mono); fill: var(--dim); text-anchor: middle; }
+.ct-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 4px; font: 10px/1.3 var(--mono); color: var(--dim); }
+.ct-legend i { display: inline-block; width: 14px; height: 10px; margin-right: 5px; vertical-align: -1px; background: var(--ink); }
+.ct-rules { margin: 6px 0 0; font: 12px/1.5 var(--sans); color: var(--ink-soft); }
+
+/* The boat picker: three icon buttons in the ink, the chosen one pressed. */
+.boat-pick { display: inline-flex; border: 1px solid var(--rule); }
+.boat-pick button { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 8px 3px; background: none; border: 0; color: var(--dim); font: 9px/1.1 var(--mono); cursor: pointer; }
+.boat-pick button + button { border-left: 1px solid var(--rule); }
+.boat-pick button[aria-checked="true"] { color: var(--ink); background: color-mix(in srgb, var(--ink) 9%, transparent); }
+.boat-pick button:hover { color: var(--ink); }
+.more-boat { display: flex; align-items: center; gap: 10px; padding: 6px 12px; }
+.more-boat-k { font: 600 10px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.ct-pick { margin: 0 0 8px; }
+
+/* The NWS forecast links in the advisory box and the comfort line. */
+.mast-advisory { cursor: pointer; }
+.mast-advisory .ma-sub a, .pin-pop small a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.mast-advisory .ma-sub a:hover { color: var(--advisory); }
+
+/* The chosen boat in the byline, after the buoy data chip: the chip's height, ink line icon; the picker opens under it. */
+.boat-wrap { position: relative; display: inline-block; }
+.mast .boat-now { display: inline-flex; align-items: center; margin-left: 10px; vertical-align: -3px; padding: 3px 7px;
+  border: 1px solid var(--rule); background: var(--panel); color: var(--ink); cursor: pointer; }
+.mast .boat-now:hover, .mast .boat-now[aria-expanded="true"] { border-color: var(--ink-mute); }
+.boat-pop { position: absolute; left: 10px; top: calc(100% + 6px); z-index: 20; background: var(--bg);
+  letter-spacing: 0; text-transform: none; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18); }
+.boat-pop[hidden] { display: none; }
+.boat-pop .boat-pick { display: flex; white-space: nowrap; }
+@media (max-width: 640px) {
+  .mast .boat-now { margin-top: 6px; }
+  .boat-pop { left: 0; }
+}
+
+/* The comfort (i): the picker and the legend share a line; the charts sit closer. */
+.ct-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin: 0 0 4px; }
+.ct-top .ct-legend { margin: 0; }
+.comfort-chart { margin-top: 10px; }
+.comfort-strip { margin: 2px 0 4px; }

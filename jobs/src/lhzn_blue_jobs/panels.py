@@ -53,9 +53,11 @@ EST = timezone(timedelta(hours=-5))
 KEEP_DAYS = 10
 STALE_HOURS = 3
 SPACING_S = 3.0
-# Which panels to read: ARTG has no weather panel (404); EXRX's weather panel stopped updating in June 2026 and is read
-# only to notice if it starts again.
+# Which panels to read: ARTG has no weather panel (404).
 PANELS = {"WLIS": ("wx", "wav", "wq"), "EXRX": ("wx", "wav", "wq"), "ARTG": ("wav", "wq"), "CLIS": ("wx", "wav", "wq")}
+# Image names that differ from <stn>_<panel>.png: EXRX's weather panel is exrx_wx1.png, as the LISICOS station page
+# links it (exrx_wx.png stopped updating on 2026-06-20 and still shows that day).
+FILES = {("EXRX", "wx"): "exrx_wx1"}
 EVERY_RUN = {"wx"}  # the rest every third run (their sensors report every 30 minutes or so)
 
 # Field maps, in each panel type's reference pixels: name -> (x, y, w, h). Found on the 2026-10-17 captures.
@@ -357,7 +359,7 @@ def publish(store: Store, archive_root: str | None, run_index: int | None = None
                 health[key] = h
                 continue
             time.sleep(SPACING_S + random.random())
-            url = f"{BASE}/{stn.lower()}_{panel}.png"
+            url = f"{BASE}/{FILES.get((stn, panel), f'{stn.lower()}_{panel}')}.png"
             fetched = now_utc()
             try:
                 r = sess.get(url, headers=UA, timeout=30)

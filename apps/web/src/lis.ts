@@ -4628,6 +4628,7 @@ async function syncMap(): Promise<void> {
 
 const FIELD_CHOICES: { kind: FieldKind | "none"; label: string }[] = [
   { kind: "none", label: "No layer" },
+  { kind: "comfort", label: "Comfort for your boat" },
   { kind: "sst", label: "Sea surface temperature" },
   { kind: "chl", label: "Chlorophyll-a" },
   { kind: "kd490", label: "Water clarity (Kd490)" },
@@ -4641,12 +4642,12 @@ const VIEW_LAYERS: Record<VarKey, { offer: FieldKind[]; def: FieldKind | "none";
   salinity: { offer: ["chl"], def: "none" },
   oxygen: { offer: ["chl"], def: "chl" },
   turbidity: { offer: ["kd490", "chl"], def: "kd490" },
-  wind: { offer: ["wind", "waves", "currents"], def: "wind", overlay: true }, // the wind-against-tide overlay
+  wind: { offer: ["comfort", "wind", "waves", "currents"], def: "comfort", overlay: true }, // the wind-against-tide overlay
   tides: { offer: [], def: "none" },
   rivers: { offer: [], def: "none" },
 };
 // A linked layer wins on load; otherwise the view's default. A layer picked by hand lasts until the view changes.
-let fieldPick: FieldKind | "none" = (["sst", "chl", "kd490", "currents", "wind", "waves"] as const).find((k) => k === LINK.get("layer")) ?? VIEW_LAYERS[VK].def;
+let fieldPick: FieldKind | "none" = (["sst", "chl", "kd490", "currents", "wind", "waves", "comfort"] as const).find((k) => k === LINK.get("layer")) ?? VIEW_LAYERS[VK].def;
 /** Wind against tide over the map's field (Wind & waves only): on by link ("ov=wat"), or picked in the layer menu. */
 let overlayWat = LINK.get("ov") === "wat" || LINK.get("layer") === "wat";
 /** A linked time ("-6h", "+12h", "-30d"), applied once the time bar has the scale it belongs to. */
@@ -4699,10 +4700,33 @@ try {
 } catch {
   /* private mode: the normal map */
 }
-const FRAME_SPAN: Record<FieldKind | "none", [number, number]> = { none: [0, 0], currents: [0, 2], wind: [0, 1], waves: [0, 1], wat: [0, 2], sst: [24, 0], chl: [7 * 24, 0], kd490: [7 * 24, 0] };
+const FRAME_SPAN: Record<FieldKind | "none", [number, number]> = { none: [0, 0], comfort: [0, 1], currents: [0, 2], wind: [0, 1], waves: [0, 1], wat: [0, 2], sst: [24, 0], chl: [7 * 24, 0], kd490: [7 * 24, 0] };
 const fieldCache = new Map<FieldKind, Promise<FieldData>>();
 
+/** Comfort on the map: the models it reads (the NECOFS current only for kayaks), each from its own cache, as one
+ * payload object per set so a redraw for the same set keeps the open readout. */
+const comfortCache = new Map<string, Promise<FieldData>>();
+function comfortData(): Promise<FieldData> {
+  const key = BOAT === "kayak" ? "kayak" : "boat";
+  if (!comfortCache.has(key)) {
+    const ok = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : undefined);
+    comfortCache.set(
+      key,
+      Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("wat"), fieldData("sst"), key === "kayak" ? fieldData("currents") : Promise.resolve({} as FieldData)]).then(([w, v, t, s, c]) => {
+        const cur = ok(c);
+        if (!ok(w)?.wind || !ok(v)?.wind) {
+          comfortCache.delete(key); // try again next time
+          throw new Error("comfort: wind or waves did not load");
+        }
+        return { comfort: { wind: ok(w)?.wind, waves: ok(v)?.wind, wat: ok(t)?.wat, sst: ok(s)?.raster, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined } };
+      }),
+    );
+  }
+  return comfortCache.get(key)!;
+}
+
 function fieldData(kind: FieldKind): Promise<FieldData> {
+  if (kind === "comfort") return comfortData();
   if (!fieldCache.has(kind)) {
     const load: Promise<FieldData> =
       kind === "wat"
@@ -4763,7 +4787,7 @@ async function syncField(): Promise<void> {
       console.error(err);
     }
   }
-  const shown = kind !== "none" && (payload.raster || payload.currents || payload.wind || payload.wat) ? kind : null;
+  const shown = kind !== "none" && (payload.raster || payload.currents || payload.wind || payload.wat || payload.comfort) ? kind : null;
   // The time bar: days for a satellite layer once its history is in, hours otherwise.
   const tl = await import("./timeline");
   tl.setHoursBack(VK === "wind" ? WS_BACK / HOUR : 24);

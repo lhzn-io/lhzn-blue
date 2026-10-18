@@ -11,13 +11,13 @@
  */
 import type maplibregl from "maplibre-gl";
 import { alertsNow, zoneForecastUrl } from "./advisory";
-import { BOATS, COMFORT_WORDS, type Boat } from "./comfort-thresholds";
+import { BOATS, COMFORT_WORDS, boatIcon, type Boat } from "./comfort-thresholds";
 import { mapReady, mapTheme, onStyle } from "./map";
 
-export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind" | "waves" | "wat";
+export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind" | "waves" | "wat" | "comfort";
 
 export interface RasterField {
-  kind: Exclude<FieldKind, "currents" | "wind" | "waves" | "wat">;
+  kind: Exclude<FieldKind, "currents" | "wind" | "waves" | "wat" | "comfort">;
   units: string;
   scale: number;
   time: string;
@@ -73,7 +73,7 @@ export interface WindField {
 /** The last 90 days of a raster, one frame per UTC day (see the jobs' fields.py for the file layout). */
 export interface RasterHistory {
   header: {
-    kind: Exclude<FieldKind, "currents" | "wind" | "waves" | "wat">;
+    kind: Exclude<FieldKind, "currents" | "wind" | "waves" | "wat" | "comfort">;
     units: string;
     grid: RasterField["grid"];
     days: string[];
@@ -102,6 +102,8 @@ export interface WatField {
 }
 
 export interface FieldData {
+  /** Comfort for the reader's boat, worked out on the map from these models. */
+  comfort?: PointSources;
   wat?: WatField;
   /** Wind against tide drawn over the field (not with a wat field itself). */
   overlay?: WatField;
@@ -196,6 +198,7 @@ const META: Record<FieldKind, Meta> = {
   currents: { title: "Surface currents", short: "Currents", ramp: "speed", log: false, range: [0, 150], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
   waves: { title: "Waves (NWS NWPS)", short: "Waves, NWPS", ramp: "wind", log: false, range: [0, WAVE_TOP], unit: "m", digits: 2, note: "Model forecast (NWS Nearshore Wave Prediction System, SWAN): significant wave height on the model's own 1.8 km cells; arrows show where the waves travel. These runs carry no currents, so steepening where wind opposes the tide is not in them." },
   wat: { title: "Wind against tide", short: "Wind against tide", ramp: "wind", log: false, unit: "", digits: 0, note: "A model-derived index, not an observation and not an NWS product: where the NECOFS current runs against the NWPS waves and steepens them (linear theory). Shoals, rips and overfalls finer than the 1.8 km cells are not in it." },
+  comfort: { title: "Comfort for your boat", short: "Comfort", ramp: "wind", log: false, unit: "", digits: 0, note: "How the water suits the boat set in the byline, cell by cell: the worst of HRRR wind, NWPS waves, wind against tide and, for kayaks, the NECOFS current, raised by cold water, as in a click's readout. Advisories are not in the shading: the masthead and the brick zone lines show them, and a click's readout includes them. Shore cells (harbours, coves) carry wind only. No shading beyond HRRR's 48 hours." },
   wind: { title: "Wind (HRRR)", short: "Wind, HRRR", ramp: "wind", log: false, range: [0, WIND_TOP], unit: "m/s", digits: 1, note: "Model forecast (NOAA HRRR), 10 m above the surface, on the model's own 3 km cells; arrows show where the wind blows toward. Cells HRRR counts as land are fainter inland; on the shore (harbours, coves) they are drawn like water." },
 };
 
@@ -312,8 +315,8 @@ function historyRange(h: RasterHistory): [number, number] {
   return r;
 }
 
-const LAYER_IDS = ["field-raster", "cur-fill", "cur-arrows", "wind-fill", "wind-arrows", "wat-fill", "wat-arrows"];
-const SOURCE_IDS = ["field-raster", "cur-mesh", "cur-points", "wind-cells", "wind-points", "wat-cells", "wat-points"];
+const LAYER_IDS = ["field-raster", "cur-fill", "cur-arrows", "wind-fill", "wind-arrows", "comfort-fill", "wat-fill", "wat-arrows"];
+const SOURCE_IDS = ["field-raster", "cur-mesh", "cur-points", "wind-cells", "wind-points", "comfort-cells", "wat-cells", "wat-points"];
 
 function clear(map: maplibregl.Map): void {
   for (const id of LAYER_IDS) if (map.getLayer(id)) map.removeLayer(id);
@@ -969,24 +972,53 @@ function advisoryAt(zone: string | null, t: number): { rank: number; name: strin
   return best;
 }
 
+type ComfortKey = "wind" | "waves" | "current" | "wat" | "rule30" | "advisory" | "cold";
+
+/** The comfort rules for one place and hour, shared by a click's readout and the map: wind, waves, current (kayaks)
+ * and wind against tide (wl, 0 to 4) each set a level by the boat's steps; the worst wins; three at Uncomfortable make
+ * it Hazardous; an advisory floor (the readout only; 0 for none) applies; cold water (sst, C) raises it one step. */
+function comfortLevel(x: { kt: number; hs: number; curKt: number; wl: number; sst: number }, boat: Boat, floor = 0): { level: number; f: { level: number; key: ComfortKey }[] } | null {
+  const b = BOATS[boat];
+  const f: { level: number; key: ComfortKey }[] = [];
+  if (Number.isFinite(x.kt)) f.push({ level: stepLevel(x.kt, b.wind), key: "wind" });
+  if (Number.isFinite(x.hs)) f.push({ level: stepLevel(x.hs, b.hs), key: "waves" });
+  if (b.current && Number.isFinite(x.curKt)) f.push({ level: stepLevel(x.curKt, b.current), key: "current" });
+  if (x.wl > 0) f.push({ level: b.wat[x.wl], key: "wat" });
+  // Breaking waves near 30% of the boat's length can capsize it beam-on (model tests after the 1979 Fastnet race).
+  if (x.wl >= 3 && Number.isFinite(x.hs) && 1.8 * x.hs >= 0.3 * b.loa) f.push({ level: 3, key: "rule30" });
+  if (!f.length) return null;
+  let level = Math.max(...f.map((y) => y.level));
+  if (f.filter((y) => y.level >= 2).length >= 3) level = 3; // three factors at Uncomfortable compound
+  if (floor > 0) {
+    level = Math.max(level, floor);
+    f.push({ level: floor, key: "advisory" });
+  }
+  // Cold water: under 15 C raises the level by one where anything else is already Moderate or worse (always for kayaks).
+  if (Number.isFinite(x.sst) && x.sst < 15 && (level >= 1 || boat === "kayak") && level < 3) {
+    level += 1;
+    f.push({ level, key: "cold" });
+  }
+  return { level, f };
+}
+
 /** The comfort level at a point and time for a boat class, with the factors that set it. */
 function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat: Boat): { level: number; why: string[]; partial: boolean; zone: string | null; advisory: string } | null {
   const b = BOATS[boat];
   const un = windUnit();
   const metric = un.label === "m/s";
-  const f: { level: number; text: string }[] = [];
   let partial = false;
+  let kt = NaN;
   let hs = NaN;
+  let curKt = NaN;
+  let wl = 0;
   if (src.wind) {
     const id = nearestCell(src.wind.mesh, lng, lat, 3);
-    const kt = id >= 0 ? valueAt(cellSeries(src.wind, id), t) * 1.943844 : NaN;
-    if (Number.isFinite(kt)) f.push({ level: stepLevel(kt, b.wind), text: `wind ${(kt / 1.943844 * un.perMs).toFixed(un.digits)} ${un.label}` });
-    else partial = true;
+    kt = id >= 0 ? valueAt(cellSeries(src.wind, id), t) * 1.943844 : NaN;
+    if (!Number.isFinite(kt)) partial = true;
   }
   if (src.waves) {
     const id = nearestCell(src.waves.mesh, lng, lat, 2);
     hs = id >= 0 && !src.waves.mesh.land[id] ? valueAt(cellSeries(src.waves, id), t) : NaN;
-    if (Number.isFinite(hs)) f.push({ level: stepLevel(hs, b.hs), text: `waves ${metric ? `${hs.toFixed(1)} m` : `${(hs * 3.28084).toFixed(1)} ft`}` });
   }
   if (b.current && src.currents) {
     const { mesh: m, currents: c } = src.currents;
@@ -999,15 +1031,13 @@ function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat:
     });
     if (e >= 0 && Math.sqrt(d2) * 111.2 <= 2) {
       const s0 = Date.parse(c.t0) / 1000;
-      const kt = valueAt(c.u.map((uk, j) => [s0 + j * c.step, Math.hypot(uk[e], c.v[j][e]) / 100] as [number, number]), t) * 1.943844;
-      if (Number.isFinite(kt)) f.push({ level: stepLevel(kt, b.current), text: `current ${(kt / 1.943844 * un.perMs).toFixed(un.digits + 1)} ${un.label}` });
+      curKt = valueAt(c.u.map((uk, j) => [s0 + j * c.step, Math.hypot(uk[e], c.v[j][e]) / 100] as [number, number]), t) * 1.943844;
     }
   }
   if (src.wat) {
     const g = src.wat.grid;
     const i = Math.round((lng - g.lon0) / g.dlon);
     const j = Math.round((lat - g.lat0) / g.dlat);
-    let wl = 0;
     let best = Infinity;
     for (const fr of src.wat.frames) {
       const d = Math.abs(Date.parse(fr.valid_time) / 1000 - t);
@@ -1017,30 +1047,199 @@ function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat:
         wl = k >= 0 ? fr.lv[k] : 0;
       }
     }
-    if (wl > 0) f.push({ level: b.wat[wl], text: WAT_LABELS[wl].toLowerCase() });
-    // Breaking waves near 30% of the boat's length can capsize it beam-on (model tests after the 1979 Fastnet race).
-    if (wl >= 3 && Number.isFinite(hs) && 1.8 * hs >= 0.3 * b.loa) f.push({ level: 3, text: "breaking waves near 30% of the boat's length" });
   }
-  if (!f.length) return null;
-  let level = Math.max(...f.map((x) => x.level));
-  if (f.filter((x) => x.level >= 2).length >= 3) level = 3; // three factors at Uncomfortable compound
   const zone = zoneAt(src.zones, lng, lat);
   const adv = advisoryAt(zone, t);
-  if (adv.rank === 2) {
-    level = 3;
-    f.push({ level: 3, text: adv.name });
-  } else if (adv.rank === 1) {
-    level = Math.max(level, b.sca);
-    f.push({ level: b.sca, text: "small craft advisory" });
-  }
-  // Cold water: under 15 C raises the level by one where anything else is already Moderate or worse (always for paddle craft).
   const sst = src.sst ? rasterValueAt(src.sst, lng, lat)?.v ?? NaN : NaN;
-  if (Number.isFinite(sst) && sst < 15 && (level >= 1 || boat === "kayak") && level < 3) {
-    level += 1;
-    f.push({ level, text: `water ${metric ? `${sst.toFixed(0)} C` : `${((sst * 9) / 5 + 32).toFixed(0)} F`}` });
-  }
+  const c = comfortLevel({ kt, hs, curKt, wl, sst }, boat, adv.rank === 2 ? 3 : adv.rank === 1 ? b.sca : 0);
+  if (!c) return null;
+  const text = (k: ComfortKey): string =>
+    k === "wind" ? `wind ${(kt / 1.943844 * un.perMs).toFixed(un.digits)} ${un.label}`
+    : k === "waves" ? `waves ${metric ? `${hs.toFixed(1)} m` : `${(hs * 3.28084).toFixed(1)} ft`}`
+    : k === "current" ? `current ${(curKt / 1.943844 * un.perMs).toFixed(un.digits + 1)} ${un.label}`
+    : k === "wat" ? WAT_LABELS[wl].toLowerCase()
+    : k === "rule30" ? "breaking waves near 30% of the boat's length"
+    : k === "advisory" ? (adv.rank === 2 ? adv.name : "small craft advisory")
+    : `water ${metric ? `${sst.toFixed(0)} C` : `${((sst * 9) / 5 + 32).toFixed(0)} F`}`;
+  const f = c.f.map((x) => ({ level: x.level, text: text(x.key) }));
+  const level = c.level;
   const why = f.filter((x) => x.level >= level).map((x) => x.text);
   return { level, why: why.length ? why : f.filter((x) => x.level === Math.max(...f.map((y) => y.level))).map((x) => x.text), partial, zone, advisory: adv.rank === 2 ? adv.name : adv.rank === 1 ? "small craft advisory" : "" };
+}
+
+/* ---------- Comfort on the map ---------- */
+
+/** Per NWPS mesh: the cells the field shades (water, and shore cells that touch water) and, for each, its HRRR cell,
+ * its NECOFS element (kayaks; within 2 km) and its sea surface temperature, worked out once per set of models. */
+interface ComfortGrid { cells: number[]; hrrr: Int32Array; elem: Int32Array | null; sst: Float32Array; windMesh: unknown; curMesh: unknown; sstRef: unknown }
+const comfortGrids = new WeakMap<WindField["mesh"], ComfortGrid>();
+
+function comfortGridOf(src: PointSources): ComfortGrid | null {
+  const wv = src.waves;
+  const w = src.wind;
+  if (!wv || !w) return null;
+  const m = wv.mesh;
+  let g = comfortGrids.get(m);
+  if (!g) {
+    const shore = shoreOf(m);
+    const cells: number[] = [];
+    for (let i = 0; i < m.land.length; i++) if (!m.land[i] || shore[i]) cells.push(i);
+    g = { cells, hrrr: new Int32Array(0), elem: null, sst: new Float32Array(0), windMesh: null, curMesh: null, sstRef: null };
+    comfortGrids.set(m, g);
+  }
+  if (g.windMesh !== w.mesh) {
+    g.hrrr = Int32Array.from(g.cells, (id) => nearestCell(w.mesh, m.centre_lon[id], m.centre_lat[id], 3));
+    g.windMesh = w.mesh;
+  }
+  if (g.sstRef !== (src.sst ?? null)) {
+    g.sst = Float32Array.from(g.cells, (id) => (src.sst ? rasterValueAt(src.sst, m.centre_lon[id], m.centre_lat[id])?.v ?? NaN : NaN));
+    g.sstRef = src.sst ?? null;
+  }
+  const cm = src.currents?.mesh ?? null;
+  if (g.curMesh !== cm) {
+    g.elem = cm
+      ? Int32Array.from(g.cells, (id) => {
+          const lng = m.centre_lon[id];
+          const lat = m.centre_lat[id];
+          const cos = Math.cos((lat * Math.PI) / 180);
+          let e = -1;
+          let d2 = Infinity;
+          cm.centres.forEach(([x, y], i) => {
+            const d = ((x - lng) * cos) ** 2 + (y - lat) ** 2;
+            if (d < d2) [e, d2] = [i, d];
+          });
+          return e >= 0 && Math.sqrt(d2) * 111.2 <= 2 ? e : -1;
+        })
+      : null;
+    g.curMesh = cm;
+  }
+  return g;
+}
+
+/** A wind-shaped field's speed (m/s, or m for waves) in every cell at time t, interpolated between the two frames
+ * around it as a click's readout does (valueAt); null outside the frames. */
+const frameTimes = new WeakMap<WindField, { t: number; k: number }[]>();
+function speedsAt(w: WindField, t: number): Float32Array | null {
+  let ts = frameTimes.get(w);
+  if (!ts) {
+    ts = w.frames.map((f, k) => ({ t: Date.parse(f.valid_time) / 1000, k })).sort((a, b) => a.t - b.t);
+    frameTimes.set(w, ts);
+  }
+  for (let i = 0; i + 1 < ts.length; i++) {
+    const a = ts[i];
+    const b = ts[i + 1];
+    if (t < a.t || t > b.t) continue;
+    const r = (t - a.t) / (b.t - a.t || 1);
+    const ua = windUV(w, a.k);
+    const ub = windUV(w, b.k);
+    const out = new Float32Array(ua.u.length);
+    for (let c = 0; c < out.length; c++) {
+      const sa = Math.hypot(ua.u[c], ua.v[c]);
+      out[c] = sa + (Math.hypot(ub.u[c], ub.v[c]) - sa) * r;
+    }
+    return out;
+  }
+  return null;
+}
+
+/** Wind against tide at time t on its grid (the NWPS grid): the nearest frame within the hour, as the readout reads it. */
+function watLevelsAt(w: WatField, t: number): Uint8Array | null {
+  let best = -1;
+  let gap = Infinity;
+  w.frames.forEach((fr, k) => {
+    const d = Math.abs(Date.parse(fr.valid_time) / 1000 - t);
+    if (d < gap && d <= 3600) [best, gap] = [k, d];
+  });
+  if (best < 0) return null;
+  const fr = w.frames[best];
+  const out = new Uint8Array(w.grid.nx * w.grid.ny);
+  fr.i.forEach((cell, n) => (out[cell] = fr.lv[n]));
+  return out;
+}
+
+/** Each element's current speed (kt) at time t, interpolated between the model's steps. */
+function currentKtAt(c: CurrentsField, t: number): Float32Array | null {
+  const s0 = Date.parse(c.t0) / 1000;
+  const x = (t - s0) / c.step;
+  const k = Math.floor(x);
+  if (k < 0 || k + 1 >= c.u.length) return k === c.u.length - 1 && x === k ? Float32Array.from(c.u[k], (u, e) => (Math.hypot(u, c.v[k][e]) / 100) * 1.943844) : null;
+  const r = x - k;
+  return Float32Array.from(c.u[k], (u, e) => {
+    const a = Math.hypot(u, c.v[k][e]);
+    return ((a + (Math.hypot(c.u[k + 1][e], c.v[k + 1][e]) - a) * r) / 100) * 1.943844;
+  });
+}
+
+/** The comfort level of every shaded cell at time t for a boat (255: none, as beyond HRRR's hours). No advisory floor:
+ * the map shows the water, the masthead and zone lines the advisories. */
+function comfortLevels(src: PointSources, t: number, boat: Boat): { g: ComfortGrid; lv: Uint8Array } | null {
+  const g = comfortGridOf(src);
+  if (!g) return null;
+  const lv = new Uint8Array(g.cells.length).fill(255);
+  const wind = speedsAt(src.wind!, t);
+  if (!wind) return { g, lv };
+  const waves = speedsAt(src.waves!, t);
+  const wat = src.wat ? watLevelsAt(src.wat, t) : null;
+  const cur = BOATS[boat].current && src.currents && g.elem ? currentKtAt(src.currents.currents, t) : null;
+  const land = src.waves!.mesh.land;
+  g.cells.forEach((id, n) => {
+    const h = g.hrrr[n];
+    const kt = h >= 0 ? wind[h] * 1.943844 : NaN;
+    if (!Number.isFinite(kt)) return;
+    const hs = waves && !land[id] ? waves[id] : NaN;
+    const e = g.elem ? g.elem[n] : -1;
+    const c = comfortLevel({ kt, hs, curKt: cur && e >= 0 ? cur[e] : NaN, wl: wat ? wat[id] : 0, sst: g.sst[n] }, boat);
+    if (c) lv[n] = c.level;
+  });
+  return { g, lv };
+}
+
+/** The NWPS cells the field shades, each its own quadrilateral from the mesh corners (feature id: the cell index). */
+function comfortCellsGeoJSON(m: WindField["mesh"], cells: number[]) {
+  const { nx, corner_lon: x, corner_lat: y } = m;
+  const c = (j: number, i: number) => [x[j * (nx + 1) + i], y[j * (nx + 1) + i]];
+  return {
+    type: "FeatureCollection" as const,
+    features: cells.map((id) => {
+      const j = Math.floor(id / nx);
+      const i = id % nx;
+      return { type: "Feature" as const, id, properties: {}, geometry: { type: "Polygon" as const, coordinates: [[c(j, i), c(j, i + 1), c(j + 1, i + 1), c(j + 1, i), c(j, i)]] } };
+    }),
+  };
+}
+
+/** The four shades, as in the comfort charts and the readout's gauge: the ink at rising opacity. */
+const COMFORT_SHADE = [0.05, 0.2, 0.45, 0.85];
+const comfortInk = () => (mapTheme() === "light" ? "#1c2a48" : "#f4f1e8");
+let comfortHour = -2; // the HRRR frame the panel names, to redraw it only when the hour changes
+
+function addComfort(map: maplibregl.Map, src: PointSources): void {
+  const g = comfortGridOf(src);
+  if (!g) return;
+  map.addSource("comfort-cells", { type: "geojson", data: comfortCellsGeoJSON(src.waves!.mesh, g.cells) });
+  map.addLayer(
+    {
+      id: "comfort-fill",
+      type: "fill",
+      source: "comfort-cells",
+      paint: {
+        "fill-color": comfortInk(),
+        "fill-opacity": ["match", ["coalesce", ["feature-state", "lv"], 255], 0, COMFORT_SHADE[0], 1, COMFORT_SHADE[1], 2, COMFORT_SHADE[2], 3, COMFORT_SHADE[3], 0] as maplibregl.ExpressionSpecification,
+        "fill-antialias": false,
+      },
+    },
+    beneathLabels(map),
+  );
+  paintComfort(map);
+}
+
+function paintComfort(map: maplibregl.Map): void {
+  const src = data.comfort;
+  if (!src || !map.getSource("comfort-cells")) return;
+  const r = comfortLevels(src, fieldT ?? Date.now() / 1000, controls?.boat ?? "console");
+  if (!r) return;
+  r.g.cells.forEach((id, n) => map.setFeatureState({ source: "comfort-cells", id }, { lv: r.lv[n] }));
+  refreshPopup();
 }
 
 /** Four small squares, filled to the level: a word-sized gauge in the ink. */
@@ -1583,6 +1782,15 @@ export async function setFieldTime(t: number | null): Promise<void> {
     if (box) renderPanel(box);
     return paintWat(await mapReady());
   }
+  if (data.comfort) {
+    const k = data.comfort.wind ? windFrameAt(data.comfort.wind) : -1;
+    if (k !== comfortHour) {
+      comfortHour = k;
+      const box = document.getElementById("map");
+      if (box) renderPanel(box); // the key names the hour and run
+    }
+    return paintComfort(await mapReady());
+  }
   if (data.wind) {
     const k = windFrameAt(data.wind);
     if (k === windFrame) return;
@@ -1610,6 +1818,9 @@ const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", 
 
 
 function scaleHtml(meta: Meta, ripKey = false): string {
+  if (active === "comfort" && !ripKey) {
+    return `<div class="field-scale comfort-scale">${COMFORT_WORDS.map((w, i) => `<span><i style="background:${comfortInk()};opacity:${COMFORT_SHADE[i] + 0.05}"></i>${w}</span>`).join("")}</div>`;
+  }
   if (ripKey || active === "wat") {
     return `<div class="field-scale wat-scale">${[1, 2, 3, 4].map((l) => `<span>${ripSwatch(l)}${WAT_SHORT[l]}</span>`).join("")}</div>`;
   }
@@ -1669,7 +1880,13 @@ function renderPanel(fallback: HTMLElement): void {
     const oldest = ages.length ? Math.max(...ages) : 0;
     const day = (age: number) => new Date(Date.parse(r!.time) - age * 86400e3);
     const wf = w && windFrame >= 0 ? w.frames[windFrame] : null;
-    const when = wt
+    const cm = data.comfort;
+    const cf = cm?.wind && comfortHour >= 0 ? cm.wind.frames[comfortHour] : null;
+    const when = cm
+      ? cf
+        ? `${fmtProbe.format(new Date(cf.valid_time))}, HRRR ${cf.cycle.slice(11, 13)}Z run`
+        : "no HRRR hour"
+      : wt
       ? tf
         ? `${fmtProbe.format(new Date(tf.valid_time))}, NWPS ${tf.cycle.slice(11, 13)}Z run`
         : "no model hour"
@@ -1685,7 +1902,9 @@ function renderPanel(fallback: HTMLElement): void {
             : isWaves() ? "no NWPS hour" : "no HRRR hour"
           : "";
     const span = r && r.window_days > 2 && oldest - newest >= 1 ? ` Each pixel is the latest clear view in the last ${Math.round(oldest) + 1} days; older pixels are fainter.` : "";
-    const run = wt
+    const run = cm
+      ? " Each hour from HRRR wind (24h back to 48h ahead), NWPS waves and wind against tide; the time bar below moves it."
+      : wt
       ? " Every 2 hours from 24h back to 72h ahead: the newest NWPS run for each hour with the day's NECOFS currents; the time bar below moves it."
       : c
       ? ` Run of ${fmtDay.format(new Date(c.generated_at))}, covering 24h back to 72h ahead; the time bar below moves it.`
@@ -1694,8 +1913,10 @@ function renderPanel(fallback: HTMLElement): void {
           ? " Each hour from the newest NWPS run that covers it (00 and 12 UTC), 24h back to 72h ahead; the time bar below moves it."
           : " Each hour from the newest HRRR run that covers it, 24h back to 48h ahead; the time bar below moves it."
         : "";
-    const credit = wt ? wt.attribution : r ? r.attribution : c ? c.source : w ? w.attribution : "";
-    body = `<div class="field-key"><span class="field-name" title="${meta.title}">${meta.short}</span><span class="field-when">${when}</span>
+    const credit = cm ? [cm.wind?.attribution, cm.waves?.attribution].filter(Boolean).join(" ") : wt ? wt.attribution : r ? r.attribution : c ? c.source : w ? w.attribution : "";
+    const boat = controls?.boat ?? "console";
+    const name = cm ? `${boatIcon(boat, 10)} ${meta.short}, ${BOATS[boat].name.toLowerCase()}` : meta.short;
+    body = `<div class="field-key"><span class="field-name" title="${meta.title}">${name}</span><span class="field-when">${when}</span>
       <button type="button" class="field-info" aria-haspopup="dialog" aria-label="About this layer" title="About this layer">i</button></div>
       ${scaleHtml(meta)}
       <p class="field-note" hidden><b>${meta.title}.</b> ${meta.note}${span}${run} <span class="field-credit">${credit}</span></p>`;
@@ -1816,13 +2037,14 @@ function draw(map: maplibregl.Map): void {
   else if (data.raster) addRaster(map, data.raster);
   else if (data.mesh && data.currents) addCurrents(map, data.mesh, data.currents);
   else if (data.wind) addWind(map, data.wind);
+  else if (data.comfort) addComfort(map, data.comfort);
   if (overlay && !data.wat) addWat(map, overlay, !(data.wind || data.currents));
   drawProbeCell(map); // after a theme switch, the outline comes back on top
 }
 
 /** Show a field (or none) with its data, and the panel with the page's controls. */
 export async function showField(kind: FieldKind | null, payload: FieldData, ctl: FieldControls): Promise<void> {
-  const sameLayer = kind === active && payload.raster === shownRaster && payload.currents === data.currents && payload.wind === data.wind && payload.wat === data.wat && (payload.overlay ?? null) === overlay;
+  const sameLayer = kind === active && payload.raster === shownRaster && payload.currents === data.currents && payload.wind === data.wind && payload.wat === data.wat && payload.comfort === data.comfort && (payload.overlay ?? null) === overlay;
   if (!sameLayer) closeValue(); // a value from another layer
   active = kind;
   data = kind ? { ...payload } : {};
@@ -1837,6 +2059,7 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
   }
   if (data.currents) frame = frameAt(data.currents);
   if (data.wind) windFrame = windFrameAt(data.wind);
+  comfortHour = data.comfort?.wind ? windFrameAt(data.comfort.wind) : -1;
   const wat = watOf();
   watFrame = wat ? watFrameAt(wat) : -1;
   if (sameLayer) refreshPopup(); // e.g. the unit changed

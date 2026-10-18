@@ -345,6 +345,18 @@ METHODS.comfort = {
     "yet; the thresholds are a first set, to be checked against the buoys.",
 };
 
+METHODS["map-comfort"] = {
+  title: "Comfort for your boat (map)",
+  shows: "",
+  method:
+    "The comfort index of a click's readout, for every NWPS wave cell (1.8 km) at the time bar's hour: HRRR wind from the " +
+    "nearest HRRR cell, NWPS waves, the wind-against-tide level and, for kayaks, the NECOFS current, by the steps for " +
+    "the boat set in the byline; cold water raises a level. Shore cells (harbours, coves) carry wind only.",
+  caveats:
+    "Advisories are not in the shading: the masthead and the brick zone lines show them, and a click's readout includes " +
+    "them. No shading beyond HRRR's 48 hours. Shoals and rips finer than the cells are not in it.",
+};
+
 METHODS.trends = {
   title: "Trends and %iles",
   shows:

@@ -1175,3 +1175,9 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .ct-top .ct-legend { margin: 0; }
 .comfort-chart { margin-top: 10px; }
 .comfort-strip { margin: 2px 0 4px; }
+
+/* The comfort layer's key: four swatches in the ink, as the comfort charts. */
+.field-scale.comfort-scale { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.comfort-scale span { display: inline-flex; align-items: center; gap: 5px; }
+.comfort-scale i { display: inline-block; width: 14px; height: 10px; border: 1px solid var(--rule); }
+.field-name svg { vertical-align: -1px; margin-right: 2px; }

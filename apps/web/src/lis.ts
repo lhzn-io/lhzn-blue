@@ -5,6 +5,7 @@ import "./site.css";
 import promptTemplate from "../../../configs/prompts/visitor_prompt.txt?raw";
 import registry from "../../../stations/stations.json";
 import shoreRegistry from "../../../stations/shore.json";
+import asosRegistry from "../../../stations/asos.json";
 import { emphasise, highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
 import { wireHints } from "./hints";
 import { BUOY_SENSORS, METHODS, methodHtml, REF_LABELS } from "./methods";
@@ -179,7 +180,7 @@ interface VarView {
 }
 
 interface StationData {
-  kind: "buoy" | "shore" | "rivers" | "river" | "turbidity"; // rivers: the all-rivers summary; river: one gauge
+  kind: "buoy" | "shore" | "airport" | "rivers" | "river" | "turbidity"; // rivers: the all-rivers summary; river: one gauge; airport: coastal ASOS weather
   meta: MetaStation;
   depths: string[]; // depths this station has, top to bottom
   // The selected variable's views (see useVar); `temp` always holds temperature, for stratification and air.
@@ -626,6 +627,7 @@ function overallState(d: StationData): State | "partial" {
 }
 
 function stationState(d: StationData): State {
+  if (d.kind === "airport") return d.met?.last ? obsState({ time: d.met.last.time } as LastObs) : "offline";
   const states = d.depths.map((dep) => obsState(d.obs[dep]));
   return states.includes("live") ? "live" : states.includes("delayed") ? "delayed" : "offline";
 }
@@ -739,6 +741,7 @@ const panelsOf = (id: string): Panels =>
 
 /** The latest reading we have seen for any depth of the station (epoch seconds). */
 function lastSeen(d: StationData): number {
+  if (d.kind === "airport") return d.met?.last ? Date.parse(d.met.last.time) / 1000 : -Infinity;
   return Math.max(...d.depths.map((dep) => (d.obs[dep] ? Date.parse(d.obs[dep]!.time) / 1000 : -Infinity)));
 }
 
@@ -986,7 +989,7 @@ const FIGS: Record<Kind, Fig> = {
     sub: "wind and gusts, measured and forecast",
     depthTabs: false,
     seasonal: false,
-    available: (d) => d.kind === "buoy" || d.kind === "shore", // every station has HRRR runs; drawn once they load
+    available: (d) => d.kind === "buoy" || d.kind === "shore" || d.kind === "airport", // every station has HRRR runs; drawn once they load
     window: () => {
       const now = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
       return [now - 36 * HOUR, now + 48 * HOUR];
@@ -1098,6 +1101,7 @@ const FIGS: Record<Kind, Fig> = {
   },
   air: {
     title: "Air and water temperature",
+    label: (d) => (d.kind === "airport" ? "Air temperature" : "Air and water temperature"),
     varies: false,
     in: (k) => k === "temp" || k === "wind",
     sub: "hourly",
@@ -1113,15 +1117,16 @@ const FIGS: Record<Kind, Fig> = {
       const top = d.depths[0];
       const water = d.temp.hourly[top];
       const label = `Water, ${DEPTH_LABEL[top].toLowerCase()}`;
+      const noWater = d.kind === "airport"; // an airport has no water sensor
       const lines: Line[] = [
-        { ys: xs.map((t) => water?.at(t) ?? NaN), color: P.depth[top], width: 1.6, label },
+        ...(noWater ? [] : [{ ys: xs.map((t) => water?.at(t) ?? NaN), color: P.depth[top], width: 1.6, label }]),
         { ys: xs.map((t) => d.met?.air?.at(t) ?? NaN), color: P.second, width: 1.3, label: "Air" },
       ];
       const hh = hrrrHist(d.meta.id, xs[0], xs[xs.length - 1], (t) => d.met?.air?.at(t) ?? NaN);
       if (hh?.air) lines.push({ ys: xs.map((t) => (Number.isFinite(d.met?.air?.at(t) ?? NaN) ? NaN : hh.air!.at(t))), color: P.second, width: 1, opacity: 0.7, dash: "4 3", label: "Air, HRRR (last forecast before each hour)" });
       return {
         opts: { xs, lines, unit: "°F", empty: emptyNote(d) },
-        legend: [[label, P.depth[top], 1], ["Air", P.second, 1], ...(hh?.air ? [["Air, HRRR before each hour", P.second, 0.7] as [string, string, number]] : [])],
+        legend: [...(noWater ? [] : [[label, P.depth[top], 1] as [string, string, number]]), ["Air", P.second, 1], ...(hh?.air ? [["Air, HRRR before each hour", P.second, 0.7] as [string, string, number]] : [])],
       };
     },
   },
@@ -2006,7 +2011,7 @@ function soundWindHtml(stations: StationData[]): string {
   if (!FCST) void loadForecast();
   // Buoys always (an outage is shown, not hidden); shore stations only where they measure wind (New London does not).
   const hasWind = (d: StationData) => !!d.met?.wind && Number.isFinite(d.met.wind.lastValid());
-  const rows = stations.filter((d) => d.kind === "buoy" || (d.kind === "shore" && hasWind(d))).sort((a, b) => a.meta.lon - b.meta.lon);
+  const rows = stations.filter((d) => d.kind === "buoy" || ((d.kind === "shore" || d.kind === "airport") && hasWind(d))).sort((a, b) => a.meta.lon - b.meta.lon);
   if (!rows.length) return "";
   // Zones in the order their first station appears, west to east; stations keep their order within a zone.
   const zoneOrder: string[] = [];
@@ -3401,6 +3406,7 @@ async function wireTimeline(box: HTMLElement): Promise<void> {
 
 /** A station's map pin: its latest readings, or its observations at the timeline cursor's time. */
 function stationPin(d: StationData): Pin {
+  if (d.kind === "airport") return airportPin(d);
   const dep = d.depths.includes("SFC") ? "SFC" : d.depths[0];
   const kind = d.kind === "shore" ? ("shore" as const) : ("buoy" as const);
   const base = { id: d.meta.id, name: d.meta.name, lat: d.meta.lat, lon: d.meta.lon, kind };
@@ -3564,10 +3570,10 @@ function sectionHtml(d: StationData): string {
         <span class="sid">${d.kind === "turbidity" ? "LISICOS buoys, optical sensors at 1 m" : d.kind === "rivers" ? "USGS stream gauges" : d.kind === "river" ? `USGS ${d.gauge!.usgs_id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W` : `${id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W`}</span>
         <span class="rec">${recordLine(d, rec)}</span>
       </div>
-      <p class="station-links"><span>${d.kind === "turbidity" ? "Buoys:" : d.kind === "rivers" || d.kind === "river" ? "At USGS:" : d.kind === "shore" ? (d.meta.operator === "USGS" ? "At USGS:" : "At NOAA:") : "At LISICOS:"}</span>${[
+      <p class="station-links"><span>${d.kind === "turbidity" ? "Buoys:" : d.kind === "rivers" || d.kind === "river" ? "At USGS:" : d.kind === "shore" ? (d.meta.operator === "USGS" ? "At USGS:" : "At NOAA:") : d.kind === "airport" ? "At IEM:" : "At LISICOS:"}</span>${[
         ...(d.kind === "rivers" ? (d.river?.gauges ?? []).map((g) => `<a href="#${g.id}">${g.river}</a>`) : []),
         ...(d.kind === "turbidity" ? (d.turb?.buoys ?? []).map((b) => `<a href="${(registry.stations as { id: string; info_url?: string }[]).find((s) => s.id === b.id)?.info_url ?? "#"}">${b.name}</a>`) : []),
-        st.info_url ? `<a href="${st.info_url}">${d.kind === "river" ? "Gauge page" : d.kind === "shore" ? "Station page" : "About this buoy"}</a>` : "",
+        st.info_url ? `<a href="${st.info_url}">${d.kind === "river" ? "Gauge page" : d.kind === "shore" || d.kind === "airport" ? "Station page" : "About this buoy"}</a>` : "",
         panelsOf(id).weather ? `<a href="${panelsOf(id).weather}">Weather panel</a>` : "",
         panelsOf(id).water_quality ? `<a href="${panelsOf(id).water_quality}">Water quality panel</a>` : "",
         panelsOf(id).waves ? `<a href="${panelsOf(id).waves}">Wave panel</a>` : "",
@@ -3787,6 +3793,7 @@ function tidesReadouts(d: StationData): string[] {
  * Mid-depth stays out: the water-column plot carries it. */
 function stationReadouts(d: StationData): string[] {
   const depths = d.depths.filter((dep) => dep !== "MID");
+  if (d.kind === "airport") return weatherReadouts(d);
   if (d.kind === "shore") {
     if (VK === "wind") return [...weatherReadouts(d), levelReadout(d)];
     if (VK === "tides") return tidesReadouts(d);
@@ -4214,7 +4221,7 @@ function stationAboutHtml(d: StationData): string {
   const st = d.meta;
   const row = (label: string, html: string) => `<dt>${label}</dt><dd>${html}</dd>`;
   const links = [
-    st.info_url ? `<a href="${st.info_url}">${d.kind === "shore" ? "station page" : "about this buoy"}</a>` : "",
+    st.info_url ? `<a href="${st.info_url}">${d.kind === "buoy" ? "about this buoy" : "station page"}</a>` : "",
     panelsOf(st.id).weather ? `<a href="${panelsOf(st.id).weather}">weather panel</a>` : "",
     panelsOf(st.id).water_quality ? `<a href="${panelsOf(st.id).water_quality}">water quality panel</a>` : "",
     panelsOf(st.id).waves ? `<a href="${panelsOf(st.id).waves}">wave panel</a>` : "",
@@ -4436,7 +4443,7 @@ function promptData(stations: StationData[]): string {
     if (w && w.wind_kt != null) {
       const dir = w.dir_deg != null ? `from ${compass(w.dir_deg)} (${Math.round(w.dir_deg)} degrees)` : "direction unknown";
       out.push(
-        `  Weather at the ${d.kind === "shore" ? "station" : "buoy"}, ${fmtUtc(w.time)} (${ago(w.time)}): wind ${f1(w.wind_kt)} kt ${dir}, gusts ${f1(w.gust_kt ?? NaN)} kt` +
+        `  Weather at the ${d.kind === "buoy" ? "buoy" : "station"}, ${fmtUtc(w.time)} (${ago(w.time)}): wind ${f1(w.wind_kt)} kt ${dir}, gusts ${f1(w.gust_kt ?? NaN)} kt` +
           (WU === "kt" ? "; " : ` (wind ${windFmt(w.wind_kt)} ${WIND_UNITS[WU].label}, gusts ${windFmt(w.gust_kt)} ${WIND_UNITS[WU].label}); `) +
           `air ${f1(w.air_f ?? NaN)} F; pressure ${w.pressure_mb != null ? w.pressure_mb.toFixed(1) : "--"} mbar.`,
       );
@@ -5152,6 +5159,46 @@ function usgsShoreStations(u: UsgsTidal): StationData[] {
   return out;
 }
 
+/* ---------- Coastal airports (NWS ASOS weather, through the Iowa Environmental Mesonet) ---------- */
+
+interface AsosFrame { t0: string | null; step: number; air_f?: (number | null)[]; wind_kt?: (number | null)[]; gust_kt?: (number | null)[]; dir_deg?: (number | null)[]; pressure_mb?: (number | null)[]; last_obs: MetWindow["last_obs"] }
+interface AsosFile { generated_at: string; source: string; stations: Record<string, AsosFrame> }
+
+/** The airports as stations of their own kind: weather only (no water, no tides), shown in the Wind & waves view. */
+function airportStations(a: AsosFile): StationData[] {
+  const out: StationData[] = [];
+  for (const st of asosRegistry.stations) {
+    const f = a.stations[st.id];
+    if (!f?.t0) continue;
+    const meta = { id: st.id, name: `${st.name}, ${st.place}`, operator: st.operator, lat: st.lat, lon: st.lon, coops_id: "", info_url: st.info_url, note: st.note, record_start: f.t0 } as ShoreMetaStation;
+    const frame = { ...f, tides: [], datum: "", coops_id: "" } as unknown as ShoreFrame;
+    out.push({ ...shoreStation(meta, frame, undefined), kind: "airport", level: null, levelNow: null });
+  }
+  return out;
+}
+
+/** An airport's pin: its wind (measured, or HRRR ahead of now), in any view. */
+function airportPin(d: StationData): Pin {
+  const base = { id: d.meta.id, name: d.meta.name, lat: d.meta.lat, lon: d.meta.lon, kind: "shore" as const };
+  const u = WIND_UNITS[WU].label;
+  if (AT != null && atFuture()) {
+    const f = forecastAt(d.meta.id, AT);
+    if (f) return { ...base, state: overallState(d), label: `Forecast: wind ${compass(f.dir)} ${windFmt(f.spd)} ${u}, gusts ${windFmt(f.gust)}<br>HRRR, ${f.lead} h ahead<br>${atLabel(AT)}` };
+  }
+  if (AT != null) {
+    const wind = d.met?.wind?.at(AT) ?? NaN;
+    const dir = d.met?.dir?.at(AT) ?? NaN;
+    return Number.isFinite(wind)
+      ? { ...base, state: overallState(d), label: `Airport wind ${Number.isFinite(dir) ? compass(dir) + " " : ""}${windFmt(wind)} ${u}<br>observed ${atLabel(AT)}` }
+      : { ...base, state: "offline", label: `no reading at ${atLabel(AT)}` };
+  }
+  const w = d.met?.last;
+  const label = w && w.wind_kt != null
+    ? `Airport wind ${w.dir_deg != null ? compass(w.dir_deg) + " " : ""}${windFmt(w.wind_kt)} ${u}${w.gust_kt != null ? `, gusts ${windFmt(w.gust_kt)}` : ""}, ${ago(w.time)}${w.air_f != null ? `<br>air ${Math.round(w.air_f)}&deg;F` : ""}`
+    : "no recent report";
+  return { ...base, state: overallState(d), label };
+}
+
 /* ---------- USGS water quality at the shore (a separate source from the buoys) ---------- */
 let USGS_WQ: UsgsTidal | null = null;
 const USGS_VAR: Partial<Record<VarKey, { key: "temperature_c" | "salinity" | "oxygen_mg_l" | "turbidity_fnu"; unit: string; digits: number; f?: (v: number) => number }>> = {
@@ -5212,13 +5259,14 @@ async function main(): Promise<void> {
   const shoreLive = getJson<ShoreLive>(`${DATA}/shore.json`).catch(() => null);
   const shoreHist = getJson<ShoreHistory>(`${DATA}/shore-history.json`).catch(() => null);
   const usgsLive = getJson<UsgsTidal>(`${DATA}/usgs-tidal.json`).catch(() => null);
+  const asosLive = getJson<AsosFile>(`${DATA}/asos.json`).catch(() => null);
   try {
     const { meta, live, stations } = await load();
     const byId = (id: string) => [...stations, ...RIVER_SECTIONS, ...(TURB_SECTION ? [TURB_SECTION] : [])].find((d) => d.meta.id === id)!;
     // A remembered salinity or oxygen choice loads its history first; if that fails, show temperature.
     if (VK !== "temp") await ensureVar(VK, live, stations).catch(() => (VK = "temp"));
     /** The stations on screen: the rivers section in the Rivers view, the buoys and shore stations otherwise. */
-    const shown = () => (VK === "rivers" ? RIVER_SECTIONS : VK === "turbidity" ? (TURB_SECTION ? [TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore") : stations);
+    const shown = () => (VK === "rivers" ? RIVER_SECTIONS : VK === "turbidity" ? (TURB_SECTION ? [TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore") : stations.filter((d) => d.kind !== "airport" || VK === "wind"));
     const drawAll = () => {
       for (const d of shown()) {
         readouts(d);
@@ -5241,7 +5289,8 @@ async function main(): Promise<void> {
           ? `<h2 class="station-group">Rivers into the Sound, USGS stream gauges</h2>${RIVER_SECTIONS.map(sectionHtml).join("")}`
           : VK === "turbidity"
             ? `<h2 class="station-group">Turbidity, point observations</h2>${TURB_SECTION ? sectionHtml(TURB_SECTION) : ""}`
-            : group("buoy", "Buoys, LISICOS") + group("shore", "Shore stations, NOAA and USGS tide gauges");
+            : group("buoy", "Buoys, LISICOS") + group("shore", "Shore stations, NOAA and USGS tide gauges") +
+              (VK === "wind" ? group("airport", "Coastal airports, NWS weather stations") : "");
       drawAll();
       for (const d of shown()) {
         for (const k of Object.keys(FIGS) as Kind[]) {
@@ -5274,6 +5323,12 @@ async function main(): Promise<void> {
         renderSections();
         statusGrid(stations);
       }
+    }
+    // The coastal airports (weather only) after the shore stations.
+    const al = await asosLive;
+    if (al) {
+      stations.push(...airportStations(al));
+      renderSections();
     }
     void overviewMap(stations);
     void shoreHist.then((sh) => {

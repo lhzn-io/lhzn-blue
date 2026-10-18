@@ -1,0 +1,29 @@
+{
+  "note": "Coastal airport weather stations (NWS ASOS) read through the Iowa Environmental Mesonet: wind, gusts, direction, air temperature and pressure; no water sensors. They stand in for the open-water wind on the Connecticut shore while the buoys' weather is out, and to check HRRR against.",
+  "stations": [
+    {
+      "id": "KBDR",
+      "iem_id": "BDR",
+      "name": "Sikorsky Airport",
+      "place": "Stratford",
+      "operator": "NWS ASOS",
+      "lat": 41.1583,
+      "lon": -73.1289,
+      "elevation_m": 5,
+      "info_url": "https://mesonet.agron.iastate.edu/sites/site.php?station=BDR&network=CT_ASOS",
+      "note": "Airport weather station by the marshes at the mouth of the Housatonic, about 1 km from the Sound; anemometer 10 m above the field."
+    },
+    {
+      "id": "KHVN",
+      "iem_id": "HVN",
+      "name": "Tweed-New Haven Airport",
+      "place": "East Haven",
+      "operator": "NWS ASOS",
+      "lat": 41.2638,
+      "lon": -72.8868,
+      "elevation_m": 4,
+      "info_url": "https://mesonet.agron.iastate.edu/sites/site.php?station=HVN&network=CT_ASOS",
+      "note": "Airport weather station on New Haven Harbor's east shore, about 1 km from the water; anemometer 10 m above the field."
+    }
+  ]
+}

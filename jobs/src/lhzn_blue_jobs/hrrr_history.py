@@ -26,7 +26,7 @@ from .build import Store, decode_frame, encode_frame, iso, now_utc
 
 log = logging.getLogger(__name__)
 
-STATIONS = ("WLIS", "EXRX", "ARTG", "CLIS", "KPTN", "BRPT", "NWHV", "NLON")
+STATIONS = ("WLIS", "EXRX", "ARTG", "CLIS", "KPTN", "BRPT", "NWHV", "NLON", "KBDR", "KHVN")
 START = pd.Timestamp("2024-01-01", tz="UTC")
 MAX_LEAD = 3  # hours: a valid hour without a cycle in the 3 h before it is left empty
 MS_KT = 1.943844

@@ -51,9 +51,11 @@ SHORE_FILE = Path(
 
 
 def points() -> dict[str, tuple[float, float]]:
-    """The buoys and the shore stations, {id: (lon, lat)}."""
+    """The buoys, the shore stations and the coastal airports, {id: (lon, lat)}."""
+    from . import asos
+
     pts = {st["id"]: (st["lon"], st["lat"]) for st in load_stations()["stations"]}
-    for st in json.loads(SHORE_FILE.read_text())["stations"]:
+    for st in json.loads(SHORE_FILE.read_text())["stations"] + asos.load()["stations"]:
         pts[st["id"]] = (st["lon"], st["lat"])
     return pts
 

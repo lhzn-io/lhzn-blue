@@ -82,6 +82,7 @@ def _main() -> None:
             "v1/shore.json", shore.live(store.read_json("v1/shore.json"), build.now_utc(), full=args.full), max_age=300
         ))
         _shore(lambda: store.write_json("v1/rivers.json", rivers.live(store.read_json("v1/rivers.json")), max_age=300), "rivers")
+        _shore(lambda: __import__("lhzn_blue_jobs.asos", fromlist=["publish"]).publish(store), "coastal airports")
         _shore(lambda: _usgs_fit(store), "usgs-tidal fit")  # monthly: only when the saved fit is a month old
         _shore(lambda: store.write_json("v1/usgs-tidal.json", usgs_tidal.live(
             store.read_json("v1/usgs-tidal.json"), store.read_json("v1/archive/usgs-tidal-pred.json")

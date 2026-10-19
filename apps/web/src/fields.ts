@@ -12,6 +12,7 @@
 import type maplibregl from "maplibre-gl";
 import { alertsNow, zoneForecastUrl } from "./advisory";
 import { BOATS, COMFORT_WORDS, boatIcon, type Boat } from "./comfort-thresholds";
+import { CURRENTS_FLOOR, CURRENTS_KNOTS, CURRENTS_RAMP, CURRENTS_TOP } from "./currents-ramp";
 import { mapReady, mapTheme, onStyle } from "./map";
 
 export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind" | "waves" | "wat" | "comfort";
@@ -158,7 +159,6 @@ const RAMPS: Record<string, string[]> = {
   thermal: ["#042333", "#2c3395", "#744992", "#b15f82", "#eb7655", "#fbb33f", "#e8fa5b"],
   algae: ["#d7f9d0", "#a3d3a0", "#6fae6a", "#3e8a3c", "#1c6427", "#0d3f17", "#062a10"],
   turbid: ["#e9f6ab", "#d3c671", "#bf9747", "#a1703b", "#795338", "#4d392d", "#221f1b"],
-  speed: ["#fffdcd", "#e1cd73", "#aaac20", "#5f920c", "#187328", "#144b2a", "#172313"],
   wind: ["#f1edf8", "#b7a2dd", "#6a47a8", "#3f2477"], // the light-theme scale; see windStops()
 };
 
@@ -180,6 +180,18 @@ const waveStops = (): [number, string][] =>
     ? [[0, "#eef6f8"], [0.3, "#cfe6ee"], [0.6, "#9dcbdc"], [1.0, "#5ea6c4"], [1.5, "#2d7aa3"], [2.5, "#16466e"]]
     : [[0, "#16242c"], [0.3, "#1f3a48"], [0.6, "#2d5d73"], [1.0, "#4b8aa4"], [1.5, "#7fb8d8"], [2.5, "#cfe8f3"]];
 const isWaves = () => active === "waves";
+
+/** Currents colours (see currents-ramp.ts): one fixed scale on a log-speed axis, the same on both basemaps. Below
+ * CURRENTS_FLOOR (m/s) the first colour, above CURRENTS_TOP the last; never rescaled per frame. */
+const curPos = (ms: number) =>
+  (Math.log(Math.min(CURRENTS_TOP, Math.max(CURRENTS_FLOOR, ms))) - Math.log(CURRENTS_FLOOR)) / (Math.log(CURRENTS_TOP) - Math.log(CURRENTS_FLOOR));
+/** The fill colour of a triangle from its speed in cm/s (the feature state "s"). */
+const curFill = (): maplibregl.ExpressionSpecification => [
+  "interpolate",
+  ["linear"],
+  ["ln", ["max", ["/", ["coalesce", ["feature-state", "s"], 0], 100], CURRENTS_FLOOR]],
+  ...CURRENTS_RAMP.flatMap(([ms, c]) => [Math.log(ms), c]),
+] as maplibregl.ExpressionSpecification;
 const vecStops = () => (isWaves() ? waveStops() : windStops());
 
 interface Meta {
@@ -200,7 +212,7 @@ const META: Record<FieldKind, Meta> = {
   sst: { title: "Sea surface temperature", short: "SST", ramp: "thermal", log: false, range: [-2, 28], fade: false, unit: "°C", digits: 1, note: "Satellite analysis (gap-free), the skin of the water; buoy sensors sit about 1 m down. One colour scale all year, from seawater's freezing point to above the summer highs." },
   chl: { title: "Chlorophyll-a", short: "Chlorophyll-a", ramp: "algae", log: true, range: [0.5, 30], unit: "mg/m³", digits: 1, note: "Satellite estimate of the surface; biased high in turbid water and near the shore (a band along the coast is left out)." },
   kd490: { title: "Water clarity (Kd490)", short: "Clarity, Kd490", ramp: "turbid", log: true, range: [0.1, 2], unit: "m⁻¹", digits: 2, note: "Light attenuation at 490 nm, a satellite proxy for murkiness, not a turbidity reading in NTU. Higher is murkier." },
-  currents: { title: "Surface currents", short: "Currents", ramp: "speed", log: false, range: [0, 150], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
+  currents: { title: "Surface currents", short: "Currents", ramp: "currents", log: true, range: [CURRENTS_FLOOR * 100, CURRENTS_TOP * 100], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
   waves: { title: "Waves (NWS NWPS)", short: "Waves, NWPS", ramp: "wind", log: false, range: [0, WAVE_TOP], unit: "m", digits: 2, note: "Model forecast (NWS Nearshore Wave Prediction System, SWAN): significant wave height on the model's own 1.8 km cells; arrows show where the waves travel. The runs exclude currents; steepening where wind opposes the tide is not represented." },
   wat: { title: "Wind against tide", short: "Wind against tide", ramp: "wind", log: false, unit: "", digits: 0, note: "A model-derived index, not an observation and not an NWS product: where the NECOFS current runs against the NWPS waves and steepens them (linear theory). Excludes shoals, rips and overfalls finer than the 1.8 km cells." },
   comfort: { title: "Comfort for your boat", short: "Comfort", ramp: "wind", log: false, unit: "", digits: 0, note: "How the water suits the boat set in the byline, cell by cell, as a score from 0 to 4 (1 Moderate, 2 Uncomfortable, 3 Hazardous): the worst of HRRR wind, NWPS waves, wind against tide and, for kayaks, the NECOFS current, raised by cold water, as in a click's readout. Advisories are not in the shading: the masthead and the zone lines show them, and a click's readout includes them. Shore cells (harbours, coves) carry wind only. No shading beyond HRRR's 48 hours." },
@@ -468,16 +480,14 @@ function addCurrents(map: maplibregl.Map, m: CurrentsMesh, c: CurrentsField): vo
   arrowImage(map);
   map.addSource("cur-mesh", { type: "geojson", data: meshGeoJSON(m) });
   map.addSource("cur-points", { type: "geojson", data: pointsGeoJSON(m, c, frame) });
-  const ramp = RAMPS[meta.ramp];
-  const stops = ramp.flatMap((col, i) => [range[0] + ((range[1] - range[0]) * i) / (ramp.length - 1), col]);
   map.addLayer(
     {
       id: "cur-fill",
       type: "fill",
       source: "cur-mesh",
       paint: {
-        "fill-color": ["interpolate", ["linear"], ["coalesce", ["feature-state", "s"], 0], ...stops] as maplibregl.ExpressionSpecification,
-        "fill-opacity": ["case", ["==", ["feature-state", "s"], null], 0, 0.6] as maplibregl.ExpressionSpecification,
+        "fill-color": curFill(),
+        "fill-opacity": ["case", ["==", ["feature-state", "s"], null], 0, 0.85] as maplibregl.ExpressionSpecification,
         "fill-antialias": false,
       },
     },
@@ -1960,11 +1970,23 @@ function scaleHtml(meta: Meta, ripKey = false): string {
     const v = (s: number) => (s * un.perMs).toFixed(0);
     return `<div class="field-scale"><span>0</span><i class="field-bar" style="background:linear-gradient(90deg,${stops.join(",")})"></i><span>${v(WIND_TOP)} ${un.label}</span></div>`;
   }
+  if (active === "currents") {
+    // Currents are stored in cm/s and shown in the reader's unit, with ticks at the ramp's knots.
+    const sp = controls?.speed ?? { label: "cm/s", perCms: 1, digits: 0 };
+    const pct = (ms: number) => `${(curPos(ms) * 100).toFixed(1)}%`;
+    const stops = CURRENTS_RAMP.map(([ms, c]) => `${c} ${pct(ms)}`).join(",");
+    const v = (ms: number) => {
+      const x = ms * 100 * sp.perCms;
+      return x < 0.1 ? x.toFixed(2) : x < 10 ? x.toFixed(1) : x.toFixed(0);
+    };
+    // The last knot sits at the bar's end (the clamp), so it is labelled there with the unit.
+    const top = CURRENTS_KNOTS[CURRENTS_KNOTS.length - 1];
+    const ticks = CURRENTS_KNOTS.slice(0, -1).map((ms) => `<span style="left:${pct(ms)}">${v(ms)}</span>`).join("");
+    return `<div class="field-scale cur-scale"><div class="cur-key"><i class="field-bar" style="background:linear-gradient(90deg,${stops})"></i><div class="cur-ticks">${ticks}</div></div><span>${v(top)} ${sp.label}</span></div>`;
+  }
   const ramp = RAMPS[meta.ramp];
-  // Currents are stored in cm/s and shown in the reader's unit.
-  const sp = active === "currents" && controls ? controls.speed : null;
-  const fmt = (v: number) => (v === 0 ? "0" : sp ? (v * sp.perCms).toFixed(sp.digits) : meta.log && v < 1 ? v.toFixed(2) : v.toFixed(meta.digits));
-  return `<div class="field-scale"><span>${fmt(range[0])}</span><i class="field-bar" style="background:linear-gradient(90deg,${ramp.join(",")})"></i><span>${fmt(range[1])} ${sp ? sp.label : meta.unit}</span></div>`;
+  const fmt = (v: number) => (v === 0 ? "0" : meta.log && v < 1 ? v.toFixed(2) : v.toFixed(meta.digits));
+  return `<div class="field-scale"><span>${fmt(range[0])}</span><i class="field-bar" style="background:linear-gradient(90deg,${ramp.join(",")})"></i><span>${fmt(range[1])} ${meta.unit}</span></div>`;
 }
 
 /** "Oct 7", or a span for a composite: "Oct 1-7", "Sep 30-Oct 7". */

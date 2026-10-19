@@ -191,6 +191,16 @@ figure.wide { grid-column: 1 / -1; }
 .field-info[aria-expanded="true"] { color: var(--accent); border-color: var(--accent-line); }
 .field-scale { display: flex; align-items: center; gap: 6px; font: 9.5px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
 .field-bar { width: clamp(80px, 22vw, 200px); height: 5px; }
+/* Currents: a log-speed bar with ticks at the ramp's knots; the last knot is the end label. */
+.field-scale.cur-scale { align-items: flex-start; }
+.cur-key { display: flex; flex-direction: column; gap: 3px; }
+.cur-key .field-bar { display: block; width: clamp(150px, 30vw, 240px); }
+.cur-ticks { position: relative; height: 11px; }
+.cur-ticks span { position: absolute; top: 0; transform: translateX(-50%); }
+.cur-ticks span:first-child { transform: none; }
+.cur-ticks span::before { content: ""; position: absolute; left: 50%; top: -4px; height: 3px; border-left: 1px solid var(--dim); }
+.cur-ticks span:first-child::before { left: 0; }
+.cur-scale > span { line-height: 5px; } /* centred on the bar */
 .field-info { margin-left: 0; }
 .field-note { flex-basis: 100%; }
 /* The time rows: the label on its own line, then play | track, both tracks the map's full width. Hairlines in the

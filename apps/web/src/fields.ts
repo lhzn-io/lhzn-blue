@@ -1072,7 +1072,7 @@ function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat:
   let curKt = NaN;
   let wl = 0;
   if (src.wind) {
-    const id = nearestCell(src.wind.mesh, lng, lat, 3);
+    const id = windCellFor(src.wind.mesh, lng, lat);
     kt = id >= 0 ? valueAt(cellSeries(src.wind, id), t) * 1.943844 : NaN;
     if (!Number.isFinite(kt)) partial = true;
   }
@@ -1152,7 +1152,7 @@ function comfortGridOf(src: PointSources): ComfortGrid | null {
     comfortGrids.set(m, g);
   }
   if (g.windMesh !== w.mesh) {
-    g.hrrr = Int32Array.from(g.cells, (id) => nearestCell(w.mesh, m.centre_lon[id], m.centre_lat[id], 3));
+    g.hrrr = Int32Array.from(g.cells, (id) => windCellFor(w.mesh, m.centre_lon[id], m.centre_lat[id]));
     g.windMesh = w.mesh;
   }
   if (g.sstRef !== (src.sst ?? null)) {
@@ -1405,12 +1405,22 @@ function drawProbeCell(map: maplibregl.Map): void {
 }
 let probePoint: { lng: number; lat: number } | null = null; // the point the popup reads
 
-/** The model cell whose centre is nearest a point, or -1 beyond maxKm (outside the model's grid). */
-function nearestCell(m: WindField["mesh"], lng: number, lat: number, maxKm: number): number {
+/** The HRRR cell a place reads its wind from: the nearest water cell within 3 km, since land cells carry the wind
+ * slowed by the land (3 to 6 kt low beside the Sikorsky and Tweed anemometers on 2026-10-18, where the nearest water
+ * cells were within 2 kt); the nearest cell of any kind where no water cell is that close (inland harbours). */
+function windCellFor(m: WindField["mesh"], lng: number, lat: number): number {
+  const water = nearestCell(m, lng, lat, 3, true);
+  return water >= 0 ? water : nearestCell(m, lng, lat, 3);
+}
+
+/** The model cell whose centre is nearest a point, or -1 beyond maxKm (outside the model's grid); water cells only
+ * when asked. */
+function nearestCell(m: WindField["mesh"], lng: number, lat: number, maxKm: number, waterOnly = false): number {
   const c = Math.cos((lat * Math.PI) / 180);
   let best = -1;
   let d2 = Infinity;
   for (let i = 0; i < m.centre_lon.length; i++) {
+    if (waterOnly && m.land[i]) continue;
     const dx = (m.centre_lon[i] - lng) * c;
     const dy = m.centre_lat[i] - lat;
     const d = dx * dx + dy * dy;
@@ -1492,7 +1502,7 @@ function cellSeries(w: WindField, id: number): [number, number][] {
 const sparkColours = () => (mapTheme() === "light" ? { wind: "#3f2477", waves: "#2d7aa3", current: "#5f920c" } : { wind: "#b7a2dd", waves: "#7fb8d8", current: "#c2c43a" });
 
 function windLine(w: WindField, lng: number, lat: number): string | null {
-  const id = nearestCell(w.mesh, lng, lat, 3);
+  const id = windCellFor(w.mesh, lng, lat);
   if (id < 0) return null;
   const k = windFrameAt(w);
   if (k < 0) return "<b>Wind</b> no HRRR hour at this time";
@@ -1734,7 +1744,7 @@ function renderCell(): void {
   const rows: string[] = [];
   const notes: string[] = [];
   if (src.wind) {
-    const id = nearestCell(src.wind.mesh, lng, lat, 3);
+    const id = windCellFor(src.wind.mesh, lng, lat);
     if (id >= 0) {
       rows.push(cellRow("Wind", un.label, cellSeries(src.wind, id), 35 * 0.514444, un.perMs, un.digits, c.wind, t0, t1, cursor));
       const k = windFrameAt(src.wind);

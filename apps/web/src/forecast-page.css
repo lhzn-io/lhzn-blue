@@ -24,7 +24,7 @@
 .fc-title {
   margin: 8px 0 0; font: 300 clamp(22px, 4vw, 38px)/1.05 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink);
 }
-.fc-nav { display: flex; align-items: center; gap: 6px; }
+.fc-nav { display: flex; align-items: center; gap: 6px 22px; }
 .fc-back {
   padding: 6px 0; font: 700 9.5px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent);
   text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 3px;

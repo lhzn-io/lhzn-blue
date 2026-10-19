@@ -54,6 +54,9 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
 - **Source etiquette.** Merlin: hourly live fetches of the last 72 hours only (plus a quick 15-minute refresh of the
   buoys' water and weather); full rebuilds daily. Identify the client on every request.
 - Style: no emojis, no em-dashes, plain technical language. Organization name: Long Horizon Observatory.
+- **Commits.** Author and commit as the human contributor (`git config` user). Record the agent harness and model
+  that helped as a plain-text line at the end of the body, for example `Collaborated with Claude Code (Opus 5.5).`
+  Never a `Co-Authored-By:` trailer: GitHub parses those into the Contributors list, which is for people.
 
 ## Commands
 

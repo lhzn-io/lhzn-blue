@@ -1194,3 +1194,14 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .about-page .about-limits { margin: 18px 0 8px; padding: 2px 0 2px 14px; border-left: 2px solid var(--rule); }
 .about-page .about-limits h2 { margin-top: 6px; }
 
+
+/* Embed mode (?embed=...): one figure and its credit line; everything else on the page is hidden. */
+body.embed .topbar, body.embed .mast, body.embed .overview, body.embed .about, body.embed footer.credits,
+body.embed .station-head .head-info, body.embed .station-head .sid, body.embed .station-head .rec,
+body.embed .station-links, body.embed .station-note, body.embed .band, body.embed .collect-btn, body.embed .expand { display: none !important; }
+body.embed main { max-width: none; margin: 0; padding: 10px 14px 6px; }
+body.embed .station { margin: 0; padding: 0; border: 0; }
+body.embed .station-head h2 { margin: 0 0 6px; font-size: 13px; letter-spacing: 0.16em; }
+body.embed .figs { display: block; }
+body.embed .embed-credit { margin: 6px 0 0; font: 11px/1.4 var(--sans); color: var(--dim); }
+body.embed .embed-credit a { color: inherit; text-underline-offset: 2px; }

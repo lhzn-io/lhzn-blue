@@ -166,6 +166,21 @@ try {
 } catch {
   /* private mode: Wind & waves */
 }
+/** Embed mode (?embed=next48&station=WLIS, optionally &theme=dark or light): one station's one figure, live, for
+ * another site to frame; the rest of the page is hidden and the map is not drawn. */
+const EMBED = (["next48", "yoy"] as const).find((k) => k === LINK.get("embed")) ?? null;
+const EMBED_STATION = (LINK.get("station") ?? "WLIS").toUpperCase();
+if (EMBED) {
+  VK = EMBED === "next48" ? "wind" : "temp";
+  document.body.classList.add("embed");
+  // The framing page sizes the iframe to the figure: {lhznEmbed: {height}} whenever the content's height changes.
+  new ResizeObserver(() => {
+    if (window.parent !== window) window.parent.postMessage({ lhznEmbed: { fig: EMBED, station: EMBED_STATION, height: document.querySelector("main")?.scrollHeight ?? document.body.scrollHeight } }, "*");
+  }).observe(document.body);
+  const th = LINK.get("theme");
+  if (th === "dark") delete document.documentElement.dataset.theme;
+  else if (th === "light") document.documentElement.dataset.theme = "light";
+}
 const V = () => WATER_VARS[VK];
 /** Axis label for the variable: salinity has no unit (practical salinity scale), so it is named instead. */
 const unitName = (k: VarKey) => (k === "temp" ? "°F" : k === "salinity" ? "practical salinity" : "mg/L");
@@ -1468,7 +1483,7 @@ const figName = (f: Fig) => (f.varies && VK !== "temp" ? `${V().label}: ${f.titl
 /** Whether a station shows a figure: shore stations measure temperature only, so under salinity or oxygen
  * their variable charts are left out rather than drawn empty. */
 const shows = (d: StationData, k: Kind) =>
-  FIGS[k].in(VK) && FIGS[k].available(d) && !(FIGS[k].varies && d.kind === "shore" && VK !== "temp");
+  (!EMBED || k === EMBED) && FIGS[k].in(VK) && FIGS[k].available(d) && !(FIGS[k].varies && d.kind === "shore" && VK !== "temp");
 
 /** A thin wind line under surface minus bottom (same time axis), so a blow lines up with the mixing it causes. */
 const hasWind = (d: StationData) => !!d.met?.wind && Number.isFinite(d.met.wind.lastValid());
@@ -2275,6 +2290,7 @@ function zonesInForce(t: number): { id: string; strong: boolean; title: string }
 
 /** Outline on the map the zones in force at the page's time (the record loads when the cursor goes back). */
 async function syncZones(): Promise<void> {
+  if (EMBED) return; // no map in an embed
   const t = AT ?? Date.now() / 1000;
   if (!ADV && t < Date.now() / 1000 - HOUR) void loadAdvisories();
   try {
@@ -3495,6 +3511,7 @@ async function showAt(t: number | null): Promise<void> {
   if (VK === "tides") for (const d of STATIONS.filter((s) => s.kind === "shore")) { const [a, b] = FIGS.hilo.window(d); drawLadder(d, a, b); }
   if (STATIONS.length) statusGrid(STATIONS);
   void syncZones();
+  if (EMBED) return;
   try {
     (await import("./map")).updatePins([...STATIONS.map(stationPin), ...(VK === "rivers" ? gaugePins() : [])]);
   } catch {
@@ -3584,6 +3601,15 @@ function sectionHtml(d: StationData): string {
       <div class="band" id="${id}-readouts"></div>
       <div class="figs">${kinds.map(fig).join("")}</div>
     </section>`;
+}
+
+/** An embed's body: the station's section (only its one figure shows) and a credit line back to the site. */
+function embedHtml(d: StationData | undefined): string {
+  if (!d) return `<p class="embed-credit">No station ${escHtml(EMBED_STATION)} on this page.</p>`;
+  const view = EMBED === "next48" ? "wind" : "temp";
+  const link = `https://longhorizon.blue/long-island-sound/?view=${view}#${d.meta.id}-${EMBED}`;
+  return sectionHtml(d) +
+    `<p class="embed-credit"><a href="${link}" target="_blank" rel="noopener">${escHtml(d.meta.name)} on longhorizon.blue</a> &middot; live, updated hourly &middot; provisional, not for navigation</p>`;
 }
 
 function readouts(d: StationData): void {
@@ -4621,6 +4647,7 @@ function gaugePins(): Pin[] {
 
 /** The map follows the view: basins and gauges in Rivers, the Sound otherwise; and the view's surface field. */
 async function syncMap(): Promise<void> {
+  if (EMBED) return; // an embed draws no map
   syncSchematic();
   try {
     (await import("./map")).setRiverMode(VK === "rivers", VK === "rivers" ? gaugePins() : []);
@@ -4774,6 +4801,7 @@ function applyWide(): void {
 }
 
 async function syncField(): Promise<void> {
+  if (EMBED) return;
   applyWide();
   // Wind against tide: over the chosen field, or on its own when no field is chosen.
   let ov: FieldData["wat"];
@@ -5261,7 +5289,7 @@ async function main(): Promise<void> {
     // A remembered salinity or oxygen choice loads its history first; if that fails, show temperature.
     if (VK !== "temp") await ensureVar(VK, live, stations).catch(() => (VK = "temp"));
     /** The stations on screen: the rivers section in the Rivers view, the buoys and shore stations otherwise. */
-    const shown = () => (VK === "rivers" ? RIVER_SECTIONS : VK === "turbidity" ? (TURB_SECTION ? [TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore") : stations.filter((d) => d.kind !== "airport" || VK === "wind"));
+    const shown = () => (EMBED ? stations.filter((d) => d.meta.id === EMBED_STATION) : VK === "rivers" ? RIVER_SECTIONS : VK === "turbidity" ? (TURB_SECTION ? [TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore") : stations.filter((d) => d.kind !== "airport" || VK === "wind"));
     const drawAll = () => {
       for (const d of shown()) {
         readouts(d);
@@ -5277,8 +5305,9 @@ async function main(): Promise<void> {
         const grouped = stations.some((d) => d.kind === "shore");
         return list.length ? (grouped ? `<h2 class="station-group">${title}</h2>` : "") + list.map(sectionHtml).join("") : "";
       };
-      $("stations").innerHTML =
-        VK === "tides"
+      $("stations").innerHTML = EMBED
+        ? embedHtml(stations.find((d) => d.meta.id === EMBED_STATION))
+        : VK === "tides"
           ? `<h2 class="station-group">Shore stations, NOAA and USGS tide gauges</h2>${stations.filter((d) => d.kind === "shore").map(sectionHtml).join("")}`
           : VK === "rivers"
           ? `<h2 class="station-group">Rivers into the Sound, USGS stream gauges</h2>${RIVER_SECTIONS.map(sectionHtml).join("")}`
@@ -5325,7 +5354,7 @@ async function main(): Promise<void> {
       stations.push(...airportStations(al));
       renderSections();
     }
-    void overviewMap(stations);
+    if (!EMBED) void overviewMap(stations); // an embed draws no map
     void shoreHist.then((sh) => {
       if (!sh || !sl) return;
       for (const st of SHORE) {

@@ -352,9 +352,14 @@ METHODS["map-comfort"] = {
   method:
     "The comfort index of a click's readout, for every NWPS wave cell (1.8 km) at the time bar's hour: HRRR wind from the " +
     "nearest HRRR cell, NWPS waves, the wind-against-tide level and, for kayaks, the NECOFS current, by the steps for " +
-    "the boat set in the byline; cold water raises a level. Shore cells (harbours, coves) carry wind only.",
+    "the boat set in the byline; cold water raises a level. Shore cells (harbours, coves) carry wind only. Shown as a " +
+    "score from 0 to 4: each factor runs linearly between its steps, so 1 is the Moderate step, 2 Uncomfortable and 3 " +
+    "Hazardous, and the worst factor sets the score. Shaded in a brick tint, clear at 0 and never opaque, with a fine " +
+    "crosshatch and a fine outline from the Hazardous step. Over wind, waves or currents, the crosshatch alone can be laid on as an overlay " +
+    "(Hazardous for your boat), so the field below stays readable.",
   caveats:
-    "The shading excludes NWS advisories, which the masthead and the zone lines show and a click's readout includes. " +
+    "The score places a cell between fixed thresholds; it is not a probability, and its fractions are as much a judgement " +
+    "as the steps. The shading excludes NWS advisories, which the masthead and the zone lines show and a click's readout includes. " +
     "No shading beyond HRRR's 48-hour forecast. Excludes gusts and tide rips.",
 };
 

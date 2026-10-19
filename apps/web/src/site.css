@@ -208,6 +208,12 @@ figure.wide { grid-column: 1 / -1; }
 .tl-play, .tl-now { cursor: pointer; color: var(--dim); background: none; border: 0; padding: 0; }
 .tl-play { display: grid; place-items: center; width: 16px; height: 16px; }
 .tl-play:hover, .tl-now:hover { color: var(--ink); }
+/* Step buttons: one step back or ahead, before the label so they never move as its text changes. */
+.tl-step { cursor: pointer; margin-right: 4px; padding: 1px 5px; font: 10px/1.2 var(--mono); color: var(--dim); background: none; border: 1px solid var(--rule); border-radius: 3px; }
+.tl-step:hover:not(:disabled) { color: var(--ink); border-color: var(--dim); }
+.tl-step:disabled { opacity: 0.35; cursor: default; }
+.tl-slot .tl-label { margin-left: 4px; }
+@media (pointer: coarse) { .tl-step { min-width: 46px; min-height: 34px; margin-right: 6px; font-size: 13px; } .tl-row > .tl-slot { padding-left: 0; } }
 .tl-now { margin-left: 8px; font: 10px/1.2 var(--sans); text-decoration: underline; text-underline-offset: 2px; }
 .tl-slot { text-align: right; white-space: nowrap; overflow: hidden; }
 .tl-track, .tl-ctrack { position: relative; height: 100%; }
@@ -1114,8 +1120,11 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 
 /* The comfort index: a four-square gauge in the ink (readout) and a band of levels (cell view). */
 .pin-pop .pop-gauge { vertical-align: 0; margin-left: 6px; }
-.pin-pop .pop-gauge rect { stroke: var(--ink); stroke-width: 0.8; }
-.pin-pop .pop-gauge .on { fill: var(--ink); } .pin-pop .pop-gauge .off { fill: none; stroke-opacity: 0.4; }
+.pin-pop .pop-gauge .off { fill: none; stroke: var(--ink); stroke-width: 0.8; stroke-opacity: 0.4; }
+.pin-pop .pop-gauge .on { stroke: none; } .pin-pop .pop-gauge .tick { stroke: var(--ink); stroke-width: 0.6; stroke-opacity: 0.45; }
+.pin-pop .pop-score { margin-left: 4px; font: 10px/1 var(--mono); color: var(--dim); }
+.hatch-swatch { display: inline-block; width: 24px; height: 10px; margin-left: 6px; vertical-align: middle; border: 1px solid var(--rule); }
+.hover-pop { pointer-events: none; } .hover-pop .maplibregl-popup-content { padding: 4px 8px; }
 .cell-cf0 { fill: var(--ink); fill-opacity: 0.04; } .cell-cf1 { fill: var(--ink); fill-opacity: 0.2; }
 .cell-cf2 { fill: var(--ink); fill-opacity: 0.45; } .cell-cf3 { fill: var(--ink); fill-opacity: 0.85; }
 .pin-pop .pop-about { font: italic 600 9px/1 var(--sans); width: 13px; height: 13px; margin-left: 4px; border-radius: 50%; border: 1px solid var(--rule); background: none; color: var(--dim); cursor: pointer; padding: 0; vertical-align: 1px; }
@@ -1177,9 +1186,9 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .comfort-strip { margin: 2px 0 4px; }
 
 /* The comfort layer's key: four swatches in the ink, as the comfort charts. */
-.field-scale.comfort-scale { display: flex; flex-wrap: wrap; gap: 4px 12px; }
-.comfort-scale span { display: inline-flex; align-items: center; gap: 5px; }
-.comfort-scale i { display: inline-block; width: 14px; height: 10px; border: 1px solid var(--rule); }
+.field-scale.comfort-scale { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px 4px; width: min(100%, 360px); white-space: nowrap; }
+.comfort-scale .field-bar { grid-column: 1 / -1; width: 100%; height: 7px; border: 1px solid var(--rule); box-sizing: border-box; }
+.comfort-scale span { font-size: 8.5px; overflow: hidden; text-overflow: ellipsis; }
 .field-name svg { vertical-align: -1px; margin-right: 2px; }
 
 /* The About page: a contents line, and each method as its own entry with the (i) dialogs' list layout. */

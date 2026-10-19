@@ -4681,8 +4681,11 @@ const VIEW_LAYERS: Record<VarKey, { offer: FieldKind[]; def: FieldKind | "none";
 };
 // A linked layer wins on load; otherwise the view's default. A layer picked by hand lasts until the view changes.
 let fieldPick: FieldKind | "none" = (["sst", "chl", "kd490", "currents", "wind", "waves", "comfort"] as const).find((k) => k === LINK.get("layer")) ?? VIEW_LAYERS[VK].def;
-/** Wind against tide over the map's field (Wind & waves only): on by link ("ov=wat"), or picked in the layer menu. */
-let overlayWat = LINK.get("ov") === "wat" || LINK.get("layer") === "wat";
+/** Overlays on the map's field (Wind & waves only), on by link ("ov=wat,haz") or picked in the layer menu: wind
+ * against tide, and the comfort index's Hazardous crosshatch for the reader's boat. */
+const LINK_OV = (LINK.get("ov") ?? "").split(",");
+let overlayWat = LINK_OV.includes("wat") || LINK.get("layer") === "wat";
+let overlayHaz = LINK_OV.includes("haz");
 /** A linked time ("-6h", "+12h", "-30d"), applied once the time bar has the scale it belongs to. */
 let pendingOffset: { hours: number; scale: "hours" | "days" } | null = (() => {
   const m = /^([+-]?\d+)([hd])$/.exec((LINK.get("t") ?? "").replace(/^ /, "+")); // a "+" in a query string reads as a space
@@ -4694,7 +4697,8 @@ function linkUrl(plot?: string): string {
   const p = new URLSearchParams();
   p.set("view", VK); // always: a visitor's remembered view would otherwise win
   if (fieldPick !== "none") p.set("layer", fieldPick);
-  if (overlayWat && VIEW_LAYERS[VK].overlay) p.set("ov", "wat");
+  const ovs = VIEW_LAYERS[VK].overlay ? [overlayWat && "wat", overlayHaz && "haz"].filter(Boolean) : [];
+  if (ovs.length) p.set("ov", ovs.join(","));
   const tl = timelineModule?.position();
   if (tl && tl.offset !== 0) p.set("t", tl.scale === "days" ? `${Math.round(tl.offset / 24)}d` : `${tl.offset > 0 ? "+" : ""}${tl.offset}h`);
   const q = p.toString();
@@ -4813,10 +4817,18 @@ async function syncField(): Promise<void> {
     }
   }
   const kind: FieldKind | "none" = fieldPick === "none" && ov ? "wat" : fieldPick;
+  let hz: FieldData["comfort"];
+  if (overlayHaz && VIEW_LAYERS[VK].overlay && kind !== "comfort" && kind !== "wat" && kind !== "none") {
+    try {
+      hz = (await fieldData("comfort")).comfort;
+    } catch (err) {
+      console.error(err);
+    }
+  }
   let payload: FieldData = {};
   if (kind !== "none") {
     try {
-      payload = kind === "wat" ? { wat: ov } : { ...(await fieldData(kind)), overlay: ov };
+      payload = kind === "wat" ? { wat: ov } : { ...(await fieldData(kind)), overlay: ov, hazard: hz };
     } catch (err) {
       console.error(err);
     }
@@ -4863,16 +4875,29 @@ function fieldControls(): import("./fields").FieldControls {
           return { wind: ok(w)?.wind, waves: ok(v)?.wind, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined, wat: ok(t)?.wat, sst: ok(s)?.raster, zones: ok(z) };
         }
       : undefined,
-    overlay: VIEW_LAYERS[VK].overlay
-      ? {
-          label: "Wind against tide",
-          on: overlayWat,
-          onToggle: (on) => {
-            overlayWat = on;
-            void syncField();
-            syncUrl(true);
+    overlays: VIEW_LAYERS[VK].overlay
+      ? [
+          {
+            key: "wat",
+            label: "Wind against tide",
+            on: overlayWat,
+            onToggle: (on) => {
+              overlayWat = on;
+              void syncField();
+              syncUrl(true);
+            },
           },
-        }
+          {
+            key: "haz",
+            label: "Hazardous for your boat",
+            on: overlayHaz,
+            onToggle: (on) => {
+              overlayHaz = on;
+              void syncField();
+              syncUrl(true);
+            },
+          },
+        ]
       : undefined,
     onPick: (k) => {
       fieldPick = k;

@@ -136,6 +136,13 @@ function sync(): void {
   range.setAttribute("aria-valuetext", label());
   root.querySelector<HTMLElement>(".tl-label")!.textContent = label();
   root.querySelector<HTMLButtonElement>(".tl-now")!.hidden = offset === 0;
+  const unit = scale === "days" ? "d" : "h";
+  root.querySelectorAll<HTMLButtonElement>(".tl-step").forEach((b) => {
+    const back = b.dataset.dir === "-1";
+    b.textContent = `${back ? "\u2212" : "+"}${s.step === 24 ? 1 : s.step}${unit}`;
+    b.setAttribute("aria-label", `${back ? "Back" : "Ahead"} one ${scale === "days" ? "day" : "hour"}`);
+    b.disabled = back ? offset <= -s.past : offset >= s.ahead;
+  });
   const f0 = Math.max(-s.past, offset - frame.back);
   const f1 = Math.min(s.ahead, offset + frame.ahead);
   const band = root.querySelector<HTMLElement>(".tl-frame")!;
@@ -232,7 +239,7 @@ export function mountTimeline(box: HTMLElement): void {
   root.innerHTML = `<div class="tl-row"><button type="button" class="tl-play"></button>
       <div class="tl-track"><span class="tl-ticks" aria-hidden="true"></span><i class="tl-frame" aria-hidden="true"></i><i class="tl-needle" aria-hidden="true"></i><i class="tl-knob" aria-hidden="true"></i>
         <input class="tl-range" type="range" value="0"></div>
-      <span class="tl-slot"><span class="tl-label" aria-live="polite"></span><button type="button" class="tl-now" hidden>now</button></span></div>
+      <span class="tl-slot"><button type="button" class="tl-step" data-dir="-1"></button><button type="button" class="tl-step" data-dir="1"></button><span class="tl-label" aria-live="polite"></span><button type="button" class="tl-now" hidden>now</button></span></div>
     <div class="tl-row tl-context" aria-hidden="true"><span></span><div class="tl-ctrack"></div><span class="tl-slot"></span></div>`;
   box.appendChild(root);
   build();
@@ -242,6 +249,12 @@ export function mountTimeline(box: HTMLElement): void {
     set(Number(range.value));
   });
   root.querySelector<HTMLButtonElement>(".tl-play")!.addEventListener("click", () => (playing ? stop() : play()));
+  root.querySelectorAll<HTMLButtonElement>(".tl-step").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (playing) stop();
+      set(offset + Number(b.dataset.dir) * SCALES[scale].step);
+    }),
+  );
   root.querySelector<HTMLButtonElement>(".tl-now")!.addEventListener("click", () => {
     stop();
     set(0);

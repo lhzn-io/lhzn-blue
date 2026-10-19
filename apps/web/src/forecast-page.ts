@@ -243,8 +243,9 @@ function drawIntro(): void {
   for (const [k, s] of Object.entries(months)) if (s && s.air_n > 100 && s.air_bias < coldV) [coldest, coldV] = [k, s.air_bias];
   const airF = L18.air_bias * 1.8;
   const cards: [string, string, string, string][] = [
-    [L1.mae.toFixed(1), "kt", "Typical speed error, 1 h ahead", `mean absolute error over ${L1.n.toLocaleString("en-US")} forecast hours at 4 buoys`],
-    [L48.mae.toFixed(1), "kt", "Typical speed error, 48 h ahead", `${(L48.mae - L1.mae).toFixed(1)} kt more than 1 h ahead`],
+    // Typical errors are a size either way (mean absolute error): plus or minus; the biases below carry a sign.
+    [`±${L1.mae.toFixed(1)}`, "kt", "Typical speed error, 1 h ahead", `mean absolute error over ${L1.n.toLocaleString("en-US")} forecast hours at 4 buoys`],
+    [`±${L48.mae.toFixed(1)}`, "kt", "Typical speed error, 48 h ahead", `${(L48.mae - L1.mae).toFixed(1)} kt more than 1 h ahead`],
     [signed(L18.dir_bias, 0), "deg", "Direction bias, 18 h ahead", `HRRR turned clockwise of the buoy on average; typical miss ${L18.dir_mae.toFixed(0)} deg (wind 6 kt and up)`],
     [
       signed(L18.air_bias, 1),

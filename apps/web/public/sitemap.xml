@@ -4,6 +4,7 @@
   <url><loc>https://longhorizon.blue/long-island-sound/</loc><changefreq>hourly</changefreq></url>
   <url><loc>https://longhorizon.blue/long-island-sound/forecast/</loc><changefreq>daily</changefreq></url>
   <url><loc>https://longhorizon.blue/long-island-sound/models/</loc><changefreq>hourly</changefreq></url>
+  <url><loc>https://longhorizon.blue/about/</loc></url>
   <url><loc>https://longhorizon.blue/references/</loc></url>
   <url><loc>https://longhorizon.blue/terms/</loc></url>
 </urlset>

@@ -48,14 +48,14 @@
           </p>
           <p class="info-meta">Collect plots with + to ask your own AI about them or send us a suggestion. An early public version, curated locally.
             All data are provisional and may be revised.</p>
-          <p class="info-links"><a href="#about-title">Method and sources</a> &middot; <a href="/terms/">Terms</a> &middot; <a href="/terms/#ai">Use of AI</a> &middot; <a href="/references/">References</a> &middot; <a href="https://longhorizon.eco/field-notes/the-recent-past">Motivation</a></p>
+          <p class="info-links"><a href="/about/">About, method and sources</a> &middot; <a href="/terms/">Terms</a> &middot; <a href="/terms/#ai">Use of AI</a> &middot; <a href="/references/">References</a> &middot; <a href="https://longhorizon.eco/field-notes/the-recent-past">Motivation</a></p>
         </div>
       </details>
       <button class="collect-open" type="button" id="collect-open" aria-expanded="false" aria-controls="collect-tray" title="Collect plots to ask your own AI about them or send us a suggestion">Collect<span id="collect-count"></span></button>
       <button class="theme-icon" id="theme-toggle" type="button" aria-pressed="false"></button>
       <button class="more-menu drop-btn" id="more-menu" type="button" aria-expanded="false" aria-controls="more-pop" aria-label="Menu: About, Collect, units and theme"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
       <div class="more-pop" id="more-pop">
-        <button type="button" data-more="about">About</button>
+        <a class="more-link" href="/about/">About</a>
         <button type="button" data-more="collect">Collect plots<span class="more-count"></span></button>
         <a class="more-link" href="/long-island-sound/forecast/">Forecast verification</a>
         <div class="more-row">
@@ -78,6 +78,7 @@
           <span class="wm-bottom">LONG ISLAND SOUND</span>
         </a>
         <p class="mast-by"><span class="lho">Long Horizon Observatory</span> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span> <span class="outage-wrap"><button class="outage-icon" id="outage-icon" type="button" hidden aria-describedby="outage-pop" title="Buoy data notice" aria-label="Buoy data notice"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.4v4.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.4" r="0.9" fill="currentColor"/></svg><span>Buoy data</span></button><span class="outage-pop" id="outage-pop" role="tooltip"></span></span><span class="boat-wrap" data-boat-mast></span></p>
+        <p class="mast-caveat">Provisional observations and model forecasts. Not for navigation. <a href="/about/#limits">Limitations</a></p>
       </div>
       <p class="outage mast-outage" id="outage" role="status" hidden></p>
       <dialog class="outage-dialog" id="outage-dialog" aria-label="Buoy data notice"><p id="outage-dialog-text"></p><button type="button" id="outage-dialog-close">Close</button></dialog>
@@ -93,7 +94,7 @@
       </section>
       <div id="stations"></div>
       <section class="about" aria-labelledby="about-title">
-        <h2 id="about-title">About these numbers</h2>
+        <h2 id="about-title">Sources and quality control</h2>
         <p class="prose" id="about-method"></p>
         <details class="about-sources-box">
           <summary>Sources by series</summary>
@@ -123,8 +124,8 @@
           <a href="/terms/">terms</a> for use and credit.
         </p>
         <p>
-          A <a href="/">longhorizon.blue</a> page by Long Horizon Observatory. Open source under the MIT license:
-          <a href="https://github.com/lhzn-io/lhzn-blue">code</a>. This site does not offer a public data API yet; to work with the
+          A <a href="/">longhorizon.blue</a> page by Long Horizon Observatory (<a href="/about/">about</a>). Open source under the MIT license:
+          <a href="https://github.com/lhzn-io/lhzn-blue">code</a>. This site does not offer a public data API; to work with the
           numbers, use the copy button above or the <a href="http://merlin.dms.uconn.edu:8080/erddap/">LISICOS ERDDAP server</a> directly.
         </p>
       </footer>

@@ -23,7 +23,7 @@ function localData(): Plugin {
   };
 }
 
-// Pages: the landing page, one page per waterway, the terms and the references.
+// Pages: the landing page, one page per waterway, the about page, the terms and the references.
 export default defineConfig({
   base: "/",
   plugins: [localData()],
@@ -37,6 +37,7 @@ export default defineConfig({
         lis: resolve(import.meta.dirname, "long-island-sound/index.html"),
         terms: resolve(import.meta.dirname, "terms/index.html"),
         references: resolve(import.meta.dirname, "references/index.html"),
+        about: resolve(import.meta.dirname, "about/index.html"),
         forecast: resolve(import.meta.dirname, "long-island-sound/forecast/index.html"),
         tides: resolve(import.meta.dirname, "long-island-sound/tides/index.html"),
         models: resolve(import.meta.dirname, "long-island-sound/models/index.html"),

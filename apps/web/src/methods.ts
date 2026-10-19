@@ -21,7 +21,7 @@ const QC =
   "Gross-range checks (temperature -2 to 35 °C, salinity 5 to 36, dissolved oxygen 0 to 20 mg/L), narrowed where the " +
   "waterway sets its own range. A spike test drops a reading more than 1.5 °C, 1.5 salinity or 2 mg/L from the median of " +
   "the 13 readings around it (about 3 hours). A placeholder test drops a run of whole-number readings; real sensor values " +
-  "carry decimals, and the server has published day counts in a salinity column. Flat-line tests are not yet applied.";
+  "carry decimals, and the server has published day counts in a salinity column. Flat-line tests are not applied.";
 
 const OXYGEN_LEVELS =
   "Shading marks reference levels: under 1 mg/L anoxic and under 3 mg/L hypoxic, as the Long Island Sound Partnership " +
@@ -92,9 +92,9 @@ export const METHODS: Record<string, Method> = {
       "48-hour runs of the last week. The typical error is the mean absolute difference between HRRR and the four buoys at " +
       "each lead time since January 2024; about 6 in 10 forecast hours fall within it.",
     caveats:
-      "Raw model output, not corrected. One model only; other models are not shown. For decisions afloat, use the " +
-      "National Weather Service marine forecast. " +
-      "Why HRRR, not ECMWF or GFS? HRRR is NOAA's 3 km model, run every hour, for the next 18 to 48 hours. Global models such as ECMWF and GFS reach further ahead on coarser grids (about 9 to 25 km); across a Sound 5 to 34 km wide that is one or two cells. For the next day or two at the water's edge, the finer grid matters. We will add the global models with their own measured errors at the buoys.",
+      "Uncorrected output of a single model; other models are not shown. Not a substitute for the National Weather " +
+      "Service marine forecast. HRRR is used for its 3 km grid, run hourly, 18 to 48 hours ahead; global models such as " +
+      "ECMWF and GFS run on grids of about 9 to 25 km, one or two cells across a Sound 5 to 34 km wide.",
   },
   wind: {
     title: "Wind",
@@ -162,8 +162,8 @@ export const METHODS: Record<string, Method> = {
     sources: "NOAA HRRR; NWS Nearshore Wave Prediction System (NOAA NOMADS). Every NWPS run is archived as published.",
     caveats:
       "HRRR's typical error at each lead is measured against the buoys' own records (the Forecast verification page). " +
-      "NWPS is forced by the forecasters' wind grids rather than by observations, and has not yet been checked against the " +
-      "buoys here; that check starts when their wave sensors return.",
+      "NWPS is forced by the forecasters' wind grids rather than by observations and has not been verified against the " +
+      "buoys' wave records, which are unavailable while their wave sensors are out.",
   },
   advisory: {
     title: "NWS marine advisories",
@@ -227,7 +227,7 @@ export const METHODS: Record<string, Method> = {
     sensors: "The turbidity channel of the Sea-Bird ECO FLNTU (chlorophyll fluorescence and turbidity) at the surface of each buoy [[lisicos]].",
     caveats:
       "In warm water the optical window fouls within weeks and the reading climbs though the water has not changed; servicing " +
-      "drops it back in one step. The fouling flag is a working rule, to be checked against LISICOS servicing dates. Turbidity " +
+      "drops it back in one step. The fouling flag is a provisional rule and has not been reconciled with LISICOS servicing records. Turbidity " +
       "in the Sound's bays and harbors is measured by Save the Sound's Unified Water Study [[sts_monitoring]].",
   },
   "map-sst": {
@@ -269,7 +269,7 @@ export const METHODS: Record<string, Method> = {
       "The NWS Nearshore Wave Prediction System, which runs the SWAN spectral wave model [[booij1999swan]], from the New York " +
       "forecast office at 00 and 12 UTC on its CG1 grid, forced by the office's forecast winds. Each hour comes from the " +
       "newest run that covers it. Colours: an ordered ramp after cmocean [[thyng2016cmocean]].",
-    caveats: "A model forecast, not a measurement. These runs carry no currents, so steepening where the tide opposes the waves is not in them.",
+    caveats: "A model forecast, not a measurement. The runs exclude currents; steepening where the tide opposes the waves is not represented.",
   },
   "map-wat": {
     title: "Wind against tide",
@@ -291,10 +291,10 @@ export const METHODS: Record<string, Method> = {
       "tide-rip hatching, after the chart symbol for rips and overfalls [[noaa2019chart1]]: finer rows for the lower levels, the densest and " +
       "heaviest kept for blocking. The patterns are fixed and do not rescale with the hours shown.",
     caveats:
-      "A model-derived index: not an observation and not an NWS product; NWS advisories come first. Linear, deep-water theory " +
-      "for waves entering the current from slack water. Shoals, rips and overfalls finer than the cells (the Race, Plum Gut and " +
-      "Hell Gate in detail), boat wakes, and wave groups are not in it. The thresholds are a first estimate, to be checked against " +
-      "the buoys' wave records.",
+      "A model-derived index: not an observation and not an NWS product; NWS advisories take precedence. Linear, " +
+      "deep-water theory for waves entering the current from slack water. Excludes shoals, rips and overfalls finer than the " +
+      "cells (the Race, Plum Gut and Hell Gate in detail), boat wakes and wave groups. The thresholds are provisional and " +
+      "have not been validated against wave observations.",
   },
   "map-wind": {
     title: "Wind (HRRR)",
@@ -341,8 +341,9 @@ METHODS.comfort = {
     "current. Steps follow Beaufort, WMO sea states and the NWS small craft advisory; the 30% rule, post-Fastnet (1979) " +
     "capsize tests.",
   caveats:
-    "A guide, not a go or no-go: boat, crew and handling matter more. Gusts, visibility and thunderstorms are not in it " +
-    "yet; the thresholds are a first set, to be checked against the buoys.",
+    "An indicative index derived from forecasts, not a determination of whether to go. Excludes gusts, visibility and " +
+    "thunderstorms. The thresholds are judgements for typical boats of each length, not a standard; the code is open " +
+    "source (github.com/lhzn-io/lhzn-blue), so anyone can set their own and build an index on the same method.",
 };
 
 METHODS["map-comfort"] = {
@@ -351,13 +352,10 @@ METHODS["map-comfort"] = {
   method:
     "The comfort index of a click's readout, for every NWPS wave cell (1.8 km) at the time bar's hour: HRRR wind from the " +
     "nearest HRRR cell, NWPS waves, the wind-against-tide level and, for kayaks, the NECOFS current, by the steps for " +
-    "the boat set in the byline; cold water raises a level. Within 1.3 km of a tide rip, overfall, eddy or breakers " +
-    "charted on NOAA's electronic charts, comfort goes up a step while NOAA's tidal current predictions at the nearest " +
-    "station (within 5 km) have the tide running: from a sixth of the way past slack to a sixth before the next. " +
-    "The marks are dark while it runs. Shore cells (harbours, coves) carry wind only.",
+    "the boat set in the byline; cold water raises a level. Shore cells (harbours, coves) carry wind only.",
   caveats:
-    "Advisories are not in the shading: the masthead and the brick zone lines show them, and a click's readout includes " +
-    "them. No shading beyond HRRR's 48 hours. Rips form at many uncharted reefs and points too; gusts are not in it yet.",
+    "The shading excludes NWS advisories, which the masthead and the zone lines show and a click's readout includes. " +
+    "No shading beyond HRRR's 48-hour forecast. Excludes gusts and tide rips.",
 };
 
 METHODS.trends = {

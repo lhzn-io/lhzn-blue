@@ -157,14 +157,14 @@ const WATER_VARS: Record<VarKey, WaterVar> = {
   tides: { label: "Tides", unit: " ft", digits: 2, file: "shore-tides.json", obs: () => null },
 };
 const isWater = (k: VarKey) => k === "temp" || k === "salinity" || k === "oxygen";
-let VK: VarKey = "temp";
+let VK: VarKey = "wind"; // a first visit opens on Wind & waves (the comfort map); a link or a remembered view wins
 /** What a link asked for: ?view=oxygen&layer=sst&t=-30d#WLIS-col (see linkUrl). */
 const LINK = new URLSearchParams(location.search);
 try {
   const saved = LINK.get("view") ?? localStorage.getItem("lhzn-blue-water-var");
   if (saved && saved in WATER_VARS) VK = saved as VarKey;
 } catch {
-  /* private mode: temperature */
+  /* private mode: Wind & waves */
 }
 const V = () => WATER_VARS[VK];
 /** Axis label for the variable: salinity has no unit (practical salinity scale), so it is named instead. */
@@ -2685,7 +2685,7 @@ function schematicInfo(sc: Schematic): string {
       <li>${sw('<circle r="3.6" style="fill:var(--bg);stroke:var(--ink-mute)"/>')}predicted level, ahead of the record (NOAA's; ours at the USGS gauges, fitted to each gauge's own record)</li>
       <li>${sw('<line y1="5" y2="-5" style="stroke:var(--wp-willow);stroke-width:2.6"/>')}observed minus predicted; up is higher</li>
       <li>${sw('<line y1="5" y2="-5" style="stroke:var(--wp-amber);stroke-width:2.6"/>')}more than 0.5 ft from the prediction</li>
-      <li>${sw('<circle r="3.6" style="fill:var(--bg);stroke:var(--ink-mute);stroke-dasharray:2 1.6"/>')}USGS tide gauge, not yet on this site</li>
+      <li>${sw('<circle r="3.6" style="fill:var(--bg);stroke:var(--ink-mute);stroke-dasharray:2 1.6"/>')}USGS tide gauge, not shown on this site</li>
     </ul>
     <p>${gap ? `No gauge on Long Island's shore for about ${gap} km east of ${lastS.name}. ` : ""}Outline: the Census Bureau's TIGER shoreline (public domain), smoothed at 0.75 km (finer when zoomed in); north up, to scale; islands at the mouth drawn by their north shores. Drag to pan, scroll or pinch to zoom.</p>`;
 }
@@ -2799,7 +2799,7 @@ function schematicSvg(sc: Schematic, W: number, H: number): string {
     if (x < -10 || x > W + 10 || y < -10 || y > H + 10) continue; // panned out of view
     if (q.kind === "usgs") {
       if (nar) continue;
-      marks.push({ q, x, y, svg: `<circle cx="${f1(x)}" cy="${f1(y)}" r="3.6" class="sc-cand"/>`, rows: [q.name], cls: ["sc-cname"], title: `${q.name}: USGS tide gauge ${q.usgs}, not yet on this site` });
+      marks.push({ q, x, y, svg: `<circle cx="${f1(x)}" cy="${f1(y)}" r="3.6" class="sc-cand"/>`, rows: [q.name], cls: ["sc-cname"], title: `${q.name}: USGS tide gauge ${q.usgs}, not shown on this site` });
       taken.push({ x0: x - 5, y0: y - 5, x1: x + 5, y1: y + 5 });
       continue;
     }
@@ -4109,14 +4109,16 @@ function updatedStrip(meta: Meta, live: Live): void {
     // Only datasets that were working before: a series in a known outage is explained in its own section.
     .filter(([, s]) => s.last_error && s.last_ok && s.last_error.slice(0, 20) > s.last_ok)
     .map(([k]) => k);
-  // The server itself down (the jobs could not connect at all): one plain note instead of a list of datasets,
-  // dated from the last fetch that worked.
-  const down = Object.values(live.datasets).some((s) => s.last_error?.includes("ServerUnreachable"));
+  // The server itself down (the jobs could not connect at all): one plain note instead of a list of datasets, dated
+  // from the last fetch that worked. Only while the newest attempt failed, and only after 12 hours without a good fetch,
+  // so a passing hiccup does not raise the notice (a shorter gap shows in the strip as a failed fetch).
   const lastOk = Object.values(live.datasets)
     .map((s) => s.last_ok)
     .filter((t): t is string => !!t)
     .sort()
     .pop();
+  const unreachable = Object.values(live.datasets).some((s) => s.last_error?.includes("ServerUnreachable") && (!s.last_ok || s.last_error.slice(0, 20) > s.last_ok));
+  const down = unreachable && (!lastOk || Date.parse(live.generated_at) - Date.parse(lastOk) > 12 * 3600e3);
   const outage = $("outage");
   const since = (t: string) =>
     new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(t));
@@ -4178,7 +4180,7 @@ function wireMore(): void {
     if (what === "theme") $("theme-toggle").click();
     else if (what === "collect") window.setTimeout(() => $("collect-open").click());
     else if (what === "locate") return; // its own handler (wireLocate)
-    else window.setTimeout(() => (($("about-drawer") as HTMLDetailsElement).open = true)); // after this click settles
+    // "About" is a link to /about/; "Forecast verification" a link too.
   });
   const count = $("collect-count");
   const show = () => {
@@ -4345,11 +4347,8 @@ function wireAbout(): void {
 
 function about(meta: Meta): void {
   $("about-method").innerHTML =
-    `Each plot's (i), and each readout's label, explains what it shows, how it is computed, the sensors and the sources, ` +
-    `with references. The papers and monitoring programs behind the page are on the <a href="/references/">references</a> page. ` +
-    `The plots owe their form to Edward Tufte: data in line work, small multiples on shared axes, sparklines ` +
-    `(<a href="/references/#tufte2001visual">his books</a>). ` +
-    `Times are stored in UTC and labelled in New York time; all data are provisional and may be revised.`;
+    `The datasets behind each series and their quality checks. How the page works, its sources and methods, are on the ` +
+    `<a href="/about/">About</a> page; the science behind it on the <a href="/references/">references</a> page.`;
   const src = meta.stations
     .flatMap((st) =>
       st.series.map((s: MetaSeries) => {
@@ -4395,7 +4394,7 @@ function atPromptLine(d: StationData, t: number): string {
   const wind = d.met?.wind?.at(t) ?? NaN;
   const dir = d.met?.dir?.at(t) ?? NaN;
   if (Number.isFinite(wind)) parts.push(`wind ${f1(wind)} kt${Number.isFinite(dir) ? ` from ${compass(dir)}` : ""}`);
-  const none = `no observations at that time${t * 1000 > Date.now() ? " (there are no station forecasts yet)" : ""}`;
+  const none = `no observations at that time${t * 1000 > Date.now() ? " (no station forecasts are available)" : ""}`;
   return `  At the page's timeline cursor, ${when}: ${parts.length ? `observed ${parts.join("; ")}` : none}.`;
 }
 
@@ -4710,10 +4709,6 @@ try {
 const FRAME_SPAN: Record<FieldKind | "none", [number, number]> = { none: [0, 0], comfort: [0, 1], currents: [0, 2], wind: [0, 1], waves: [0, 1], wat: [0, 2], sst: [24, 0], chl: [7 * 24, 0], kd490: [7 * 24, 0] };
 const fieldCache = new Map<FieldKind, Promise<FieldData>>();
 
-/** Charted rips with NOAA's tidal current events (small; for the comfort index), loaded once; null when missing. */
-let ripsLoad: Promise<import("./fields").RipsField | null> | null = null;
-const ripsData = () => (ripsLoad ??= getJson<import("./fields").RipsField>(`${DATA}/fields/rips.json`).catch(() => null));
-
 /** Comfort on the map: the models it reads (the NECOFS current only for kayaks), each from its own cache, as one
  * payload object per set so a redraw for the same set keeps the open readout. */
 const comfortCache = new Map<string, Promise<FieldData>>();
@@ -4723,13 +4718,13 @@ function comfortData(): Promise<FieldData> {
     const ok = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : undefined);
     comfortCache.set(
       key,
-      Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("wat"), fieldData("sst"), key === "kayak" ? fieldData("currents") : Promise.resolve({} as FieldData), ripsData()]).then(([w, v, t, s, c, r]) => {
+      Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("wat"), fieldData("sst"), key === "kayak" ? fieldData("currents") : Promise.resolve({} as FieldData)]).then(([w, v, t, s, c]) => {
         const cur = ok(c);
         if (!ok(w)?.wind || !ok(v)?.wind) {
           comfortCache.delete(key); // try again next time
           throw new Error("comfort: wind or waves did not load");
         }
-        return { comfort: { wind: ok(w)?.wind, waves: ok(v)?.wind, wat: ok(t)?.wat, sst: ok(s)?.raster, rips: ok(r) ?? undefined, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined } };
+        return { comfort: { wind: ok(w)?.wind, waves: ok(v)?.wind, wat: ok(t)?.wat, sst: ok(s)?.raster, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined } };
       }),
     );
   }
@@ -4834,10 +4829,10 @@ function fieldControls(): import("./fields").FieldControls {
     // Wind & waves: a click reads wind, waves and wind against tide at its point, whatever layer shows.
     point: VIEW_LAYERS[VK].overlay
       ? async () => {
-          const [w, v, c, t, s, z, r] = await Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("currents"), fieldData("wat"), fieldData("sst"), getJson<NonNullable<import("./fields").PointSources["zones"]>>("/nws-zones-lis.json"), ripsData()]);
+          const [w, v, c, t, s, z] = await Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("currents"), fieldData("wat"), fieldData("sst"), getJson<NonNullable<import("./fields").PointSources["zones"]>>("/nws-zones-lis.json")]);
           const ok = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : undefined);
           const cur = ok(c);
-          return { wind: ok(w)?.wind, waves: ok(v)?.wind, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined, wat: ok(t)?.wat, sst: ok(s)?.raster, zones: ok(z), rips: ok(r) ?? undefined };
+          return { wind: ok(w)?.wind, waves: ok(v)?.wind, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined, wat: ok(t)?.wat, sst: ok(s)?.raster, zones: ok(z) };
         }
       : undefined,
     overlay: VIEW_LAYERS[VK].overlay

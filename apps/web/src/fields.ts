@@ -12,7 +12,7 @@
 import type maplibregl from "maplibre-gl";
 import { alertsNow, zoneForecastUrl } from "./advisory";
 import { BOATS, COMFORT_WORDS, boatIcon, type Boat } from "./comfort-thresholds";
-import { CURRENTS_FLOOR, CURRENTS_KNOTS, CURRENTS_RAMP, CURRENTS_TOP } from "./currents-ramp";
+import { CURRENTS_FLOOR, CURRENTS_KNOTS, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURRENTS_TOP } from "./currents-ramp";
 import { mapReady, mapTheme, onStyle } from "./map";
 
 export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind" | "waves" | "wat" | "comfort";
@@ -181,8 +181,10 @@ const waveStops = (): [number, string][] =>
     : [[0, "#16242c"], [0.3, "#1f3a48"], [0.6, "#2d5d73"], [1.0, "#4b8aa4"], [1.5, "#7fb8d8"], [2.5, "#cfe8f3"]];
 const isWaves = () => active === "waves";
 
-/** Currents colours (see currents-ramp.ts): one fixed scale on a log-speed axis, the same on both basemaps. Below
- * CURRENTS_FLOOR (m/s) the first colour, above CURRENTS_TOP the last; never rescaled per frame. */
+/** Currents colours (see currents-ramp.ts): one fixed scale on a log-speed axis, never rescaled per frame. Below
+ * CURRENTS_FLOOR (m/s) the first colour, above CURRENTS_TOP the last. The light basemap's table darkens with speed and
+ * the dark basemap's twin lightens with it, on the same speeds, so the fastest water stands out on either. */
+const curRamp = () => (mapTheme() === "dark" ? CURRENTS_RAMP_DARK : CURRENTS_RAMP);
 const curPos = (ms: number) =>
   (Math.log(Math.min(CURRENTS_TOP, Math.max(CURRENTS_FLOOR, ms))) - Math.log(CURRENTS_FLOOR)) / (Math.log(CURRENTS_TOP) - Math.log(CURRENTS_FLOOR));
 /** The fill colour of a triangle from its speed in cm/s (the feature state "s"). */
@@ -190,7 +192,7 @@ const curFill = (): maplibregl.ExpressionSpecification => [
   "interpolate",
   ["linear"],
   ["ln", ["max", ["/", ["coalesce", ["feature-state", "s"], 0], 100], CURRENTS_FLOOR]],
-  ...CURRENTS_RAMP.flatMap(([ms, c]) => [Math.log(ms), c]),
+  ...curRamp().flatMap(([ms, c]) => [Math.log(ms), c]),
 ] as maplibregl.ExpressionSpecification;
 const vecStops = () => (isWaves() ? waveStops() : windStops());
 
@@ -333,7 +335,7 @@ function historyRange(h: RasterHistory): [number, number] {
   return r;
 }
 
-const LAYER_IDS = ["field-raster", "cur-fill", "cur-arrows", "wind-fill", "wind-arrows", "comfort-fill", "comfort-hatch", "comfort-edge", "wat-fill", "wat-arrows"];
+const LAYER_IDS = ["field-raster", "cur-fill", "cur-arrows", "wind-fill", "wind-arrows", "comfort-fill", "comfort-hatch", "comfort-edge-casing", "comfort-edge", "wat-fill", "wat-arrows"];
 const SOURCE_IDS = ["field-raster", "cur-mesh", "cur-points", "wind-cells", "wind-points", "comfort-cells", "comfort-edge", "wat-cells", "wat-points"];
 
 function clear(map: maplibregl.Map): void {
@@ -1263,17 +1265,28 @@ function comfortHatch(map: maplibregl.Map): string {
   const c = document.createElement("canvas");
   c.width = c.height = n;
   const g = c.getContext("2d")!;
+  const lines = () => {
+    g.beginPath();
+    for (const k of [-n, 0, n]) {
+      g.moveTo(k, n);
+      g.lineTo(k + n, 0); // rising
+      g.moveTo(k, 0);
+      g.lineTo(k + n, n); // falling
+    }
+    g.stroke();
+  };
+  // On the dark theme the field's lightness crosses the brick's (the dark currents ramp near 1.1 m/s), so each line
+  // gets a dark under-stroke: it then stands out by lightness as well as hue over every field colour.
+  if (mapTheme() === "dark") {
+    g.strokeStyle = "#0c0c0c";
+    g.globalAlpha = 0.8;
+    g.lineWidth = 3;
+    lines();
+  }
   g.strokeStyle = comfortBrick();
   g.globalAlpha = 0.85;
   g.lineWidth = 1; // one device pixel: the finest pen
-  g.beginPath();
-  for (const k of [-n, 0, n]) {
-    g.moveTo(k, n);
-    g.lineTo(k + n, 0); // rising
-    g.moveTo(k, 0);
-    g.lineTo(k + n, n); // falling
-  }
-  g.stroke();
+  lines();
   map.addImage(name, g.getImageData(0, 0, n, n), { pixelRatio: r });
   return name;
 }
@@ -1315,6 +1328,7 @@ function addComfort(map: maplibregl.Map, src: PointSources, hatchOnly = false): 
     beneathLabels(map),
   );
   map.addSource("comfort-edge", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  if (mapTheme() === "dark") map.addLayer({ id: "comfort-edge-casing", type: "line", source: "comfort-edge", paint: { "line-color": "#0c0c0c", "line-width": 2.8, "line-opacity": 0.8 } }, beneathLabels(map));
   map.addLayer({ id: "comfort-edge", type: "line", source: "comfort-edge", paint: { "line-color": comfortBrick(), "line-width": 0.9, "line-opacity": 0.9 } }, beneathLabels(map));
   paintComfort(map);
 }
@@ -1974,7 +1988,7 @@ function scaleHtml(meta: Meta, ripKey = false): string {
     // Currents are stored in cm/s and shown in the reader's unit, with ticks at the ramp's knots.
     const sp = controls?.speed ?? { label: "cm/s", perCms: 1, digits: 0 };
     const pct = (ms: number) => `${(curPos(ms) * 100).toFixed(1)}%`;
-    const stops = CURRENTS_RAMP.map(([ms, c]) => `${c} ${pct(ms)}`).join(",");
+    const stops = curRamp().map(([ms, c]) => `${c} ${pct(ms)}`).join(",");
     const v = (ms: number) => {
       const x = ms * 100 * sp.perCms;
       return x < 0.1 ? x.toFixed(2) : x < 10 ? x.toFixed(1) : x.toFixed(0);

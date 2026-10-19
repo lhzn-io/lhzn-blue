@@ -261,7 +261,8 @@ export const METHODS: Record<string, Method> = {
       "The NECOFS FVCOM forecast (UMass Dartmouth), every 2 hours [[chen2003fvcom]] [[chen2006fvcom]]. Colours follow one " +
       "fixed scale on a logarithmic speed axis, from 0.02 to 3.1 m/s, with knots from 2026 NOAA CO-OPS current predictions " +
       "(0.494 m/s, the median daily maximum across Long Island and Block Island Sound; 2.418 and 3.097 m/s, the median and " +
-      "annual daily maxima at Little Gull Island in the Race).",
+      "annual daily maxima at Little Gull Island in the Race). The dark theme uses a twin scale on the same speeds, " +
+      "midnight blue to pale seafoam, so faster water is lighter there.",
     caveats: "A model forecast, not a measurement. Speeds follow the Units switch.",
   },
   "map-waves": {

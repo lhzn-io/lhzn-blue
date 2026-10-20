@@ -236,7 +236,11 @@ export const METHODS: Record<string, Method> = {
     method:
       "The MUR multi-sensor analysis, which fills gaps between satellite passes [[chin2017mur]] [[jpl2015mur]]. Every layer " +
       "covers one box (40.45 to 41.45°N, 73.9 to 71.8°W) and is cut to the currents model's water, so all layers share one coastline.",
-    caveats: "The skin of the water; buoy sensors sit about 1 m down.",
+    caveats:
+      "The skin of the water; buoy sensors sit about 1 m down. One fixed colour scale all year: even steps from 1.5 to " +
+      "25.5 °C (about the 0.5th to 99.5th percentile of 2022 to 2026 over this box), compressed beyond out to -2 and " +
+      "28 °C, in cmocean thermal hues [[thyng2016cmocean]]. A typical day spans only about 2 °C across the box, so lines " +
+      "every 1 °C mark the fronts that colour alone would hide.",
   },
   "map-chl": {
     title: "Chlorophyll-a",

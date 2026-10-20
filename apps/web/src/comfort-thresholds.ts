@@ -1,6 +1,6 @@
 /**
  * The small-craft comfort index's thresholds per boat class, shared by the index (fields.ts) and the table in its
- * About entry, so the two never drift apart. Steps run from Comfortable to Moderate, Uncomfortable and Hazardous.
+ * About entry, so the two never drift apart. Steps run from Comfortable to Moderate, Uncomfortable and Discomfort.
  */
 
 export type Boat = "kayak" | "skiff" | "console" | "big";
@@ -24,7 +24,7 @@ export interface BoatClass {
   sca: number;
 }
 
-export const COMFORT_WORDS = ["Comfortable", "Moderate", "Uncomfortable", "Hazardous"];
+export const COMFORT_WORDS = ["Comfortable", "Moderate", "Uncomfortable", "Discomfort"];
 
 /** Line icons for the boat picker, drawn in the ink on a 28 x 14 box: a kayak with its paddle, a centre console, a
  * cabin cruiser. */
@@ -54,14 +54,14 @@ export const BOATS: Record<Boat, BoatClass> = {
   // Lengths at regulatory breaks: 16 ft is the US Coast Guard's Class A limit; 7 m (23 ft) and 12 m (39 ft) are COLREGS'.
   kayak: { name: "Kayak", loa: 3.7, wind: [8, 12, 15], hs: [0.15, 0.3, 0.5], current: [0.5, 1, 2], wat: [0, 2, 3, 3, 3], sca: 3 },
   skiff: { name: "Skiff", loa: 4.9, wind: [10, 13, 18], hs: [0.2, 0.45, 0.75], current: null, wat: [0, 2, 3, 3, 3], sca: 3 },
-  // Hazardous at the small craft advisory: 20 kt is NWS Eastern Region's lower advisory criterion for waters busy with
-  // small craft, and an advisory in force makes it Hazardous outright.
+  // Discomfort at the small craft advisory: 20 kt is NWS Eastern Region's lower advisory criterion for waters busy with
+  // small craft, and an advisory in force makes it Discomfort outright.
   console: { name: "Center console", loa: 7.0, wind: [10, 15, 20], hs: [0.3, 0.6, 1.0], current: null, wat: [0, 1, 2, 3, 3], sca: 3 },
-  big: { name: "Big boat", loa: 9.1, wind: [10, 15, 25], hs: [0.5, 1.0, 1.5], current: null, wat: [0, 1, 2, 3, 3], sca: 1 },
+  big: { name: "Cruiser", loa: 9.1, wind: [10, 15, 25], hs: [0.5, 1.0, 1.5], current: null, wat: [0, 1, 2, 3, 3], sca: 1 },
 };
 
 /** The thresholds as strip charts for the About entry: for each factor, a bar per boat class along a shared axis,
- * shaded from Comfortable (palest) to Hazardous (darkest) as in the cell view's comfort band; the reader's boat is
+ * shaded from Comfortable (palest) to Discomfort (darkest) as in the cell view's comfort band; the reader's boat is
  * marked. The rules that raise the level follow in one line. Heights in feet or metres. */
 export function comfortTableHtml(selected: Boat, metric: boolean): string {
   const order = BOAT_ORDER;
@@ -89,7 +89,7 @@ export function comfortTableHtml(selected: Boat, metric: boolean): string {
   const legend = `<p class="ct-legend">${COMFORT_WORDS.map((w, i) => `<span><i style="opacity:${shade[i] + 0.05}"></i>${w}</span>`).join("")}</p>`;
   const b = BOATS[selected];
   const rules =
-    `<p class="ct-rules">Hazardous also with a small craft advisory (big boat: moderate), a gale warning, three uncomfortable factors, ` +
+    `<p class="ct-rules">Discomfort (3) also with a small craft advisory (cruiser: Moderate), a gale warning, three uncomfortable factors, ` +
     `or breaking waves of 30% of your length (${metric ? `${(0.3 * b.loa).toFixed(1)} m` : `${(0.3 * b.loa * 3.28084).toFixed(0)} ft`}). ` +
     `Water under 15 C (59 F) adds a level; steepening seas count as moderate (kayak and skiff: uncomfortable).</p>`;
   return `<div class="comfort-chart"><div class="ct-top">${boatPickerHtml(selected)}${legend}</div>` +

@@ -302,7 +302,7 @@
   pages = {9–13},
   doi = {10.5670/oceanog.2016.66},
   keywords = {design},
-  annote = {The cmocean colour maps the map layers follow: ordered ramps, the strongest value the most visible.},
+  annote = {The cmocean colour maps the map layers follow: ordered ramps, the strongest value the most visible, one colour map per quantity. The light currents scale follows its tempo map (pale aqua to deep blue-green).},
 }
 
 @misc{noaa2019chart1,
@@ -311,8 +311,9 @@
   edition = {Thirteenth},
   year = {2019},
   url = {https://nauticalcharts.noaa.gov/publications/us-chart-1.html},
+  urldate = {2026-10-19},
   keywords = {design},
-  annote = {The chart symbol for tide rips, eddies and overfalls that the wind-against-tide hatching follows.},
+  annote = {The chart symbol for tide rips, eddies and overfalls that the wind-against-tide hatching follows, and the chart colours for land, drying ground and shoal water that the currents scale avoids.},
 }
 
 @book{tufte2001visual,
@@ -379,4 +380,66 @@
   urldate = {2026-10-16},
   keywords = {fields},
   annote = {The shoreline the Tides view's outline is drawn from, smoothed (public domain).},
+}
+
+@article{crameri2020misuse,
+  author = {Crameri, Fabio and Shephard, Grace E. and Heron, Philip J.},
+  title = {The misuse of colour in science communication},
+  journal = {Nature Communications},
+  year = {2020},
+  volume = {11},
+  pages = {5444},
+  doi = {10.1038/s41467-020-19160-7},
+  keywords = {design},
+  annote = {Ordered, perceptually even colour maps that stay readable with colour-vision deficiency, and no red-green ramps: the currents scales and the checks behind them.},
+}
+
+@misc{kovesi2015colormaps,
+  author = {Kovesi, Peter},
+  title = {Good Colour Maps: How to Design Them},
+  year = {2015},
+  publisher = {arXiv:1509.03700},
+  doi = {10.48550/arXiv.1509.03700},
+  keywords = {design},
+  annote = {Lightness that changes evenly along a colour map keeps fine structure in a field visible: the lightness profile of the currents scales.},
+}
+
+@article{machado2009cvd,
+  author = {Machado, Gustavo M. and Oliveira, Manuel M. and Fernandes, Leandro A. F.},
+  title = {A Physiologically-based Model for Simulation of Color Vision Deficiency},
+  journal = {IEEE Transactions on Visualization and Computer Graphics},
+  year = {2009},
+  volume = {15},
+  number = {6},
+  pages = {1291–1298},
+  doi = {10.1109/TVCG.2009.113},
+  keywords = {design},
+  annote = {The colour-vision simulation used to check that the currents scales, and the hazard crosshatch over them, stay readable with protanopia and deuteranopia.},
+}
+
+@misc{opencpn_s52colours,
+  author = {{OpenCPN}},
+  title = {S-52 presentation library colour tables (chartsymbols.xml)},
+  url = {https://github.com/OpenCPN/OpenCPN/blob/master/data/s57data/chartsymbols.xml},
+  urldate = {2026-10-19},
+  keywords = {design},
+  annote = {The day colours electronic charts give land, drying ground and depth shades. The light currents scale keeps clear of them, so moving water never reads as land or shoal.},
+}
+
+@misc{noaa_lis_current_charts,
+  author = {{NOAA National Ocean Service}},
+  title = {Tidal Current Charts: Long Island Sound and Block Island Sound},
+  url = {https://repository.library.noaa.gov/view/noaa/1399},
+  urldate = {2026-10-19},
+  keywords = {design},
+  annote = {How official current displays show speed: arrows labelled in knots rather than a shaded field.},
+}
+
+@misc{noaa_coops_currents,
+  author = {{NOAA Center for Operational Oceanographic Products and Services}},
+  title = {Tidal Current Predictions},
+  url = {https://tidesandcurrents.noaa.gov/noaacurrents/},
+  urldate = {2026-10-19},
+  keywords = {design},
+  annote = {The 2026 predictions for Long Island Sound and Block Island Sound set the currents scale's anchors: the regional median daily maximum (0.494 m/s) and Little Gull Island's median daily maximum (2.418 m/s) and annual maximum (3.097 m/s).},
 }

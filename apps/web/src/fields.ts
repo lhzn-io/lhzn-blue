@@ -108,7 +108,7 @@ export interface FieldData {
   wat?: WatField;
   /** Wind against tide drawn over the field (not with a wat field itself). */
   overlay?: WatField;
-  /** The comfort index's Hazardous crosshatch drawn over the field (not with the comfort field itself). */
+  /** The discomfort zones (comfort index 3 and up), crosshatched over the field (not with the comfort field itself). */
   hazard?: PointSources;
   raster?: RasterField;
   history?: RasterHistory;
@@ -148,7 +148,7 @@ export interface FieldControls {
   point?: () => Promise<PointSources>;
   /** The boat class the comfort index is for (the menu's Boat setting). */
   boat?: Boat;
-  /** The overlays the view offers (wind against tide; Hazardous for your boat), whether each is on, and its switch. */
+  /** The overlays the view offers (wind against tide; discomfort zones), whether each is on, and its switch. */
   overlays?: { key: string; label: string; on: boolean; onToggle: (on: boolean) => void }[];
   /** The reader's speed unit (from the page's Units switch), for the currents key and values. */
   speed: { label: string; perCms: number; digits: number };
@@ -217,7 +217,7 @@ const META: Record<FieldKind, Meta> = {
   currents: { title: "Surface currents", short: "Currents", ramp: "currents", log: true, range: [CURRENTS_FLOOR * 100, CURRENTS_TOP * 100], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
   waves: { title: "Waves (NWS NWPS)", short: "Waves, NWPS", ramp: "wind", log: false, range: [0, WAVE_TOP], unit: "m", digits: 2, note: "Model forecast (NWS Nearshore Wave Prediction System, SWAN): significant wave height on the model's own 1.8 km cells; arrows show where the waves travel. The runs exclude currents; steepening where wind opposes the tide is not represented." },
   wat: { title: "Wind against tide", short: "Wind against tide", ramp: "wind", log: false, unit: "", digits: 0, note: "A model-derived index, not an observation and not an NWS product: where the NECOFS current runs against the NWPS waves and steepens them (linear theory). Excludes shoals, rips and overfalls finer than the 1.8 km cells." },
-  comfort: { title: "Comfort for your boat", short: "Comfort", ramp: "wind", log: false, unit: "", digits: 0, note: "How the water suits the boat set in the byline, cell by cell, as a score from 0 to 4 (1 Moderate, 2 Uncomfortable, 3 Hazardous): the worst of HRRR wind, NWPS waves, wind against tide and, for kayaks, the NECOFS current, raised by cold water, as in a click's readout. Advisories are not in the shading: the masthead and the zone lines show them, and a click's readout includes them. Shore cells (harbours, coves) carry wind only. No shading beyond HRRR's 48 hours." },
+  comfort: { title: "Comfort index", short: "Comfort", ramp: "wind", log: false, unit: "", digits: 0, note: "How the water suits the boat set in the byline, cell by cell, as a score from 0 to 4 (1 Moderate, 2 Uncomfortable, 3 Discomfort): the worst of HRRR wind, NWPS waves, wind against tide and, for kayaks, the NECOFS current, raised by cold water, as in a click's readout. Advisories are not in the shading: the masthead and the zone lines show them, and a click's readout includes them. Shore cells (harbours, coves) carry wind only. No shading beyond HRRR's 48 hours." },
   wind: { title: "Wind (HRRR)", short: "Wind, HRRR", ramp: "wind", log: false, range: [0, WIND_TOP], unit: "m/s", digits: 1, note: "Model forecast (NOAA HRRR), 10 m above the surface, on the model's own 3 km cells; arrows show where the wind blows toward. Cells HRRR counts as land are fainter inland; on the shore (harbours, coves) they are drawn like water." },
 };
 
@@ -250,7 +250,7 @@ let frame = 0; // the currents frame on the map (-1: the timeline's time is outs
 let windFrame = -1; // the wind frame on the map (-1: no HRRR hour at the timeline's time)
 let watFrame = -1; // the wind-against-tide frame on the map (-1: none within the hour)
 let overlay: WatField | null = null; // wind against tide over another field
-let hazard: PointSources | null = null; // comfort's Hazardous crosshatch over another field
+let hazard: PointSources | null = null; // the discomfort zones over another field
 let probeOv: number | null = null; // the overlay cell the popup reads, under the base value
 /** The wind-against-tide field on the map: the layer itself, or the overlay. */
 const watOf = (): WatField | null => data.wat ?? overlay;
@@ -957,7 +957,7 @@ export type { Boat } from "./comfort-thresholds";
 const stepLevel = (v: number, steps: number[]) => (v >= steps[2] ? 3 : v >= steps[1] ? 2 : v >= steps[0] ? 1 : 0);
 
 /** The continuous score behind a step level: 0 to 1 across Comfortable, 1 to 2 across Moderate, 2 to 3 across
- * Uncomfortable, then from 3 at the Hazardous step toward 4 one step-width past it. Its whole part is always
+ * Uncomfortable, then from 3 at the Discomfort step toward 4 one step-width past it. Its whole part is always
  * stepLevel's level, so the score and the words never disagree. */
 function stepScore(v: number, s: number[]): number {
   if (!(v > 0)) return 0;
@@ -1005,7 +1005,7 @@ type ComfortKey = "wind" | "waves" | "current" | "wat" | "rule30" | "advisory" |
 
 /** The comfort rules for one place and hour, shared by a click's readout and the map: wind, waves, current (kayaks)
  * and wind against tide (wl, 0 to 4) each set a level by the boat's steps; the worst wins; three at Uncomfortable make
- * it Hazardous; an advisory floor (the readout only; 0 for none) applies; cold water (sst, C) raises it one step. */
+ * it Discomfort; an advisory floor (the readout only; 0 for none) applies; cold water (sst, C) raises it one step. */
 function comfortLevel(x: { kt: number; hs: number; curKt: number; wl: number; sst: number }, boat: Boat, floor = 0): { level: number; score: number; f: { level: number; score: number; key: ComfortKey }[] } | null {
   const b = BOATS[boat];
   const f: { level: number; score: number; key: ComfortKey }[] = [];
@@ -1242,7 +1242,7 @@ function comfortCellsGeoJSON(m: WindField["mesh"], cells: number[]) {
 }
 
 /** The comfort score's shading: the advisory brick at an opacity rising with the score, clear at 0 and never more
- * than a light tint, so the basemap shows through (score, opacity). Hazardous cells add a crosshatch (comfortHatch). */
+ * than a light tint, so the basemap shows through (score, opacity). The discomfort zones overlay adds a crosshatch (comfortHatch). */
 const COMFORT_RAMP: [number, number][] = [[0, 0], [1, 0.04], [2, 0.14], [3, 0.26], [4, 0.34]];
 const comfortBrick = () => (mapTheme() === "light" ? "#9e2418" : "#d24a37");
 function comfortAlpha(s: number): number {
@@ -1254,9 +1254,8 @@ function comfortAlpha(s: number): number {
   return COMFORT_RAMP[COMFORT_RAMP.length - 1][1];
 }
 const hexA = (hex: string, a: number) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a.toFixed(3)})`;
-const comfortWord = (s: number) => COMFORT_WORDS[Math.max(0, Math.min(3, Math.floor(s)))];
 
-/** A fine brick crosshatch for Hazardous cells, as a map image named for the theme; seamless at any offset. */
+/** A fine brick crosshatch for the discomfort zones (score 3 and up), as a map image named for the theme; seamless at any offset. */
 function comfortHatch(map: maplibregl.Map): string {
   const name = `comfort-hatch-${mapTheme()}`;
   if (map.hasImage(name)) return name;
@@ -1275,14 +1274,13 @@ function comfortHatch(map: maplibregl.Map): string {
     }
     g.stroke();
   };
-  // On the dark theme the field's lightness crosses the brick's (the dark currents ramp near 1.1 m/s), so each line
-  // gets a dark under-stroke: it then stands out by lightness as well as hue over every field colour.
-  if (mapTheme() === "dark") {
-    g.strokeStyle = "#0c0c0c";
-    g.globalAlpha = 0.8;
-    g.lineWidth = 3;
-    lines();
-  }
+  // Every currents ramp crosses the brick's lightness somewhere (dark theme near 1.1 m/s, light near 2.8 m/s), so each
+  // line gets an under-stroke in the basemap's ground colour, dark or light: it then stands out by lightness as well as
+  // hue over every field colour.
+  g.strokeStyle = mapTheme() === "dark" ? "#0c0c0c" : "#f7f7f4";
+  g.globalAlpha = 0.8;
+  g.lineWidth = 3;
+  lines();
   g.strokeStyle = comfortBrick();
   g.globalAlpha = 0.85;
   g.lineWidth = 1; // one device pixel: the finest pen
@@ -1291,7 +1289,7 @@ function comfortHatch(map: maplibregl.Map): string {
   return name;
 }
 
-/** The map's crosshatch in CSS: over the key's Hazardous quarter, or filling a swatch. */
+/** The map's crosshatch in CSS, filling the overlay's key swatch. */
 const hatchCss = (c: string, at = "right/25% 100% no-repeat") =>
   `repeating-linear-gradient(45deg,${hexA(c, 0.9)} 0 1px,transparent 1px 8px) ${at},` +
   `repeating-linear-gradient(-45deg,${hexA(c, 0.9)} 0 1px,transparent 1px 8px) ${at}`;
@@ -1314,7 +1312,7 @@ function addComfort(map: maplibregl.Map, src: PointSources, hatchOnly = false): 
     },
     beneathLabels(map),
   );
-  map.addLayer(
+  if (hatchOnly) map.addLayer(
     {
       id: "comfort-hatch",
       type: "fill",
@@ -1328,7 +1326,7 @@ function addComfort(map: maplibregl.Map, src: PointSources, hatchOnly = false): 
     beneathLabels(map),
   );
   map.addSource("comfort-edge", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-  if (mapTheme() === "dark") map.addLayer({ id: "comfort-edge-casing", type: "line", source: "comfort-edge", paint: { "line-color": "#0c0c0c", "line-width": 2.8, "line-opacity": 0.8 } }, beneathLabels(map));
+  map.addLayer({ id: "comfort-edge-casing", type: "line", source: "comfort-edge", paint: { "line-color": mapTheme() === "dark" ? "#0c0c0c" : "#f7f7f4", "line-width": 2.8, "line-opacity": 0.8 } }, beneathLabels(map));
   map.addLayer({ id: "comfort-edge", type: "line", source: "comfort-edge", paint: { "line-color": comfortBrick(), "line-width": 0.9, "line-opacity": 0.9 } }, beneathLabels(map));
   paintComfort(map);
 }
@@ -1344,7 +1342,7 @@ function paintComfort(map: maplibregl.Map): void {
   refreshPopup();
 }
 
-/** The outline of the Hazardous cells (score 3 and up): each cell side that faces a cell below Hazardous, as line
+/** The outline of the discomfort zones (score 3 and up): each cell side that faces a cell below 3, as line
  * segments on the grid's corners. Sides on the model's outer edge are left open: the zone runs on past the grid. */
 function hazardEdges(m: WindField["mesh"], cells: number[], score: Float32Array) {
   const { nx, corner_lon: x, corner_lat: y } = m;
@@ -1366,14 +1364,14 @@ function hazardEdges(m: WindField["mesh"], cells: number[], score: Float32Array)
 }
 
 /** A word-sized gauge: a bar filled in brick to the score (0 to 4), with ticks at the Moderate, Uncomfortable and
- * Hazardous steps, and the score beside it. */
+ * Discomfort steps, and the score beside it. */
 function comfortGauge(score: number): string {
   const w = 40;
   const x = (s: number) => (0.5 + ((w - 1) * Math.min(4, Math.max(0, s))) / 4).toFixed(1);
   return `<svg class="pop-gauge" viewBox="0 0 ${w} 8" width="${w}" height="8" aria-hidden="true"><rect x="0.5" y="0.5" width="${w - 1}" height="7" class="off"/>` +
     `<rect x="0.5" y="0.5" width="${(Number(x(score)) - 0.5).toFixed(1)}" height="7" class="on" style="fill:${comfortBrick()}"/>` +
     [1, 2, 3].map((k) => `<line x1="${x(k)}" x2="${x(k)}" y1="0.5" y2="7.5" class="tick"/>`).join("") +
-    `</svg><span class="pop-score" title="Comfort score, 0 to 4: 1 Moderate, 2 Uncomfortable, 3 Hazardous">${score.toFixed(1)}</span>`;
+    `</svg><span class="pop-score" title="Comfort score, 0 to 4: 1 Moderate, 2 Uncomfortable, 3 Discomfort">${score.toFixed(1)}<small> of 4</small></span>`;
 }
 
 function comfortLine(src: PointSources, lng: number, lat: number): string | null {
@@ -1381,7 +1379,7 @@ function comfortLine(src: PointSources, lng: number, lat: number): string | null
   const t = fieldT ?? Date.now() / 1000;
   const c = comfortAt(src, lng, lat, t, boat);
   if (!c) return null;
-  return `<span class="pop-l1"><b>${BOATS[boat].name}: ${COMFORT_WORDS[c.level]}</b> ${comfortGauge(c.score)} <button type="button" class="pop-about" data-about="comfort" aria-label="About the comfort index">i</button></span>` +
+  return `<span class="pop-l1"><b>${BOATS[boat].name}: comfort</b> ${comfortGauge(c.score)} <button type="button" class="pop-about" data-about="comfort" aria-label="About the comfort index">i</button></span>` +
     `<br><small>${c.level ? `limited by ${c.why.map((w) => (w === c.advisory && c.zone ? `<a href="${zoneForecastUrl(c.zone)}" target="_blank" rel="noopener" title="NWS marine forecast for ${c.zone}">${w}</a>` : w)).join("; ")}` : "within comfortable limits"}${c.partial ? "; beyond the wind forecast" : ""}</small>`;
 }
 
@@ -1509,7 +1507,7 @@ function cellSeries(w: WindField, id: number): [number, number][] {
     .sort((a, b) => a[0] - b[0]);
 }
 
-const sparkColours = () => (mapTheme() === "light" ? { wind: "#3f2477", waves: "#2d7aa3", current: "#5f920c" } : { wind: "#b7a2dd", waves: "#7fb8d8", current: "#c2c43a" });
+const sparkColours = () => (mapTheme() === "light" ? { wind: "#3f2477", waves: "#2d7aa3", current: "#08867c" } : { wind: "#b7a2dd", waves: "#7fb8d8", current: "#47cfc0" }); // currents: the teal ramps' 2.4 m/s knot
 
 function windLine(w: WindField, lng: number, lat: number): string | null {
   const id = windCellFor(w.mesh, lng, lat);
@@ -1821,7 +1819,7 @@ function renderCell(): void {
     const now = comfortAt(src, lng, lat, cursor, boat);
     rows.unshift(`<div class="cell-row"><span class="cell-label">Comfort<small>${BOATS[boat].name.toLowerCase()}</small></span><svg viewBox="0 0 ${W} 14" preserveAspectRatio="none" class="cell-plot cell-band">` +
       `${midnights(t0, t1).map((t) => `<line x1="${x(t).toFixed(1)}" x2="${x(t).toFixed(1)}" y1="0" y2="14" class="cell-tick"/>`).join("")}${blocks}` +
-      `<line x1="${x(cursor).toFixed(1)}" x2="${x(cursor).toFixed(1)}" y1="0" y2="14" class="cell-cursor"/></svg><span class="cell-read">${now ? COMFORT_WORDS[now.level].toLowerCase() : "--"}</span></div>`);
+      `<line x1="${x(cursor).toFixed(1)}" x2="${x(cursor).toFixed(1)}" y1="0" y2="14" class="cell-cursor"/></svg><span class="cell-read">${now ? now.score.toFixed(1) : "--"}</span></div>`);
   }
   const days = midnights(t0, t1).map((t) => `<span style="left:${((((t - t0) / (t1 - t0)) * 100) + 0.5).toFixed(2)}%">${fmtDayShort.format(new Date((t + 6 * 3600) * 1000))}</span>`).join("");
   const nowMark = `<span class="cell-now" style="left:${(((now - t0) / (t1 - t0)) * 100).toFixed(2)}%">now</span>`;
@@ -1967,7 +1965,7 @@ function scaleHtml(meta: Meta, ripKey = false): string {
   if (active === "comfort" && !ripKey) {
     const c = comfortBrick();
     const stops = COMFORT_RAMP.map(([s, a]) => `${hexA(c, a)} ${s * 25}%`).join(",");
-    return `<div class="field-scale comfort-scale"><i class="field-bar" style="background:${hatchCss(c)},linear-gradient(90deg,${stops})"></i>${COMFORT_WORDS.map((w) => `<span>${w}</span>`).join("")}</div>`;
+    return `<div class="field-scale comfort-scale"><i class="field-bar" style="background:linear-gradient(90deg,${stops})"></i><span class="cs-ticks">${[...COMFORT_WORDS, ""].map((w, i) => `<span title="${w ? `${i}+: ${w}` : "4: Discomfort + 1"}">${i}</span>`).join("")}</span></div>`;
   }
   if (ripKey || active === "wat") {
     return `<div class="field-scale wat-scale">${[1, 2, 3, 4].map((l) => `<span>${ripSwatch(l)}${WAT_SHORT[l]}</span>`).join("")}</div>`;
@@ -2088,7 +2086,7 @@ function renderPanel(fallback: HTMLElement): void {
     if (hazard && !cm) {
       const hb = controls?.boat ?? "console";
       const hf = hazard.wind && comfortHour >= 0 ? hazard.wind.frames[comfortHour] : null;
-      body += `<div class="field-key field-overlay"><span class="field-name" title="Where the comfort index reaches Hazardous for your boat">+ ${boatIcon(hb, 10)} Hazardous, ${BOATS[hb].name.toLowerCase()}</span><span class="field-when">${hf ? `HRRR ${hf.cycle.slice(11, 13)}Z run` : "no HRRR hour"}</span>
+      body += `<div class="field-key field-overlay"><span class="field-name" title="Where the comfort index for your boat reaches 3 (Discomfort)">+ ${boatIcon(hb, 10)} Discomfort zones, ${BOATS[hb].name.toLowerCase()}</span><span class="field-when">${hf ? `HRRR ${hf.cycle.slice(11, 13)}Z run` : "no HRRR hour"}</span>
         <button type="button" class="field-info" data-about="map-comfort" aria-haspopup="dialog" aria-label="About the comfort index" title="About the comfort index">i</button><i class="hatch-swatch" style="background:${hatchCss(comfortBrick(), "0 0/100% 100%")}"></i></div>`;
     }
   }
@@ -2260,7 +2258,7 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
         const s = f && typeof f.id === "number" ? (map.getFeatureState({ source: "comfort-cells", id: f.id }).s as number | undefined) : undefined;
         if (s == null || s < 0) return hide();
         tip ??= new ml.Popup({ closeButton: false, closeOnClick: false, className: "pin-pop hover-pop", offset: 14, focusAfterOpen: false }).addTo(map);
-        tip.setLngLat(e.lngLat).setHTML(`<b>${comfortWord(s)}</b> ${comfortGauge(s)}`);
+        tip.setLngLat(e.lngLat).setHTML(`<b>${COMFORT_WORDS[Math.max(0, Math.min(3, Math.floor(s)))]}</b> ${comfortGauge(s)}`);
       });
       map.on("mouseout", hide);
       map.on("click", hide);

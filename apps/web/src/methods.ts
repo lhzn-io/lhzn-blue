@@ -261,8 +261,9 @@ export const METHODS: Record<string, Method> = {
       "The NECOFS FVCOM forecast (UMass Dartmouth), every 2 hours [[chen2003fvcom]] [[chen2006fvcom]]. Colours follow one " +
       "fixed scale on a logarithmic speed axis, from 0.02 to 3.1 m/s, with knots from 2026 NOAA CO-OPS current predictions " +
       "(0.494 m/s, the median daily maximum across Long Island and Block Island Sound; 2.418 and 3.097 m/s, the median and " +
-      "annual daily maxima at Little Gull Island in the Race). The dark theme uses a twin scale on the same speeds, " +
-      "midnight blue to pale seafoam, so faster water is lighter there.",
+      "annual daily maxima at Little Gull Island in the Race). The scale runs pale aqua to teal to deep blue-green, after " +
+      "cmocean [[thyng2016cmocean]], so faster water is darker; its hues stay clear of a chart's buff land and green drying " +
+      "ground. The dark theme uses a twin scale on the same speeds, deep blue-teal to pale seafoam, so faster water is lighter there.",
     caveats: "A model forecast, not a measurement. Speeds follow the Units switch.",
   },
   "map-waves": {
@@ -352,16 +353,16 @@ METHODS.comfort = {
 };
 
 METHODS["map-comfort"] = {
-  title: "Comfort for your boat (map)",
+  title: "Comfort index (map)",
   shows: "",
   method:
     "The comfort index of a click's readout, for every NWPS wave cell (1.8 km) at the time bar's hour: HRRR wind from the " +
     "nearest HRRR cell, NWPS waves, the wind-against-tide level and, for kayaks, the NECOFS current, by the steps for " +
     "the boat set in the byline; cold water raises a level. Shore cells (harbours, coves) carry wind only. Shown as a " +
     "score from 0 to 4: each factor runs linearly between its steps, so 1 is the Moderate step, 2 Uncomfortable and 3 " +
-    "Hazardous, and the worst factor sets the score. Shaded in a brick tint, clear at 0 and never opaque, with a fine " +
-    "crosshatch and a fine outline from the Hazardous step. Over wind, waves or currents, the crosshatch alone can be laid on as an overlay " +
-    "(Hazardous for your boat), so the field below stays readable.",
+    "Discomfort, and the worst factor sets the score. Shaded in a brick tint, clear at 0 and never opaque, with a " +
+    "fine outline where the score reaches 3. Over wind, waves or currents, those areas can be laid on as an overlay " +
+    "(Discomfort zones): crosshatched within the same outline, so the field below stays readable.",
   caveats:
     "The score places a cell between fixed thresholds; it is not a probability, and its fractions are as much a judgement " +
     "as the steps. The shading excludes NWS advisories, which the masthead and the zone lines show and a click's readout includes. " +

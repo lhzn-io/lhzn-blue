@@ -1196,9 +1196,10 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .comfort-strip { margin: 2px 0 4px; }
 
 /* The comfort layer's key: four swatches in the ink, as the comfort charts. */
-.field-scale.comfort-scale { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px 4px; width: min(100%, 360px); white-space: nowrap; }
+.field-scale.comfort-scale { display: grid; grid-template-columns: 1fr; gap: 3px; width: min(100%, 300px); }
 .comfort-scale .field-bar { grid-column: 1 / -1; width: 100%; height: 7px; border: 1px solid var(--rule); box-sizing: border-box; }
-.comfort-scale span { font-size: 8.5px; overflow: hidden; text-overflow: ellipsis; }
+.comfort-scale .cs-ticks { display: flex; justify-content: space-between; } /* 0 to 4; each names its step on hover */
+.comfort-scale .cs-ticks span { cursor: help; }
 .field-name svg { vertical-align: -1px; margin-right: 2px; }
 
 /* The About page: a contents line, and each method as its own entry with the (i) dialogs' list layout. */

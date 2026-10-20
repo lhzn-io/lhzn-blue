@@ -4661,7 +4661,7 @@ async function syncMap(): Promise<void> {
 
 const FIELD_CHOICES: { kind: FieldKind | "none"; label: string }[] = [
   { kind: "none", label: "No layer" },
-  { kind: "comfort", label: "Comfort for your boat" },
+  { kind: "comfort", label: "Comfort index" },
   { kind: "sst", label: "Sea surface temperature" },
   { kind: "chl", label: "Chlorophyll-a" },
   { kind: "kd490", label: "Water clarity (Kd490)" },
@@ -4682,10 +4682,10 @@ const VIEW_LAYERS: Record<VarKey, { offer: FieldKind[]; def: FieldKind | "none";
 // A linked layer wins on load; otherwise the view's default. A layer picked by hand lasts until the view changes.
 let fieldPick: FieldKind | "none" = (["sst", "chl", "kd490", "currents", "wind", "waves", "comfort"] as const).find((k) => k === LINK.get("layer")) ?? VIEW_LAYERS[VK].def;
 /** Overlays on the map's field (Wind & waves only), on by link ("ov=wat,haz") or picked in the layer menu: wind
- * against tide, and the comfort index's Hazardous crosshatch for the reader's boat. */
+ * against tide, and the discomfort zones (comfort index 3 and up) for the reader's boat. */
 const LINK_OV = (LINK.get("ov") ?? "").split(",");
 let overlayWat = LINK_OV.includes("wat") || LINK.get("layer") === "wat";
-let overlayHaz = LINK_OV.includes("haz");
+let overlayHaz = LINK_OV.includes("dz");
 /** A linked time ("-6h", "+12h", "-30d"), applied once the time bar has the scale it belongs to. */
 let pendingOffset: { hours: number; scale: "hours" | "days" } | null = (() => {
   const m = /^([+-]?\d+)([hd])$/.exec((LINK.get("t") ?? "").replace(/^ /, "+")); // a "+" in a query string reads as a space
@@ -4697,7 +4697,7 @@ function linkUrl(plot?: string): string {
   const p = new URLSearchParams();
   p.set("view", VK); // always: a visitor's remembered view would otherwise win
   if (fieldPick !== "none") p.set("layer", fieldPick);
-  const ovs = VIEW_LAYERS[VK].overlay ? [overlayWat && "wat", overlayHaz && "haz"].filter(Boolean) : [];
+  const ovs = VIEW_LAYERS[VK].overlay ? [overlayWat && "wat", overlayHaz && "dz"].filter(Boolean) : [];
   if (ovs.length) p.set("ov", ovs.join(","));
   const tl = timelineModule?.position();
   if (tl && tl.offset !== 0) p.set("t", tl.scale === "days" ? `${Math.round(tl.offset / 24)}d` : `${tl.offset > 0 ? "+" : ""}${tl.offset}h`);
@@ -4888,8 +4888,8 @@ function fieldControls(): import("./fields").FieldControls {
             },
           },
           {
-            key: "haz",
-            label: "Hazardous for your boat",
+            key: "dz",
+            label: "Discomfort zones",
             on: overlayHaz,
             onToggle: (on) => {
               overlayHaz = on;

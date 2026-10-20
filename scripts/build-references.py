@@ -66,7 +66,7 @@ def person(name: str) -> str:
 
 def people(field: str, max_names: int = 4) -> str:
     field = field.strip()
-    if field.startswith("{") and field.endswith("}"):
+    if field.startswith("{") and field.endswith("}") and "} and {" not in field:
         return field[1:-1]  # an organisation, kept whole (its name may contain "and")
     names = [person(n) for n in re.split(r"\s+and\s+", field) if n.strip()]
     if len(names) > max_names:

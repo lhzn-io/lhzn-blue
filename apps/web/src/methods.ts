@@ -306,10 +306,12 @@ export const METHODS: Record<string, Method> = {
     title: "Wind (HRRR)",
     shows:
       "Forecast wind 10 m above the surface on the model's own 3 km cells, shaded by speed, with arrows in the direction " +
-      "the wind blows toward; 24 hours back to 48 hours ahead.",
+      "the wind blows toward; 14 days back to 48 hours ahead. The hours before the last 24 are a separate file, loaded " +
+      "when the time bar first goes back past them.",
     method:
       "NOAA's High-Resolution Rapid Refresh (HRRR) [[dowell2022hrrr]], read through forcingkit. Each hour comes from the newest run that covers " +
-      "it: hourly runs reach 18 hours ahead, the 00, 06, 12 and 18 UTC runs 48 hours. Values are raw: no smoothing between " +
+      "it: hourly runs reach 18 hours ahead, the 00, 06, 12 and 18 UTC runs 48 hours; a past hour comes from the run issued " +
+      "1 hour before it (2 or 3 hours where that run is missing), and is kept for 14 days. Values are raw: no smoothing between " +
       "cells. Cells HRRR counts as land are drawn fainter inland; land cells touching water (harbours, coves, the shore) are drawn like water, and a click there says it is a land cell.",
     caveats: "A model forecast, not a measurement; the past hours are short-lead forecasts, not observations. Speeds follow the Units switch.",
   },
@@ -348,7 +350,7 @@ METHODS.comfort = {
     "capsize tests.",
   caveats:
     "An indicative index derived from forecasts, not a determination of whether to go. Excludes gusts, visibility and " +
-    "thunderstorms. The thresholds are judgements for typical boats of each length, not a standard; the code is open " +
+    "thunderstorms. More than 24 hours back it rests on wind alone. The thresholds are judgements for typical boats of each length, not a standard; the code is open " +
     "source (github.com/lhzn-io/lhzn-blue), so anyone can set their own and build an index on the same method.",
 };
 
@@ -366,7 +368,9 @@ METHODS["map-comfort"] = {
   caveats:
     "The score places a cell between fixed thresholds; it is not a probability, and its fractions are as much a judgement " +
     "as the steps. The shading excludes NWS advisories, which the masthead and the zone lines show and a click's readout includes. " +
-    "No shading beyond HRRR's 48-hour forecast. Excludes gusts and tide rips.",
+    "No shading beyond HRRR's 48-hour forecast. The map reaches 14 days back once the HRRR history loads (on the first " +
+    "step back past 24 hours); the wave, wind-against-tide and current models keep 24 hours back, so before that the " +
+    "score rests on HRRR wind alone and the key says so. Excludes gusts and tide rips.",
 };
 
 METHODS.trends = {

@@ -728,6 +728,17 @@ figure.linked, .station.linked { outline: 2px solid var(--accent-line); outline-
   border: 1px solid var(--rule); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
 }
 
+/* A short notice over the map while a file loads (fields.ts: the HRRR wind history), in the hints' panel and type;
+   at the foot of the map, beside the time bar that asked for it. */
+.map-toast {
+  position: absolute; z-index: 4; bottom: 12px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 32px);
+  padding: 6px 10px; pointer-events: none; font: 400 11.5px/1.45 var(--sans); letter-spacing: 0.02em; color: var(--ink);
+  background: var(--panel, var(--bg)); border: 1px solid var(--rule); border-left: 2px solid var(--accent);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); transition: opacity 0.4s;
+}
+.map-toast.out { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .map-toast { transition: none; } }
+
 /* The top bar at every width: the data's age (opens the full freshness line), the views, Collect and a menu
    holding About, Collect plots, the units and the theme. Panels open under their buttons. */
 .topbar > .info > summary, .topbar .theme-icon, .topbar .view-menu { display: none; } /* the view drop-down is for phones */

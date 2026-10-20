@@ -4781,6 +4781,16 @@ function fieldData(kind: FieldKind): Promise<FieldData> {
   return fieldCache.get(kind)!;
 }
 
+/** HRRR wind before hrrr-wind.json (14 days back): fetched only when the time bar goes back past the main file. */
+let windHistoryLoad: Promise<import("./fields").WindHistory> | null = null;
+function windHistoryData(): Promise<import("./fields").WindHistory> {
+  windHistoryLoad ??= getJson<import("./fields").WindHistory>(`${DATA}/fields/hrrr-wind-history.json`).catch((err) => {
+    windHistoryLoad = null; // try again next time
+    throw err;
+  });
+  return windHistoryLoad;
+}
+
 /** The 90-day history behind a satellite layer, loaded after the layer shows (null when it is not published). */
 const historyCache = new Map<FieldKind, Promise<RasterHistory | null>>();
 function historyData(kind: FieldKind): Promise<RasterHistory | null> {
@@ -4875,6 +4885,7 @@ function fieldControls(): import("./fields").FieldControls {
           return { wind: ok(w)?.wind, waves: ok(v)?.wind, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined, wat: ok(t)?.wat, sst: ok(s)?.raster, zones: ok(z) };
         }
       : undefined,
+    windHistory: VIEW_LAYERS[VK].overlay ? windHistoryData : undefined,
     overlays: VIEW_LAYERS[VK].overlay
       ? [
           {

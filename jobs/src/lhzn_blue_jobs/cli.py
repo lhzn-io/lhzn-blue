@@ -1,4 +1,4 @@
-"""Command line: ``lhzn-blue-jobs {history,live,latest,fields,snapshot,forecast,forecast-backfill,import-verification,import-archive,import-waves,import-weather} --out <store>``.
+"""Command line: ``lhzn-blue-jobs {history,live,latest,fields,snapshot,forecast,forecast-backfill,hrrr-wind-backfill,import-verification,import-archive,import-waves,import-weather} --out <store>``.
 
 ``live`` and ``history`` also refresh the shore stations (``shore.json``, ``shore-history.json``) and the
 rivers (``rivers.json``, ``rivers-history.json``) after the buoys; a failure there is logged and never stops
@@ -18,7 +18,7 @@ from . import build, merlin, rivers, shore, tides, turbidity, usgs_tidal, waves,
 
 def _main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "hrrr-history-seed", "panels", "import-verification", "import-archive", "import-waves", "import-weather"])
+    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "panels", "import-verification", "import-archive", "import-waves", "import-weather"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
@@ -52,6 +52,7 @@ def _main() -> None:
     )
     parser.add_argument("--start", help="forecast-backfill: first cycle, UTC (e.g. 2024-01-01T00)")
     parser.add_argument("--end", help="forecast-backfill: last cycle, UTC")
+    parser.add_argument("--days", type=int, default=14, help="hrrr-wind-backfill: days back to fill (default 14)")
     parser.add_argument("--vintage", help="import-archive: fallback snapshot folder when stations.json names none")
     parser.add_argument("--full", action="store_true", help="live: refetch the whole 45-day window")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -116,6 +117,11 @@ def _main() -> None:
         if not args.forecasts:
             parser.error("hrrr-history-seed needs --forecasts (the HRRR archive, readable with your credentials)")
         hrrr_history.seed(store, args.forecasts)
+    elif args.command == "hrrr-wind-backfill":
+        from . import hrrr_grid
+
+        # Once, after the first deploy: the map's wind history (hrrr-wind-history.json); hours present are skipped.
+        hrrr_grid.backfill(store, days=args.days)
     elif args.command == "panels":
         from . import panels  # Tesseract is needed only here
 

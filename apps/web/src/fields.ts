@@ -57,6 +57,7 @@ export interface WindField {
   generated_at: string;
   source: string;
   attribution: string;
+  box?: number[];
   encoding: { step: number };
   mesh: {
     nx: number;
@@ -67,8 +68,18 @@ export interface WindField {
     centre_lat: number[];
     land: number[];
     arrow_level: number[];
+    version?: number;
   };
   frames: { valid_time: string; cycle: string; lead: number; u: string; v: string }[];
+}
+
+/** HRRR wind before the main file (hrrr-wind-history.json): the same frames and encoding, drawn on the main file's
+ * mesh, so its mesh holds only what identifies the grid. */
+export interface WindHistory {
+  box: number[];
+  encoding: { step: number };
+  mesh: { version: number; nx: number; ny: number };
+  frames: WindField["frames"];
 }
 
 /** The last 90 days of a raster, one frame per UTC day (see the jobs' fields.py for the file layout). */
@@ -146,6 +157,8 @@ export interface FieldControls {
   onWide: (wide: boolean) => void;
   /** The models a click reads at its point whatever the layer (Wind & waves): loaded on the first click. */
   point?: () => Promise<PointSources>;
+  /** HRRR wind before the main file (Wind & waves): fetched once, when the time bar goes back past the main file. */
+  windHistory?: () => Promise<WindHistory>;
   /** The boat class the comfort index is for (the menu's Boat setting). */
   boat?: Boat;
   /** The overlays the view offers (wind against tide; discomfort zones), whether each is on, and its switch. */
@@ -1035,11 +1048,12 @@ function comfortLevel(x: { kt: number; hs: number; curKt: number; wl: number; ss
 }
 
 /** The comfort level at a point and time for a boat class, with the factors that set it. */
-function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat: Boat): { level: number; score: number; why: string[]; partial: boolean; zone: string | null; advisory: string } | null {
+function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat: Boat): { level: number; score: number; why: string[]; partial: boolean; noWaves: boolean; zone: string | null; advisory: string } | null {
   const b = BOATS[boat];
   const un = windUnit();
   const metric = un.label === "m/s";
   let partial = false;
+  let noWaves = false; // a water cell of the wave model with no wave hour at t (NWPS reaches 24 h back): wind only
   let kt = NaN;
   let hs = NaN;
   let curKt = NaN;
@@ -1052,6 +1066,7 @@ function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat:
   if (src.waves) {
     const id = nearestCell(src.waves.mesh, lng, lat, 2);
     hs = id >= 0 && !src.waves.mesh.land[id] ? valueAt(cellSeries(src.waves, id), t) : NaN;
+    noWaves = id >= 0 && !src.waves.mesh.land[id] && !Number.isFinite(hs);
   }
   if (b.current && src.currents) {
     const { mesh: m, currents: c } = src.currents;
@@ -1097,7 +1112,7 @@ function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat:
   const f = c.f.map((x) => ({ level: x.level, text: text(x.key) }));
   const level = c.level;
   const why = f.filter((x) => x.level >= level).map((x) => x.text);
-  return { level, score: c.score, why: why.length ? why : f.filter((x) => x.level === Math.max(...f.map((y) => y.level))).map((x) => x.text), partial, zone, advisory: adv.rank === 2 ? adv.name : adv.rank === 1 ? "small craft advisory" : "" };
+  return { level, score: c.score, why: why.length ? why : f.filter((x) => x.level === Math.max(...f.map((y) => y.level))).map((x) => x.text), partial, noWaves, zone, advisory: adv.rank === 2 ? adv.name : adv.rank === 1 ? "small craft advisory" : "" };
 }
 
 /* ---------- Comfort on the map ---------- */
@@ -1380,7 +1395,7 @@ function comfortLine(src: PointSources, lng: number, lat: number): string | null
   const c = comfortAt(src, lng, lat, t, boat);
   if (!c) return null;
   return `<span class="pop-l1"><b>${BOATS[boat].name}: ${COMFORT_WORDS[c.level]}</b> ${comfortGauge(c.score)} <button type="button" class="pop-about" data-about="comfort" aria-label="About the comfort index">i</button></span>` +
-    `<br><small>${c.level ? `limited by ${c.why.map((w) => (w === c.advisory && c.zone ? `<a href="${zoneForecastUrl(c.zone)}" target="_blank" rel="noopener" title="NWS marine forecast for ${c.zone}">${w}</a>` : w)).join("; ")}` : "within comfortable limits"}${c.partial ? "; beyond the wind forecast" : ""}</small>`;
+    `<br><small>${c.level ? `limited by ${c.why.map((w) => (w === c.advisory && c.zone ? `<a href="${zoneForecastUrl(c.zone)}" target="_blank" rel="noopener" title="NWS marine forecast for ${c.zone}">${w}</a>` : w)).join("; ")}` : "within comfortable limits"}${c.partial ? "; beyond the wind forecast" : c.noWaves ? "; wind only, no NWPS wave hour" : ""}</small>`;
 }
 
 /* ---------- Point readout (Wind & waves): every model at the clicked point ---------- */
@@ -1897,6 +1912,7 @@ function frameAt(c: CurrentsField): number {
 /** Follow the page timeline: the currents move to its time; satellite fields are daily and keep their dates. */
 export async function setFieldTime(t: number | null): Promise<void> {
   fieldT = t;
+  void maybeWindHistory();
   if (probePoint) refreshPopup();
   if (cellAt && cellCursor == null) renderCell();
   if (data.history) return showHistoryFrame(historyIndex(data.history));
@@ -1954,6 +1970,107 @@ export async function setFieldTime(t: number | null): Promise<void> {
     if (box) renderPanel(box); // the key says when there is no model hour
   }
   paintFrame(await mapReady());
+}
+
+/* ---------- HRRR wind history (14 days back) ---------- */
+
+// The main wind file reaches 24 h back; the time bar in Wind & waves reaches 14 days. The hours before the main file
+// are a separate file, fetched once when the time bar first goes back past the main file with an HRRR field in use,
+// and merged into the one WindField object the page shares between the wind layer, comfort, the discomfort zones and
+// the point readout (lis.ts caches each file once). Frame indices move with the merge, so the frame times are
+// rebuilt and the frames on the map worked out again; decoded frames are keyed by frame object and stay valid.
+let windHist: "idle" | "loading" | "done" | "failed" = "idle";
+let windHistFrames: WindField["frames"] | null = null;
+let windHistFailedAt = 0;
+const WIND_HIST_RETRY_MS = 60_000; // after a failure, a later move of the time bar may try again
+const windMerged = new WeakSet<WindField>();
+const isHrrr = (w: WindField | undefined | null): w is WindField => !!w && /HRRR/.test(w.source);
+
+/** The HRRR fields on the map or in an open readout. */
+function hrrrInUse(): WindField[] {
+  const out = new Set<WindField>();
+  if (data.wind && !isWaves() && isHrrr(data.wind)) out.add(data.wind);
+  if (isHrrr(data.comfort?.wind)) out.add(data.comfort!.wind!);
+  if (isHrrr(hazard?.wind)) out.add(hazard!.wind!);
+  if ((probePoint || cellAt) && isHrrr(pointSrc?.wind)) out.add(pointSrc!.wind!);
+  return [...out];
+}
+
+function mergeWindHistory(w: WindField | undefined | null): boolean {
+  if (!windHistFrames || !isHrrr(w) || windMerged.has(w)) return false;
+  windMerged.add(w);
+  const have = new Set(w.frames.map((f) => f.valid_time));
+  const add = windHistFrames.filter((f) => !have.has(f.valid_time));
+  if (!add.length) return false;
+  w.frames.push(...add);
+  w.frames.sort((a, b) => Date.parse(a.valid_time) - Date.parse(b.valid_time));
+  frameTimes.delete(w);
+  return true;
+}
+
+/** Fetch the history when the time bar is before the first frame of an HRRR field in use; once loaded, merge it. */
+async function maybeWindHistory(): Promise<void> {
+  if (windHist === "done") {
+    if (hrrrInUse().map(mergeWindHistory).some(Boolean)) void refreshWindFrames();
+    return;
+  }
+  const load = controls?.windHistory;
+  if (!load || fieldT == null || windHist === "loading") return;
+  if (windHist === "failed" && Date.now() - windHistFailedAt < WIND_HIST_RETRY_MS) return;
+  const fields = hrrrInUse();
+  if (!fields.some((w) => w.frames.length && fieldT! < Date.parse(w.frames[0].valid_time) / 1000)) return;
+  windHist = "loading";
+  const note = mapToast("Fetching HRRR history…");
+  try {
+    const h = await load();
+    const ref = fields[0];
+    const same =
+      h.encoding?.step === ref.encoding.step &&
+      h.mesh?.nx === ref.mesh.nx &&
+      h.mesh?.ny === ref.mesh.ny &&
+      (ref.mesh.version == null || h.mesh.version === ref.mesh.version) &&
+      (!ref.box || JSON.stringify(h.box) === JSON.stringify(ref.box));
+    if (!same) throw new Error("HRRR history: another grid or encoding than the wind file");
+    windHistFrames = h.frames;
+    windHist = "done";
+    note.close();
+    for (const w of [data.wind, data.comfort?.wind, hazard?.wind, pointSrc?.wind]) mergeWindHistory(w);
+    await refreshWindFrames();
+  } catch (err) {
+    console.warn(err);
+    windHist = "failed";
+    windHistFailedAt = Date.now();
+    note.close("HRRR history unavailable", 4000);
+  }
+}
+
+/** Work out the HRRR frames on the map again after a merge, and redraw the key, the field and any open readout. */
+async function refreshWindFrames(): Promise<void> {
+  windFrame = -2;
+  comfortHour = -3;
+  await setFieldTime(fieldT);
+}
+
+/** A short notice over the map (styled as the hover hints). close() removes it; with a message, it shows that and
+ * fades after `ms`. */
+function mapToast(text: string): { close: (msg?: string, ms?: number) => void } {
+  const box = document.getElementById("map");
+  const el = document.createElement("div");
+  el.className = "map-toast";
+  el.setAttribute("role", "status");
+  el.setAttribute("aria-live", "polite");
+  el.textContent = text;
+  box?.append(el);
+  return {
+    close: (msg, ms = 0) => {
+      if (!msg) return el.remove();
+      el.textContent = msg;
+      window.setTimeout(() => {
+        el.classList.add("out");
+        window.setTimeout(() => el.remove(), 400);
+      }, ms);
+    },
+  };
 }
 
 /* ---------- Panel ---------- */
@@ -2042,7 +2159,7 @@ function renderPanel(fallback: HTMLElement): void {
     const cf = cm?.wind && comfortHour >= 0 ? cm.wind.frames[comfortHour] : null;
     const when = cm
       ? cf
-        ? `${fmtProbe.format(new Date(cf.valid_time))}, HRRR ${cf.cycle.slice(11, 13)}Z run`
+        ? `${fmtProbe.format(new Date(cf.valid_time))}, HRRR ${cf.cycle.slice(11, 13)}Z run${cm.waves && windFrameAt(cm.waves) < 0 ? ", wind only" : ""}`
         : "no HRRR hour"
       : wt
       ? tf
@@ -2061,7 +2178,7 @@ function renderPanel(fallback: HTMLElement): void {
           : "";
     const span = r && r.window_days > 2 && oldest - newest >= 1 ? ` Each pixel is the latest clear view in the last ${Math.round(oldest) + 1} days; older pixels are fainter.` : "";
     const run = cm
-      ? " Each hour from HRRR wind (24h back to 48h ahead), NWPS waves and wind against tide; the time bar below moves it."
+      ? " Each hour from HRRR wind (14 days back to 48h ahead), NWPS waves and wind against tide (24h back; wind only before that); the time bar below moves it."
       : wt
       ? " Every 2 hours from 24h back to 72h ahead: the newest NWPS run for each hour with the day's NECOFS currents; the time bar below moves it."
       : c
@@ -2069,7 +2186,7 @@ function renderPanel(fallback: HTMLElement): void {
       : w
         ? isWaves()
           ? " Each hour from the newest NWPS run that covers it (00 and 12 UTC), 24h back to 72h ahead; the time bar below moves it."
-          : " Each hour from the newest HRRR run that covers it, 24h back to 48h ahead; the time bar below moves it."
+          : " Each hour from the newest HRRR run that covers it, 14 days back (hours before the last 24 load on the first step back) to 48h ahead; the time bar below moves it."
         : "";
     const credit = cm ? [cm.wind?.attribution, cm.waves?.attribution].filter(Boolean).join(" ") : wt ? wt.attribution : r ? r.attribution : c ? c.source : w ? w.attribution : "";
     const boat = controls?.boat ?? "console";
@@ -2228,6 +2345,7 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
     data.raster = historyRaster(data.history, histIndex);
   }
   if (data.currents) frame = frameAt(data.currents);
+  for (const w of [data.wind, data.comfort?.wind, hazard?.wind]) mergeWindHistory(w); // the history, once loaded
   if (data.wind) windFrame = windFrameAt(data.wind);
   const cmSrc = data.comfort ?? hazard;
   comfortHour = cmSrc?.wind ? windFrameAt(cmSrc.wind) : -1;
@@ -2241,6 +2359,7 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
   // The panel first, so the picker, colour bar and source show while the map is still loading its tiles.
   const box = document.getElementById("map");
   if (box) renderPanel(box);
+  void maybeWindHistory(); // a layer shown with the time bar already back past the main wind file
   const map = await mapReady();
   if (!clickBound) {
     clickBound = true;
@@ -2268,6 +2387,7 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
       if (controls?.point) {
         const load = controls.point;
         pointSrc ??= await load().catch(() => ({}));
+        mergeWindHistory(pointSrc?.wind);
         const at = { lng: e.lngLat.lng, lat: e.lngLat.lat };
         // 304 px: the widest value line (Current, with its arrow and sparkline) across units and values, in the popup's fonts.
         const ring = pointSrc ? cellRing(pointSrc, at.lng, at.lat) : null;

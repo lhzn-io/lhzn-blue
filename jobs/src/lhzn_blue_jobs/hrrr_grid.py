@@ -17,6 +17,14 @@ Published layout (``v1/fields/hrrr-wind.json``):
   (ny x nx, row-major from the south-west); ``block`` (the first row and column in HRRR's full grid).
 - ``frames``: ``{valid_time, cycle, lead, u, v}``, with ``u`` and ``v`` (east and north, m/s) per cell as int8 in
   steps of ``encoding.step`` (clipped to +-31.75 m/s), base64.
+
+The past beyond that window (``v1/fields/hrrr-wind-history.json``): the hours from ``HISTORY_DAYS`` back up to the
+main file's first frame, which the page loads only when its time bar goes back past the main file. Each run moves
+the frames that leave the main file's window into it and drops those older than ``HISTORY_DAYS``. Same ``box``,
+``encoding`` and frame format; ``mesh`` holds only ``version``, ``nx``, ``ny`` and ``block`` (the page draws the
+history on the main file's mesh, and checks that these match). ``cycles`` lists the runs its frames come from.
+``backfill`` fills the missing hours once, each from the cycle 1 hour before it (2 or 3 hours where that cycle is
+not published), as the main file fills its past hours.
 """
 
 from __future__ import annotations
@@ -47,6 +55,11 @@ STEP = 0.25  # m/s per int8 unit
 MESH_VERSION = 1  # bump when the mesh block changes form: the next run starts over
 SOURCE = "NOAA HRRR (noaa-hrrr-bdp-pds), 10 m wind on the native 3 km grid"
 ATTRIBUTION = "NOAA HRRR, read through forcingkit"
+HISTORY_KEY = "v1/fields/hrrr-wind-history.json"
+HISTORY_DAYS = 14  # the Wind & waves time bar reaches 14 days back
+BACKFILL_MAX_LEAD = 3  # hours: a past hour with no cycle in the 3 h before it stays empty
+BACKFILL_WORKERS = 6  # leads fetched at once
+BACKFILL_FLUSH_HOURS = 24  # the backfill writes after each day of hours, so a timed-out run keeps what it read
 
 
 def _cycle_key(c: pd.Timestamp) -> str:
@@ -142,6 +155,30 @@ def decode(s: str) -> np.ndarray:
     return np.frombuffer(base64.b64decode(s), dtype=np.int8).astype(np.float64) * STEP
 
 
+def _frame(cycle: pd.Timestamp, lead: int, d: dict, lon: np.ndarray) -> dict:
+    """One published frame from a lead's u10 and v10 on the block, rotated to east and north where HRRR gives them
+    on the grid axes."""
+    u, v = d["u10"].values.astype(np.float64).ravel(), d["v10"].values.astype(np.float64).ravel()
+    a = d["u10"].attrs
+    if int(a.get("GRIB_uvRelativeToGrid", 1)) == 1:
+        from forcingkit.fetchers.hrrr_atmosphere import earth_relative_winds
+
+        cone = float(np.sin(np.deg2rad(a["GRIB_Latin1InDegrees"])))
+        u, v = earth_relative_winds(u, v, lon, cone, float(a["GRIB_LoVInDegrees"]))
+    valid = cycle + pd.Timedelta(hours=lead)
+    vkey = _valid_key(valid)
+    return {"valid_time": vkey, "cycle": _cycle_key(cycle), "lead": lead, "u": _encode(u), "v": _encode(v)}
+
+
+def _valid_key(t: pd.Timestamp) -> str:
+    return f"{t:%Y-%m-%dT%H:%MZ}"
+
+
+def _hour(end) -> pd.Timestamp:
+    """`end` (now by default) as a naive UTC timestamp, floored to the hour."""
+    t = pd.Timestamp(end or now_utc())
+    return (t.tz_convert("UTC").tz_localize(None) if t.tzinfo else t).floor("h")
+
 def _candidates(now: pd.Timestamp, used: set[str]) -> list[pd.Timestamp]:
     """Cycles to read this run, newest first: the newest complete cycle, and the newest complete synoptic cycle,
     each only if not used before."""
@@ -168,11 +205,10 @@ def _candidates(now: pd.Timestamp, used: set[str]) -> list[pd.Timestamp]:
 def build(prev: dict | None, end=None) -> tuple[dict | None, dict]:
     """The new file from the previous one and the cycles not yet read. Returns (file or None, summary)."""
     from forcingkit.fetchers import hrrr_points as hp
-    from forcingkit.fetchers.hrrr_atmosphere import earth_relative_winds
 
     t0 = time.monotonic()
     end = end or now_utc()
-    now = pd.Timestamp(end).tz_convert("UTC").tz_localize(None).floor("h") if pd.Timestamp(end).tzinfo else pd.Timestamp(end).floor("h")
+    now = _hour(end)
     lo, hi = now - pd.Timedelta(hours=HOURS_BACK), now + pd.Timedelta(hours=HOURS_AHEAD)
     if prev and (
         prev.get("box") != list(BOX)
@@ -219,14 +255,8 @@ def build(prev: dict | None, end=None) -> tuple[dict | None, dict]:
             native = pre | {ld: d for ld, (d, _) in got.items() if d is not None}
             lon = np.asarray(mesh["centre_lon"], dtype=np.float64)
             for lead, d in sorted(native.items()):
-                u, v = d["u10"].values.astype(np.float64).ravel(), d["v10"].values.astype(np.float64).ravel()
-                a = d["u10"].attrs
-                if int(a.get("GRIB_uvRelativeToGrid", 1)) == 1:
-                    cone = float(np.sin(np.deg2rad(a["GRIB_Latin1InDegrees"])))
-                    u, v = earth_relative_winds(u, v, lon, cone, float(a["GRIB_LoVInDegrees"]))
-                valid = cycle + pd.Timedelta(hours=lead)
-                vkey = f"{valid:%Y-%m-%dT%H:%MZ}"
-                frames[vkey] = {"valid_time": vkey, "cycle": ckey, "lead": lead, "u": _encode(u), "v": _encode(v)}
+                f = _frame(cycle, lead, d, lon)
+                frames[f["valid_time"]] = f
             used.add(ckey)
             read.append(f"{ckey} ({len(native)} leads)")
     if mesh is None:
@@ -252,14 +282,128 @@ def build(prev: dict | None, end=None) -> tuple[dict | None, dict]:
     return out, summary
 
 
+def _vtime(f: dict) -> pd.Timestamp:
+    return pd.Timestamp(f["valid_time"].replace("Z", ""))
+
+
+def _same_grid(a: dict | None, b: dict | None) -> bool:
+    """Whether two files (main or history) hold frames on the same cells in the same encoding."""
+    if not a or not b:
+        return False
+    ma, mb = a.get("mesh") or {}, b.get("mesh") or {}
+    return (
+        a.get("box") == b.get("box") == list(BOX)
+        and (a.get("encoding") or {}).get("step") == (b.get("encoding") or {}).get("step") == STEP
+        and ma.get("version") == mb.get("version") == MESH_VERSION
+        and all(ma.get(k) == mb.get(k) for k in ("nx", "ny", "block"))
+    )
+
+
+def history(prev_hist: dict | None, prev_main: dict | None, main: dict, end=None, days: int = HISTORY_DAYS) -> dict:
+    """The history file after a run: its previous frames, plus the frames of the previous main file that the new
+    main file no longer holds, from `days` back up to the new main file's first frame. Frames from a file on
+    another grid or encoding are dropped (as the main file starts over)."""
+    now = _hour(end)
+    lo = now - pd.Timedelta(days=days)
+    hi = _vtime(main["frames"][0]) if main.get("frames") else now - pd.Timedelta(hours=HOURS_BACK)
+    frames: dict[str, dict] = {}
+    if _same_grid(prev_hist, main):
+        frames.update((f["valid_time"], f) for f in prev_hist.get("frames", []))
+    if _same_grid(prev_main, main):
+        for f in prev_main.get("frames", []):
+            frames.setdefault(f["valid_time"], f)  # history first: a past hour's frame does not change
+    return _history_doc(frames.values(), main, lo, hi)
+
+
+def _history_doc(frames, main: dict, lo: pd.Timestamp, hi: pd.Timestamp) -> dict:
+    kept = sorted((f for f in frames if lo <= _vtime(f) < hi), key=lambda f: f["valid_time"])
+    m = main["mesh"]
+    return {
+        "schema": SCHEMA,
+        "kind": "wind",
+        "label": "model forecast, past hours",
+        "source": SOURCE,
+        "attribution": ATTRIBUTION,
+        "field": "10 m wind, east and north components",
+        "units": "m/s",
+        "generated_at": iso(now_utc()),
+        "box": list(BOX),
+        "encoding": {"type": "int8 base64", "step": STEP, "clip": round(127 * STEP, 2)},
+        "cycles": sorted({f["cycle"] for f in kept}),
+        "mesh": {"version": m.get("version"), "nx": m["nx"], "ny": m["ny"], "block": m["block"]},
+        "frames": kept,
+    }
+
+
 def publish(store: Store) -> None:
-    """Refresh the HRRR wind layer; log what was read."""
-    out, summary = build(store.read_json(KEY))
+    """Refresh the HRRR wind layer, then move the hours that left it into the history file; log what was read."""
+    prev = store.read_json(KEY)
+    out, summary = build(prev)
     log.info("HRRR grid: %s", summary)
     if out is None:
         log.warning("HRRR grid: nothing to publish")
         return
     store.write_json(KEY, out, max_age=600)
+    hist = history(store.read_json(HISTORY_KEY), prev, out)
+    store.write_json(HISTORY_KEY, hist, max_age=3600)
+    log.info("HRRR grid history: %d frames, %s to %s", len(hist["frames"]),
+             hist["frames"][0]["valid_time"] if hist["frames"] else "-", hist["frames"][-1]["valid_time"] if hist["frames"] else "-")
 
 
-__all__ = ["publish", "build", "decode", "corners"]
+def backfill(store: Store, days: int = HISTORY_DAYS, workers: int = BACKFILL_WORKERS, end=None) -> dict:
+    """Fill the history file's missing hours (`days` back up to the main file's first frame), each from the newest
+    cycle issued before it: lead 1, or 2 or 3 where that cycle is not published. Hours already in the file are
+    skipped, and the file is written after each BACKFILL_FLUSH_HOURS of hours, so a run cut off by its timeout can be
+    run again to finish. Reads the main file for the mesh block; run after the forecast job has written it."""
+    t0 = time.monotonic()
+    main = store.read_json(KEY)
+    if not main or not main.get("frames") or not main.get("mesh"):
+        raise RuntimeError(f"{KEY} not found or empty: run the forecast job first")
+    now = _hour(end)
+    lo = now - pd.Timedelta(days=days)
+    hi = _vtime(main["frames"][0])
+    m = main["mesh"]
+    block = (slice(m["block"]["row0"], m["block"]["row0"] + m["ny"]), slice(m["block"]["col0"], m["block"]["col0"] + m["nx"]))
+    lon = np.asarray(m["centre_lon"], dtype=np.float64)
+    prev = store.read_json(HISTORY_KEY)
+    have = {f["valid_time"] for f in prev.get("frames", [])} if _same_grid(prev, main) else set()
+    hours = [t for t in pd.date_range(lo, hi - pd.Timedelta(hours=1), freq="h") if _valid_key(t) not in have]
+    log.info("HRRR grid backfill: %d hours to read (%s to %s), %d present", len(hours),
+             _valid_key(hours[0]) if hours else "-", _valid_key(hours[-1]) if hours else "-", len(have))
+    nbytes, got, missing = 0, 0, []
+
+    def one(valid: pd.Timestamp, workdir: str) -> tuple[dict | None, int]:
+        n = 0
+        for lead in range(1, BACKFILL_MAX_LEAD + 1):
+            cycle = valid - pd.Timedelta(hours=lead)
+            d, b = _fetch(cycle, lead, block, False, workdir)
+            n += b
+            if d is not None:
+                return _frame(cycle, lead, d, lon), n
+        return None, n
+
+    with tempfile.TemporaryDirectory() as workdir:
+        for i in range(0, len(hours), BACKFILL_FLUSH_HOURS):
+            chunk = hours[i : i + BACKFILL_FLUSH_HOURS]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+                res = list(ex.map(lambda t: one(t, workdir), chunk))
+            new = [f for f, _ in res if f is not None]
+            nbytes += sum(n for _, n in res)
+            got += len(new)
+            missing += [_valid_key(t) for t, (f, _) in zip(chunk, res) if f is None]
+            # Read both files again before writing: the hourly forecast job may have run meanwhile.
+            latest = store.read_json(KEY)
+            if not _same_grid(latest, main) or not latest.get("frames"):
+                raise RuntimeError(f"{KEY} changed grid during the backfill; run it again")
+            cur = store.read_json(HISTORY_KEY)
+            frames = {f["valid_time"]: f for f in new}
+            if _same_grid(cur, latest):
+                frames.update((f["valid_time"], f) for f in cur.get("frames", []))
+            store.write_json(HISTORY_KEY, _history_doc(frames.values(), latest, lo, _vtime(latest["frames"][0])), max_age=3600)
+            log.info("HRRR grid backfill: %d of %d hours read (%.0f s)", i + len(chunk), len(hours), time.monotonic() - t0)
+    summary = {"hours_read": got, "not_published": missing, "mb": round(nbytes / 1e6, 1), "seconds": round(time.monotonic() - t0, 1)}
+    log.info("HRRR grid backfill: %s", summary)
+    return summary
+
+
+__all__ = ["publish", "build", "decode", "corners", "history", "backfill"]

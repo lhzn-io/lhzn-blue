@@ -32,3 +32,8 @@ allow-direct-references = true  # the forcingkit release archive above
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lhzn_blue_jobs"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]

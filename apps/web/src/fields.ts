@@ -1379,7 +1379,7 @@ function comfortLine(src: PointSources, lng: number, lat: number): string | null
   const t = fieldT ?? Date.now() / 1000;
   const c = comfortAt(src, lng, lat, t, boat);
   if (!c) return null;
-  return `<span class="pop-l1"><b>${BOATS[boat].name}: comfort</b> ${comfortGauge(c.score)} <button type="button" class="pop-about" data-about="comfort" aria-label="About the comfort index">i</button></span>` +
+  return `<span class="pop-l1"><b>${BOATS[boat].name}: ${COMFORT_WORDS[c.level]}</b> ${comfortGauge(c.score)} <button type="button" class="pop-about" data-about="comfort" aria-label="About the comfort index">i</button></span>` +
     `<br><small>${c.level ? `limited by ${c.why.map((w) => (w === c.advisory && c.zone ? `<a href="${zoneForecastUrl(c.zone)}" target="_blank" rel="noopener" title="NWS marine forecast for ${c.zone}">${w}</a>` : w)).join("; ")}` : "within comfortable limits"}${c.partial ? "; beyond the wind forecast" : ""}</small>`;
 }
 

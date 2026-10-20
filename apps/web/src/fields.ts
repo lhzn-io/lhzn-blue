@@ -12,7 +12,7 @@
 import type maplibregl from "maplibre-gl";
 import { alertsNow, zoneForecastUrl } from "./advisory";
 import { BOATS, COMFORT_WORDS, boatIcon, type Boat } from "./comfort-thresholds";
-import { SST_ISOTHERM_STEP, SST_STOPS, isotherms, stopColour } from "./sst-scale";
+import { SST_STOPS, SST_STOPS_DARK, isothermStep, isotherms, stopColour } from "./sst-scale";
 import { CURRENTS_FLOOR, CURRENTS_KNOTS, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURRENTS_TOP } from "./currents-ramp";
 import { mapReady, mapTheme, onStyle } from "./map";
 
@@ -216,7 +216,7 @@ interface Meta {
   ramp: string;
   log: boolean;
   range?: [number, number]; // fixed range; otherwise the 2nd to 98th percentile of the field
-  stops?: [number, string][]; // colours at values (interpolated in the value), in place of the evenly spaced ramp
+  stops?: () => [number, string][]; // colours at values (interpolated in the value), in place of the evenly spaced ramp; by theme
   fade?: boolean; // older pixels fainter (composites); false for a gap-free analysis
   unit: string;
   digits: number;
@@ -226,7 +226,7 @@ interface Meta {
 const META: Record<FieldKind, Meta> = {
   // One scale all year: the deepest colour at seawater's freezing point (about -1.9 C), the brightest above the Sound's
   // summer highs (25 to 27 C at the western buoys), so a colour means the same temperature in February and August.
-  sst: { title: "Sea surface temperature", short: "SST", ramp: "thermal", stops: SST_STOPS, log: false, range: [-2, 28], fade: false, unit: "°C", digits: 1, note: "Satellite analysis (gap-free), the skin of the water; buoy sensors sit about 1 m down. One colour scale all year: even steps from 1.5 to 25.5 °C, the range the Sound's water spans, and compressed beyond, so the deepest and brightest colours mark unusual days. Lines every 1 °C show the day's fronts." },
+  sst: { title: "Sea surface temperature", short: "SST", ramp: "thermal", stops: () => (mapTheme() === "dark" ? SST_STOPS_DARK : SST_STOPS), log: false, range: [-2, 28], fade: false, unit: "°C", digits: 1, note: "Satellite analysis (gap-free), the skin of the water; buoy sensors sit about 1 m down. One colour scale all year: even steps from 1.5 to 25.5 °C, the range the Sound's water spans, and compressed beyond, so the deepest and brightest colours mark unusual days. Lines every 1 °C (and fainter half degrees from April to November) show the day's fronts." },
   chl: { title: "Chlorophyll-a", short: "Chlorophyll-a", ramp: "algae", log: true, range: [0.5, 30], unit: "mg/m³", digits: 1, note: "Satellite estimate of the surface; biased high in turbid water and near the shore (a band along the coast is left out)." },
   kd490: { title: "Water clarity (Kd490)", short: "Clarity, Kd490", ramp: "turbid", log: true, range: [0.1, 2], unit: "m⁻¹", digits: 2, note: "Light attenuation at 490 nm, a satellite proxy for murkiness, not a turbidity reading in NTU. Higher is murkier." },
   currents: { title: "Surface currents", short: "Currents", ramp: "currents", log: true, range: [CURRENTS_FLOOR * 100, CURRENTS_TOP * 100], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
@@ -373,11 +373,12 @@ function rasterImage(f: RasterField, meta: Meta): string {
   const ctx = canvas.getContext("2d")!;
   const img = ctx.createImageData(nx, ny);
   const ramp = RAMPS[meta.ramp];
+  const stops = meta.stops?.();
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
       const v = values[j * nx + i];
       if (!Number.isFinite(v)) continue;
-      const [r, g, b] = meta.stops ? stopColour(meta.stops, v) : colour(ramp, position(meta, range, v));
+      const [r, g, b] = stops ? stopColour(stops, v) : colour(ramp, position(meta, range, v));
       // Rows run from the south in the data and from the top on the canvas. Older pixels are fainter.
       const o = ((ny - 1 - j) * nx + i) * 4;
       const age = f.age_days[j * nx + i] ?? 0;
@@ -404,19 +405,23 @@ function addRaster(map: maplibregl.Map, f: RasterField): void {
   if (f.kind !== "sst") return;
   map.addSource("sst-iso", { type: "geojson", data: isothermGeoJSON(f) });
   map.addLayer(
-    { id: "sst-iso", type: "line", source: "sst-iso", paint: { "line-color": mapTheme() === "light" ? "#1c2a48" : "#f4f1e8", "line-width": 0.8, "line-opacity": 0.6 } },
+    { id: "sst-iso", type: "line", source: "sst-iso", paint: {
+        "line-color": mapTheme() === "light" ? "#1c2a48" : "#f4f1e8",
+        "line-width": ["case", ["get", "whole"], 0.8, 0.45] as maplibregl.ExpressionSpecification,
+        "line-opacity": ["case", ["get", "whole"], 0.6, 0.4] as maplibregl.ExpressionSpecification,
+      } },
     beneathLabels(map),
   );
 }
 
-/** The SST field's isotherms, every SST_ISOTHERM_STEP, as one feature per level. */
+/** The SST field's isotherms for its day (isothermStep), one feature per level, whole degrees marked. */
 function isothermGeoJSON(f: RasterField) {
   const values = f.values.map((v) => (v == null ? NaN : v * f.scale));
   return {
     type: "FeatureCollection" as const,
-    features: isotherms(values, f.grid, SST_ISOTHERM_STEP).map(({ level, segs }) => ({
+    features: isotherms(values, f.grid, isothermStep(new Date(f.time))).map(({ level, segs }) => ({
       type: "Feature" as const,
-      properties: { level },
+      properties: { level, whole: Number.isInteger(level) },
       geometry: { type: "MultiLineString" as const, coordinates: segs },
     })),
   };
@@ -2138,8 +2143,8 @@ function scaleHtml(meta: Meta, ripKey = false): string {
   const ramp = RAMPS[meta.ramp];
   if (meta.stops && meta.range) {
     const [lo, hi] = meta.range;
-    const grad = meta.stops.map(([v, c]) => `${c} ${(((v - lo) / (hi - lo)) * 100).toFixed(1)}%`).join(",");
-    return `<div class="field-scale"><span>${lo}</span><i class="field-bar" style="background:linear-gradient(90deg,${grad})"></i><span>${hi} ${meta.unit}; lines every 1 °C</span></div>`;
+    const grad = meta.stops().map(([v, c]) => `${c} ${(((v - lo) / (hi - lo)) * 100).toFixed(1)}%`).join(",");
+    return `<div class="field-scale"><span>${lo}</span><i class="field-bar" style="background:linear-gradient(90deg,${grad})"></i><span>${hi} ${meta.unit}; lines every 1 °C, 0.5 °C Apr to Nov</span></div>`;
   }
   const fmt = (v: number) => (v === 0 ? "0" : meta.log && v < 1 ? v.toFixed(2) : v.toFixed(meta.digits));
   return `<div class="field-scale"><span>${fmt(range[0])}</span><i class="field-bar" style="background:linear-gradient(90deg,${ramp.join(",")})"></i><span>${fmt(range[1])} ${meta.unit}</span></div>`;

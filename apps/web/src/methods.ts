@@ -239,8 +239,9 @@ export const METHODS: Record<string, Method> = {
     caveats:
       "The skin of the water; buoy sensors sit about 1 m down. One fixed colour scale all year: even steps from 1.5 to " +
       "25.5 °C (about the 0.5th to 99.5th percentile of 2022 to 2026 over this box), compressed beyond out to -2 and " +
-      "28 °C, in cmocean thermal hues [[thyng2016cmocean]]. A typical day spans only about 2 °C across the box, so lines " +
-      "every 1 °C mark the fronts that colour alone would hide.",
+      "28 °C, in cmocean thermal hues [[thyng2016cmocean]]; on the dark theme the coldest colours are lifted so cold " +
+      "water stays visible. A typical day spans only about 2 °C across the box, so lines every 1 °C mark the fronts that " +
+      "colour alone would hide, with fainter half-degree lines from April to November, when the spread is narrowest.",
   },
   "map-chl": {
     title: "Chlorophyll-a",

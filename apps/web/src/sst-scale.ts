@@ -17,8 +17,15 @@ export const SST_STOPS: [number, string][] = [
   [26, "#ece159"], [27, "#ebee59"], [28, "#e8fa5b"],
 ];
 
-/** Spacing of the isotherms drawn over the SST layer, C. */
-export const SST_ISOTHERM_STEP = 1;
+/** The same scale for the dark basemap: below 4 C the colours keep their hue and chroma but are lifted to at least
+ * L* 22 (rising to meet the 4 C stop), so cold water stays visible over the dark water (L* 9.8). */
+export const SST_STOPS_DARK: [number, string][] = [
+  [-2, "#2c344a"], [-1, "#2b3651"], [0, "#29375b"], [1, "#253869"], [2, "#233879"], [2.5, "#233780"], [3, "#253688"], [3.5, "#28358f"], [4, "#2d3395"], [4.5, "#393594"], [5, "#433794"], [5.5, "#4b3994"], [6, "#533b93"], [6.5, "#5a3d93"], [7, "#614093"], [7.5, "#674292"], [8, "#6c4592"], [8.5, "#724892"], [9, "#794a91"], [9.5, "#814b90"], [10, "#894d8e"], [10.5, "#904e8c"], [11, "#97518a"], [11.5, "#9d5389"], [12, "#a35687"], [12.5, "#a85985"], [13, "#ad5c84"], [13.5, "#b15f82"], [14, "#b66284"], [14.5, "#bb6485"], [15, "#bf6787"], [15.5, "#c46a88"], [16, "#c96c89"], [16.5, "#ce6f8b"], [17, "#d2728c"], [17.5, "#d7758d"], [18, "#dc788e"], [18.5, "#e27b8c"], [19, "#e87f85"], [19.5, "#ed847f"], [20, "#f18b78"], [20.5, "#f29171"], [21, "#f3996c"], [21.5, "#f2a166"], [22, "#efa962"], [22.5, "#ebb25f"], [23, "#e6bb5e"], [23.5, "#e7c15d"], [24, "#e9c75c"], [24.5, "#ebcd5b"], [25, "#ecd45a"], [26, "#ece159"], [27, "#ebee59"], [28, "#e8fa5b"],
+];
+
+/** Isotherm spacing for a day: 0.5 C from April to November, when the Sound spans only 1.4 to 2 C on a typical day;
+ * 1 C in winter, when the spread is wider. Whole degrees are drawn heavier than the half degrees. */
+export const isothermStep = (day: Date) => (day.getUTCMonth() >= 3 && day.getUTCMonth() <= 10 ? 0.5 : 1);
 
 const rgb = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 

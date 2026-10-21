@@ -1360,12 +1360,19 @@ const hatchCss = (c: string, at = "right/25% 100% no-repeat") =>
   `repeating-linear-gradient(45deg,${hexA(c, 0.9)} 0 1px,transparent 1px 8px) ${at},` +
   `repeating-linear-gradient(-45deg,${hexA(c, 0.9)} 0 1px,transparent 1px 8px) ${at}`;
 let comfortHour = -2; // the HRRR frame the panel names, to redraw it only when the hour changes
+// What paintComfort last put on the map, so a step of the time bar sets only the cells whose score moved and
+// replaces the outline only when its shape changes (replacing a source makes its lines blink while it re-tiles).
+let comfortPainted: Float32Array | null = null;
+let comfortEdgeKey = -1;
+let comfortEdgeTimer = 0; // the outline catches up a moment after the time bar settles, not on every step
 
 /** The comfort cells: the shaded field (fill) and/or the discomfort zones, crosshatched and outlined (zones). */
 function addComfort(map: maplibregl.Map, src: PointSources, fill: boolean, zones: boolean): void {
   const g = comfortGridOf(src);
   if (!g) return;
   map.addSource("comfort-cells", { type: "geojson", data: comfortCellsGeoJSON(src.waves!.mesh, g.cells) });
+  comfortPainted = null; // a new source: every cell needs its state
+  comfortEdgeKey = -1;
   if (fill) map.addLayer(
     {
       id: "comfort-fill",
@@ -1404,8 +1411,28 @@ function paintComfort(map: maplibregl.Map): void {
   const t = fieldT ?? Date.now() / 1000;
   const r = comfortLevels(src, t, controls?.boat ?? "console");
   if (!r) return;
-  r.g.cells.forEach((id, n) => map.setFeatureState({ source: "comfort-cells", id }, { s: r.lv[n] }));
-  (map.getSource("comfort-edge") as maplibregl.GeoJSONSource | undefined)?.setData(hazardEdges(src.waves!.mesh, r.g.cells, r.lv));
+  const last = comfortPainted && comfortPainted.length === r.lv.length ? comfortPainted : null;
+  r.g.cells.forEach((id, n) => {
+    const v = r.lv[n];
+    if (last && (last[n] === v || (Math.abs(last[n] - v) < 0.01 && (last[n] >= 3) === (v >= 3) && (last[n] < 0) === (v < 0)))) return;
+    map.setFeatureState({ source: "comfort-cells", id }, { s: v });
+    if (last) last[n] = v;
+  });
+  if (!last) comfortPainted = Float32Array.from(r.lv);
+  if (map.getLayer("comfort-edge")) {
+    // FNV-1a over which cells are in the zones: the outline is rebuilt only when that set changes.
+    let h = 2166136261;
+    for (let n = 0; n < r.lv.length; n++) h = Math.imul(h ^ (r.lv[n] >= 3 ? 1 : 0), 16777619);
+    h >>>= 0;
+    if (h !== comfortEdgeKey) {
+      comfortEdgeKey = h;
+      const mesh = src.waves!.mesh;
+      const { cells } = r.g;
+      const lv = r.lv;
+      window.clearTimeout(comfortEdgeTimer);
+      comfortEdgeTimer = window.setTimeout(() => (map.getSource("comfort-edge") as maplibregl.GeoJSONSource | undefined)?.setData(hazardEdges(mesh, cells, lv)), 150);
+    }
+  }
   refreshPopup();
 }
 

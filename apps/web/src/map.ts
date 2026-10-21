@@ -92,6 +92,7 @@ const ADV_RED: Record<Theme, string> = { dark: "#d24a37", light: "#9e2418" };
 let zoneShapes: { type: "FeatureCollection"; features: { type: "Feature"; properties: { id: string; name: string }; geometry: unknown }[] } | null = null;
 let zoneLoading: Promise<void> | null = null;
 let zoneActive: ZoneAdvisory[] = [];
+let zoneKey: string | null = null; // the zones last drawn, so an unchanged set is not redrawn
 
 function applyZones(map: maplibregl.Map, th: Theme): void {
   if (!zoneShapes || !map.isStyleLoaded()) return;
@@ -121,6 +122,10 @@ onStyle((map, th) => applyZones(map, th));
 
 /** Outline these zones (an empty list clears the map). */
 export async function setAdvisoryZones(active: ZoneAdvisory[]): Promise<void> {
+  // The time bar calls this on every step; replacing the source each time makes the tint and outline blink while the
+  // map re-tiles it, so it is replaced only when the zones in force change.
+  const key = active.map((z) => `${z.id}${z.strong ? "!" : ""}${z.title}`).sort().join("|");
+  if (key === zoneKey) return;
   zoneActive = active;
   zoneLoading ??= fetch("/nws-zones-lis.json")
     .then((r) => (r.ok ? r.json() : null))
@@ -129,6 +134,7 @@ export async function setAdvisoryZones(active: ZoneAdvisory[]): Promise<void> {
   await zoneLoading;
   const map = await mapReady();
   applyZones(map, theme);
+  if (map.getSource("adv-zones") && zoneActive === active) zoneKey = key; // a later call may have overtaken this one
 }
 
 let select: (id: string) => void = () => {};

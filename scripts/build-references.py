@@ -171,7 +171,7 @@ def render(entries: list[dict]) -> str:
 {body}
 
       <footer class="credits">
-        <p><a href="/">longhorizon.blue</a> &middot; <a href="/terms/">Terms</a> &middot; Long Horizon Observatory</p>
+        <p><a href="/">longhorizon.blue</a> &middot; <a href="/terms/">Terms</a> &middot; <a href="https://longhorizon.eco/observatory">Long Horizon Observatory</a></p>
       </footer>
     </main>
     <script type="module" src="../src/landing.ts"></script>

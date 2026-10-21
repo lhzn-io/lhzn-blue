@@ -8,6 +8,7 @@
  * the page's ink for references, amber only for states that must stand out.
  */
 import "./site.css";
+import "./away-links";
 import { mountAdvisories } from "./advisory";
 import "./forecast-page.css";
 import { cssVar, el, niceStep, renderLines, type Line } from "./chart";

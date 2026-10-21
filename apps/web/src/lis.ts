@@ -1,6 +1,7 @@
 /** Long Island Sound page: overview (map and status grid), readouts and views per station, a zoom view,
  * and the bring-your-own-AI prompt. */
 import "./site.css";
+import "./away-links";
 
 import promptTemplate from "../../../configs/prompts/visitor_prompt.txt?raw";
 import registry from "../../../stations/stations.json";

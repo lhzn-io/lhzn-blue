@@ -8,6 +8,7 @@
  * 30-minute offset on a tide rising 1.5 ft an hour would read as a 0.7 ft departure.
  */
 import "./site.css";
+import "./away-links";
 import "./water-page.css";
 import { el, niceStep } from "./chart";
 

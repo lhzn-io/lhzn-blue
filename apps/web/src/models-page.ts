@@ -8,6 +8,7 @@
  * Data: v1/fields/model-grids.json, written by the jobs' model_grids module (a grid per model, frames of int8 u/v).
  */
 import "./site.css";
+import "./away-links";
 import { mountAdvisories } from "./advisory";
 import "./models-page.css";
 import "maplibre-gl/dist/maplibre-gl.css";

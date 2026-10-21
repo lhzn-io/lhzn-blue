@@ -1237,3 +1237,16 @@ body.embed .station-head h2 { margin: 0 0 6px; font-size: 13px; letter-spacing: 
 body.embed .figs { display: block; }
 body.embed .embed-credit { margin: 6px 0 0; font: 11px/1.4 var(--sans); color: var(--dim); }
 body.embed .embed-credit a { color: inherit; text-underline-offset: 2px; }
+
+/* Forecast verification in the top bar (wider screens; the menu holds it on phones) and as a tag beside a forecast. */
+.ver-link {
+  flex: none; margin-right: 8px; padding: 3px 12px 5px; border-radius: 999px; text-decoration: none;
+  font: 700 9px/1.2 var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent-line);
+}
+.ver-link:hover, .ver-link:focus-visible { color: var(--accent-hi); border-color: var(--accent-hi); outline: none; }
+@media (max-width: 900px) { .topbar .ver-link { display: none; } } /* below this the views fill the bar */
+.ver-tag {
+  display: inline-block; padding: 0 6px; border: 1px solid var(--accent-line); border-radius: 3px; text-decoration: none;
+  font: 500 0.92em/1.5 var(--mono); color: var(--accent); white-space: nowrap;
+}
+.ver-tag:hover, .ver-tag:focus-visible { color: var(--accent-hi); border-color: var(--accent-hi); }

@@ -1042,8 +1042,7 @@ const FIGS: Record<Kind, Fig> = {
       const m = d.met;
       const lines: Line[] = [
         ...runLines,
-        { ys: fc.map((v, i) => windVal(v + err(xs[i]))), color: P.miss, width: 0.9, opacity: 0.7, dash: "2 3", label: "Typical error, high", tip: false },
-        { ys: fc.map((v, i) => windVal(Math.max(0, v - err(xs[i])))), color: P.miss, width: 0.9, opacity: 0.7, dash: "2 3", label: "Typical error, low", tip: false },
+        { ys: fc.map((_, i) => err(xs[i])), color: P.miss, label: "Typical miss at the buoys", hidden: true, fmt: (v) => `&plusmn;${windFmt(v)} ${u.label}` },
         { ys: ahead.map((f) => (f ? windVal(f.gust) : NaN)), color: P.contrast, opacity: 0.5, label: "Forecast gust", dots: true, fmt: fmtU },
         { ys: fc.map((v) => windVal(v)), color: P.line, width: 2, dash: "6 3", label: "Stitched forecast", fmt: fmtU },
         { ys: xs.map((t) => windVal(m?.gust?.at(t) ?? NaN)), color: P.contrast, opacity: 0.55, label: "Gust, measured", dots: true, fmt: fmtU },
@@ -1057,9 +1056,12 @@ const FIGS: Record<Kind, Fig> = {
         return vintageLabel(d.meta.id, vals.reduce((a, b) => (Math.abs(b.y - yv) < Math.abs(a.y - yv) ? b : a)).r);
       };
       return {
-        opts: { xs, lines, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" }, empty: "No forecast or measurement in this window.", pick },
-        legend: [["Measured", P.now, 1], ["Stitched forecast", P.line, 1], ["Typical miss", P.miss, 0.7], ["Gusts", P.contrast, 0.55], ["Earlier forecasts", P.line, 0.3]],
-        note: `NOAA HRRR, raw &middot; <a href="${FORECAST_PAGE}">verified at the buoys</a>`,
+        opts: {
+          xs, lines, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" }, empty: "No forecast or measurement in this window.", pick,
+          areas: [{ lo: fc.map((v, i) => windVal(Math.max(0, v - err(xs[i])))), hi: fc.map((v, i) => windVal(v + err(xs[i]))), fill: P.miss, opacity: 0.22 }],
+        },
+        legend: [["Measured", P.now, 1], ["Stitched forecast", P.line, 1], ["Typical miss (shaded)", P.miss, 0.5], ["Gusts", P.contrast, 0.55], ["Earlier forecasts", P.line, 0.3]],
+        note: `NOAA HRRR, raw &middot; the shading is HRRR's typical miss at each lead, ${verTag()}`,
       };
     },
   },
@@ -2314,6 +2316,13 @@ function windModelCell(d: StationData, t: number, fault: string, faultTitle: str
 }
 
 const FORECAST_PAGE = "/long-island-sound/forecast/";
+/** The verification tag: HRRR's typical miss at the buoys for this hour's lead at a station (the first in the table), linked to the page. */
+function verTag(t?: number, id?: string): string {
+  const f = t != null && id ? forecastAt(id, hourOf(t)) : null;
+  const n = FCST?.ver ? Object.values(FCST.ver.by_lead).reduce((a, b) => a + ((b.all as FcStats & { n?: number }).n ?? 0), 0) : 0;
+  const what = f ? `typical miss &plusmn;${windFmt(f.err)} ${WIND_UNITS[WU].label} at ${f.lead} h ahead` : "verified at the buoys";
+  return `<a class="ver-tag" href="${FORECAST_PAGE}" title="HRRR scored against the buoys${n ? ` over ${n.toLocaleString("en-US")} forecast hours` : ""}">${what}</a>`;
+}
 
 /* ---------- Outlook: the next 48 hours at one station ---------- */
 
@@ -3300,12 +3309,12 @@ function statusGrid(stations: StationData[]): void {
       ? isWater(VK)
         ? `${open("buoy")}<caption>${AT != null ? `${V().label} at ${atLabel(AT)}, west to east (${VK === "temp" ? "&deg;F" : unitName(VK)})` : `Latest readings, west to east: ${what}`}</caption>${head(DEPTHS.map((d) => DEPTH_LABEL[d]))}
       <tbody>${buoys.map((d) => `<tr>${name(d)}${DEPTHS.map((dep) => cellHtml(d, dep)).join("")}</tr>`).join("")}</tbody></table>`
-        : `${open("buoy")}<caption>${AT != null ? `${atFuture() ? "Forecast" : "Weather and waves"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and waves (${waveUnit().label})${AT != null && atFuture() ? ` &middot; HRRR, raw${(() => { const f = stations.length ? forecastAt(stations[0].meta.id, hourOf(AT!)) : null; return f ? `, the ${fmtRun.format(new Date(f.issue * 1000))} run` : ""; })()}, <a href="${FORECAST_PAGE}">verified at the buoys</a>` : ""}</caption>${head(["Wind", "Air", "Pressure", "Waves"])}
+        : `${open("buoy")}<caption>${AT != null ? `${atFuture() ? "Forecast" : "Weather and waves"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and waves (${waveUnit().label})${AT != null && atFuture() ? ` &middot; HRRR, raw${(() => { const f = stations.length ? forecastAt(stations[0].meta.id, hourOf(AT!)) : null; return f ? `, the ${fmtRun.format(new Date(f.issue * 1000))} run` : ""; })()} &middot; ${verTag(AT!, stations[0]?.meta.id)}` : ""}</caption>${head(["Wind", "Air", "Pressure", "Waves"])}
       <tbody>${buoys.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${wavesCell(d)}</tr>`).join("")}</tbody></table>`
       : isWater(VK)
         ? `${open("shore")}<caption>${AT != null ? `Water at ${atLabel(AT)}` : "Latest readings"}, west to east: ${VK === "temp" ? "water temperature (&deg;F)" : `water temperature only (no ${V().label.toLowerCase()} sensors)`} and water level</caption>${head(["Water", "Level", "Next tide"])}
       <tbody>${shore.map((d) => `<tr>${name(d)}${cellHtml(d, "SFC")}${levelCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`
-        : `${open("shore")}<caption>${AT != null ? `${atFuture() ? "Forecast" : "Weather"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and the next tide${AT != null && atFuture() ? ` &middot; HRRR, raw${(() => { const f = stations.length ? forecastAt(stations[0].meta.id, hourOf(AT!)) : null; return f ? `, the ${fmtRun.format(new Date(f.issue * 1000))} run` : ""; })()}, <a href="${FORECAST_PAGE}">verified at the buoys</a>` : ""}</caption>${head(["Wind", "Air", "Pressure", "Next tide"])}
+        : `${open("shore")}<caption>${AT != null ? `${atFuture() ? "Forecast" : "Weather"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and the next tide${AT != null && atFuture() ? ` &middot; HRRR, raw${(() => { const f = stations.length ? forecastAt(stations[0].meta.id, hourOf(AT!)) : null; return f ? `, the ${fmtRun.format(new Date(f.issue * 1000))} run` : ""; })()} &middot; ${verTag(AT!, stations[0]?.meta.id)}` : ""}</caption>${head(["Wind", "Air", "Pressure", "Next tide"])}
       <tbody>${shore.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`;
   const tab = (g: Group, label: string, n: number) =>
     `<button type="button" role="tab" class="stab" id="stab-${g}" data-group="${g}" aria-selected="${SG === g}" aria-controls="status-panel" tabindex="${SG === g ? 0 : -1}">${label}<small>${n}</small></button>`;
@@ -4829,7 +4838,7 @@ async function syncField(): Promise<void> {
   }
   const kind: FieldKind | "none" = fieldPick === "none" && ov ? "wat" : fieldPick;
   let hz: FieldData["comfort"];
-  if (overlayHaz && VIEW_LAYERS[VK].overlay && kind !== "comfort" && kind !== "wat" && kind !== "none") {
+  if (overlayHaz && VIEW_LAYERS[VK].overlay && kind !== "wat" && kind !== "none") {
     try {
       hz = (await fieldData("comfort")).comfort;
     } catch (err) {

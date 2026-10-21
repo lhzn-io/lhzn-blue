@@ -366,10 +366,12 @@ METHODS["map-comfort"] = {
     "The comfort index of a click's readout, for every NWPS wave cell (1.8 km) at the time bar's hour: HRRR wind from the " +
     "nearest HRRR cell, NWPS waves, the wind-against-tide level and, for kayaks, the NECOFS current, by the steps for " +
     "the boat set in the byline; cold water raises a level. Shore cells (harbours, coves) carry wind only. Shown as a " +
-    "score from 0 to 4: each factor runs linearly between its steps, so 1 is the Moderate step, 2 Uncomfortable and 3 " +
-    "Discomfort, and the worst factor sets the score. Shaded in a brick tint, clear at 0 and never opaque, with a " +
-    "fine outline where the score reaches 3. Over wind, waves or currents, those areas can be laid on as an overlay " +
-    "(Discomfort zones): crosshatched within the same outline, so the field below stays readable.",
+    "score from 0 to 7: each factor runs linearly between its steps, so 1 is the Moderate step, 2 Uncomfortable and 3 " +
+    "Discomfort; past Discomfort it gains a point for each half of that step again (for a center console, 30, 40 and " +
+    "50 kt of wind, or 1.5, 2 and 2.5 m of waves), and the worst factor sets the score. Up to 3 it is a light brick " +
+    "tint, clear at 0; past 3 the colour itself darkens, toward oxblood and near black (a deeper crimson on the dark " +
+    "map), with opacity rising only modestly. The Discomfort zones overlay marks where the score reaches 3, " +
+    "crosshatched within a fine outline, over this field or over wind, waves or currents.",
   caveats:
     "The score places a cell between fixed thresholds; it is not a probability, and its fractions are as much a judgement " +
     "as the steps. The shading excludes NWS advisories, which the masthead and the zone lines show and a click's readout includes. " +

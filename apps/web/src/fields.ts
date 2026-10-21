@@ -232,7 +232,7 @@ const META: Record<FieldKind, Meta> = {
   currents: { title: "Surface currents", short: "Currents", ramp: "currents", log: true, range: [CURRENTS_FLOOR * 100, CURRENTS_TOP * 100], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
   waves: { title: "Waves (NWS NWPS)", short: "Waves, NWPS", ramp: "wind", log: false, range: [0, WAVE_TOP], unit: "m", digits: 2, note: "Model forecast (NWS Nearshore Wave Prediction System, SWAN): significant wave height on the model's own 1.8 km cells; arrows show where the waves travel. The runs exclude currents; steepening where wind opposes the tide is not represented." },
   wat: { title: "Wind against tide", short: "Wind against tide", ramp: "wind", log: false, unit: "", digits: 0, note: "A model-derived index, not an observation and not an NWS product: where the NECOFS current runs against the NWPS waves and steepens them (linear theory). Excludes shoals, rips and overfalls finer than the 1.8 km cells." },
-  comfort: { title: "Comfort index", short: "Comfort", ramp: "wind", log: false, unit: "", digits: 0, note: "How the water suits the boat set in the byline, cell by cell, as a score from 0 to 4 (1 Moderate, 2 Uncomfortable, 3 Discomfort): the worst of HRRR wind, NWPS waves, wind against tide and, for kayaks, the NECOFS current, raised by cold water, as in a click's readout. Advisories are not in the shading: the masthead and the zone lines show them, and a click's readout includes them. Shore cells (harbours, coves) carry wind only. No shading beyond HRRR's 48 hours." },
+  comfort: { title: "Comfort index", short: "Comfort", ramp: "wind", log: false, unit: "", digits: 0, note: "How the water suits the boat set in the byline, cell by cell, as a score from 0 to 7 (1 Moderate, 2 Uncomfortable, 3 Discomfort, then one point for each half of that step again): the worst of HRRR wind, NWPS waves, wind against tide and, for kayaks, the NECOFS current, raised by cold water, as in a click's readout. Advisories are not in the shading: the masthead and the zone lines show them, and a click's readout includes them. Shore cells (harbours, coves) carry wind only. No shading beyond HRRR's 48 hours." },
   wind: { title: "Wind (HRRR)", short: "Wind, HRRR", ramp: "wind", log: false, range: [0, WIND_TOP], unit: "m/s", digits: 1, note: "Model forecast (NOAA HRRR), 10 m above the surface, on the model's own 3 km cells; arrows show where the wind blows toward. Cells HRRR counts as land are fainter inland; on the shore (harbours, coves) they are drawn like water." },
 };
 
@@ -266,6 +266,7 @@ let windFrame = -1; // the wind frame on the map (-1: no HRRR hour at the timeli
 let watFrame = -1; // the wind-against-tide frame on the map (-1: none within the hour)
 let overlay: WatField | null = null; // wind against tide over another field
 let hazard: PointSources | null = null; // the discomfort zones over another field
+let zonesOnComfort = false; // the discomfort zones over the comfort field itself
 let probeOv: number | null = null; // the overlay cell the popup reads, under the base value
 /** The wind-against-tide field on the map: the layer itself, or the overlay. */
 const watOf = (): WatField | null => data.wat ?? overlay;
@@ -997,14 +998,15 @@ export type { Boat } from "./comfort-thresholds";
 const stepLevel = (v: number, steps: number[]) => (v >= steps[2] ? 3 : v >= steps[1] ? 2 : v >= steps[0] ? 1 : 0);
 
 /** The continuous score behind a step level: 0 to 1 across Comfortable, 1 to 2 across Moderate, 2 to 3 across
- * Uncomfortable, then from 3 at the Discomfort step toward 4 one step-width past it. Its whole part is always
- * stepLevel's level, so the score and the words never disagree. */
+ * Uncomfortable, then from 3 at the Discomfort step on past it, one point for each half of that step again (for a
+ * center console 30, 40 and 50 kt; 1.5, 2 and 2.5 m), to 7. Its whole part is
+ * stepLevel's level up to 3, so the score and the words never disagree. */
 function stepScore(v: number, s: number[]): number {
   if (!(v > 0)) return 0;
   if (v < s[0]) return v / s[0];
   if (v < s[1]) return 1 + (v - s[0]) / (s[1] - s[0]);
   if (v < s[2]) return 2 + (v - s[1]) / (s[2] - s[1]);
-  return 3 + Math.min(0.99, (v - s[2]) / (s[2] - s[1]));
+  return 3 + Math.min(3.99, (v - s[2]) / (0.5 * s[2]));
 }
 
 /** The NWS zone (id) containing a point, from the zone outlines. */
@@ -1071,7 +1073,7 @@ function comfortLevel(x: { kt: number; hs: number; curKt: number; wl: number; ss
     score += 1;
     f.push({ level, score, key: "cold" });
   }
-  return { level, score: Math.min(score, 3.99), f };
+  return { level, score: Math.min(score, SCORE_TOP - 0.01), f };
 }
 
 /** The comfort level at a point and time for a boat class, with the factors that set it. */
@@ -1245,7 +1247,7 @@ function currentKtAt(c: CurrentsField, t: number): Float32Array | null {
   });
 }
 
-/** The comfort score (0 to 4) of every shaded cell at time t for a boat (-1: none, as beyond HRRR's hours). No
+/** The comfort score (0 to 7) of every shaded cell at time t for a boat (-1: none, as beyond HRRR's hours). No
  * advisory floor: the map shows the water, the masthead and zone lines the advisories. */
 function comfortLevels(src: PointSources, t: number, boat: Boat): { g: ComfortGrid; lv: Float32Array } | null {
   const g = comfortGridOf(src);
@@ -1283,23 +1285,43 @@ function comfortCellsGeoJSON(m: WindField["mesh"], cells: number[]) {
   };
 }
 
-/** The comfort score's shading: the advisory brick at an opacity rising with the score, clear at 0 and never more
- * than a light tint, so the basemap shows through (score, opacity). The discomfort zones overlay adds a crosshatch (comfortHatch). */
-const COMFORT_RAMP: [number, number][] = [[0, 0], [1, 0.04], [2, 0.14], [3, 0.26], [4, 0.34]];
-const comfortBrick = () => (mapTheme() === "light" ? "#9e2418" : "#d24a37");
-function comfortAlpha(s: number): number {
-  for (let i = 1; i < COMFORT_RAMP.length; i++) {
-    const [s1, a1] = COMFORT_RAMP[i];
-    const [s0, a0] = COMFORT_RAMP[i - 1];
-    if (s <= s1) return a0 + ((Math.max(s, s0) - s0) / (s1 - s0)) * (a1 - a0);
-  }
-  return COMFORT_RAMP[COMFORT_RAMP.length - 1][1];
-}
+/** The comfort score's shading (score, colour, opacity). Up to Discomfort (3) it is the advisory brick as a light
+ * tint, so an ordinary blowy day reads as a wash with the basemap clear beneath. Past it the colour itself darkens,
+ * brick to oxblood to near black on the light map (deeper, denser crimson on the dark one), with opacity rising
+ * only modestly: the worst water is the darkest, not merely the most opaque. The discomfort zones overlay adds a
+ * crosshatch (comfortHatch). */
+const SCORE_TOP = 7;
+type ComfortStop = [number, string, number];
+const COMFORT_STOPS: Record<"light" | "dark", ComfortStop[]> = {
+  light: [[0, "#9e2418", 0], [1, "#9e2418", 0.03], [2, "#9e2418", 0.08], [3, "#9e2418", 0.16], [4, "#851c12", 0.26], [5, "#62120b", 0.36], [6, "#420a06", 0.46], [7, "#280403", 0.56]],
+  dark: [[0, "#d24a37", 0], [1, "#d24a37", 0.04], [2, "#d24a37", 0.1], [3, "#d24a37", 0.18], [4, "#c83a2a", 0.28], [5, "#b0201c", 0.4], [6, "#8c0e16", 0.52], [7, "#640410", 0.64]],
+};
+const comfortStops = () => COMFORT_STOPS[mapTheme() === "light" ? "light" : "dark"];
+const comfortBrick = () => comfortStops()[3][1];
 const hexA = (hex: string, a: number) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a.toFixed(3)})`;
+/** The shading at a score, as rgba (the strip charts and the key use it too). */
+function comfortRgba(s: number): string {
+  const st = comfortStops();
+  const mix = (a: string, b: string, f: number) =>
+    [1, 3, 5].map((k) => Math.round(parseInt(a.slice(k, k + 2), 16) * (1 - f) + parseInt(b.slice(k, k + 2), 16) * f));
+  for (let i = 1; i < st.length; i++) {
+    const [s1, c1, a1] = st[i];
+    const [s0, c0, a0] = st[i - 1];
+    if (s <= s1) {
+      const f = (Math.max(s, s0) - s0) / (s1 - s0);
+      const [r, g, b] = mix(c0, c1, f);
+      return `rgba(${r},${g},${b},${(a0 + f * (a1 - a0)).toFixed(3)})`;
+    }
+  }
+  const [, c, a] = st[st.length - 1];
+  return hexA(c, a);
+}
 
-/** A fine brick crosshatch for the discomfort zones (score 3 and up), as a map image named for the theme; seamless at any offset. */
-function comfortHatch(map: maplibregl.Map): string {
-  const name = `comfort-hatch-${mapTheme()}`;
+/** A fine brick crosshatch for the discomfort zones (score 3 and up), as a map image named for the theme; seamless at
+ * any offset. Over another field each line has an under-stroke (casing); over the comfort shading it has none, so the
+ * shading's darkness shows through. */
+function comfortHatch(map: maplibregl.Map, casing = true): string {
+  const name = `comfort-hatch-${mapTheme()}${casing ? "" : "-bare"}`;
   if (map.hasImage(name)) return name;
   const r = 2;
   const n = 12 * r;
@@ -1319,10 +1341,12 @@ function comfortHatch(map: maplibregl.Map): string {
   // Every currents ramp crosses the brick's lightness somewhere (dark theme near 1.1 m/s, light near 2.8 m/s), so each
   // line gets an under-stroke in the basemap's ground colour, dark or light: it then stands out by lightness as well as
   // hue over every field colour.
-  g.strokeStyle = mapTheme() === "dark" ? "#0c0c0c" : "#f7f7f4";
-  g.globalAlpha = 0.8;
-  g.lineWidth = 3;
-  lines();
+  if (casing) {
+    g.strokeStyle = mapTheme() === "dark" ? "#0c0c0c" : "#f7f7f4";
+    g.globalAlpha = 0.8;
+    g.lineWidth = 3;
+    lines();
+  }
   g.strokeStyle = comfortBrick();
   g.globalAlpha = 0.85;
   g.lineWidth = 1; // one device pixel: the finest pen
@@ -1337,30 +1361,31 @@ const hatchCss = (c: string, at = "right/25% 100% no-repeat") =>
   `repeating-linear-gradient(-45deg,${hexA(c, 0.9)} 0 1px,transparent 1px 8px) ${at}`;
 let comfortHour = -2; // the HRRR frame the panel names, to redraw it only when the hour changes
 
-function addComfort(map: maplibregl.Map, src: PointSources, hatchOnly = false): void {
+/** The comfort cells: the shaded field (fill) and/or the discomfort zones, crosshatched and outlined (zones). */
+function addComfort(map: maplibregl.Map, src: PointSources, fill: boolean, zones: boolean): void {
   const g = comfortGridOf(src);
   if (!g) return;
   map.addSource("comfort-cells", { type: "geojson", data: comfortCellsGeoJSON(src.waves!.mesh, g.cells) });
-  if (!hatchOnly) map.addLayer(
+  if (fill) map.addLayer(
     {
       id: "comfort-fill",
       type: "fill",
       source: "comfort-cells",
       paint: {
-        "fill-color": comfortBrick(),
-        "fill-opacity": ["interpolate", ["linear"], ["coalesce", ["feature-state", "s"], -1], -1, 0, -0.001, 0, ...COMFORT_RAMP.flat()] as maplibregl.ExpressionSpecification,
+        "fill-color": ["interpolate", ["linear"], ["coalesce", ["feature-state", "s"], 0], ...comfortStops().flatMap(([sc, c]) => [sc, c])] as maplibregl.ExpressionSpecification,
+        "fill-opacity": ["interpolate", ["linear"], ["coalesce", ["feature-state", "s"], -1], -1, 0, -0.001, 0, ...comfortStops().flatMap(([sc, , a]) => [sc, a])] as maplibregl.ExpressionSpecification,
         "fill-antialias": false,
       },
     },
     beneathLabels(map),
   );
-  if (hatchOnly) map.addLayer(
+  if (zones) map.addLayer(
     {
       id: "comfort-hatch",
       type: "fill",
       source: "comfort-cells",
       paint: {
-        "fill-pattern": comfortHatch(map),
+        "fill-pattern": comfortHatch(map, !fill),
         "fill-opacity": ["case", [">=", ["coalesce", ["feature-state", "s"], -1], 3], 1, 0] as maplibregl.ExpressionSpecification,
         "fill-antialias": false,
       },
@@ -1368,8 +1393,8 @@ function addComfort(map: maplibregl.Map, src: PointSources, hatchOnly = false): 
     beneathLabels(map),
   );
   map.addSource("comfort-edge", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-  map.addLayer({ id: "comfort-edge-casing", type: "line", source: "comfort-edge", paint: { "line-color": mapTheme() === "dark" ? "#0c0c0c" : "#f7f7f4", "line-width": 2.8, "line-opacity": 0.8 } }, beneathLabels(map));
-  map.addLayer({ id: "comfort-edge", type: "line", source: "comfort-edge", paint: { "line-color": comfortBrick(), "line-width": 0.9, "line-opacity": 0.9 } }, beneathLabels(map));
+  if (zones) map.addLayer({ id: "comfort-edge-casing", type: "line", source: "comfort-edge", paint: { "line-color": mapTheme() === "dark" ? "#0c0c0c" : "#f7f7f4", "line-width": 2.8, "line-opacity": 0.8 } }, beneathLabels(map));
+  if (zones) map.addLayer({ id: "comfort-edge", type: "line", source: "comfort-edge", paint: { "line-color": comfortBrick(), "line-width": 0.9, "line-opacity": 0.9 } }, beneathLabels(map));
   paintComfort(map);
 }
 
@@ -1405,15 +1430,15 @@ function hazardEdges(m: WindField["mesh"], cells: number[], score: Float32Array)
   return { type: "Feature" as const, properties: {}, geometry: { type: "MultiLineString" as const, coordinates: segs } };
 }
 
-/** A word-sized gauge: a bar filled in brick to the score (0 to 4), with ticks at the Moderate, Uncomfortable and
- * Discomfort steps, and the score beside it. */
+/** A word-sized gauge: a bar filled to the score (0 to 7) in the score's own colour, with ticks at each step, and
+ * the score beside it. */
 function comfortGauge(score: number): string {
   const w = 40;
-  const x = (s: number) => (0.5 + ((w - 1) * Math.min(4, Math.max(0, s))) / 4).toFixed(1);
+  const x = (s: number) => (0.5 + ((w - 1) * Math.min(SCORE_TOP, Math.max(0, s))) / SCORE_TOP).toFixed(1);
   return `<svg class="pop-gauge" viewBox="0 0 ${w} 8" width="${w}" height="8" aria-hidden="true"><rect x="0.5" y="0.5" width="${w - 1}" height="7" class="off"/>` +
-    `<rect x="0.5" y="0.5" width="${(Number(x(score)) - 0.5).toFixed(1)}" height="7" class="on" style="fill:${comfortBrick()}"/>` +
-    [1, 2, 3].map((k) => `<line x1="${x(k)}" x2="${x(k)}" y1="0.5" y2="7.5" class="tick"/>`).join("") +
-    `</svg><span class="pop-score" title="Comfort score, 0 to 4: 1 Moderate, 2 Uncomfortable, 3 Discomfort">${score.toFixed(1)}<small> of 4</small></span>`;
+    `<rect x="0.5" y="0.5" width="${(Number(x(score)) - 0.5).toFixed(1)}" height="7" class="on" style="fill:${comfortRgba(score).replace(/,[\d.]+\)$/, ",1)")}"/>` +
+    [1, 2, 3, 4, 5, 6].map((k) => `<line x1="${x(k)}" x2="${x(k)}" y1="0.5" y2="7.5" class="tick"/>`).join("") +
+    `</svg><span class="pop-score" title="Comfort score, 0 to 7: 1 Moderate, 2 Uncomfortable, 3 Discomfort, then a point for each half of that step again">${score.toFixed(1)}</span>`;
 }
 
 function comfortLine(src: PointSources, lng: number, lat: number): string | null {
@@ -1856,7 +1881,7 @@ function renderCell(): void {
     for (let t = t0; t <= t1; t += 3600) {
       const cf = comfortAt(src, lng, lat, t, boat);
       if (!cf || cf.partial) continue;
-      blocks += `<rect x="${x(t - 1800).toFixed(1)}" width="${(x(t + 1800) - x(t - 1800)).toFixed(1)}" y="0" height="14" class="cell-cf" style="fill:${comfortBrick()};fill-opacity:${comfortAlpha(cf.score).toFixed(3)}"><title>${COMFORT_WORDS[cf.level]} (${cf.score.toFixed(1)}), ${fmtProbe.format(new Date(t * 1000))}${cf.level ? `: ${cf.why.join("; ")}` : ""}</title></rect>`;
+      blocks += `<rect x="${x(t - 1800).toFixed(1)}" width="${(x(t + 1800) - x(t - 1800)).toFixed(1)}" y="0" height="14" class="cell-cf" style="fill:${comfortRgba(cf.score)}"><title>${COMFORT_WORDS[cf.level]} (${cf.score.toFixed(1)}), ${fmtProbe.format(new Date(t * 1000))}${cf.level ? `: ${cf.why.join("; ")}` : ""}</title></rect>`;
     }
     const now = comfortAt(src, lng, lat, cursor, boat);
     rows.unshift(`<div class="cell-row"><span class="cell-label">Comfort<small>${BOATS[boat].name.toLowerCase()}</small></span><svg viewBox="0 0 ${W} 14" preserveAspectRatio="none" class="cell-plot cell-band">` +
@@ -2107,9 +2132,8 @@ const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", 
 
 function scaleHtml(meta: Meta, ripKey = false): string {
   if (active === "comfort" && !ripKey) {
-    const c = comfortBrick();
-    const stops = COMFORT_RAMP.map(([s, a]) => `${hexA(c, a)} ${s * 25}%`).join(",");
-    return `<div class="field-scale comfort-scale"><i class="field-bar" style="background:linear-gradient(90deg,${stops})"></i><span class="cs-ticks">${[...COMFORT_WORDS, ""].map((w, i) => `<span title="${w ? `${i}+: ${w}` : "4: Discomfort + 1"}">${i}</span>`).join("")}</span></div>`;
+    const stops = comfortStops().map(([sc, c, a]) => `${hexA(c, a)} ${((sc / SCORE_TOP) * 100).toFixed(1)}%`).join(",");
+    return `<div class="field-scale comfort-scale"><i class="field-bar" style="background:linear-gradient(90deg,${stops})"></i><span class="cs-ticks">${Array.from({ length: SCORE_TOP + 1 }, (_, i) => `<span title="${i < COMFORT_WORDS.length ? `${i}+: ${COMFORT_WORDS[i]}` : `${i}${i < SCORE_TOP ? "+" : ""}: Discomfort + ${i - 3}`}">${i}</span>`).join("")}</span></div>`;
   }
   if (ripKey || active === "wat") {
     return `<div class="field-scale wat-scale">${[1, 2, 3, 4].map((l) => `<span>${ripSwatch(l)}${WAT_SHORT[l]}</span>`).join("")}</div>`;
@@ -2353,20 +2377,21 @@ function draw(map: maplibregl.Map): void {
   else if (data.raster) addRaster(map, data.raster);
   else if (data.mesh && data.currents) addCurrents(map, data.mesh, data.currents);
   else if (data.wind) addWind(map, data.wind);
-  else if (data.comfort) addComfort(map, data.comfort);
+  else if (data.comfort) addComfort(map, data.comfort, true, zonesOnComfort);
   if (overlay && !data.wat) addWat(map, overlay, !(data.wind || data.currents));
-  if (hazard && !data.comfort) addComfort(map, hazard, true);
+  if (hazard && !data.comfort) addComfort(map, hazard, false, true);
   drawProbeCell(map); // after a theme switch, the outline comes back on top
 }
 
 /** Show a field (or none) with its data, and the panel with the page's controls. */
 export async function showField(kind: FieldKind | null, payload: FieldData, ctl: FieldControls): Promise<void> {
-  const sameLayer = kind === active && payload.raster === shownRaster && payload.currents === data.currents && payload.wind === data.wind && payload.wat === data.wat && payload.comfort === data.comfort && (payload.overlay ?? null) === overlay && (payload.hazard ?? null) === hazard;
+  const sameLayer = kind === active && payload.raster === shownRaster && payload.currents === data.currents && payload.wind === data.wind && payload.wat === data.wat && payload.comfort === data.comfort && (payload.overlay ?? null) === overlay && (kind === "comfort" ? !!payload.hazard === zonesOnComfort : (payload.hazard ?? null) === hazard);
   if (!sameLayer) closeValue(); // a value from another layer
   active = kind;
   data = kind ? { ...payload } : {};
   overlay = kind && kind !== "wat" ? (payload.overlay ?? null) : null;
   hazard = kind && kind !== "comfort" ? (payload.hazard ?? null) : null;
+  zonesOnComfort = kind === "comfort" && !!payload.hazard;
   delete data.overlay;
   delete data.hazard;
   shownRaster = payload.raster;

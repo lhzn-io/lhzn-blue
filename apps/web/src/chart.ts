@@ -37,6 +37,14 @@ export interface Band {
   fill: string;
 }
 
+/** A shaded range between two series (e.g. a forecast's typical miss), drawn under the lines. */
+export interface Area {
+  lo: number[]; // aligned with ChartOptions.xs; NaN for missing
+  hi: number[];
+  fill: string;
+  opacity?: number;
+}
+
 export interface Span {
   x0: number; // epoch seconds
   x1: number;
@@ -50,6 +58,7 @@ export interface ChartOptions {
   unit: string; // appended to values, e.g. "°F"
   zero?: boolean; // emphasize y = 0
   bands?: Band[];
+  areas?: Area[];
   spans?: Span[]; // shaded time intervals, full height
   marker?: { x: number; label: string }; // a vertical rule, e.g. "now"
   hoverDigits?: number;
@@ -202,6 +211,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   if (xs.length < 2) return rendered;
   const all = o.lines.filter((l) => !l.hidden).flatMap((l) => l.ys).filter((v) => Number.isFinite(v));
   if (o.zero) all.push(0);
+  for (const a of o.areas ?? []) all.push(...a.hi.filter((v) => Number.isFinite(v)));
   if (!all.length) {
     // Keep the shared time axis, so an empty chart lines up with its neighbours, and say why it is empty.
     const rules = timeRules(x0, x1);
@@ -270,6 +280,21 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     svg.append(el("rect", { x: xx, y: 0, width: Math.max(0, W - xx), height: H, fill: theme.shade }));
     svg.append(el("line", { x1: xx, x2: xx, y1: 0, y2: H, stroke: theme.now, "stroke-opacity": 0.7, "stroke-dasharray": "3 3", "vector-effect": "non-scaling-stroke" }));
     labels.push(`<span class="arriving" style="left:${(100 * xx) / W}%">${o.marker.label}</span>`);
+  }
+
+  // Areas: one polygon per run of hours where both edges are known.
+  for (const a of o.areas ?? []) {
+    let run: number[] = [];
+    const flush = () => {
+      if (run.length > 1) {
+        const top = run.map((i) => `${px(xs[i]).toFixed(1)},${py(Math.min(a.hi[i], hi)).toFixed(2)}`);
+        const bot = run.slice().reverse().map((i) => `${px(xs[i]).toFixed(1)},${py(Math.max(a.lo[i], lo)).toFixed(2)}`);
+        svg.append(el("path", { d: `M${top.join("L")}L${bot.join("L")}Z`, fill: a.fill, "fill-opacity": a.opacity ?? 0.2, stroke: "none" }));
+      }
+      run = [];
+    };
+    xs.forEach((_, i) => (Number.isFinite(a.lo[i]) && Number.isFinite(a.hi[i]) ? run.push(i) : flush()));
+    flush();
   }
 
   // The page timeline's time, drawn under the lines.

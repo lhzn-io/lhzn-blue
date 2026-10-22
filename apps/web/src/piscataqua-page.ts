@@ -11,7 +11,8 @@ import "./away-links";
 import "./forecast-page.css";
 import "./piscataqua-page.css";
 import { cssVar, el, markAsOf, renderLines, type Line } from "./chart";
-import { CURRENTS_RAMP, CURRENTS_RAMP_DARK } from "./currents-ramp";
+import { CURRENTS_FLOOR, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURRENTS_TOP } from "./currents-ramp";
+import type { Map as MapLibreMap, ExpressionSpecification, GeoJSONSource } from "maplibre-gl";
 
 interface Series { t0: string; step: number; v: (number | null)[] }
 interface Station extends Series { id: string; name: string; lat: number; lon: number }
@@ -23,6 +24,8 @@ interface Buoy {
 interface Tide extends Station { hilo: { t: string; m: number; type: "H" | "L" }[] }
 interface Current extends Station { flood_dir: number; ebb_dir: number; depth_m: number; events: { t: string; type: string; v: number }[] }
 interface Data { generated_at: string; buoy?: Buoy; water_level?: Station; tide?: Tide; current?: Current }
+interface CurMesh { nodes: [number, number][]; triangles: [number, number, number][]; centres: [number, number][]; arrow_level: number[] }
+interface CurField { t0: string; step: number; steps: number; u: number[][]; v: number[][]; generated_at: string }
 
 const DATA = "/data/v1";
 const TZ = "America/New_York";
@@ -45,6 +48,7 @@ const fmtShort = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "short"
 const sec = (iso: string) => Date.parse(iso) / 1000;
 
 let D: Data;
+let CUR: { mesh: CurMesh; field: CurField } | null = null; // NECOFS surface currents over the harbour, when available
 let buoyT: number[] = []; // epoch seconds of each profile
 let X0 = 0;
 let X1 = 0;
@@ -125,7 +129,8 @@ function drawFresh(): void {
   const stale = $("stale");
   if (b && now() - sec(b.last) > STALE_S) {
     stale.hidden = false;
-    stale.innerHTML = `<b>The buoy has been quiet since ${fmtTime.format(new Date(b.last))}.</b> The current plots show its last 30 days of records; the tide and the predicted current are live.`;
+    stale.innerHTML = `<b>The buoy has been quiet since ${fmtTime.format(new Date(b.last))}.</b> Its plots show its last 30 days of records; the map, the tide and the predicted current are live. <button type="button" class="pq-jump" id="jump">Go to its last record</button>`;
+    $("jump").addEventListener("click", () => setT(sec(b.last)));
   } else if (!b) {
     stale.hidden = false;
     stale.innerHTML = "<b>No buoy profiles could be read.</b> The tide and the predicted current are live.";
@@ -264,7 +269,7 @@ function drawProfile(): void {
   } else {
     $("prof-cap").textContent = "Profile";
     const why = !b ? "No buoy profiles could be read." : T > sec(b.last) ? `No profile at this time: the buoy has been quiet since ${fmtTime.format(new Date(b.last))}.` : "No profile within 15 minutes of this time (a gap in the buoy's record).";
-    text(W / 2, H / 2, why.length > 52 ? why.slice(0, 52) + "…" : why, { "text-anchor": "middle" });
+    text(W / 2, H / 2, "No profile at this time", { "text-anchor": "middle" });
     $("prof-note").textContent = why;
   }
   box.replaceChildren(svg);
@@ -337,6 +342,7 @@ function setT(t: number): void {
   if (V0 !== a || V1 !== b) drawPlots();
   markAsOf(T);
   placeCursor();
+  paintCurrents();
   drawProfile();
   drawRead();
 }
@@ -358,6 +364,7 @@ function wireTime(): void {
     placeCursor();
   });
   $("fwd").addEventListener("click", () => setT(T + 10 * MIN));
+  $("to-now").addEventListener("click", () => setT(now()));
   const play = $("play");
   play.addEventListener("click", () => {
     if (playing) {
@@ -382,40 +389,136 @@ function wireTime(): void {
   });
 }
 
-// ---------- The map ----------
+// ---------- The map: NECOFS surface currents, the buoy and the NOAA stations ----------
 
 const STYLE_LIGHT = "https://tiles.openfreemap.org/styles/positron";
 const STYLE_DARK = "https://tiles.openfreemap.org/styles/dark";
-let restyleMap: () => void = () => undefined;
+let MAP: MapLibreMap | null = null;
+let curFrame = -2; // the model hour on the map (-1: none at the selected time)
+
+const curRamp = () => (light() ? CURRENTS_RAMP : CURRENTS_RAMP_DARK);
+/** The Sound page's currents colours: one fixed scale on a log-speed axis (cm/s in the feature state "s"). */
+const curFill = (): ExpressionSpecification =>
+  ["interpolate", ["linear"], ["ln", ["max", ["/", ["coalesce", ["feature-state", "s"], 0], 100], CURRENTS_FLOOR]], ...curRamp().flatMap(([ms, c]) => [Math.log(ms), c])] as ExpressionSpecification;
+
+function curFrameAt(t: number): number {
+  if (!CUR) return -1;
+  const k = Math.round((t - sec(CUR.field.t0)) / CUR.field.step);
+  return k >= 0 && k < CUR.field.steps ? k : -1;
+}
+
+function curPoints(k: number) {
+  if (!CUR || k < 0) return { type: "FeatureCollection" as const, features: [] };
+  const { mesh: m, field: c } = CUR;
+  return {
+    type: "FeatureCollection" as const,
+    features: m.centres.map((pt, i) => ({
+      type: "Feature" as const,
+      properties: { level: m.arrow_level[i], s: Math.hypot(c.u[k][i], c.v[k][i]), d: (Math.atan2(c.u[k][i], c.v[k][i]) * 180) / Math.PI },
+      geometry: { type: "Point" as const, coordinates: pt },
+    })),
+  };
+}
+
+function addCurrentLayers(map: MapLibreMap): void {
+  if (!CUR || map.getSource("cur-mesh")) return;
+  const m = CUR.mesh;
+  if (!map.hasImage("cur-arrow")) {
+    const c = document.createElement("canvas");
+    c.width = c.height = 32;
+    const g = c.getContext("2d")!;
+    g.beginPath();
+    for (const [x, y] of [[16, 2], [25, 16], [19, 15], [19, 30], [13, 30], [13, 15], [7, 16]]) g.lineTo(x, y);
+    g.closePath();
+    g.fill();
+    map.addImage("cur-arrow", g.getImageData(0, 0, 32, 32), { sdf: true });
+  }
+  map.addSource("cur-mesh", {
+    type: "geojson",
+    data: {
+      type: "FeatureCollection",
+      features: m.triangles.map((t, i) => ({ type: "Feature", id: i, properties: {}, geometry: { type: "Polygon", coordinates: [[m.nodes[t[0]], m.nodes[t[1]], m.nodes[t[2]], m.nodes[t[0]]]] } })),
+    },
+  });
+  map.addSource("cur-points", { type: "geojson", data: curPoints(-1) });
+  const labels = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
+  map.addLayer({ id: "cur-fill", type: "fill", source: "cur-mesh", paint: { "fill-color": curFill(), "fill-opacity": ["case", ["==", ["feature-state", "s"], null], 0, 0.85] as ExpressionSpecification, "fill-antialias": false } }, labels);
+  // Arrows thinned by zoom, as on the Sound page, shifted for a harbour-sized view.
+  const shown = (level: number): ExpressionSpecification => ["case", ["<=", ["get", "level"], level], 0.9, 0];
+  map.addLayer({
+    id: "cur-arrows",
+    type: "symbol",
+    source: "cur-points",
+    layout: {
+      "icon-image": "cur-arrow", "icon-rotate": ["get", "d"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true,
+      "icon-size": ["interpolate", ["linear"], ["get", "s"], 0, 0.28, 40, 0.42, 150, 0.7],
+    },
+    paint: {
+      "icon-color": light() ? "#1c2a48" : "#f4f1e8",
+      "icon-opacity": ["step", ["zoom"], shown(3), 12.5, shown(4), 13.5, shown(5), 14.5, shown(6)] as ExpressionSpecification,
+    },
+  });
+  curFrame = -2;
+  paintCurrents();
+}
+
+/** Shade each triangle by speed at the model hour nearest the selected time (none outside the run), and the arrows. */
+function paintCurrents(): void {
+  const map = MAP;
+  if (!map || !CUR || !map.getSource("cur-mesh")) return;
+  const k = curFrameAt(T);
+  if (k === curFrame) return;
+  curFrame = k;
+  const { field: c } = CUR;
+  for (let i = 0; i < CUR.mesh.triangles.length; i++) map.setFeatureState({ source: "cur-mesh", id: i }, { s: k < 0 ? null : Math.hypot(c.u[k][i], c.v[k][i]) });
+  (map.getSource("cur-points") as GeoJSONSource).setData(curPoints(k));
+  const end = sec(c.t0) + (c.steps - 1) * c.step;
+  $("map-when").textContent =
+    k >= 0
+      ? `NECOFS model forecast for ${fmtTime.format(new Date((sec(c.t0) + k * c.step) * 1000))}`
+      : `NECOFS: no model hour at this time (the run covers ${fmtShort.format(new Date(sec(c.t0) * 1000))} to ${fmtShort.format(new Date(end * 1000))})`;
+}
+
+function drawMapScale(): void {
+  const box = $("map-scale");
+  if (!CUR) {
+    box.innerHTML = `<span class="pq-faded">The model's surface currents are not available right now.</span>`;
+    return;
+  }
+  const pos = (ms: number) => ((Math.log(ms) - Math.log(CURRENTS_FLOOR)) / (Math.log(CURRENTS_TOP) - Math.log(CURRENTS_FLOOR))) * 100;
+  const stops = curRamp().map(([ms, c]) => `${c} ${pos(ms).toFixed(1)}%`).join(",");
+  box.innerHTML = `<span>${CURRENTS_FLOOR * 100} cm/s</span><i style="background:linear-gradient(90deg,${stops})"></i><span>${CURRENTS_TOP} m/s (6 kt)</span><span class="pq-faded">the Sound page's currents scale; arrows show where the water goes</span>`;
+}
 
 async function drawMap(): Promise<void> {
   const box = $("map");
   try {
     await import("maplibre-gl/dist/maplibre-gl.css");
     const maplibregl = (await import("maplibre-gl")).default;
-    const style = light() ? STYLE_LIGHT : STYLE_DARK;
-    const map = new maplibregl.Map({ container: box, style, center: [-70.72, 43.07], zoom: 12.6, attributionControl: { compact: true }, cooperativeGestures: true });
+    const map = new maplibregl.Map({ container: box, style: light() ? STYLE_LIGHT : STYLE_DARK, center: [-70.71, 43.068], zoom: 13.2, attributionControl: { compact: true }, cooperativeGestures: true });
+    MAP = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     const pins: [number, number, string, string][] = [
       [BUOY_LON(), BUOY_LAT(), "UNH buoy", "pq-pin pq-pin-buoy"],
       [D.water_level?.lon ?? -70.7411, D.water_level?.lat ?? 43.0797, "Seavey Island (water level)", "pq-pin"],
       [D.tide?.lon ?? -70.7117, D.tide?.lat ?? 43.0717, "Fort Point (tide)", "pq-pin"],
-      [D.current?.lon ?? -70.7053, D.current?.lat ?? 43.0624, "Harbor Entrance (current)", "pq-pin"],
+      [D.current?.lon ?? -70.7053, D.current?.lat ?? 43.0624, "Harbor Entrance (predicted current)", "pq-pin"],
     ];
     for (const [lon, lat, label, cls] of pins) {
-      const m = document.createElement("div");
-      m.className = cls;
-      m.innerHTML = `<i></i><span>${label}</span>`;
-      new maplibregl.Marker({ element: m, anchor: "left" }).setLngLat([lon, lat]).addTo(map);
+      const el = document.createElement("div");
+      el.className = cls;
+      el.innerHTML = `<i></i><span>${label}</span>`;
+      new maplibregl.Marker({ element: el, anchor: "left" }).setLngLat([lon, lat]).addTo(map);
     }
-    const lons = pins.map((p) => p[0]);
-    const lats = pins.map((p) => p[1]);
-    map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: { top: 50, bottom: 50, left: 50, right: 200 }, duration: 0, maxZoom: 14 });
-    restyleMap = () => map.setStyle(light() ? STYLE_LIGHT : STYLE_DARK);
+    const lons = pins.map((q) => q[0]);
+    const lats = pins.map((q) => q[1]);
+    map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: { top: 60, bottom: 60, left: 40, right: 220 }, duration: 0, maxZoom: 14 });
+    map.on("style.load", () => addCurrentLayers(map)); // also after a theme switch, which replaces the style
   } catch {
     box.innerHTML = `<p class="note">The map could not be loaded.</p>`;
   }
 }
+const restyleMap = () => MAP?.setStyle(light() ? STYLE_LIGHT : STYLE_DARK);
 const BUOY_LAT = () => D.buoy?.lat ?? 43.0687;
 const BUOY_LON = () => D.buoy?.lon ?? -70.7079;
 
@@ -430,6 +533,7 @@ function drawMethod(): void {
     ["Quality", "Provisional and not yet quality-controlled by the owners. Each profile is flagged when the instrument reports an error or an impossible speed (over 3 m/s), and suspect when the buoy is tilted more than 20 degrees."],
     ["Tide", "Observed water level at NOAA Seavey Island (8419870), 3 km up-river; tide predictions for NOAA Fort Point (8423898), 0.5 km from the buoy. Both above MLLW."],
     ["Current", "NOAA's tidal current predictions for Portsmouth Harbor Entrance (PIR0701), 0.7 km from the buoy, at 2.4 m, along the flood axis (342 degrees) with ebb negative. The buoy's line is its cells 1 to 10 (the water column above the likely seabed) averaged and projected on the same axis, with its directions as logged."],
+    ["Model", "The map's surface currents are the NECOFS FVCOM forecast (GOM7 mesh, top layer) from the University of Massachusetts Dartmouth, hourly, from a day back to three days ahead, on the model's own triangles, with the Sound page's colour scale. A model forecast, not a measurement."],
     ["Gaps", "The buoy reports through a shore computer, so its record can stop for days. The page shows how old each source is and draws gaps as gaps; the NOAA panels run to now and two days ahead."],
   ];
   $("method").innerHTML = items.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
@@ -485,6 +589,15 @@ function drawAll(): void {
   setT(T);
 }
 
+async function fetchJson<T>(name: string): Promise<T | null> {
+  try {
+    const r = await fetch(`${DATA}/${name}.json`, { cache: "no-cache" });
+    return r.ok ? ((await r.json()) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function main(): Promise<void> {
   let d: Data | null = null;
   try {
@@ -501,19 +614,23 @@ async function main(): Promise<void> {
     return;
   }
   D = d;
+  const [mesh, field] = await Promise.all([fetchJson<CurMesh>("fields/piscataqua-currents-mesh"), fetchJson<CurField>("fields/piscataqua-currents")]);
+  CUR = mesh && field && field.steps > 0 ? { mesh, field } : null;
   const b = D.buoy;
   if (b) buoyT = b.t.map((m) => sec(b.t0) + m * MIN);
   const ends = [D.tide, D.current].filter((s): s is Tide | Current => !!s?.v.length).map((s) => sec(s.t0) + (s.v.length - 1) * s.step);
+  if (CUR) ends.push(sec(CUR.field.t0) + (CUR.field.steps - 1) * CUR.field.step);
   X1 = Math.max(now() + HOUR, ...ends);
   X0 = Math.min(b ? sec(b.t0) : now() - 7 * 86400, now() - 7 * 86400);
-  const stale = !b || now() - sec(b.last) > STALE_S;
-  T = b ? (stale ? sec(b.last) : now()) : now();
+  T = now(); // the live view; a quiet buoy's banner offers a jump to its last record
   wireTime();
   wireTheme(() => {
     drawAll();
+    drawMapScale();
     restyleMap();
   });
   drawMethod();
+  drawMapScale();
   drawAll();
   void drawMap();
   let pending = 0;

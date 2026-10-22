@@ -92,7 +92,7 @@ WRITABLE = re.compile(
     r"v1/(history|history-salinity|history-oxygen|history-waves|history-turbidity|history-met|live|shore|shore-history|shore-tides|rivers|rivers-history|usgs-tidal|forecast-hrrr|waves-nwps|advisories|advisories-now|panels|forecast-verification|current-phase|piscataqua)\.json"
     r"|v1/archive/[A-Z]{3,5}_(SFC|MID|BTM|WAVE|MET)\.json"
     r"|v1/archive/(forecast-verification-sums|usgs-tidal-pred)\.json"
-    r"|v1/fields/(sst|chl|kd490|currents|currents-mesh|hrrr-wind|hrrr-wind-history|model-grids|nwps-waves|wind-against-tide|rips)\.json"
+    r"|v1/fields/(sst|chl|kd490|currents|currents-mesh|hrrr-wind|hrrr-wind-history|model-grids|nwps-waves|wind-against-tide|rips|piscataqua-currents|piscataqua-currents-mesh)\.json"
     r"|v1/fields/(sst|chl|kd490)-90d\.bin"
     r"|v1/hrrr-history/(WLIS|EXRX|ARTG|CLIS|KPTN|BRPT|NWHV|NLON|KBDR|KHVN)(-recent)?\.json"
     r"|v1/asos\.json"

@@ -45,6 +45,8 @@ log = logging.getLogger(__name__)
 # the ocean in front. Every field uses this box, and every satellite pixel outside the currents model's water mesh is
 # dropped, so all fields share one coastline (MUR, for one, fills Long Island itself with interpolated values).
 BBOX = [-73.9, 40.45, -71.8, 41.45]
+# The mouth of the Piscataqua (Portsmouth Harbor and its approaches), for the unlisted /piscataqua/ page: currents only.
+PISCATAQUA_BBOX = [-70.80, 43.03, -70.62, 43.12]
 WATER_SOURCE = "NECOFS FVCOM GOM7 mesh"  # the coastline every raster is cut to
 # name -> (forcingkit quantity, composite window in days, coastal pixels masked, scale: value = int * scale)
 RASTERS = {
@@ -277,19 +279,19 @@ def arrow_levels(lon: np.ndarray, lat: np.ndarray) -> np.ndarray:
     return levels
 
 
-def currents(end: datetime | None = None) -> tuple[dict, dict]:
-    """The mesh and the surface current forecast, encoded for the page."""
+def currents(end: datetime | None = None, bbox: list[float] = BBOX, step_hours: int = CURRENT_STEP_HOURS) -> tuple[dict, dict]:
+    """The mesh and the surface current forecast over a box, encoded for the page."""
     from forcingkit.fetchers import necofs
 
     end = end or now_utc()
     start = pd.Timestamp(end).floor("h") - pd.Timedelta(hours=CURRENT_HOURS_BACK)
-    ds = necofs.read_surface(BBOX, start, CURRENT_HOURS_BACK + CURRENT_HOURS_AHEAD + 1)
-    ds = ds.isel(time=slice(0, None, CURRENT_STEP_HOURS))
+    ds = necofs.read_surface(bbox, start, CURRENT_HOURS_BACK + CURRENT_HOURS_AHEAD + 1)
+    ds = ds.isel(time=slice(0, None, step_hours))
     lonc, latc = ds["lonc"].values.astype(np.float64), ds["latc"].values.astype(np.float64)
     mesh = {
         "schema": SCHEMA,
         "source": "NECOFS FVCOM GOM7, UMass Dartmouth (SMAST)",
-        "bbox": BBOX,
+        "bbox": bbox,
         "nodes": [[round(float(x), 5), round(float(y), 5)] for x, y in zip(ds["node_lon"].values, ds["node_lat"].values)],
         "triangles": ds["triangles"].values.astype(int).tolist(),
         "centres": [[round(float(x), 5), round(float(y), 5)] for x, y in zip(lonc, latc)],
@@ -308,7 +310,7 @@ def currents(end: datetime | None = None) -> tuple[dict, dict]:
         "units": "cm/s",
         "generated_at": iso(end),
         "t0": iso(times[0]),
-        "step": CURRENT_STEP_HOURS * 3600,
+        "step": step_hours * 3600,
         "steps": int(times.size),
         "elements": int(lonc.size),
         "u": [to_cm(ds["u"].values[i]).tolist() for i in range(times.size)],
@@ -335,6 +337,13 @@ def publish(store: Store) -> list[str]:
         if water is None or water.get("bbox") != BBOX:
             log.warning("no water mesh for this box; rasters are not cut to the coastline this run")
             water = None
+    try:  # the Piscataqua page's own small box
+        mesh, data = currents(end, PISCATAQUA_BBOX, step_hours=1)  # hourly: the harbour turns fast
+        store.write_json("v1/fields/piscataqua-currents-mesh.json", mesh, max_age=86400)
+        store.write_json("v1/fields/piscataqua-currents.json", data, max_age=3600)
+    except Exception:
+        log.exception("piscataqua currents not refreshed")
+        failed.append("piscataqua-currents")
     for name in RASTERS:
         try:
             store.write_json(f"v1/fields/{name}.json", raster(name, end, water), max_age=3600)

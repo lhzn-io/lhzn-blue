@@ -1,7 +1,8 @@
 /* The Piscataqua River mouth (/piscataqua/): built on site.css and forecast-page.css (masthead, sections, panel);
    this file adds the time-by-cell plot, its scale and time control, the profile panel's column and the map. */
-.pq-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px 28px; align-items: start; }
-@media (max-width: 860px) { .pq-grid { grid-template-columns: minmax(0, 1fr); } }
+.pq-pair { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px 28px; align-items: start; }
+@media (max-width: 860px) { .pq-pair { grid-template-columns: minmax(0, 1fr); } }
+.pq-heatfig { margin-top: 22px; }
 
 .pq-heat { position: relative; height: 300px; padding-bottom: 16px; padding-right: 44px; cursor: crosshair; }
 .pq-heat canvas { display: block; }
@@ -19,8 +20,14 @@
 
 .pq-panel .note { margin-top: 6px; }
 
-.pq-map { height: 360px; border: 1px solid var(--rule); }
+.pq-map { height: 470px; border: 1px solid var(--rule); }
+@media (max-width: 860px) { .pq-map { height: 360px; } }
 .pq-pin { display: flex; align-items: center; gap: 6px; font: 600 10.5px/1 var(--sans); letter-spacing: 0.04em; color: var(--ink); pointer-events: none; }
 .pq-pin i { width: 9px; height: 9px; border-radius: 50%; background: var(--panel, var(--bg)); border: 2px solid var(--accent); }
 .pq-pin span { padding: 2px 5px; background: var(--panel, var(--bg)); border: 1px solid var(--rule); white-space: nowrap; }
 .pq-pin-buoy i { width: 12px; height: 12px; background: var(--now); border-color: var(--ink); }
+
+/* The stale-buoy banner's jump to its last record. */
+.outage .pq-jump { margin-left: 8px; padding: 2px 10px; cursor: pointer; font: 700 9.5px/1.4 var(--sans); letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--accent); background: none; border: 1px solid var(--accent-line); border-radius: 999px; }
+.outage .pq-jump:hover { color: var(--accent-hi); border-color: var(--accent-hi); }

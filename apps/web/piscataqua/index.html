@@ -39,21 +39,13 @@
       <p class="outage" id="load-error" role="status" hidden></p>
 
       <section class="fc-sec" aria-labelledby="cur-title">
-        <h2 class="fc-h" id="cur-title">Currents under the buoy</h2>
-        <p class="prose fc-say">Speed in each 10-minute profile, from the cell nearest the surface down. Move the time to see the profile and the tide at that moment.</p>
-        <div class="pq-grid">
-          <figure class="pq-main">
-            <figcaption><span class="cap-label">Current speed by cell</span><span class="cap-sub">cell 1 nearest the surface, Eastern time</span></figcaption>
-            <div class="pq-heat" id="heat"><canvas id="heat-canvas" aria-label="Current speed by depth cell and time"></canvas><div class="pq-cursor" id="heat-cursor"></div><div class="plot-labels" id="heat-labels" aria-hidden="true"></div></div>
-            <div class="pq-scale" id="heat-scale"></div>
-            <div class="pq-time">
-              <button type="button" class="tab pq-play" id="play" aria-pressed="false">Play</button>
-              <button type="button" class="tab" id="zoom" aria-pressed="false">Full record</button>
-              <button type="button" class="tab" id="back" aria-label="Back 10 minutes">&minus;10m</button>
-              <input type="range" id="slider" min="0" max="1" step="600" value="0" aria-label="Time" />
-              <button type="button" class="tab" id="fwd" aria-label="Ahead 10 minutes">+10m</button>
-            </div>
-            <p class="fc-read" id="read" aria-live="polite"></p>
+        <h2 class="fc-h" id="cur-title">Currents</h2>
+        <p class="prose fc-say">The model's surface currents on the map, the buoy's profile beside it, and every profile in time below. Move the time to see all three, and the tide, at that moment.</p>
+        <div class="pq-pair">
+          <figure class="pq-mapfig">
+            <figcaption><span class="cap-label">Surface currents</span><span class="cap-sub" id="map-when">NECOFS model forecast</span></figcaption>
+            <div class="pq-map" id="map" role="region" aria-label="Map of the model's surface currents, the buoy and the NOAA stations"></div>
+            <div class="pq-scale" id="map-scale"></div>
           </figure>
           <figure class="fc-panel pq-panel">
             <figcaption><span class="cap-label" id="prof-cap">Profile</span></figcaption>
@@ -61,6 +53,20 @@
             <p class="note" id="prof-note"></p>
           </figure>
         </div>
+        <figure class="pq-heatfig">
+          <figcaption><span class="cap-label">Current speed by cell, UNH buoy</span><span class="cap-sub">cell 1 nearest the surface, Eastern time</span></figcaption>
+          <div class="pq-heat" id="heat"><canvas id="heat-canvas" aria-label="Current speed by depth cell and time"></canvas><div class="pq-cursor" id="heat-cursor"></div><div class="plot-labels" id="heat-labels" aria-hidden="true"></div></div>
+          <div class="pq-scale" id="heat-scale"></div>
+          <div class="pq-time">
+            <button type="button" class="tab pq-play" id="play" aria-pressed="false">Play</button>
+            <button type="button" class="tab" id="zoom" aria-pressed="false">Full record</button>
+            <button type="button" class="tab" id="back" aria-label="Back 10 minutes">&minus;10m</button>
+            <input type="range" id="slider" min="0" max="1" step="600" value="0" aria-label="Time" />
+            <button type="button" class="tab" id="fwd" aria-label="Ahead 10 minutes">+10m</button>
+            <button type="button" class="tab" id="to-now">Now</button>
+          </div>
+          <p class="fc-read" id="read" aria-live="polite"></p>
+        </figure>
       </section>
 
       <section class="fc-sec" aria-labelledby="tide-title">
@@ -87,11 +93,6 @@
         </figure>
       </section>
 
-      <section class="fc-sec" aria-labelledby="map-title">
-        <h2 class="fc-h" id="map-title">Where</h2>
-        <div class="pq-map" id="map" role="region" aria-label="Map of the buoy and the NOAA stations"></div>
-      </section>
-
       <section class="fc-sec fc-method" aria-labelledby="method-title">
         <h2 class="fc-h" id="method-title">Method and caveats</h2>
         <dl class="about-list" id="method"></dl>
@@ -101,7 +102,8 @@
         <p>
           <b>Data:</b> the current profiler on the University of New Hampshire's G-2000 buoy (UNH Center for Sustainable Seafood Systems), as logged
           and not yet quality-controlled by its owners; water level, tide and tidal current predictions from
-          <a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a>. Thank you to both.
+          <a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a>; surface currents from the <a href="https://fvcom.smast.umassd.edu/necofs/">NECOFS</a> FVCOM model,
+          University of Massachusetts Dartmouth (SMAST). Thank you to all three.
         </p>
         <p><b>Provisional data.</b> Not for navigation. <a href="/terms/">Terms</a>.</p>
         <p>A <a href="/">longhorizon.blue</a> page by <a href="https://longhorizon.eco/observatory">Long Horizon Observatory</a>.</p>

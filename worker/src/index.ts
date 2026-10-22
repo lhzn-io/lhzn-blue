@@ -49,6 +49,7 @@ const FILES: Record<string, number> = {
   "v1/fields/currents.json": 3600,
   "v1/fields/piscataqua-currents.json": 3600, // the unlisted /piscataqua/ page's own box
   "v1/fields/piscataqua-currents-mesh.json": 86400,
+  "v1/fields/piscataqua-currents-history.bin": 3600, // the model's past hours, loaded when the time goes back
   "v1/fields/hrrr-wind.json": 600,
   "v1/fields/hrrr-wind-history.json": 3600, // the hours before hrrr-wind.json, loaded when the time bar goes back past it
   "v1/fields/nwps-waves.json": 1800,

@@ -18,7 +18,7 @@ from . import build, merlin, rivers, shore, tides, turbidity, usgs_tidal, waves,
 
 def _main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "panels", "import-verification", "import-archive", "import-waves", "import-weather"])
+    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "piscataqua-history", "panels", "import-verification", "import-archive", "import-waves", "import-weather"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
@@ -123,6 +123,11 @@ def _main() -> None:
 
         # Once, after the first deploy: the map's wind history (hrrr-wind-history.json); hours present are skipped.
         hrrr_grid.backfill(store, days=args.days)
+    elif args.command == "piscataqua-history":
+        from . import fields
+
+        # Once (or to catch up): up to --days archive days of the Piscataqua model's past hours, then the forecast file.
+        _failed.extend(fields.piscataqua(store, build.now_utc(), new_days=args.days))
     elif args.command == "panels":
         from . import panels  # Tesseract is needed only here
 

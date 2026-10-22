@@ -4,13 +4,13 @@
 @media (max-width: 860px) { .pq-pair { grid-template-columns: minmax(0, 1fr); } }
 .pq-heatfig { margin-top: 22px; }
 
-.pq-heat { position: relative; height: 300px; padding-bottom: 16px; padding-right: 44px; cursor: crosshair; }
+.pq-heat { position: relative; cursor: crosshair; }
 .pq-heat canvas { display: block; }
-.pq-cursor { position: absolute; top: 0; bottom: 16px; width: 0; border-left: 1.5px solid var(--now); pointer-events: none; }
+.pq-cursor { position: absolute; width: 0; border-left: 2px solid var(--ink); pointer-events: none; }
 .pq-heat .plot-labels .pq-bed { font-style: italic; color: var(--dim); }
 
 .pq-scale { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 6px 0 2px; font: 9.5px/1.4 var(--mono); color: var(--dim); }
-.pq-scale i { display: inline-block; width: 160px; height: 9px; border: 1px solid var(--rule); }
+.pq-scale > i { display: inline-block; width: 160px; height: 9px; border: 1px solid var(--rule); } /* the colour bar only, not the icons in its note */
 .pq-scale .pq-faded { flex-basis: 100%; font-family: var(--sans); font-size: 11px; }
 
 .pq-time { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
@@ -31,3 +31,30 @@
 .outage .pq-jump { margin-left: 8px; padding: 2px 10px; cursor: pointer; font: 700 9.5px/1.4 var(--sans); letter-spacing: 0.16em;
   text-transform: uppercase; color: var(--accent); background: none; border: 1px solid var(--accent-line); border-radius: 999px; }
 .outage .pq-jump:hover { color: var(--accent-hi); border-color: var(--accent-hi); }
+
+/* The daily strips' labels. */
+.pq-heat .plot-labels { inset: 0; }
+.pq-heat .pq-hour { top: 0; transform: translateX(-50%); font: 9px/1 var(--mono); color: var(--chart-month); }
+.pq-heat .pq-day { left: 0; transform: translateY(-50%); display: flex; align-items: center; gap: 5px; font: 600 10px/1 var(--sans); letter-spacing: 0.04em; color: var(--ink-soft); }
+.pq-moon { display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 1.2px solid var(--ink); vertical-align: -1px; }
+.pq-moon-new { background: var(--ink); }
+.pq-moon-full { background: var(--bg); }
+.pq-scale .pq-faded .pq-moon { margin: 0 2px; }
+.pq-strip-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 4px 0 10px; }
+.pq-seg { display: inline-flex; gap: 2px; }
+.pq-seg .tab { min-height: 26px; }
+
+/* The map's tooltip: the site's panel, small type; gold for a measurement, teal for the model. */
+.pq-tip .maplibregl-popup-content { padding: 7px 10px; background: var(--panel, var(--bg)); color: var(--ink); border: 1px solid var(--rule); border-radius: 0; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); font: 11.5px/1.45 var(--sans); }
+.pq-tip .maplibregl-popup-tip { display: none; }
+.pq-tip b { font-weight: 600; }
+.pq-tip small { color: var(--dim); font-size: 10.5px; }
+.pq-tip .pq-tip-measured { color: var(--now); }
+.pq-tip .pq-tip-model { color: #1f7f86; }
+:root:not([data-theme="light"]) .pq-tip .pq-tip-model { color: #5fc3c4; }
+
+/* References: numbered, with their DOIs; the method notes cite them by number. */
+.pq-reflist { margin: 0; padding-left: 22px; max-width: 90ch; font: 12.5px/1.55 var(--sans); color: var(--ink-soft); }
+.pq-reflist li { margin-bottom: 8px; }
+.pq-reflist a { overflow-wrap: anywhere; }
+.pq-reflist li:target { background: var(--panel); outline: 1px solid var(--accent-line); }

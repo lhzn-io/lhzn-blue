@@ -228,6 +228,14 @@ def build(prev: dict | None = None, now: datetime | None = None, uri: str = SOUR
         start = min(start, pd.Timestamp(out["buoy"]["t0"]).to_pydatetime())
     start = max(start, back).replace(minute=0, second=0, microsecond=0)
     end = now + timedelta(days=AHEAD_DAYS)
+    try:  # new and full moons mark the spring tides on the page's daily strips
+        from .tides import moon_phases
+
+        out["moon"] = moon_phases(start - timedelta(days=2), end)
+    except Exception:
+        log.exception("moon phases not refreshed")
+        if prev.get("moon"):
+            out["moon"] = prev["moon"]
     for key, part, until in (("water_level", water_level_part, now), ("tide", tide_part, end), ("current", current_part, end)):
         try:
             out[key] = part(start, until)

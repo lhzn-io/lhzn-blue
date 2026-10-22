@@ -94,6 +94,7 @@ WRITABLE = re.compile(
     r"|v1/archive/(forecast-verification-sums|usgs-tidal-pred)\.json"
     r"|v1/fields/(sst|chl|kd490|currents|currents-mesh|hrrr-wind|hrrr-wind-history|model-grids|nwps-waves|wind-against-tide|rips|piscataqua-currents|piscataqua-currents-mesh)\.json"
     r"|v1/fields/(sst|chl|kd490)-90d\.bin"
+    r"|v1/fields/piscataqua-currents-history\.bin"
     r"|v1/hrrr-history/(WLIS|EXRX|ARTG|CLIS|KPTN|BRPT|NWHV|NLON|KBDR|KHVN)(-recent)?\.json"
     r"|v1/asos\.json"
 )

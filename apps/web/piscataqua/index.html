@@ -12,7 +12,7 @@
         if (localStorage.getItem("lhzn-blue-theme") === "dark") delete document.documentElement.dataset.theme;
       } catch (e) {}
     </script>
-    <title>Piscataqua River mouth | longhorizon.blue</title>
+    <title>Piscataqua River | longhorizon.blue</title>
     <meta name="description" content="Currents under the UNH buoy at the mouth of the Piscataqua River, with NOAA water level, tide and tidal current predictions." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -25,7 +25,7 @@
     <header class="mast fc-mast">
       <div class="mast-id">
         <span class="fc-eyebrow">Portsmouth Harbor</span>
-        <h1 class="fc-title">Piscataqua River mouth</h1>
+        <h1 class="fc-title">Piscataqua River</h1>
         <p class="mast-by"><a class="lho" href="https://longhorizon.eco/observatory">Long Horizon Observatory</a> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An unlisted preview: views, wording and data handling may change">Preview</span></p>
       </div>
       <nav class="fc-nav" aria-label="Page">
@@ -54,7 +54,13 @@
           </figure>
         </div>
         <figure class="pq-heatfig">
-          <figcaption><span class="cap-label">Current speed by cell, UNH buoy</span><span class="cap-sub">cell 1 nearest the surface, Eastern time</span></figcaption>
+          <figcaption><span class="cap-label">Current speed by day, UNH buoy</span><span class="cap-sub">one strip per day, cells 1 to 10 from the surface down</span></figcaption>
+          <div class="pq-strip-ctl">
+            <span class="fc-ctl-label">Rows</span>
+            <span class="pq-seg" role="group" aria-label="Rows"><button type="button" class="tab" data-rows="7" aria-pressed="true">7 days</button><button type="button" class="tab" data-rows="16" aria-pressed="false">16</button><button type="button" class="tab" data-rows="0" aria-pressed="false">All</button></span>
+            <span class="fc-ctl-label">Align</span>
+            <span class="pq-seg" role="group" aria-label="Align rows"><button type="button" class="tab" data-align="clock" aria-pressed="true">Clock</button><button type="button" class="tab" data-align="tide" aria-pressed="false">Tide</button></span>
+          </div>
           <div class="pq-heat" id="heat"><canvas id="heat-canvas" aria-label="Current speed by depth cell and time"></canvas><div class="pq-cursor" id="heat-cursor"></div><div class="plot-labels" id="heat-labels" aria-hidden="true"></div></div>
           <div class="pq-scale" id="heat-scale"></div>
           <div class="pq-time">
@@ -88,6 +94,7 @@
           <div class="plot" id="flow-plot"><svg role="img" aria-label="NOAA predicted tidal current at the harbour entrance and the buoy's near-surface current"></svg><div class="plot-labels" aria-hidden="true"></div></div>
           <div class="legend">
             <span><i style="background: var(--fc-mid)"></i>predicted, NOAA Portsmouth Harbor Entrance (2.4 m)</span>
+            <span><i style="background: #1f7f86"></i>NECOFS model at the buoy (surface, dashed)</span>
             <span><i style="background: var(--now)"></i>UNH buoy, cells 1 to 10 averaged</span>
           </div>
         </figure>
@@ -98,10 +105,21 @@
         <dl class="about-list" id="method"></dl>
       </section>
 
+      <section class="fc-sec pq-refs" aria-labelledby="refs-title">
+        <h2 class="fc-h" id="refs-title">References</h2>
+        <ol class="pq-reflist">
+          <li id="ref-chen2003">Chen, C., Liu, H. and Beardsley, R. C. (2003). An unstructured grid, finite-volume, three-dimensional, primitive equations ocean model: application to coastal ocean and estuaries. <i>Journal of Atmospheric and Oceanic Technology</i>, 20(1), 159&ndash;186. <a href="https://doi.org/10.1175/1520-0426(2003)020%3C0159:AUGFVT%3E2.0.CO;2">doi:10.1175/1520-0426(2003)020&lt;0159:AUGFVT&gt;2.0.CO;2</a></li>
+          <li id="ref-chen2006">Chen, C., Beardsley, R. C. and Cowles, G. (2006). An unstructured grid, finite-volume coastal ocean model (FVCOM) system. <i>Oceanography</i>, 19(1), 78&ndash;89. <a href="https://doi.org/10.5670/oceanog.2006.92">doi:10.5670/oceanog.2006.92</a></li>
+          <li id="ref-mclaughlin">McLaughlin, J. W., Bilgili, A. and Lynch, D. R. (2003). Numerical modeling of tides in the Great Bay Estuarine System: dynamical balance and spring&ndash;neap residual modulation. <i>Estuarine, Coastal and Shelf Science</i>, 57, 283&ndash;296. <a href="https://doi.org/10.1016/S0272-7714(02)00355-4">doi:10.1016/S0272-7714(02)00355-4</a></li>
+          <li id="ref-bilgili">Bilgili, A., Swift, M. R., Lynch, D. R. and Ip, J. T. C. (2003). Modeling bed-load transport of coarse sediments in the Great Bay Estuary, New Hampshire. <i>Estuarine, Coastal and Shelf Science</i>, 58, 937&ndash;950. <a href="https://doi.org/10.1016/j.ecss.2003.07.007">doi:10.1016/j.ecss.2003.07.007</a></li>
+          <li id="ref-qartod">U.S. Integrated Ocean Observing System (2019). <i>Manual for Real-Time Quality Control of In-Situ Current Observations: A Guide to Quality Control and Quality Assurance of Acoustic Doppler Current Profiler Observations</i>, version 2.1. <a href="https://doi.org/10.25923/sqe9-e310">doi:10.25923/sqe9-e310</a></li>
+        </ol>
+      </section>
+
       <footer class="credits">
         <p>
-          <b>Data:</b> the current profiler on the University of New Hampshire's G-2000 buoy (UNH Center for Sustainable Seafood Systems), as logged
-          and not yet quality-controlled by its owners; water level, tide and tidal current predictions from
+          <b>Data:</b> the current profiler on the University of New Hampshire's G-2000 buoy (UNH Center for Sustainable Seafood Systems), as logged;
+          water level, tide and tidal current predictions from
           <a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a>; surface currents from the <a href="https://fvcom.smast.umassd.edu/necofs/">NECOFS</a> FVCOM model,
           University of Massachusetts Dartmouth (SMAST). Thank you to all three.
         </p>

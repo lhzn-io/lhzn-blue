@@ -319,6 +319,24 @@ def currents(end: datetime | None = None, bbox: list[float] = BBOX, step_hours: 
     return mesh, data
 
 
+def piscataqua(store: Store, end: datetime, new_days: int = 6) -> list[str]:
+    """The /piscataqua/ page's model: the hourly forecast over its box, the archive's past hours (a few new days per
+    run), and the model at the buoy across both. The history is optional: the forecast is written without it."""
+    from . import piscataqua_model
+
+    failed = []
+    mesh, data = currents(end, PISCATAQUA_BBOX, step_hours=1)  # hourly: the harbour turns fast
+    store.write_json("v1/fields/piscataqua-currents-mesh.json", mesh, max_age=86400)
+    try:
+        log.info("piscataqua history: %s", piscataqua_model.update(store, PISCATAQUA_BBOX, mesh, end, max_new_days=new_days))
+    except Exception:
+        log.exception("piscataqua history not refreshed")
+        failed.append("piscataqua-history")
+    data["at_buoy"] = piscataqua_model.at_buoy(store, mesh, data)
+    store.write_json("v1/fields/piscataqua-currents.json", data, max_age=3600)
+    return failed
+
+
 def publish(store: Store) -> list[str]:
     """Fetch every field and write it; a field that fails is logged and left as it was. Returns the failures."""
     failed = []
@@ -338,9 +356,7 @@ def publish(store: Store) -> list[str]:
             log.warning("no water mesh for this box; rasters are not cut to the coastline this run")
             water = None
     try:  # the Piscataqua page's own small box
-        mesh, data = currents(end, PISCATAQUA_BBOX, step_hours=1)  # hourly: the harbour turns fast
-        store.write_json("v1/fields/piscataqua-currents-mesh.json", mesh, max_age=86400)
-        store.write_json("v1/fields/piscataqua-currents.json", data, max_age=3600)
+        failed.extend(piscataqua(store, end))
     except Exception:
         log.exception("piscataqua currents not refreshed")
         failed.append("piscataqua-currents")

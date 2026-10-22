@@ -37,6 +37,11 @@ const HOUR = 3600;
 const FT = 3.28084;
 const KT = 0.0194384; // cm/s to kt
 const CELLS = 20;
+// The buoy logs directions against its compass, which reads magnetic as far as the data show (they fit NOAA's flood
+// and ebb best turned 15 to 35 degrees west). The page turns them to true north by the World Magnetic Model's
+// declination at the buoy (WMM2025, 2026: 14.2 degrees west), as the 3D pane does; the data file keeps them as logged.
+const DECLINATION = -14.2;
+const trueDir = (d: number) => Math.round((((d + DECLINATION) % 360) + 360) % 360);
 const LIKELY_BED = 10; // cells deeper than this read like noise: likely at or below the seabed (about 10 m of water)
 const COLUMN_CELLS = LIKELY_BED; // averaged for the along-channel comparison: the water column above the likely seabed
 const STALE_S = 3 * HOUR;
@@ -315,7 +320,8 @@ function drawProfile(): void {
       const op = faded ? 0.4 : 1;
       text(6, y + 3.5, String(c + 1), { opacity: op });
       const v = b.spd[k][c];
-      const dirDeg = b.dir[k][c];
+      const logged = b.dir[k][c];
+      const dirDeg = logged == null ? null : trueDir(logged);
       if (v == null || dirDeg == null) continue;
       // Speed as a bar in the speed's colour; direction as a north-up arrow beside it.
       const len = Math.min(BAR_MAX, (v / 100) * ARROW_PX_PER_MS);
@@ -335,7 +341,7 @@ function drawProfile(): void {
     const p = b.pressure[k];
     const flag = b.flag[k] === 1 ? "" : b.flag[k] === 3 ? " Flagged suspect: the buoy was tilted more than 20 degrees." : " Flagged: the instrument reported an error.";
     $("prof-note").textContent =
-      `Water ${tmp != null ? `${tmp.toFixed(1)} °C (${(tmp * 1.8 + 32).toFixed(1)} °F)` : "temperature missing"} at the profiler, ${p != null ? `${p.toFixed(2)} dbar` : ""} below the surface. Arrows point where the water goes, north up, as logged (likely magnetic, about 15° west of true here).${flag}`;
+      `Water ${tmp != null ? `${tmp.toFixed(1)} °C (${(tmp * 1.8 + 32).toFixed(1)} °F)` : "temperature missing"} at the profiler, ${p != null ? `${p.toFixed(2)} dbar` : ""} below the surface. Arrows point where the water goes, true north up (turned 14.2° from the logged directions, taken as magnetic; inferred, not confirmed).${flag}`;
   } else {
     $("prof-cap").textContent = "Profile";
     const why = !b ? "No buoy profiles could be read." : T > sec(b.last) ? `No profile at this time: the buoy has been quiet since ${fmtTime.format(new Date(b.last))}.` : "No profile within 15 minutes of this time (a gap in the buoy's record).";
@@ -375,7 +381,7 @@ function drawFlow(): void {
     let n = 0;
     for (let cell = 0; cell < COLUMN_CELLS; cell++) {
       const v = b.spd[k][cell];
-      const d = b.dir[k][cell];
+      const d = b.dir[k][cell] == null ? null : trueDir(b.dir[k][cell]!);
       if (v == null || d == null) continue;
       sum += v * Math.cos((d * Math.PI) / 180 - flood);
       n++;
@@ -680,7 +686,7 @@ function buoyTip(): string {
   let n = 0;
   for (let c = 0; c < COLUMN_CELLS; c++) {
     const s = b.spd[k][c];
-    const d = b.dir[k][c];
+    const d = b.dir[k][c] == null ? null : trueDir(b.dir[k][c]!);
     if (s == null || d == null) continue;
     su += s * Math.sin((d * Math.PI) / 180);
     sv += s * Math.cos((d * Math.PI) / 180);
@@ -689,8 +695,8 @@ function buoyTip(): string {
   const top = b.spd[k][0];
   return `<b class="pq-tip-measured">UNH buoy, measured</b><br>${fmtTime.format(new Date(buoyT[k] * 1000))}` +
     (n ? `<br>Cells 1 to 10 averaged: ${KTS(Math.hypot(su, sv) / n)} toward ${TOWARD(su, sv)}` : "") +
-    (top != null && b.dir[k][0] != null ? `<br>Cell 1: ${KTS(top)} toward ${b.dir[k][0]}°` : "") +
-    `<br><small>Directions as logged, likely magnetic.</small>`;
+    (top != null && b.dir[k][0] != null ? `<br>Cell 1: ${KTS(top)} toward ${trueDir(b.dir[k][0]!)}°` : "") +
+    `<br><small>Directions turned to true north from the logged (inferred magnetic) values.</small>`;
 }
 
 function stationTip(i: number): string {
@@ -787,10 +793,10 @@ function drawMethod(): void {
   const items: [string, string][] = [
     ["Buoy", `The University of New Hampshire's G-2000 metocean buoy at the mouth of the Piscataqua, drawn at its last GPS fix (${b?.position_as_of ?? "2024-11-21"}). Its <a href="https://www.nortekgroup.com/products">Nortek</a> Aquadopp current profiler looks down from just below the surface, ${b?.instrument ? "20 cells every 10 minutes" : "every 10 minutes"}.`],
     ["Cells", "Numbered from the surface. About 1 m each, which fits the data: cells below about 10 read like noise (2 to 6 cm/s against 10 to 18 above), as expected in about 10 m of water, so they are faded."],
-    ["Directions", "As logged, the direction the water moves toward. They follow NOAA's predicted flood and ebb best when turned 15 to 35 degrees west, so they are probably magnetic (declination here is about 15 degrees west); they are shown as logged."],
+    ["Directions", "The direction the water moves toward, turned to true north. The logged directions follow NOAA's predicted flood and ebb best when turned 15 to 35 degrees west, so we take them as magnetic and turn them by the World Magnetic Model's declination at the buoy (WMM2025: 14.2 degrees west). The magnetic reference is inferred from the data, not yet confirmed; the data file keeps the logged values."],
     ["Quality", 'Provisional, as logged. Following the U.S. IOOS <a href="https://ioos.noaa.gov/project/qartod/">QARTOD</a> manual for current observations <a href="#ref-qartod">[5]</a>, each profile is flagged when the instrument reports an error or an impossible speed (over 3 m/s), and suspect when the buoy is tilted more than 20 degrees.'],
     ["Tide", 'Observed water level at NOAA <a href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8419870">Seavey Island (8419870)</a>, 3 km up-river; tide predictions for NOAA <a href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8423898">Fort Point (8423898)</a>, 0.5 km from the buoy. Both above MLLW. Moon phases from the <a href="https://aa.usno.navy.mil/data/MoonPhases">US Naval Observatory</a>.'],
-    ["Current", 'NOAA\'s tidal current predictions for <a href="https://tidesandcurrents.noaa.gov/noaacurrents/predictions?id=PIR0701_12">Portsmouth Harbor Entrance (PIR0701)</a>, 0.7 km from the buoy, at 2.4 m, along the flood axis (342 degrees) with ebb negative. The buoy\'s line is its cells 1 to 10 (the water column above the likely seabed) averaged and projected on the same axis, with its directions as logged. For the estuary\'s tides and their spring-neap modulation see McLaughlin et al. <a href="#ref-mclaughlin">[3]</a>; the lower river\'s main channel runs 0.5 to 2 m/s <a href="#ref-bilgili">[4]</a>.'],
+    ["Current", 'NOAA\'s tidal current predictions for <a href="https://tidesandcurrents.noaa.gov/noaacurrents/predictions?id=PIR0701_12">Portsmouth Harbor Entrance (PIR0701)</a>, 0.7 km from the buoy, at 2.4 m, along the flood axis (342 degrees) with ebb negative. The buoy\'s line is its cells 1 to 10 (the water column above the likely seabed) averaged and projected on the same axis, with its directions turned to true north. For the estuary\'s tides and their spring-neap modulation see McLaughlin et al. <a href="#ref-mclaughlin">[3]</a>; the lower river\'s main channel runs 0.5 to 2 m/s <a href="#ref-bilgili">[4]</a>.'],
     ["Model", 'The map\'s surface currents are <a href="https://fvcom.smast.umassd.edu/">NECOFS</a>, the Northeast Coastal Ocean Forecast System, run on FVCOM <a href="#ref-chen2003">[1]</a> <a href="#ref-chen2006">[2]</a> (GOM7 mesh, top layer) by the University of Massachusetts Dartmouth (SMAST): on the model\'s own triangles, in the Sound page\'s teal scale, the forecast from a day back to three days ahead, and before that the model\'s hindcast from its daily archive (the last 45 days), so it can be set beside the buoy\'s record. The flood and ebb plot adds the model\'s surface current at the buoy\'s element (about 100 m away), hourly, joined by straight lines.'],
     ["Colours", "Measured currents (the buoy) are gold, the site's colour for observations; the model's currents are teal."],
     ["Gaps", "The buoy reports through a shore computer, so its record can stop for days. The page shows how old each source is and draws gaps as gaps; the map, the tide and the predicted current run to now and beyond."],

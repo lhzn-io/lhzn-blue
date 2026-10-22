@@ -40,6 +40,7 @@ WINDOW_DAYS = 30
 MAX_BACK_DAYS = 45
 AHEAD_DAYS = 2
 CELLS = 20
+DECLINATION = -14.2  # WMM2025 at the buoy for 2026, degrees east (negative: west)
 TILT_SUSPECT = 20.0  # degrees of pitch and roll combined
 SPEED_FAIL = 300.0  # cm/s; the entrance's predicted maximum is about 60 cm/s at the surface
 
@@ -143,6 +144,8 @@ def buoy_part(uri: str = SOURCE) -> dict:
         "t": [int((t - t0).total_seconds() // 60) for t in df.index],  # minutes after t0
         "spd": cells("CurrSpd", 100.0),  # cm/s, cell 1 nearest the surface
         "dir": cells("CurrDir", 1.0),  # degrees as logged
+        "dir_reference": "as logged; inferred magnetic (not confirmed): add declination_deg for true north",
+        "declination_deg": DECLINATION,
         "temp": col("ZCel_WTmp", 2),
         "pressure": col("ZCel_Press", 3),
         "heading": col("ZCel_Hdng", 1),

@@ -1,3 +1,9 @@
 # Static asset headers (Cloudflare Workers static assets).
 /references.bib
   Content-Type: text/plain; charset=utf-8
+
+# The unlisted Piscataqua page: kept out of search results (and out of the sitemap and the nav).
+/piscataqua/*
+  X-Robots-Tag: noindex, nofollow
+/piscataqua/
+  X-Robots-Tag: noindex, nofollow

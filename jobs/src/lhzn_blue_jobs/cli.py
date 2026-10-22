@@ -91,6 +91,7 @@ def _main() -> None:
         _shore(lambda: store.write_json(
             "v1/advisories-now.json", __import__("lhzn_blue_jobs.advisories", fromlist=["now"]).now(), max_age=300
         ), "advisories-now")
+        _shore(lambda: __import__("lhzn_blue_jobs.piscataqua", fromlist=["publish"]).publish(store), "piscataqua")
     elif args.command == "latest":
         # The 15-minute refresh between hourly runs: the buoys' water and weather only.
         build.live(store, quick=True)

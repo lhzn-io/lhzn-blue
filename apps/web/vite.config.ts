@@ -41,6 +41,7 @@ export default defineConfig({
         forecast: resolve(import.meta.dirname, "long-island-sound/forecast/index.html"),
         tides: resolve(import.meta.dirname, "long-island-sound/tides/index.html"),
         models: resolve(import.meta.dirname, "long-island-sound/models/index.html"),
+        piscataqua: resolve(import.meta.dirname, "piscataqua/index.html"), // unlisted: noindex, kept out of the sitemap and the nav
       },
     },
   },

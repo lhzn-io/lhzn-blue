@@ -183,7 +183,8 @@ function wireNotice(): void {
 let stripCount = 7; // rows shown: 7, 16, or 0 for the buoy's whole record
 let stripAlign: "clock" | "tide" = "clock"; // rows from Eastern midnight, or lunar days from a Fort Point high tide
 const LUNAR_DAY = 89424; // s: 24 h 50 min 24 s, two semidiurnal tides
-const LABEL_W = 104; // the row labels' column
+// The row labels' column: short, so the strips get the width ("Wed 10/7"; a tidal row's "10/7 3:12 AM").
+const labelW = () => (stripAlign === "tide" ? 86 : 68);
 const CELL_H = 3; // px per cell in a strip
 const ROW_GAP = 8;
 const HOURS_H = 14; // the hour labels above the first strip
@@ -235,7 +236,7 @@ function drawHeat(): void {
   const box = $("heat");
   const cv = $("heat-canvas") as HTMLCanvasElement;
   const W = Math.max(200, box.clientWidth);
-  const SW = W - LABEL_W; // the strips' width
+  const SW = W - labelW(); // the strips' width
   const H = HOURS_H + n * (rowH() + ROW_GAP);
   box.style.height = `${H}px`;
   const dpr = window.devicePixelRatio || 1;
@@ -246,11 +247,11 @@ function drawHeat(): void {
   const g = cv.getContext("2d")!;
   g.scale(dpr, dpr);
   const top = (r: number) => HOURS_H + r * (rowH() + ROW_GAP);
-  const x = (r: number, t: number) => LABEL_W + ((t - strips[r]) / (strips[r + 1] - strips[r])) * SW;
+  const x = (r: number, t: number) => labelW() + ((t - strips[r]) / (strips[r + 1] - strips[r])) * SW;
   // Each strip's ground (no record shows as ground) and its six-hour rules.
   for (let r = 0; r < n; r++) {
     g.fillStyle = cssVar("--chart-shade") || "rgba(0,0,0,0.05)";
-    g.fillRect(LABEL_W, top(r), SW, rowH());
+    g.fillRect(labelW(), top(r), SW, rowH());
   }
   const b = D.buoy;
   if (b) {
@@ -261,7 +262,7 @@ function drawHeat(): void {
       while (r < n - 1 && t >= strips[r + 1]) r++;
       const next = k + 1 < buoyT.length && buoyT[k + 1] - t <= 30 * MIN ? buoyT[k + 1] : t + 10 * MIN;
       const xa = x(r, t);
-      const xb = Math.min(LABEL_W + SW, Math.max(xa + 0.6, x(r, next)));
+      const xb = Math.min(labelW() + SW, Math.max(xa + 0.6, x(r, next)));
       for (let c = 0; c < COLUMN_CELLS; c++) {
         const v = b.spd[k][c];
         if (v == null) continue;
@@ -297,13 +298,16 @@ function drawHeat(): void {
     g.globalAlpha = 1;
   }
   // Labels: the hours across the top, and each row with its new or full moon.
-  const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric" });
-  const fmtHigh = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const fmtDayP = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "numeric", day: "numeric" });
+  const fmtHighP = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const part = (f: Intl.DateTimeFormat, d: Date) => Object.fromEntries(f.formatToParts(d).map((x) => [x.type, x.value]));
+  const fmtDay = { format: (d: Date) => { const p = part(fmtDayP, d); return `${p.weekday} ${p.month}/${p.day}`; } };
+  const fmtHigh = { format: (d: Date) => { const p = part(fmtHighP, d); return `${p.month}/${p.day} ${p.hour}:${p.minute} ${p.dayPeriod}`; } };
   const labels: string[] = [];
   const ticks: [number, string][] = stripAlign === "tide"
     ? [[0, "high"], [0.25, "low"], [0.5, "high"], [0.75, "low"]]
     : [[0, "midnight"], [0.25, "6 AM"], [0.5, "noon"], [0.75, "6 PM"]];
-  for (const [f, text] of ticks) labels.push(`<span class="pq-hour" style="left:${LABEL_W + f * SW}px">${text}</span>`);
+  for (const [f, text] of ticks) labels.push(`<span class="pq-hour" style="left:${labelW() + f * SW}px">${text}</span>`);
   const moons = (D.moon ?? []).filter((m) => m.phase === "new" || m.phase === "full");
   for (let r = 0; r < n; r++) {
     const m = moons.find((q) => sec(q.t) >= strips[r] && sec(q.t) < strips[r + 1]);
@@ -328,9 +332,9 @@ function placeCursor(): void {
   }
   let r = 0;
   while (r < n - 1 && T >= strips[r + 1]) r++;
-  const SW = Math.max(200, $("heat").clientWidth) - LABEL_W;
+  const SW = Math.max(200, $("heat").clientWidth) - labelW();
   cur.hidden = false;
-  cur.style.left = `${LABEL_W + ((T - strips[r]) / (strips[r + 1] - strips[r])) * SW}px`;
+  cur.style.left = `${labelW() + ((T - strips[r]) / (strips[r + 1] - strips[r])) * SW}px`;
   cur.style.top = `${HOURS_H + r * (rowH() + ROW_GAP) - 3}px`;
   cur.style.height = `${rowH() + 6}px`;
 }
@@ -476,6 +480,7 @@ function wireCharts(): void {
       document.querySelectorAll<HTMLButtonElement>("[data-spark]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
       drawSpark();
       markAsOf(T);
+      writeLink();
     }),
   );
   const dialog = $("charts-dialog") as HTMLDialogElement;
@@ -527,6 +532,7 @@ function setT(t: number): void {
   PANE?.setTime(T);
   drawProfile();
   drawRead();
+  writeLink();
 }
 
 /** Widen the slider's range to take in [t0, t1] (the 3D pane's data window, once it is known). */
@@ -546,6 +552,97 @@ function moveT(t: number): void {
   placed = true;
   setT(t);
   if (playing) startPlay();
+}
+
+// ---------- The link: the page's state in its address, so a copied URL opens the same view ----------
+// t=20260928T0120Z (once the reader has moved the time), view=map, days=16|all, align=tide, chart=tide, span=all; the
+// 3D panel's p, cells, curtain, bed, tr=0, mesh=0, vx and cam (eye and target, scene metres); the map's
+// map=lon,lat,zoom. Defaults are left out. Units stay the reader's own choice.
+
+const LINK = new URLSearchParams(location.search);
+const stamp = (t: number) => new Date(t * 1000).toISOString().replace(/[-:]/g, "").slice(0, 13) + "Z";
+function unstamp(s: string | null): number | null {
+  const m = s?.match(/^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)Z$/);
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) / 1000 : null;
+}
+/** The 3D panel's choices, as the pane's getState keys and the link's names, with their defaults. */
+const PANE_LINK: [key: string, name: string, def: string | number | boolean][] = [
+  ["profiles", "p", "both"], ["cells", "cells", "surface"], ["curtainMode", "curtain", "off"], ["bed", "bed", "dem"],
+  ["tracers", "tr", true], ["edges", "mesh", true], ["exag", "vx", 10],
+];
+/** The pane state a link asks for (setState's shape), or null. */
+function paneFromLink(): Record<string, unknown> | null {
+  const s: Record<string, unknown> = {};
+  for (const [key, name, def] of PANE_LINK) {
+    const v = LINK.get(name);
+    if (v == null) continue;
+    s[key] = typeof def === "boolean" ? v !== "0" : typeof def === "number" ? Number(v) : v;
+  }
+  const cam = LINK.get("cam")?.split(",").map(Number);
+  if (cam?.length === 6 && cam.every(Number.isFinite)) s.cam = cam;
+  return Object.keys(s).length ? s : null;
+}
+const mapFromLink = (): [number, number, number] | null => {
+  const m = LINK.get("map")?.split(",").map(Number);
+  return m?.length === 3 && m.every(Number.isFinite) ? [m[0], m[1], m[2]] : null;
+};
+
+function linkURL(): string {
+  const q: [string, string][] = [];
+  if (placed) q.push(["t", stamp(T)]);
+  if (VIEW === "map") q.push(["view", "map"]);
+  if (stripCount !== 7) q.push(["days", stripCount ? String(stripCount) : "all"]);
+  if (stripAlign === "tide") q.push(["align", "tide"]);
+  if (sparkTab === "tide") q.push(["chart", "tide"]);
+  if (SPAN == null) q.push(["span", "all"]);
+  // The 3D view's and the map's own state while they exist; before then, whatever the link asked for, kept.
+  const ps = PANE ? (PANE.getState?.() as Record<string, unknown> | undefined) : undefined;
+  for (const [key, name, def] of PANE_LINK) {
+    if (ps) {
+      const v = ps[key];
+      if (v !== undefined && v !== def) q.push([name, typeof v === "boolean" ? (v ? "1" : "0") : String(v)]);
+    } else if (LINK.has(name)) q.push([name, LINK.get(name)!]);
+  }
+  const cam = ps ? (ps.cam as number[] | undefined)?.join(",") : LINK.get("cam");
+  if (cam) q.push(["cam", cam]);
+  if (MAP) {
+    const c = MAP.getCenter();
+    q.push(["map", `${c.lng.toFixed(4)},${c.lat.toFixed(4)},${MAP.getZoom().toFixed(2)}`]);
+  } else if (LINK.has("map")) q.push(["map", LINK.get("map")!]);
+  const s = q.map(([k, v]) => `${k}=${encodeURIComponent(v).replace(/%2C/g, ",")}`).join("&");
+  return location.pathname + (s ? `?${s}` : "");
+}
+/** Keep the address current (replacing the history entry, at most every 0.4 s, so Play does not flood it). */
+let linkPending = 0;
+function writeLink(): void {
+  if (linkPending) return;
+  linkPending = window.setTimeout(() => {
+    linkPending = 0;
+    history.replaceState(null, "", linkURL());
+  }, 400);
+}
+/** At load: the time and the plain controls a link asks for (the views and the 3D panel follow in showView). */
+function readLink(): void {
+  const t = unstamp(LINK.get("t"));
+  if (t != null) {
+    T = t;
+    placed = true;
+    extendRange(t - 86400, t + 86400);
+  }
+  const days = LINK.get("days");
+  if (days === "all") stripCount = 0;
+  else if (days === "16") stripCount = 16;
+  if (LINK.get("align") === "tide") stripAlign = "tide";
+  if (LINK.get("chart") === "tide") sparkTab = "tide";
+  if (LINK.get("span") === "all") SPAN = null;
+  const press = (attr: string, value: string) =>
+    document.querySelectorAll<HTMLButtonElement>(`[${attr}]`).forEach((b) => b.setAttribute("aria-pressed", String(b.getAttribute(attr) === value)));
+  press("data-rows", String(stripCount));
+  press("data-align", stripAlign);
+  press("data-spark", sparkTab);
+  const zoom = $("zoom");
+  zoom.textContent = SPAN == null ? "3 days" : "Full record";
+  zoom.setAttribute("aria-pressed", String(SPAN == null));
 }
 
 /** Where Play runs, as [first, end, loop]: from the selected time to the end of the record that holds it (the 3D
@@ -607,6 +704,7 @@ function wireTime(): void {
     zoom.setAttribute("aria-pressed", String(SPAN == null));
     view();
     drawPlots();
+    writeLink();
   });
   $("fwd").addEventListener("click", () => moveT(T + 10 * MIN));
   const pick = (attr: string, on: (v: string) => void) => {
@@ -615,12 +713,28 @@ function wireTime(): void {
         document.querySelectorAll<HTMLButtonElement>(`[${attr}]`).forEach((x) => x.setAttribute("aria-pressed", String(x === btn)));
         on(btn.getAttribute(attr)!);
         drawPlots();
+        writeLink();
       }),
     );
   };
   pick("data-rows", (v) => (stripCount = Number(v)));
   pick("data-align", (v) => (stripAlign = v === "tide" ? "tide" : "clock"));
   $("to-now").addEventListener("click", () => moveT(now()));
+  // Copy link: the address as it stands now (time, views, 3D camera and layers, map position).
+  const share = $("share");
+  share.addEventListener("click", async () => {
+    window.clearTimeout(linkPending);
+    linkPending = 0;
+    history.replaceState(null, "", linkURL());
+    const label = share.querySelector("span")!;
+    try {
+      await navigator.clipboard.writeText(location.href);
+      label.textContent = "Copied";
+    } catch {
+      window.prompt("Copy this link", location.href); // no clipboard access (an http page, or refused)
+    }
+    window.setTimeout(() => (label.textContent = "Copy link"), 1600);
+  });
   $("play").addEventListener("click", () => (playing ? stopPlay() : startPlay()));
   // The strips scrub: press anywhere on a strip (or the cursor's knob) and drag. A drag stays on the row it started
   // in, so the time runs smoothly along one day; a vertical touch drag still scrolls the page (touch-action: pan-y).
@@ -628,7 +742,7 @@ function wireTime(): void {
   let dragRow = -1;
   const timeAt = (e: PointerEvent, row: number) => {
     const box = ($("heat-canvas") as HTMLCanvasElement).getBoundingClientRect();
-    const f = Math.min(1, Math.max(0, (e.clientX - box.left - LABEL_W) / (box.width - LABEL_W)));
+    const f = Math.min(1, Math.max(0, (e.clientX - box.left - labelW()) / (box.width - labelW())));
     return strips[row] + f * (strips[row + 1] - strips[row]);
   };
   heat.addEventListener("pointerdown", (e) => {
@@ -639,7 +753,7 @@ function wireTime(): void {
       const n = strips.length - 1;
       row = 0;
       while (row < n - 1 && T >= strips[row + 1]) row++;
-    } else if (e.clientX - box.left < LABEL_W || row < 0 || row >= strips.length - 1) return;
+    } else if (e.clientX - box.left < labelW() || row < 0 || row >= strips.length - 1) return;
     dragRow = row;
     heat.setPointerCapture(e.pointerId);
     heat.classList.add("pq-dragging");
@@ -823,7 +937,10 @@ async function drawMap(): Promise<void> {
     }
     const lons = pins.map((q) => q[0]);
     const lats = pins.map((q) => q[1]);
-    map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: { top: 60, bottom: 60, left: 40, right: 220 }, duration: 0, maxZoom: 14 });
+    const linked = mapFromLink(); // a shared link's centre and zoom, else the buoy and the three stations in view
+    if (linked) map.jumpTo({ center: [linked[0], linked[1]], zoom: linked[2] });
+    else map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: { top: 60, bottom: 60, left: 40, right: 220 }, duration: 0, maxZoom: 14 });
+    map.on("moveend", writeLink);
     map.on("style.load", () => addCurrentLayers(map)); // also after a theme switch, which replaces the style
     wireMapTip(map, new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "pq-tip", offset: 12, maxWidth: "260px" }), pins);
   } catch {
@@ -947,8 +1064,11 @@ const restyleMap = () => MAP?.setStyle(light() ? STYLE_LIGHT : STYLE_DARK);
 
 /* The 3D view: a separate module with its own data (/portsmouth-harbor/pane/), the default view. The page owns the clock:
    it passes every time change in, and learns the pane's data window (for Jump to and Play) once its data load. */
-interface Pane { setTime(t: number): void; setTheme(light: boolean): void; setUnits?(unit: "kt" | "mph" | "ms"): void; dispose(): void }
-interface PaneOpts { dataBase: string; title?: boolean; onReady?: (range: { t0: number; t1: number }) => void }
+interface Pane {
+  setTime(t: number): void; setTheme(light: boolean): void; setUnits?(unit: "kt" | "mph" | "ms"): void;
+  getState?(): Record<string, unknown>; setState?(s: Record<string, unknown>): void; dispose(): void;
+}
+interface PaneOpts { dataBase: string; title?: boolean; onChange?: () => void; onReady?: (range: { t0: number; t1: number }) => void }
 let PANE: Pane | null = null;
 let PANE_RANGE: [number, number] | null = null; // the pane's data window, epoch s
 let paneReady: (r: [number, number] | null) => void = () => undefined;
@@ -965,8 +1085,7 @@ async function showView(next: "map" | "3d"): Promise<void> {
   $("view-label").textContent = next === "map" ? "Surface currents, NECOFS model" : "Currents in 3D";
   $("map-when").hidden = next !== "map";
   document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === next)));
-  // The view in the address, so a link opens it (3D needs none: it is the default).
-  history.replaceState(null, "", next === "map" ? "#map" : location.pathname + location.search);
+  writeLink(); // the view in the address (3D needs none: it is the default)
   if (next === "map") {
     // The map is built the first time it is shown, so the 3D default never loads MapLibre.
     if (!MAP) await drawMap();
@@ -982,6 +1101,7 @@ async function showView(next: "map" | "3d"): Promise<void> {
     PANE = mod.mountPane(box, {
       dataBase: PANE_DATA,
       title: false, // the figure's caption names the view
+      onChange: writeLink,
       onReady: ({ t0, t1 }) => {
         PANE_RANGE = [t0, t1];
         extendRange(t0, t1);
@@ -990,6 +1110,8 @@ async function showView(next: "map" | "3d"): Promise<void> {
     });
     PANE.setTheme(light());
     PANE.setUnits?.(U);
+    const fromLink = paneFromLink();
+    if (fromLink) PANE.setState?.(fromLink);
     PANE.setTime(T);
   } catch {
     box.innerHTML = `<p class="note">The 3D view could not be loaded.</p>`;
@@ -1176,6 +1298,7 @@ async function main(): Promise<void> {
   T = now(); // the live view; the time bar's Jump to reaches a quiet buoy's last record
   wireTime();
   extendRange(X0, X1); // onto the slider's 10-minute grid
+  readLink(); // a shared link's time and controls
   wireTheme(() => {
     drawAll();
     drawMapScale();
@@ -1194,7 +1317,7 @@ async function main(): Promise<void> {
   drawMethod();
   drawMapScale();
   drawAll();
-  void showView(location.hash === "#map" ? "map" : "3d");
+  void showView(LINK.get("view") === "map" || location.hash === "#map" ? "map" : "3d"); // #map: the earlier form of the link
   let pending = 0;
   window.addEventListener("resize", () => {
     window.clearTimeout(pending);

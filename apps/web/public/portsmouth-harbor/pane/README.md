@@ -44,10 +44,14 @@ const pane = mountPane(el, {
   title: true,                     // false: no heading (the page's caption names the view)
   controls: true,                  // false: no "Layers and view" panel
   onReady: ({ t0, t1 }) => {},     // optional: the model's first and last hours, once the data load
+  onChange: () => {},              // optional: a panel control or the camera moved (for a shareable link)
 });
 pane.setTime(t);       // t: epoch seconds UTC
 pane.setTheme(light);  // true for the light theme
+pane.setUnits(u);      // 'kt', 'mph' or 'ms': the legend's labels and the difference table
 pane.timeRange();      // { t0, t1 }, or null before the data load
+pane.getState();       // { profiles, cells, curtainMode, bed, tracers, edges, exag, cam? }; cam once moved
+pane.setState(s);      // any part of getState's result; the camera waits for the scene if needed
 pane.dispose();        // frees GPU resources and removes the pane's DOM
 ```
 

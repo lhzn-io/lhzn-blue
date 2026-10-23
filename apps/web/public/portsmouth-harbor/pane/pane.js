@@ -272,6 +272,7 @@ function themeVars(th) {
 export function mountPane(el, opts = {}) {
     const dataBase = opts.dataBase || './data/';
     const onReady = typeof opts.onReady === 'function' ? opts.onReady : null;
+    const onChange = typeof opts.onChange === 'function' ? opts.onChange : null; // a control or the camera moved
     const showTitle = opts.title !== false;
     const showControls = opts.controls !== false;
 
@@ -481,10 +482,22 @@ export function mountPane(el, opts = {}) {
             else if (inp.type === 'range') state[k] = Number(inp.value);
             else state[k] = isNaN(Number(inp.value)) ? inp.value : Number(inp.value);
             onControl(k);
+            if (onChange) onChange();
         });
     });
-    root.querySelector('[data-act="reset"]').addEventListener('click', () => resetView());
-    root.querySelector('[data-act="focus"]').addEventListener('click', () => { if (state.ready) focusBuoy(); });
+    // The panel's choices and the camera, for a shared link (getState / setState).
+    const PANEL_KEYS = ['profiles', 'cells', 'curtainMode', 'bed', 'tracers', 'edges', 'exag'];
+    let pendingCam = null; // a camera asked for before the scene exists
+    let camMoved = false; // the camera is in a link only once moved from the default (orbit, Focus buoy, a link)
+    function applyCam(c) {
+        camMoved = true;
+        camera.position.set(c[0], c[1], c[2]);
+        controls.target.set(c[3], c[4], c[5]);
+        controls.update();
+        needsRender = true;
+    }
+    root.querySelector('[data-act="reset"]').addEventListener('click', () => { resetView(); camMoved = false; if (onChange) onChange(); });
+    root.querySelector('[data-act="focus"]').addEventListener('click', () => { if (state.ready) { focusBuoy(); camMoved = true; if (onChange) onChange(); } });
     // The notes on each layer, in one panel over the scene (the (i) beside Legend opens it; Close or Escape shuts it).
     const about = $('.pqp-about'), aboutBtn = $('[data-act="about"]');
     const setAbout = (open) => { about.hidden = !open; aboutBtn.setAttribute('aria-expanded', String(open)); };
@@ -650,7 +663,8 @@ export function mountPane(el, opts = {}) {
         controls.minDistance = 150;
         controls.maxDistance = 20000;
         controls.screenSpacePanning = false;
-        controls.addEventListener('change', () => { needsRender = true; });
+        controls.addEventListener('start', () => { camMoved = true; });
+        controls.addEventListener('change', () => { needsRender = true; if (onChange) onChange(); });
         world = new THREE.Group();
         world.scale.y = state.exag;
         scene.add(world);
@@ -670,6 +684,7 @@ export function mountPane(el, opts = {}) {
         ro = new ResizeObserver(() => { resize(); });
         ro.observe(root);
         resetView();
+        if (pendingCam) { applyCam(pendingCam); pendingCam = null; }
     }
 
     function resetView() {
@@ -1395,6 +1410,40 @@ export function mountPane(el, opts = {}) {
             unit = u;
             applyUnits();
             if (state.ready) applyTime(); // the difference table
+        },
+        /** The panel's choices and the camera ([x, y, z] of the eye and of its target, scene metres), for a link. */
+        getState() {
+            const s = {};
+            for (const k of PANEL_KEYS) s[k] = state[k];
+            const c = !camera ? pendingCam
+                : camMoved ? [camera.position.x, camera.position.y, camera.position.z, controls.target.x, controls.target.y, controls.target.z] : null;
+            if (c) s.cam = c.map((v) => Math.round(v));
+            return s;
+        },
+        /** Restore what getState returned (any part of it); unknown or invalid values are ignored. */
+        setState(s) {
+            if (state.disposed || !s) return;
+            for (const k of PANEL_KEYS) {
+                if (s[k] === undefined) continue;
+                const inp = root.querySelector(`[data-k="${k}"]`);
+                if (!inp) continue;
+                if (inp.type === 'checkbox') { state[k] = !!s[k]; inp.checked = state[k]; }
+                else if (inp.type === 'range') {
+                    const v = Number(s[k]);
+                    if (!Number.isFinite(v)) continue;
+                    state[k] = Math.min(Number(inp.max), Math.max(Number(inp.min), v));
+                    inp.value = String(state[k]);
+                } else {
+                    if (![...inp.options].some((o) => o.value === String(s[k]))) continue;
+                    state[k] = String(s[k]);
+                    inp.value = state[k];
+                }
+                onControl(k);
+            }
+            if (Array.isArray(s.cam) && s.cam.length === 6 && s.cam.every(Number.isFinite)) {
+                if (camera) applyCam(s.cam);
+                else pendingCam = s.cam.slice();
+            }
         },
         timeRange() {
             return mesh ? { t0: mesh.times[0], t1: mesh.times[mesh.times.length - 1] } : null;

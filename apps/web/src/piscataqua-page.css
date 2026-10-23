@@ -50,6 +50,8 @@ select.pq-btn { padding: 0 6px; }
 .pq-tb-row input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; transform: scale(1.15); }
 .pq-tb-row input[type="range"]:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; }
 .pq-tb-row .pq-btn { flex: none; }
+.pq-share { display: inline-flex; align-items: center; gap: 5px; }
+@media (max-width: 560px) { .pq-share span { display: none; } } /* the icon alone on a phone */
 .pq-tb-read { min-height: 0; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pq-timebar + .fc-sec { border-top: 0; } /* the bar's own rule stands for the section's */
 @media (max-width: 560px) {
@@ -131,6 +133,13 @@ select.pq-btn { padding: 0 6px; }
 .pq-viewbox { position: relative; background: var(--bg); }
 .pq-3d { height: 470px; border: 1px solid var(--rule); }
 @media (max-width: 860px) { .pq-3d { height: 420px; } }
+/* Side by side, the view grows to the profile column's height, so the two end level (470 px at least). */
+@media (min-width: 861px) {
+  .pq-pair { align-items: stretch; }
+  .pq-mapfig { display: flex; flex-direction: column; margin: 0; }
+  .pq-viewbox { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 470px; }
+  .pq-viewbox > .pq-map, .pq-viewbox > .pq-3d { flex: 1 1 auto; height: auto; min-height: 470px; }
+}
 .pq-3d-wait { padding: 16px; }
 .pq-viewbox:fullscreen, .pq-viewbox.pq-full { display: flex; flex-direction: column; }
 .pq-viewbox:fullscreen .pq-map, .pq-viewbox:fullscreen .pq-3d, .pq-viewbox.pq-full .pq-map, .pq-viewbox.pq-full .pq-3d { flex: 1 1 auto; min-height: 0; height: auto; border: 0; }

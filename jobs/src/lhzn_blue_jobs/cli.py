@@ -18,7 +18,7 @@ from . import build, merlin, rivers, shore, tides, turbidity, usgs_tidal, waves,
 
 def _main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "piscataqua-history", "panels", "import-verification", "import-archive", "import-waves", "import-weather"])
+    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "piscataqua-history", "panels", "region-live", "region-daily", "region-wind", "import-verification", "import-archive", "import-waves", "import-weather"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
@@ -57,7 +57,8 @@ def _main() -> None:
     parser.add_argument("--full", action="store_true", help="live: refetch the whole 45-day window")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    merlin.set_budget(merlin.BUDGETS.get(args.command, merlin.DEFAULT_BUDGET))
+    # The region jobs never read the Sound's LISICOS server: a budget of 0 makes a stray call fail instead of sending.
+    merlin.set_budget(0 if args.command.startswith("region-") else merlin.BUDGETS.get(args.command, merlin.DEFAULT_BUDGET))
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -128,6 +129,18 @@ def _main() -> None:
 
         # Once (or to catch up): up to --days archive days of the Piscataqua model's past hours, then the forecast file.
         _failed.extend(fields.piscataqua(store, build.now_utc(), new_days=args.days))
+    elif args.command.startswith("region-"):
+        # The Piscataqua Region waterway (region.py), run as its own jobs so the Sound's are never held up by it:
+        # region-live hourly; region-daily (the rivers' record, then the currents and SST); region-wind every 3 hours.
+        from . import region
+
+        if args.command == "region-live":
+            _failed.extend(region.live(store))
+        elif args.command == "region-daily":
+            _failed.extend(region.daily(store))
+            _failed.extend(region.publish_fields(store))
+        else:
+            _failed.extend(region.publish_wind(store))
     elif args.command == "panels":
         from . import panels  # Tesseract is needed only here
 

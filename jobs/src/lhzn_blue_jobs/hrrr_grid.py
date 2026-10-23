@@ -102,9 +102,10 @@ def _fetch(cycle: pd.Timestamp, lead: int, block: tuple[slice, slice] | None, la
     return out, nbytes
 
 
-def _block(lon: np.ndarray, lat: np.ndarray) -> tuple[slice, slice]:
-    """The rows and columns of the full grid whose centres fall in BOX, as one rectangular block."""
-    x0, y0, x1, y1 = BOX
+def _block(lon: np.ndarray, lat: np.ndarray, box: tuple[float, ...] = BOX) -> tuple[slice, slice]:
+    """The rows and columns of the full grid whose centres fall in ``box`` (the Sound's by default), as one
+    rectangular block."""
+    x0, y0, x1, y1 = box
     inside = (lon >= x0) & (lon <= x1) & (lat >= y0) & (lat <= y1)
     rows = np.flatnonzero(inside.any(axis=1))
     cols = np.flatnonzero(inside.any(axis=0))
@@ -202,8 +203,9 @@ def _candidates(now: pd.Timestamp, used: set[str]) -> list[pd.Timestamp]:
     return sorted(todo, reverse=True)[:MAX_CYCLES]
 
 
-def build(prev: dict | None, end=None) -> tuple[dict | None, dict]:
-    """The new file from the previous one and the cycles not yet read. Returns (file or None, summary)."""
+def build(prev: dict | None, end=None, box: tuple[float, ...] = BOX) -> tuple[dict | None, dict]:
+    """The new file from the previous one and the cycles not yet read, over ``box`` (the Sound's by default).
+    Returns (file or None, summary)."""
     from forcingkit.fetchers import hrrr_points as hp
 
     t0 = time.monotonic()
@@ -211,7 +213,7 @@ def build(prev: dict | None, end=None) -> tuple[dict | None, dict]:
     now = _hour(end)
     lo, hi = now - pd.Timedelta(hours=HOURS_BACK), now + pd.Timedelta(hours=HOURS_AHEAD)
     if prev and (
-        prev.get("box") != list(BOX)
+        prev.get("box") != list(box)
         or prev.get("encoding", {}).get("step") != STEP
         or prev.get("mesh", {}).get("version") != MESH_VERSION
     ):
@@ -242,7 +244,7 @@ def build(prev: dict | None, end=None) -> tuple[dict | None, dict]:
                     log.warning("HRRR grid %s f%02d not published; cycle skipped", ckey, leads[0])
                     continue
                 full = first["u10"]
-                block = _block(((full["longitude"].values + 180.0) % 360.0) - 180.0, full["latitude"].values)
+                block = _block(((full["longitude"].values + 180.0) % 360.0) - 180.0, full["latitude"].values, box)
                 cut = {k: v.isel(y=block[0], x=block[1]) for k, v in first.items()}
                 mesh = _mesh(cut["u10"], cut["land"], block)
                 pre = {leads[0]: cut}
@@ -272,7 +274,7 @@ def build(prev: dict | None, end=None) -> tuple[dict | None, dict]:
         "field": "10 m wind, east and north components",
         "units": "m/s",
         "generated_at": iso(end),
-        "box": list(BOX),
+        "box": list(box),
         "encoding": {"type": "int8 base64", "step": STEP, "clip": round(127 * STEP, 2)},
         "cycles_read": sorted(c for c in used if _parse_key(c) >= cutoff),
         "mesh": mesh,
@@ -335,15 +337,18 @@ def _history_doc(frames, main: dict, lo: pd.Timestamp, hi: pd.Timestamp) -> dict
     }
 
 
-def publish(store: Store) -> None:
-    """Refresh the HRRR wind layer, then move the hours that left it into the history file; log what was read."""
-    prev = store.read_json(KEY)
-    out, summary = build(prev)
-    log.info("HRRR grid: %s", summary)
+def publish(store: Store, key: str = KEY, box: tuple[float, ...] = BOX, with_history: bool = True) -> None:
+    """Refresh the HRRR wind layer, then move the hours that left it into the history file; log what was read.
+    Another waterway passes its own ``key`` and ``box``, and may skip the history file (``with_history``)."""
+    prev = store.read_json(key)
+    out, summary = build(prev, box=box)
+    log.info("HRRR grid %s: %s", key, summary)
     if out is None:
         log.warning("HRRR grid: nothing to publish")
         return
-    store.write_json(KEY, out, max_age=600)
+    store.write_json(key, out, max_age=600)
+    if not with_history:
+        return
     hist = history(store.read_json(HISTORY_KEY), prev, out)
     store.write_json(HISTORY_KEY, hist, max_age=3600)
     log.info("HRRR grid history: %d frames, %s to %s", len(hist["frames"]),

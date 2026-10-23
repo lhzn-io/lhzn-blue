@@ -207,12 +207,13 @@ def tide_part(start: datetime, end: datetime) -> dict:
     }
 
 
-def current_part(start: datetime, end: datetime) -> dict:
+def current_part(start: datetime, end: datetime, station: dict = CURRENT) -> dict:
+    """NOAA's tidal current predictions for ``station`` (PIR0701 by default; the region page passes others)."""
     vals: dict[pd.Timestamp, float] = {}
     events: list[dict] = []
     meta: dict = {}
     for lo, hi in _windows(start, end):
-        span = {"station": CURRENT["id"], "begin_date": coops._stamp(lo), "end_date": coops._stamp(hi - timedelta(minutes=1))}
+        span = {"station": station["id"], "begin_date": coops._stamp(lo), "end_date": coops._stamp(hi - timedelta(minutes=1))}
         body = coops._get({"product": "currents_predictions", "interval": "30", **span}) or {}
         for r in (body.get("current_predictions") or {}).get("cp") or []:
             vals[pd.Timestamp(r["Time"], tz="UTC")] = float(r["Velocity_Major"])
@@ -221,7 +222,7 @@ def current_part(start: datetime, end: datetime) -> dict:
         for r in (body.get("current_predictions") or {}).get("cp") or []:
             events.append({"t": iso(pd.Timestamp(r["Time"], tz="UTC")), "type": r.get("Type"), "v": float(r["Velocity_Major"])})
     s = pd.Series(vals).sort_index()
-    return {**CURRENT, "units": "cm/s", "positive": "flood", **meta, **_grid(s, pd.Timestamp(start), 1800, 1), "events": events}
+    return {**station, "units": "cm/s", "positive": "flood", **meta, **_grid(s, pd.Timestamp(start), 1800, 1), "events": events}
 
 
 # ---------------------------------------------------------------------------------------------

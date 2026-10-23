@@ -1,0 +1,63 @@
+{
+  "waterway": {
+    "id": "piscataqua-region",
+    "name": "Piscataqua Region",
+    "bbox": [-70.95, 42.88, -70.55, 43.20],
+    "prefix": "v1/piscataqua-region/",
+    "note": "Great Bay, Little Bay, the Piscataqua, Portsmouth Harbor and the Hampton-Seabrook estuary, NH and ME, out to the Isles of Shoals. Positions as published by each operator, checked 2026-10-23."
+  },
+  "shore": {
+    "stations": [
+      {"id": "SEAV", "coops_id": "8419870", "name": "Seavey Island", "place": "Kittery, ME", "operator": "NOAA CO-OPS", "lat": 43.0797, "lon": -70.7411, "info_url": "https://tidesandcurrents.noaa.gov/stationhome.html?id=8419870", "products": ["water_temperature", "air_temperature", "wind", "air_pressure", "water_level", "predictions"]},
+      {"id": "FTPT", "coops_id": "8423898", "name": "Fort Point", "place": "New Castle, NH", "operator": "NOAA CO-OPS", "lat": 43.0717, "lon": -70.7117, "info_url": "https://tidesandcurrents.noaa.gov/stationhome.html?id=8423898", "products": ["predictions"]},
+      {"id": "DOVR", "coops_id": "8420411", "name": "Dover, Cocheco River", "place": "Dover, NH", "operator": "NOAA CO-OPS", "lat": 43.1983, "lon": -70.8683, "info_url": "https://tidesandcurrents.noaa.gov/stationhome.html?id=8420411", "products": ["predictions"]},
+      {"id": "GOSP", "coops_id": "8427031", "name": "Gosport Harbor, Isles of Shoals", "place": "Isles of Shoals", "operator": "NOAA CO-OPS", "lat": 42.9783, "lon": -70.615, "info_url": "https://tidesandcurrents.noaa.gov/stationhome.html?id=8427031", "products": ["predictions"]},
+      {"id": "HAMP", "coops_id": "8429489", "name": "Hampton Harbor", "place": "Hampton, NH", "operator": "NOAA CO-OPS", "lat": 42.895, "lon": -70.8167, "info_url": "https://tidesandcurrents.noaa.gov/stationhome.html?id=8429489", "products": ["predictions"]}
+    ]
+  },
+  "currents": {
+    "meters": [
+      {"id": "GANG", "coops_id": "pm0101", "name": "Gangway Rocks", "place": "Portsmouth Harbor", "operator": "NOAA CO-OPS (PORTS)", "lat": 43.0784, "lon": -70.7467, "info_url": "https://tidesandcurrents.noaa.gov/cdata/StationInfo?id=pm0101"}
+    ],
+    "predictions": [
+      {"id": "PIR0701", "name": "Portsmouth Harbor Entrance", "lat": 43.0624, "lon": -70.7053},
+      {"id": "PIR0710", "name": "General Sullivan Bridge", "lat": 43.1179, "lon": -70.8261}
+    ]
+  },
+  "levels": [
+    {"id": "ADMS", "dataset": "Hohonu_tide_Adams_Point_NH", "name": "Adams Point", "place": "Durham, NH", "operator": "Gulf of Maine Research Institute (Hohonu)", "lat": 43.0921, "lon": -70.8644, "datum": "MLLW", "column": "mllw_meters"},
+    {"id": "DRHM", "dataset": "Hohonu_tide_Durham_NH", "name": "Durham town landing", "place": "Durham, NH", "operator": "Gulf of Maine Research Institute (Hohonu)", "lat": 43.131, "lon": -70.9181, "datum": "MLLW", "column": "mllw_meters"},
+    {"id": "SQAM", "dataset": "Hohonu_tide_Squamscott_River_Mouth_NH", "name": "Squamscott River mouth", "place": "Newfields, NH", "operator": "Gulf of Maine Research Institute (Hohonu)", "lat": 43.0527, "lon": -70.9125, "datum": "MLLW", "column": "mllw_meters"},
+    {"id": "PEAB", "dataset": "Hohonu_tide_Exeter_NH", "name": "Exeter (PEA boathouse)", "place": "Exeter, NH", "operator": "Gulf of Maine Research Institute (Hohonu)", "lat": 42.9828, "lon": -70.949, "datum": "NAVD88", "column": "navd88_meters"},
+    {"id": "HMPB", "dataset": "ONSET_hamptonbay_hourly_water_level", "name": "Hampton Harbor", "place": "Hampton, NH", "operator": "Onset", "lat": 42.9001, "lon": -70.8185, "datum": "NAVD88", "column": "NAVD_meters", "water_temp_column": "Temp"},
+    {"id": "NEDK", "dataset": "Hohonu_tide_Cape_Neddick_River_York_ME", "name": "Cape Neddick River", "place": "York, ME", "operator": "Gulf of Maine Research Institute (Hohonu)", "lat": 43.1888, "lon": -70.6053, "datum": "NAVD88", "column": "navd88_meters"}
+  ],
+  "buoys": [
+    {"id": "GBB", "dataset": "UNH_GBB", "name": "Great Bay buoy", "place": "Great Bay", "operator": "University of New Hampshire", "lat": 43.0715, "lon": -70.8678, "depth_m": 1.0, "oxygen_unit": "% saturation", "info_url": "https://data.neracoos.org/erddap/tabledap/UNH_GBB.html"},
+    {"id": "CML", "dataset": "UNH_CML", "name": "Coastal Marine Laboratory", "place": "New Castle, NH", "operator": "University of New Hampshire", "lat": 43.0718, "lon": -70.7098, "depth_m": 3.0, "oxygen_unit": "umol/kg", "pressure_unit": "bar", "info_url": "https://data.neracoos.org/erddap/tabledap/UNH_CML.html"}
+  ],
+  "rivers": {
+    "gauges": [
+      {"id": "EXET", "usgs_id": "01073587", "river": "Exeter", "system": "Squamscott", "name": "Exeter River at Haigh Road, near Brentwood", "lat": 42.9845, "lon": -71.0384, "drainage_sqmi": 63.5, "mouth": "the Squamscott at Exeter, then Great Bay"},
+      {"id": "COCH", "usgs_id": "01072800", "river": "Cocheco", "system": "Cocheco", "name": "Cocheco River near Rochester", "lat": 43.2684, "lon": -70.9737, "drainage_sqmi": 79.9, "mouth": "the Piscataqua at Dover"},
+      {"id": "OYST", "usgs_id": "01073000", "river": "Oyster", "system": "Oyster", "name": "Oyster River near Durham", "lat": 43.1487, "lon": -70.9651, "drainage_sqmi": 12.1, "mouth": "Little Bay at Durham"},
+      {"id": "ISIN", "usgs_id": "01072870", "river": "Isinglass", "system": "Cocheco", "name": "Isinglass River at Rochester Neck Road, near Dover", "lat": 43.2348, "lon": -70.9565, "drainage_sqmi": 73.6, "mouth": "the Cocheco above Dover"},
+      {"id": "LAMP", "usgs_id": "01073500", "river": "Lamprey", "system": "Lamprey", "name": "Lamprey River near Newmarket", "lat": 43.1026, "lon": -70.9526, "drainage_sqmi": 185, "mouth": "Great Bay at Newmarket"},
+      {"id": "WINN", "usgs_id": "01073785", "river": "Winnicut", "system": "Winnicut", "name": "Winnicut River at Greenland", "lat": 43.0358, "lon": -70.8475, "drainage_sqmi": 14.1, "mouth": "Great Bay at Greenland"}
+    ]
+  },
+  "asos": {
+    "stations": [
+      {"id": "KPSM", "iem_id": "PSM", "name": "Portsmouth International Airport at Pease", "place": "Portsmouth, NH", "operator": "NWS ASOS", "lat": 43.0779, "lon": -70.8233, "elevation_m": 31, "info_url": "https://mesonet.agron.iastate.edu/sites/site.php?station=PSM&network=NH_ASOS", "note": "Airport weather station about 3 km west of the Piscataqua."}
+    ]
+  },
+  "credits": [
+    "University of New Hampshire buoys via NERACOOS (cite in any publication; contact the PI before any commercial use)",
+    "Gulf of Maine Research Institute Hohonu tide gauges and Onset via NERACOOS",
+    "NOAA CO-OPS water level, tide and current predictions, and PORTS currents",
+    "USGS streamflow",
+    "NWS ASOS through the Iowa Environmental Mesonet",
+    "NECOFS FVCOM GOM7, University of Massachusetts Dartmouth (SMAST)",
+    "NOAA HRRR; NASA JPL MUR SST"
+  ]
+}

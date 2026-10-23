@@ -45,8 +45,9 @@ INHG_TO_MB = 33.8639
 SPACING_S = 2.0
 
 
-def load() -> dict:
-    return json.loads(STATIONS_FILE.read_text())
+def load(registry: dict | None = None) -> dict:
+    """The Sound's airports, or another waterway's ``registry`` (the same shape) when one is given."""
+    return registry if registry is not None else json.loads(STATIONS_FILE.read_text())
 
 
 def fetch(iem_id: str, start: datetime, end: datetime) -> pd.DataFrame:
@@ -78,12 +79,12 @@ def fetch(iem_id: str, start: datetime, end: datetime) -> pd.DataFrame:
     return shore.qc(df)
 
 
-def live(prev: dict | None, end: datetime | None = None) -> dict:
+def live(prev: dict | None, end: datetime | None = None, registry: dict | None = None) -> dict:
     end = end or now_utc()
     prev_stations = (prev or {}).get("stations", {})
     window_start = pd.Timestamp(end).floor("h") - pd.Timedelta(days=WINDOW_DAYS)
     out = {}
-    for st in load()["stations"]:
+    for st in load(registry)["stations"]:
         before = prev_stations.get(st["id"], {})
         window = decode_frame({k: before[k] for k in ("t0", "step", *COLUMNS) if k in before})
         start = window_start if window.empty else max(window_start, pd.Timestamp(end) - pd.Timedelta(hours=FETCH_HOURS))

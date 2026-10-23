@@ -17,7 +17,8 @@ trigger() { # name, cron, job
     --oauth-service-account-email "$SCHEDULER_SA" --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform"
 }
 
-for job in lhzn-blue-live lhzn-blue-latest lhzn-blue-history lhzn-blue-fields lhzn-blue-snapshot lhzn-blue-forecast lhzn-blue-panels; do
+for job in lhzn-blue-live lhzn-blue-latest lhzn-blue-history lhzn-blue-fields lhzn-blue-snapshot lhzn-blue-forecast lhzn-blue-panels \
+  lhzn-blue-region-live lhzn-blue-region-daily lhzn-blue-region-wind; do
   gcloud run jobs add-iam-policy-binding "$job" --project "$GCP_PROJECT" --region "$GCP_REGION" \
     --member "serviceAccount:$SCHEDULER_SA" --role roles/run.invoker >/dev/null
 done
@@ -39,3 +40,8 @@ trigger lhzn-blue-forecast "40 * * * *" lhzn-blue-forecast
 # The LISICOS station panels while the data server is down (a stopgap): weather every 10 minutes, waves and water
 # quality every 30 (the job decides). Pause this trigger when the server returns, or if LISICOS asks.
 trigger lhzn-blue-panels "*/10 * * * *" lhzn-blue-panels
+# The Piscataqua Region (region.py), about 37 Workers KV writes a day: its observations hourly, between the Sound's
+# runs; its rivers' record, currents and SST daily, after the Sound's fields; its HRRR wind every 3 hours.
+trigger lhzn-blue-region-live "25 * * * *" lhzn-blue-region-live
+trigger lhzn-blue-region-daily "45 8 * * *" lhzn-blue-region-daily
+trigger lhzn-blue-region-wind "10 */3 * * *" lhzn-blue-region-wind

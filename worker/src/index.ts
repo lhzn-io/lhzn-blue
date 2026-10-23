@@ -68,6 +68,11 @@ const FILES: Record<string, number> = {
   ...Object.fromEntries(
     ["mesh.json", "nodes.f32", "tri.u16", "zeta.i16", "u.i16", "v.i16", "profile.json", "tracks.f32", "tracks.json", "dem.bin", "dem.json", "buoy.json"].map((f) => [`v1/piscataqua-pane/${f}`, 86400]),
   ),
+  // The /piscataqua-region/ waterway (jobs: region.py), under its own prefix.
+  ...Object.fromEntries(
+    ([["live.json", 300], ["history.json", 3600], ["fields/currents.json", 3600], ["fields/currents-mesh.json", 86400],
+      ["fields/sst.json", 3600], ["fields/sst-90d.bin", 3600], ["fields/hrrr-wind.json", 600]] as const).map(([f, s]) => [`v1/piscataqua-region/${f}`, s]),
+  ),
 };
 
 async function data(req: Request, env: Env, path: string): Promise<Response> {

@@ -61,8 +61,10 @@ if os.environ.get("USGS_API_KEY"):
     _session.headers["X-Api-Key"] = os.environ["USGS_API_KEY"].strip()
 
 
-def load_gauges() -> list[dict]:
-    return sorted(json.loads(RIVERS_FILE.read_text())["gauges"], key=lambda g: g["lon"])
+def load_gauges(registry: dict | None = None) -> list[dict]:
+    """The Sound's gauges, west to east, or another waterway's ``registry`` (the same shape) when one is given."""
+    reg = registry if registry is not None else json.loads(RIVERS_FILE.read_text())
+    return sorted(reg["gauges"], key=lambda g: g["lon"])
 
 
 def _get(url: str, params: dict, retries: int = 4) -> requests.Response:
@@ -186,14 +188,14 @@ def _hourly(s: pd.Series) -> pd.Series:
     return s.resample("h").mean().dropna() if not s.empty else s
 
 
-def live(prev: dict | None, end: datetime | None = None) -> dict:
+def live(prev: dict | None, end: datetime | None = None, registry: dict | None = None) -> dict:
     """The last 100 days per gauge, hourly, with the latest reading."""
     end = end or now_utc()
     prev = prev or {}
     window_start = pd.Timestamp(end).floor("h") - pd.Timedelta(days=WINDOW_DAYS)
     gauges: dict = {}
     datasets: dict = {}
-    for g in load_gauges():
+    for g in load_gauges(registry):
         before = (prev.get("gauges") or {}).get(g["id"], {})
         held = decode_frame(before)
         last_obs = before.get("last_obs")
@@ -243,14 +245,14 @@ def _decode_daily(obj: dict | None) -> pd.Series:
     return pd.Series([float("nan") if v is None else v for v in obj["flow_cfs"]], index=idx, dtype=float).dropna()
 
 
-def history(prev: dict | None, end: datetime | None = None) -> dict:
+def history(prev: dict | None, end: datetime | None = None, registry: dict | None = None) -> dict:
     """Daily mean discharge per gauge from 1990 and the day-of-year percentiles; never drops a day it held."""
     end = end or now_utc()
     prev = prev or {}
     daily_out: dict = {}
     normals_out: dict = {}
     meta: list = []
-    for g in load_gauges():
+    for g in load_gauges(registry):
         sid = g["id"]
         held = _decode_daily((prev.get("daily") or {}).get(sid))
         start = (end - timedelta(days=REFETCH_DAYS)).date() if not held.empty else date(FIRST_YEAR, 1, 1)

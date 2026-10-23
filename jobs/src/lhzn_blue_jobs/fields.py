@@ -92,13 +92,13 @@ def cut_to_water(ds, mesh: dict | None):
     return out
 
 
-def raster(name: str, end: datetime | None = None, water: dict | None = None) -> dict:
-    """One satellite raster, cut to the water mesh, encoded for the page."""
+def raster(name: str, end: datetime | None = None, water: dict | None = None, bbox: list[float] = BBOX) -> dict:
+    """One satellite raster over ``bbox`` (the Sound's by default), cut to the water mesh, encoded for the page."""
     from forcingkit.fetchers import coastwatch
 
     quantity, days, coast, scale = RASTERS[name]
     end = end or now_utc()
-    ds = cut_to_water(coastwatch.composite(coastwatch.QUANTITIES[quantity], BBOX, end, days), water)
+    ds = cut_to_water(coastwatch.composite(coastwatch.QUANTITIES[quantity], bbox, end, days), water)
     ds = coastwatch.mask_coast(ds, coast)  # the coastal band, measured from the mesh's coastline
     lat, lon = ds["lat"].values, ds["lon"].values
     value, age = ds["value"].values, ds["age_days"].values
@@ -191,9 +191,9 @@ def _frame_end(day: date, now: datetime) -> datetime:
     return min(datetime.combine(day, time(23, 59, 59), tzinfo=timezone.utc), now)
 
 
-def history(name: str, existing: bytes | None, end: datetime | None = None, water: dict | None = None) -> tuple[bytes, dict]:
-    """The 90-day history file for a raster: frames kept from `existing` where still trusted, the rest computed.
-    Returns the file and a short summary for the log."""
+def history(name: str, existing: bytes | None, end: datetime | None = None, water: dict | None = None, bbox: list[float] = BBOX) -> tuple[bytes, dict]:
+    """The 90-day history file for a raster over ``bbox`` (the Sound's by default): frames kept from `existing` where
+    still trusted, the rest computed. Returns the file and a short summary for the log."""
     from forcingkit.fetchers import coastwatch
 
     quantity, window, coast, _ = RASTERS[name]
@@ -210,7 +210,7 @@ def history(name: str, existing: bytes | None, end: datetime | None = None, wate
             same = (
                 header.get("encoding") == {"low": lo, "high": hi, "log10": log10, "levels": 254}
                 and bool(header.get("age")) == with_age
-                and header.get("domain") == BBOX
+                and header.get("domain") == bbox
                 and header.get("water") == (WATER_SOURCE if water is not None else None)
             )
             if same:
@@ -221,12 +221,12 @@ def history(name: str, existing: bytes | None, end: datetime | None = None, wate
         except Exception:
             log.warning("history %s unreadable; rebuilding", name)
     todo = [d for d in days if d.isoformat() not in kept]
-    ds = coastwatch.composite_series(coastwatch.QUANTITIES[quantity], BBOX, [_frame_end(d, end) for d in todo], window)
+    ds = coastwatch.composite_series(coastwatch.QUANTITIES[quantity], bbox, [_frame_end(d, end) for d in todo], window)
     ds = coastwatch.mask_coast(cut_to_water(ds, water), coast)
     grid = _grid(ds)
     if old_grid is not None and old_grid != grid and len(todo) < len(days):
         log.warning("history %s grid changed; rebuilding", name)
-        return history(name, None, end, water)
+        return history(name, None, end, water, bbox)
     new = {
         d.isoformat(): (quantise(ds["value"].values[i], lo, hi, log10).ravel(), quantise_age(ds["age_days"].values[i]).ravel() if with_age else None)
         for i, d in enumerate(todo)
@@ -243,7 +243,7 @@ def history(name: str, existing: bytes | None, end: datetime | None = None, wate
         "frame_time": "each UTC day's end (today: the time of the run)",
         "window_days": window,
         "coast_mask_pixels": coast,
-        "domain": BBOX,
+        "domain": bbox,
         "water": WATER_SOURCE if water is not None else None,
         "encoding": {"low": lo, "high": hi, "log10": log10, "levels": 254},
         "age": {"step_days": AGE_STEP} if with_age else None,

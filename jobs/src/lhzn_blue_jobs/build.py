@@ -97,6 +97,10 @@ WRITABLE = re.compile(
     r"|v1/fields/piscataqua-currents-history\.bin"
     r"|v1/hrrr-history/(WLIS|EXRX|ARTG|CLIS|KPTN|BRPT|NWHV|NLON|KBDR|KHVN)(-recent)?\.json"
     r"|v1/asos\.json"
+    # The Piscataqua Region waterway (region.py): a few files under its own prefix.
+    r"|v1/piscataqua-region/(live|history)\.json"
+    r"|v1/piscataqua-region/fields/(currents|currents-mesh|sst|hrrr-wind)\.json"
+    r"|v1/piscataqua-region/fields/sst-90d\.bin"
 )
 MAX_OBJECT_BYTES = 8 * 1024 * 1024
 STATIONS_FILE = Path(

@@ -80,8 +80,9 @@ SHORE_FILE = Path(
 )
 
 
-def load_shore() -> dict:
-    return json.loads(SHORE_FILE.read_text())
+def load_shore(registry: dict | None = None) -> dict:
+    """The Sound's shore stations, or another waterway's ``registry`` (the same shape) when one is given."""
+    return registry if registry is not None else json.loads(SHORE_FILE.read_text())
 
 
 def _hour(ts) -> pd.Timestamp:
@@ -209,7 +210,7 @@ def _trim_tides(events: list[dict], end: datetime) -> list[dict]:
 # Jobs
 
 
-def live(prev: dict | None, end: datetime | None = None, full: bool = False) -> dict:
+def live(prev: dict | None, end: datetime | None = None, full: bool = False, registry: dict | None = None) -> dict:
     """The object to publish as ``v1/shore.json``.
 
     ``prev`` is the previously published object (or None). Each station's window is merged with the
@@ -223,7 +224,7 @@ def live(prev: dict | None, end: datetime | None = None, full: bool = False) -> 
     window_start = _hour(end) - pd.Timedelta(hours=WINDOW_HOURS)
     out_stations: dict = {}
     out_datasets: dict = {}
-    for st in load_shore()["stations"]:
+    for st in load_shore(registry)["stations"]:
         before = prev_stations.get(st["id"], {})
         window = decode_frame({k: before[k] for k in ("t0", "step", *COLUMNS) if k in before})
         if window.empty:
@@ -274,7 +275,7 @@ def water_hourly(df: pd.DataFrame) -> pd.Series:
     return s[~s.index.duplicated(keep="last")].sort_index()
 
 
-def history(prev: dict | None, end: datetime | None = None, first_year: int | None = None) -> dict:
+def history(prev: dict | None, end: datetime | None = None, first_year: int | None = None, registry: dict | None = None) -> dict:
     """The object to publish as ``v1/shore-history.json``: hourly water temperature, full record.
 
     The first build fetches from each station's ``record_start_year`` (or ``first_year``) in calendar-year
@@ -287,7 +288,7 @@ def history(prev: dict | None, end: datetime | None = None, first_year: int | No
     prev_meta = {s["id"]: s for s in prev.get("meta", {}).get("stations", [])}
     meta_stations = []
     all_series: dict = {}
-    for st in load_shore()["stations"]:
+    for st in load_shore(registry)["stations"]:
         start_year = first_year or st["record_start_year"]
         before = decode(prev_series.get(st["id"]))
         before_meta = prev_meta.get(st["id"]) or {}

@@ -104,6 +104,9 @@ What `longhorizon.blue` does next, in rough order. Status as of 2026-10-13.
 - **Vessel traffic summaries** from a contributed AIS receiver: commercial traffic individually, recreational boats
   only in aggregate.
 - **More waterways**, each when a local partner wants to curate one.
+- **ERDDAP as the data backbone.** Read partner datasets from ERDDAP servers rather than their raw files: the
+  regional ones (NERACOOS and others) and, for the Piscataqua, the UNH buoy's tables once they are served from
+  ERDDAP. One reader for many servers; the Piscataqua step's file-store reader is the stopgap until then.
 
 ## Partnerships
 

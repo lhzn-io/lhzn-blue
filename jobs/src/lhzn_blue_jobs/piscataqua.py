@@ -3,9 +3,9 @@
 Writes ``v1/piscataqua.json`` for the (unlisted) /piscataqua/ page:
 
 - ``buoy``: the last 30 days of the buoy's Nortek Aquapro current profiler (the logger table ``ZCelEngData``, one
-  record every 10 minutes, 20 cells), read from the end of the logger file the buoy's shore PC uploads to Google
-  Cloud Storage (``LHZN_BLUE_AQUAFORT``). Only the file's tail is downloaded. Speeds in cm/s and directions in
-  degrees, as logged; each record carries a quality flag (QARTOD convention: 1 pass, 3 suspect, 4 fail).
+  record every 10 minutes, 20 cells), read from the end of the logger file the buoy's shore PC uploads to the
+  buoy's file store (``LHZN_BLUE_AQUAFORT``, a deploy setting). Only the file's tail is downloaded. Speeds in
+  cm/s and directions in degrees, as logged; each record carries a quality flag (QARTOD convention: 1 pass, 3 suspect, 4 fail).
 - ``water_level``: NOAA CO-OPS 8419870 Seavey Island, observed water level (6-minute, metres above MLLW).
 - ``tide``: NOAA CO-OPS 8423898 Fort Point, tide predictions (6-minute) and the highs and lows.
 - ``current``: NOAA CO-OPS PIR0701 Portsmouth Harbor Entrance, tidal current predictions (30-minute, cm/s along
@@ -33,7 +33,12 @@ from .build import iso, now_utc
 log = logging.getLogger(__name__)
 
 SCHEMA = 1
-SOURCE = os.environ.get("LHZN_BLUE_AQUAFORT", "gs://unh-aquafort-data/UNH-G2000B_ZCelEngData.dat")
+# The buoy's files: one store (gs://bucket[/prefix], or a local directory for development), set at deploy
+# (AQUAFORT_STORE), and the logger tables in it by name. Other tables (waves, nitrate, the sonde) join as names here.
+# When these datasets are served from ERDDAP, a reader for that replaces this one.
+AQUAFORT = os.environ.get("LHZN_BLUE_AQUAFORT", "")
+PROFILER_TABLE = "UNH-G2000B_ZCelEngData.dat"  # the current profiler (Nortek Aquadopp), one record every 10 minutes
+
 TAIL_BYTES = 3_200_000  # about 40 days of 10-minute records (about 520 bytes each)
 HEAD_BYTES = 4096
 WINDOW_DAYS = 30
@@ -59,6 +64,13 @@ CURRENT = {"id": "PIR0701", "name": "Portsmouth Harbor Entrance", "lat": 43.0624
 
 # ---------------------------------------------------------------------------------------------
 # The buoy
+
+
+def aquafort_uri(name: str) -> str:
+    """A file in the buoy's store."""
+    if not AQUAFORT:
+        raise ValueError("LHZN_BLUE_AQUAFORT is not set: the buoy's file store is a deploy setting (AQUAFORT_STORE)")
+    return f"{AQUAFORT.rstrip('/')}/{name}"
 
 
 def _read_tail(uri: str) -> tuple[list[str], str, str]:
@@ -119,7 +131,8 @@ def flags(df: pd.DataFrame) -> pd.Series:
     return f
 
 
-def buoy_part(uri: str = SOURCE) -> dict:
+def buoy_part(uri: str | None = None) -> dict:
+    uri = uri or aquafort_uri(PROFILER_TABLE)
     names, text, updated = _read_tail(uri)
     df = parse(names, text)
     if df.empty:
@@ -214,7 +227,7 @@ def current_part(start: datetime, end: datetime) -> dict:
 # ---------------------------------------------------------------------------------------------
 
 
-def build(prev: dict | None = None, now: datetime | None = None, uri: str = SOURCE) -> dict:
+def build(prev: dict | None = None, now: datetime | None = None, uri: str | None = None) -> dict:
     """The page's file; a part that fails keeps the previous file's copy (or is left out)."""
     now = now or now_utc()
     prev = prev or {}

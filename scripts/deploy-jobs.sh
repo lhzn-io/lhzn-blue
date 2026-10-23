@@ -14,6 +14,7 @@
 #   FORECAST_STORE   gs://bucket/prefix the forecast job archives HRRR at the stations to
 #   NWPS_STORE       optional: gs://bucket/prefix for the NWPS wave model runs (default: nwps-okx beside FORECAST_STORE)
 #   PANELS_STORE     optional: gs://bucket/prefix for the LISICOS panel images as fetched (default: lisicos-panels beside it)
+#   AQUAFORT_STORE   optional: gs://bucket[/prefix] holding the UNH buoy's logger files (the Piscataqua step)
 # Scheduling is separate (scripts/schedule-jobs.sh), so redeploying code does not touch triggers.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -55,7 +56,7 @@ for mode in live latest history fields snapshot forecast panels; do
   gcloud run jobs deploy "lhzn-blue-${mode}" \
     --project "$GCP_PROJECT" --region "$GCP_REGION" --image "$IMAGE" \
     --service-account "$JOB_SA" --args "$mode" \
-    --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_SNAPSHOTS=${SNAPSHOT_STORE},LHZN_BLUE_FORECASTS=${FORECAST_STORE},LHZN_BLUE_NWPS=${NWPS_STORE},LHZN_BLUE_PANELS_ARCHIVE=${PANELS_STORE}" \
+    --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_SNAPSHOTS=${SNAPSHOT_STORE},LHZN_BLUE_FORECASTS=${FORECAST_STORE},LHZN_BLUE_NWPS=${NWPS_STORE},LHZN_BLUE_PANELS_ARCHIVE=${PANELS_STORE},LHZN_BLUE_AQUAFORT=${AQUAFORT_STORE:-}" \
     --set-secrets "$SECRETS" \
     --tasks 1 --max-retries 1 --task-timeout "${TIMEOUT[$mode]}" \
     --cpu 1 --memory "${MEMORY[$mode]}"

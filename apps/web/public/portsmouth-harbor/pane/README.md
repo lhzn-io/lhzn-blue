@@ -39,17 +39,23 @@ buoy), and heights are metres, positive up. The data files total about 17 MB.
 ```js
 import { mountPane, measuredColour } from './pane.js';
 
-const pane = mountPane(el, { dataBase: './data/', onTime: (t) => { /* optional */ } });
+const pane = mountPane(el, {
+  dataBase: './data/',
+  title: true,                     // false: no heading (the page's caption names the view)
+  controls: true,                  // false: no "Layers and view" panel
+  onReady: ({ t0, t1 }) => {},     // optional: the model's first and last hours, once the data load
+});
 pane.setTime(t);       // t: epoch seconds UTC
 pane.setTheme(light);  // true for the light theme
+pane.timeRange();      // { t0, t1 }, or null before the data load
 pane.dispose();        // frees GPU resources and removes the pane's DOM
 ```
 
-- The page owns the clock. The pane never advances time; `setTime(t)` shows each source at its
-  latest record at or before `t`, held until its next record, with no time interpolation: NECOFS
-  hourly, the buoy every 10 minutes, tracks every 5 minutes. A status line names each record time.
-- `onTime(t)` is called only when the viewer presses "Go to data window" while `t` lies outside the
-  window. The page decides whether to follow.
+- The page owns the clock. The pane has no time controls and never advances time; `setTime(t)`
+  shows each source at its latest record at or before `t`, held until its next record, with no time
+  interpolation: NECOFS hourly, the buoy every 10 minutes, tracks every 5 minutes. A status line
+  names each record time; outside the window it says which days the data cover.
+- The panel's text and controls take longhorizon.blue's colour tokens when the page defines them.
 - `measuredColour(ms, light)` returns the measured (gold) ramp colour for a speed in m/s, linear
   from 0 to 0.5 m/s, matching the site's own.
 - At 375 px the controls and legend collapse to buttons, and orbit works by touch. The theme tokens are

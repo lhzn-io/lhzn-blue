@@ -1,5 +1,5 @@
 #!/bin/bash
-# Upload the /piscataqua/ page's 3D view data (one fixed window, prepared outside this repo) to the Workers KV
+# Upload the /portsmouth-harbor/ page's 3D view data (one fixed window, prepared outside this repo) to the Workers KV
 # namespace the Worker serves /data/v1/* from, as v1/piscataqua-pane/<file>. The files are not kept in git.
 #
 #   bash scripts/upload-pane-data.sh <directory holding mesh.json, nodes.f32, ...>

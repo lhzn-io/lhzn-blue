@@ -60,7 +60,8 @@ export interface ChartOptions {
   bands?: Band[];
   areas?: Area[];
   spans?: Span[]; // shaded time intervals, full height
-  marker?: { x: number; label: string }; // a vertical rule, e.g. "now"
+  marker?: { x: number; label: string; color?: string }; // a vertical rule, e.g. "now" (default the --now gold)
+  asOfColor?: string; // the page timeline's rule (default the --now gold)
   hoverDigits?: number;
   floor?: number; // the value axis reaches at least down to this (keeps a reference level in view)
   ceil?: number; // the value axis stops here; higher values run along the top edge (the tooltip keeps the true value)
@@ -278,7 +279,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   if (o.marker && o.marker.x > x0 && o.marker.x < x1) {
     const xx = px(o.marker.x);
     svg.append(el("rect", { x: xx, y: 0, width: Math.max(0, W - xx), height: H, fill: theme.shade }));
-    svg.append(el("line", { x1: xx, x2: xx, y1: 0, y2: H, stroke: theme.now, "stroke-opacity": 0.7, "stroke-dasharray": "3 3", "vector-effect": "non-scaling-stroke" }));
+    svg.append(el("line", { x1: xx, x2: xx, y1: 0, y2: H, stroke: o.marker.color ?? theme.now, "stroke-opacity": 0.7, "stroke-dasharray": "3 3", "vector-effect": "non-scaling-stroke" }));
     labels.push(`<span class="arriving" style="left:${(100 * xx) / W}%">${o.marker.label}</span>`);
   }
 
@@ -298,7 +299,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   }
 
   // The page timeline's time, drawn under the lines.
-  const asof = el("line", { x1: 0, x2: 0, y1: 0, y2: H, class: "asof", stroke: theme.now, "stroke-width": 1.5, "vector-effect": "non-scaling-stroke" });
+  const asof = el("line", { x1: 0, x2: 0, y1: 0, y2: H, class: "asof", stroke: o.asOfColor ?? theme.now, "stroke-width": 1.5, "vector-effect": "non-scaling-stroke" });
   asof.dataset.x0 = String(x0);
   asof.dataset.x1 = String(x1);
   placeAsOf(asof);

@@ -1,24 +1,86 @@
-/* The Piscataqua River mouth (/piscataqua/): built on site.css and forecast-page.css (masthead, sections, panel);
+/* The Portsmouth Harbor buoy page (/portsmouth-harbor/): built on site.css and forecast-page.css (masthead, sections, panel);
    this file adds the time-by-cell plot, its scale and time control, the profile panel's column and the map. */
 .pq-pair { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px 28px; align-items: start; }
 @media (max-width: 860px) { .pq-pair { grid-template-columns: minmax(0, 1fr); } }
 .pq-heatfig { margin-top: 22px; }
 
-.pq-heat { position: relative; cursor: crosshair; }
+.pq-heat { position: relative; cursor: crosshair; touch-action: pan-y; user-select: none; }
 .pq-heat canvas { display: block; }
-.pq-cursor { position: absolute; width: 0; border-left: 2px solid var(--ink); pointer-events: none; }
+/* The selected time, wherever it is drawn (strips cursor, time bar, plots): purple, clear of the gold measurements and
+   the teal model on either theme. */
+:root { --pq-time: #c4a1ff; }
+:root[data-theme="light"] { --pq-time: #5e2b8f; }
+.pq-cursor { position: absolute; width: 0; border-left: 2px solid var(--pq-time); margin-left: -1px; pointer-events: none; }
+/* The cursor's knob: a disc on the line to grab and drag (the whole strip scrubs too). */
+.pq-knob { position: absolute; left: -1px; top: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%); border-radius: 50%;
+  background: var(--pq-time); pointer-events: auto; cursor: grab; touch-action: none; }
+.pq-knob::before { content: ""; position: absolute; inset: -10px; border-radius: 50%; } /* a larger target than it looks */
+.pq-dragging, .pq-dragging .pq-knob { cursor: grabbing; }
+.pq-dragging .pq-knob { width: 17px; height: 17px; }
 .pq-heat .plot-labels .pq-bed { font-style: italic; color: var(--dim); }
 
 .pq-scale { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 6px 0 2px; font: 9.5px/1.4 var(--mono); color: var(--dim); }
 .pq-scale > i { display: inline-block; width: 160px; height: 9px; border: 1px solid var(--rule); } /* the colour bar only, not the icons in its note */
 .pq-scale .pq-faded { flex-basis: 100%; font-family: var(--sans); font-size: 11px; }
 
-.pq-time { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-.pq-time input[type="range"] { flex: 1 1 auto; min-width: 0; accent-color: var(--accent); }
-.pq-time .tab { flex: none; min-height: 30px; }
-@media (pointer: coarse) { .pq-time .tab { min-width: 46px; min-height: 36px; } }
+/* The page's buttons: boxed, with the pressed one filled, so the state reads at a glance (the site's .tab is too
+   faint for controls this central). */
+.pq-btn { cursor: pointer; white-space: nowrap; min-height: 30px; padding: 0 10px; font: 600 9.5px/1 var(--sans); letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-soft); background: var(--bg); border: 1px solid var(--rule); border-radius: 3px; }
+.pq-btn:hover { color: var(--ink); border-color: var(--accent-line); }
+.pq-btn[aria-pressed="true"] { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.pq-btn:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; }
+select.pq-btn { padding: 0 6px; }
+@media (pointer: coarse) { .pq-btn { min-height: 44px; min-width: 44px; } }
+.pq-seg { display: inline-flex; }
+.pq-seg .pq-btn { border-radius: 0; }
+.pq-seg .pq-btn + .pq-btn { margin-left: -1px; }
+.pq-seg .pq-btn:first-child { border-radius: 3px 0 0 3px; }
+.pq-seg .pq-btn:last-child { border-radius: 0 3px 3px 0; }
+
+/* The time bar: one clock for the page, pinned to the top while scrolling. Below 560 px the slider takes its own row. */
+.pq-timebar { position: sticky; top: 0; z-index: 5; margin: 0 0 18px; padding: 8px 0 6px; background: var(--bg); border-bottom: 1px solid var(--rule); }
+.pq-tb-row { display: flex; align-items: center; gap: 6px; }
+/* The slider: a thin track and the same purple disc as the strips' knob. */
+.pq-tb-row input[type="range"] { flex: 1 1 auto; min-width: 0; height: 28px; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+.pq-tb-row input[type="range"]::-webkit-slider-runnable-track { height: 2px; background: var(--dim); }
+.pq-tb-row input[type="range"]::-moz-range-track { height: 2px; background: var(--dim); }
+.pq-tb-row input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -7px; border: 0; border-radius: 50%; background: var(--pq-time); cursor: grab; }
+.pq-tb-row input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--pq-time); cursor: grab; }
+.pq-tb-row input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; transform: scale(1.15); }
+.pq-tb-row input[type="range"]:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; }
+.pq-tb-row .pq-btn { flex: none; }
+.pq-tb-read { min-height: 0; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pq-timebar + .fc-sec { border-top: 0; } /* the bar's own rule stands for the section's */
+@media (max-width: 560px) {
+  .pq-tb-row { flex-wrap: wrap; }
+  .pq-tb-row input[type="range"] { order: -1; flex-basis: 100%; height: 28px; }
+  .pq-tb-row .pq-btn { padding: 0 8px; }
+}
+/* In full screen the bar sits below the view, inside the box (see .pq-viewbox below). */
+.pq-timebar-in { position: static; flex: none; margin: 0; padding: 8px 12px 6px; border: 0; border-top: 1px solid var(--rule); }
 
 .pq-panel .note { margin-top: 6px; }
+
+/* Under the profile: the current or the tide in a small chart, and Expand for both at full size. */
+.pq-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.pq-sparkfig { margin: 0; }
+.pq-spark-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.pq-spark-head .pq-btn { min-height: 26px; padding: 0 8px; }
+.plot.pq-spark { height: 96px; padding-right: 36px; }
+.plot.pq-spark .plot-labels .ylab { width: 32px; }
+.plot.pq-spark .plot-labels .axis { right: 36px; }
+.pq-spark-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 18px 0 0; font: 10px/1.4 var(--sans); color: var(--ink-soft); }
+.pq-spark-legend i { display: inline-block; width: 10px; height: 2px; margin-right: 4px; vertical-align: 3px; }
+.pq-spark-legend .pq-spark-unit { color: var(--dim); }
+
+/* The full charts, in a dialog over the page, with the time bar docked at its top. */
+.pq-charts { width: min(1100px, 94vw); max-height: 92vh; padding: 14px 20px 18px; border: 1px solid var(--rule); background: var(--bg); color: var(--ink); }
+.pq-charts::backdrop { background: var(--backdrop, rgba(0, 0, 0, 0.45)); }
+.pq-charts-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pq-charts-head .fc-h { margin: 0; }
+.pq-charts figure { margin: 18px 0 0; }
+.pq-charts .pq-timebar-in { margin: 10px 0 0; padding: 6px 0; border-top: 0; border-bottom: 1px solid var(--rule); }
 
 .pq-map { height: 470px; border: 1px solid var(--rule); }
 @media (max-width: 860px) { .pq-map { height: 360px; } }
@@ -27,10 +89,12 @@
 .pq-pin span { padding: 2px 5px; background: var(--panel, var(--bg)); border: 1px solid var(--rule); white-space: nowrap; }
 .pq-pin-buoy i { width: 12px; height: 12px; background: var(--now); border-color: var(--ink); }
 
-/* The stale-buoy banner's jump to its last record. */
-.outage .pq-jump { margin-left: 8px; padding: 2px 10px; cursor: pointer; font: 700 9.5px/1.4 var(--sans); letter-spacing: 0.16em;
-  text-transform: uppercase; color: var(--accent); background: none; border: 1px solid var(--accent-line); border-radius: 999px; }
-.outage .pq-jump:hover { color: var(--accent-hi); border-color: var(--accent-hi); }
+/* The masthead's units switch, beside the theme button. */
+.fc-nav .pq-units { margin-right: 10px; }
+.fc-nav .pq-units .pq-btn { min-height: 26px; padding: 0 7px; letter-spacing: 0.06em; text-transform: none; }
+
+/* The masthead's data chip with nothing to warn about: the plain rule, not the delayed colour. */
+.mast .outage-icon.pq-notice-calm:not([hidden]), .mast .outage-icon.pq-notice-calm:not([hidden]):hover { border-left-color: var(--rule); }
 
 /* The daily strips' labels. */
 .pq-heat .plot-labels { inset: 0; }
@@ -40,9 +104,11 @@
 .pq-moon-new { background: var(--ink); }
 .pq-moon-full { background: var(--bg); }
 .pq-scale .pq-faded .pq-moon { margin: 0 2px; }
-.pq-strip-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 4px 0 10px; }
-.pq-seg { display: inline-flex; gap: 2px; }
-.pq-seg .tab { min-height: 26px; }
+/* The strips' controls: one row, label beside each group. */
+.pq-strip-ctl { display: flex; flex-wrap: nowrap; align-items: center; gap: 14px; margin: 6px 0 10px; }
+.pq-ctl { display: inline-flex; align-items: center; gap: 6px; }
+.pq-strip-ctl .pq-btn { min-height: 26px; padding: 0 8px; }
+@media (pointer: coarse) { .pq-strip-ctl .pq-btn { min-height: 36px; min-width: 40px; } }
 
 /* The map's tooltip: the site's panel, small type; gold for a measurement, teal for the model. */
 .pq-tip .maplibregl-popup-content { padding: 7px 10px; background: var(--panel, var(--bg)); color: var(--ink); border: 1px solid var(--rule); border-radius: 0; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); font: 11.5px/1.45 var(--sans); }
@@ -60,11 +126,13 @@
 .pq-reflist li:target { background: var(--panel); outline: 1px solid var(--accent-line); }
 
 /* Map or 3D, in one box that can go full screen. */
-.pq-viewctl { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 6px; }
+.pq-viewctl { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 8px; }
+.pq-seg-view .pq-btn { min-width: 64px; font-size: 10.5px; }
 .pq-viewbox { position: relative; background: var(--bg); }
 .pq-3d { height: 470px; border: 1px solid var(--rule); }
 @media (max-width: 860px) { .pq-3d { height: 420px; } }
 .pq-3d-wait { padding: 16px; }
-.pq-viewbox:fullscreen .pq-map, .pq-viewbox:fullscreen .pq-3d, .pq-viewbox.pq-full .pq-map, .pq-viewbox.pq-full .pq-3d { height: 100%; border: 0; }
+.pq-viewbox:fullscreen, .pq-viewbox.pq-full { display: flex; flex-direction: column; }
+.pq-viewbox:fullscreen .pq-map, .pq-viewbox:fullscreen .pq-3d, .pq-viewbox.pq-full .pq-map, .pq-viewbox.pq-full .pq-3d { flex: 1 1 auto; min-height: 0; height: auto; border: 0; }
 .pq-viewbox:fullscreen { width: 100vw; height: 100vh; }
 .pq-viewbox.pq-full { position: fixed; inset: 0; z-index: 100; }

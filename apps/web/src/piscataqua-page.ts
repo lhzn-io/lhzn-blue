@@ -1,5 +1,6 @@
 /**
- * The Piscataqua River (/piscataqua/, unlisted): the UNH G-2000 buoy's current profiler, with NOAA water level,
+ * Portsmouth Harbor (/portsmouth-harbor/, unlisted; /piscataqua/ redirects here): the UNH G-2000 buoy's current
+ * profiler at the mouth of the Piscataqua River, with NOAA water level,
  * tide and tidal current predictions nearby. One file, v1/piscataqua.json (jobs: piscataqua.py), refreshed hourly.
  *
  * Gaps are expected: the buoy's shore PC uploads when it can, so its records may end days before now. The page says
@@ -35,7 +36,26 @@ const TZ = "America/New_York";
 const MIN = 60;
 const HOUR = 3600;
 const FT = 3.28084;
-const KT = 0.0194384; // cm/s to kt
+// Speeds in the reader's unit, as on the Sound page (the same saved choice): knots by default.
+const UNITS = {
+  kt: { perCms: 0.0194384, label: "kt", digits: 1 },
+  mph: { perCms: 0.0223694, label: "mph", digits: 1 },
+  ms: { perCms: 0.01, label: "m/s", digits: 2 },
+} as const;
+type Unit = keyof typeof UNITS;
+let U: Unit = "kt";
+try {
+  const saved = localStorage.getItem("lhzn-blue-wind-unit");
+  if (saved && saved in UNITS) U = saved as Unit;
+} catch {
+  /* private mode: knots */
+}
+const PER = () => UNITS[U].perCms; // cm/s to the reader's unit
+const UL = () => UNITS[U].label;
+/** A speed (cm/s) in the reader's unit, to the given decimals (default: the unit's own). */
+const spdTxt = (cms: number, digits: number = UNITS[U].digits) => `${(cms * PER()).toFixed(digits)} ${UL()}`;
+/** A round figure for a scale's end (two significant figures): 0.5 m/s, 0.97 kt, 1.1 mph. */
+const spdNice = (cms: number) => `${Number((cms * PER()).toPrecision(2))} ${UL()}`;
 const CELLS = 20;
 // The buoy logs directions against its compass, which reads magnetic as far as the data show (they fit NOAA's flood
 // and ebb best turned 15 to 35 degrees west). The page turns them to true north by the World Magnetic Model's
@@ -131,16 +151,31 @@ function drawFresh(): void {
     parts.push(`Seavey Island water level: ${fmtShort.format(new Date(t * 1000))} (${ago(t)})`);
   }
   parts.push(`refreshed ${ago(sec(D.generated_at))}`);
-  $("fresh").textContent = parts.join(" · ");
-  const stale = $("stale");
-  if (b && now() - sec(b.last) > STALE_S) {
-    stale.hidden = false;
-    stale.innerHTML = `<b>The buoy has been quiet since ${fmtTime.format(new Date(b.last))}.</b> Its plots show its last 30 days of records; the map, the tide and the predicted current are live. <button type="button" class="pq-jump" id="jump">Go to its last record</button>`;
-    $("jump").addEventListener("click", () => setT(sec(b.last)));
-  } else if (!b) {
-    stale.hidden = false;
-    stale.innerHTML = "<b>No buoy profiles could be read.</b> The tide and the predicted current are live.";
-  } else stale.hidden = true;
+  // One chip in the masthead holds it all, as on the Sound page: the quiet-buoy note first when there is one, then how
+  // old each source is. Hover or focus shows it; a tap on a touch screen opens it in a dialog (wireNotice).
+  const quiet = b && now() - sec(b.last) > STALE_S;
+  const note = !b
+    ? "No buoy profiles could be read. The tide and the predicted current are live."
+    : quiet
+      ? `The buoy has been quiet since ${fmtTime.format(new Date(b.last))}. Its plots show its last 30 days of records; the model, the tide and the predicted current are live. Jump to in the time bar goes to its last record.`
+      : "";
+  const text = [note, `${parts.join(" · ")}.`].filter(Boolean).join(" ");
+  $("outage-pop").textContent = text;
+  $("outage-dialog-text").textContent = text;
+  $("outage-label").textContent = note ? "Buoy data" : "Data";
+  $("outage-icon").classList.toggle("pq-notice-calm", !note); // the delayed colour only when there is something to say
+  $("outage-icon").hidden = false;
+}
+
+function wireNotice(): void {
+  const dialog = $("outage-dialog") as HTMLDialogElement;
+  $("outage-icon").addEventListener("click", () => {
+    if (!matchMedia("(hover: hover)").matches) dialog.showModal();
+  });
+  $("outage-dialog-close").addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close(); // a click on the backdrop
+  });
 }
 
 // ---------- The daily strips: one row per Eastern day, the buoy's cells 1 to 10 down each row ----------
@@ -163,26 +198,35 @@ function etMidnight(t: number): number {
 }
 
 /** The rows' start times, oldest first, plus the end of the last: Eastern days (clock) or lunar days from a high tide
- * (tide), ending with the row that holds the selected time (the buoy's last record while it is quiet). */
+ * (tide), across the buoy's record, with the row holding the selected time in the middle where the record allows (so
+ * at its ends, and while the buoy is quiet, the rows run up to its last record). */
 function stripDays(): number[] {
   const b = D.buoy;
   const last = b ? sec(b.last) : now();
-  const ref = Math.min(T, last);
-  const first = b ? sec(b.t0) : ref - 30 * 86400;
+  const first = b ? sec(b.t0) : last - 30 * 86400;
+  const ref = Math.max(first, Math.min(T, last));
   const highs = (D.tide?.hilo ?? []).filter((e) => e.type === "H").map((e) => sec(e.t));
+  // Every row of the record: each start, oldest first, then the end of the last row.
+  const rows: number[] = [];
   if (stripAlign === "tide" && highs.length) {
     const anchor = highs.reduce((a, h) => (Math.abs(h - ref) < Math.abs(a - ref) ? h : a), highs[0]);
-    const end = anchor + Math.floor((ref - anchor) / LUNAR_DAY) * LUNAR_DAY;
-    const starts = [end];
-    while (stripCount ? starts.length < stripCount : starts[0] > first) starts.unshift(starts[0] - LUNAR_DAY);
-    starts.push(end + LUNAR_DAY);
-    return starts;
+    const lastRow = anchor + Math.floor((last - anchor) / LUNAR_DAY) * LUNAR_DAY;
+    for (let s = lastRow; s + LUNAR_DAY > first; s -= LUNAR_DAY) rows.unshift(s);
+    rows.push(lastRow + LUNAR_DAY);
+  } else {
+    const lastRow = etMidnight(last);
+    for (let s = lastRow; ; s = etMidnight(s - 12 * HOUR)) {
+      rows.unshift(s);
+      if (s <= first) break;
+    }
+    rows.push(etMidnight(lastRow + 36 * HOUR)); // the next midnight closes the last row (23 or 25 h across a clock change)
   }
-  const end = etMidnight(ref);
-  const starts = [end];
-  while (stripCount ? starts.length < stripCount : starts[0] > first) starts.unshift(etMidnight(starts[0] - 12 * HOUR));
-  starts.push(etMidnight(end + 36 * HOUR)); // the next midnight closes the last row (23 or 25 h across a clock change)
-  return starts;
+  const n = rows.length - 1;
+  if (!stripCount || stripCount >= n) return rows;
+  let i = 0;
+  while (i < n - 1 && ref >= rows[i + 1]) i++;
+  const lo = Math.max(0, Math.min(n - stripCount, i - Math.floor((stripCount - 1) / 2)));
+  return rows.slice(lo, lo + stripCount + 1);
 }
 
 function drawHeat(): void {
@@ -270,7 +314,7 @@ function drawHeat(): void {
   $("heat-labels").innerHTML = labels.join("");
   const stops = Array.from({ length: 17 }, (_, i) => `${speedColour((i / 16) * SPEED_TOP)} ${(i / 16) * 100}%`).join(",");
   $("heat-scale").innerHTML =
-    `<span>0</span><i style="background:linear-gradient(90deg,${stops})"></i><span>${SPEED_TOP} m/s (${(SPEED_TOP * 1.94384).toFixed(1)} kt) and up</span>` +
+    `<span>0</span><i style="background:linear-gradient(90deg,${stops})"></i><span>${spdNice(SPEED_TOP * 100)} and up</span>` +
     `<span class="pq-faded">${stripAlign === "tide" ? "Each row is a lunar day (24 h 50 min) from a high tide at Fort Point, so slack water lines up; the dark lines are midnight, Eastern time. " : ""}Measured speed (gold; the model is teal), cells 1 to 10 down each strip. Ticks above a strip mark high tides, dots low tides. <i class="pq-moon pq-moon-new"></i> New and <i class="pq-moon pq-moon-full"></i> full moons bring the spring tides.</span>`;
   placeCursor();
 }
@@ -311,7 +355,7 @@ function drawProfile(): void {
   text(6, 14, "cell");
   text(BAR_X - 14, 14, "to", { "text-anchor": "middle" });
   text(BAR_X, 14, "speed");
-  text(W - 62, 14, "cm/s", { "text-anchor": "end" });
+  text(W - 62, 14, UL(), { "text-anchor": "end" });
   text(W - 6, 14, "deg", { "text-anchor": "end" });
   if (b && k >= 0) {
     for (let c = 0; c < CELLS; c++) {
@@ -330,12 +374,12 @@ function drawProfile(): void {
       const ax = BAR_X - 14;
       const arrow = el("path", { d: "M0,-6 L3.6,3 L0,1 L-3.6,3 Z", fill: colour, opacity: op, transform: `translate(${ax},${y}) rotate(${dirDeg})` });
       svg.append(arrow);
-      text(W - 62, y + 3.5, String(v), { "text-anchor": "end", fill: faded ? dim : ink, opacity: op });
+      text(W - 62, y + 3.5, (v * PER()).toFixed(2), { "text-anchor": "end", fill: faded ? dim : ink, opacity: op });
       text(W - 6, y + 3.5, String(dirDeg), { "text-anchor": "end", opacity: op });
     }
     const y = 28 + CELLS * rowH + 18;
     svg.append(el("rect", { x: BAR_X, y: y - 5, width: 0.1 * ARROW_PX_PER_MS, height: 10, fill: speedColour(0.1), stroke: cssVar("--rule"), "stroke-width": 0.5 }));
-    text(BAR_X + 0.1 * ARROW_PX_PER_MS + 6, y + 3.5, "10 cm/s (0.19 kt)");
+    text(BAR_X + 0.1 * ARROW_PX_PER_MS + 6, y + 3.5, spdTxt(10, 2));
     $("prof-cap").textContent = `Profile at ${fmtTime.format(new Date(buoyT[k] * 1000))}`;
     const tmp = b.temp[k];
     const p = b.pressure[k];
@@ -359,16 +403,16 @@ function grid(step: number): number[] {
   return xs;
 }
 
-function drawTide(): void {
+function drawTide(plot = $("tide-plot")): void {
   const xs = grid(6 * MIN);
   const lines: Line[] = [
     { ys: xs.map((t) => at(D.tide, t)).map((v) => (v == null ? NaN : v * FT)), color: cssVar("--fc-mid"), width: 1.4, label: "Predicted, Fort Point", fmt: (v) => `${v.toFixed(1)} ft` },
     { ys: xs.map((t) => at(D.water_level, t)).map((v) => (v == null ? NaN : v * FT)), color: cssVar("--now"), width: 2, label: "Observed, Seavey Island", fmt: (v) => `${v.toFixed(1)} ft` },
   ];
-  renderLines($("tide-plot"), { xs, lines, unit: " ft", marker: { x: now(), label: "now" }, empty: "No tide data for this window." });
+  renderLines(plot, { xs, lines, unit: " ft", ...MARKS(), empty: "No tide data for this window." });
 }
 
-function drawFlow(): void {
+function drawFlow(plot = $("flow-plot")): void {
   const xs = grid(10 * MIN);
   const c = D.current;
   const b = D.buoy;
@@ -386,7 +430,7 @@ function drawFlow(): void {
       sum += v * Math.cos((d * Math.PI) / 180 - flood);
       n++;
     }
-    return n ? (sum / n) * KT : NaN;
+    return n ? (sum / n) * PER() : NaN;
   };
   const ab = CUR?.field.at_buoy;
   const modelAlong = (t: number): number => {
@@ -399,15 +443,59 @@ function drawFlow(): void {
     if (u0 == null || v0 == null || u1 == null || v1 == null) return NaN;
     const u = u0 + (u1 - u0) * (f - k);
     const v = v0 + (v1 - v0) * (f - k);
-    return (u * Math.sin(flood) + v * Math.cos(flood)) * KT;
+    return (u * Math.sin(flood) + v * Math.cos(flood)) * PER();
   };
   const lines: Line[] = [
-    { ys: xs.map((t) => at(c, t)).map((v) => (v == null ? NaN : v * KT)), color: cssVar("--fc-mid"), width: 1.4, label: "Predicted, harbour entrance", fmt: (v) => `${v.toFixed(2)} kt` },
-    { ys: xs.map(modelAlong), color: MODEL_LINE(), width: 1.4, dash: "5 3", label: "NECOFS model at the buoy (surface)", fmt: (v) => `${v.toFixed(2)} kt` },
-    { ys: xs.map(along), color: cssVar("--now"), width: 1.6, label: "UNH buoy, cells 1 to 10", fmt: (v) => `${v.toFixed(2)} kt` },
+    { ys: xs.map((t) => at(c, t)).map((v) => (v == null ? NaN : v * PER())), color: cssVar("--fc-mid"), width: 1.4, label: "Predicted, harbour entrance", fmt: (v) => `${v.toFixed(2)} ${UL()}` },
+    { ys: xs.map(modelAlong), color: MODEL_LINE(), width: 1.4, dash: "5 3", label: "NECOFS model at the buoy (surface)", fmt: (v) => `${v.toFixed(2)} ${UL()}` },
+    { ys: xs.map(along), color: cssVar("--now"), width: 1.6, label: "UNH buoy, cells 1 to 10", fmt: (v) => `${v.toFixed(2)} ${UL()}` },
   ];
-  renderLines($("flow-plot"), { xs, lines, unit: " kt", zero: true, marker: { x: now(), label: "now" }, empty: "No current data for this window." });
+  $("flow-unit").textContent = UL();
+  renderLines(plot, { xs, lines, unit: ` ${UL()}`, zero: true, ...MARKS(), empty: "No current data for this window." });
 }
+
+/* The small chart under the profile: the current or the tide over the plots' window, with a one-line key; Expand
+   opens both at full size in a dialog, drawn only while it is open. */
+let sparkTab: "flow" | "tide" = "flow";
+function drawSpark(): void {
+  const plot = $("spark-plot");
+  if (sparkTab === "tide") drawTide(plot);
+  else drawFlow(plot);
+  const keys: [string, string][] = sparkTab === "tide"
+    ? [["var(--now)", "observed"], ["var(--fc-mid)", "predicted"]]
+    : [["var(--fc-mid)", "NOAA predicted"], [MODEL_LINE(), "NECOFS"], ["var(--now)", "buoy"]];
+  const unit = sparkTab === "tide" ? "ft above MLLW" : `${UL()}, flood positive`;
+  $("spark-legend").innerHTML = keys.map(([c, label]) => `<span><i style="background:${c}"></i>${label}</span>`).join("") + `<span class="pq-spark-unit">${unit}</span>`;
+}
+const chartsOpen = () => ($("charts-dialog") as HTMLDialogElement).open;
+
+function wireCharts(): void {
+  document.querySelectorAll<HTMLButtonElement>("[data-spark]").forEach((b) =>
+    b.addEventListener("click", () => {
+      sparkTab = b.dataset.spark === "tide" ? "tide" : "flow";
+      document.querySelectorAll<HTMLButtonElement>("[data-spark]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      drawSpark();
+      markAsOf(T);
+    }),
+  );
+  const dialog = $("charts-dialog") as HTMLDialogElement;
+  $("charts-open").addEventListener("click", () => {
+    dockBar($("charts-bar"));
+    dialog.showModal();
+    drawTide();
+    drawFlow();
+    markAsOf(T);
+  });
+  $("charts-close").addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close(); // a click on the backdrop
+  });
+  dialog.addEventListener("close", () => dockBar(null));
+}
+
+/** The plots' two time rules, off the gold this page uses for observations: the selected time in the page's purple,
+ * as on the strips' cursor and the time bar, and the present moment dashed in grey. */
+const MARKS = () => ({ asOfColor: cssVar("--pq-time"), marker: { x: now(), label: "now", color: cssVar("--dim") } });
 
 // ---------- The readout and the time control ----------
 
@@ -418,7 +506,7 @@ function drawRead(): void {
   if (wl != null) parts.push(`water level ${(wl * FT).toFixed(1)} ft observed`);
   if (pr != null) parts.push(`${(pr * FT).toFixed(1)} ft predicted`);
   const cp = at(D.current, T);
-  if (cp != null) parts.push(`predicted current ${Math.abs(cp * KT).toFixed(1)} kt ${cp >= 0 ? "flood" : "ebb"}`);
+  if (cp != null) parts.push(`predicted current ${spdTxt(Math.abs(cp))} ${cp >= 0 ? "flood" : "ebb"}`);
   const next = D.current?.events.find((e) => sec(e.t) > T && e.type === "slack");
   if (next) parts.push(`next slack ${fmtShort.format(new Date(sec(next.t) * 1000))}`);
   $("read").innerHTML = parts.join(" &middot; ");
@@ -441,13 +529,77 @@ function setT(t: number): void {
   drawRead();
 }
 
+/** Widen the slider's range to take in [t0, t1] (the 3D pane's data window, once it is known). */
+function extendRange(t0: number, t1: number): void {
+  // On the 10-minute grid: the slider steps from its min, so an off-grid min would put every step 2 or 8 min off.
+  X0 = Math.floor(Math.min(X0, t0) / (10 * MIN)) * 10 * MIN;
+  X1 = Math.ceil(Math.max(X1, t1) / (10 * MIN)) * 10 * MIN;
+  const s = $("slider") as HTMLInputElement;
+  s.min = String(X0);
+  s.max = String(X1);
+}
+
+let placed = false; // whether the viewer has moved the time (Play then starts where they put it)
+/** A time change from the viewer's own controls. While playing, Play starts over from the new time, so it runs
+ * through the record the viewer moved to rather than snapping back to the old one. */
+function moveT(t: number): void {
+  placed = true;
+  setT(t);
+  if (playing) startPlay();
+}
+
+/** Where Play runs, as [first, end, loop]: from the selected time to the end of the record that holds it (the 3D
+ * data window, else the buoy's record), else on to the slider's end; at the end it goes back to loop (the 3D window's
+ * start, which is short enough to replay whole, else where Play started). Before the viewer has moved the time, the
+ * 3D view plays its data window, as at the live time it would hold one frame. */
+function playRange(): [number, number, number] {
+  const inside = (r: [number, number] | null) => !!r && T >= r[0] && T < r[1];
+  const b = D.buoy;
+  const buoy: [number, number] | null = b ? [sec(b.t0), sec(b.last)] : null;
+  if (inside(PANE_RANGE)) return [T, PANE_RANGE![1], PANE_RANGE![0]];
+  if (inside(buoy)) return [T, buoy![1], T];
+  if (VIEW === "3d" && PANE_RANGE && !placed) return [PANE_RANGE[0], PANE_RANGE[1], PANE_RANGE[0]];
+  return [T, X1, T];
+}
+
 let playing = 0;
+/** Play (or play again) from the current time: 10 minutes a frame to the end of its record, then round again. */
+function startPlay(): void {
+  window.clearInterval(playing);
+  const [start, end, loop] = playRange();
+  if (T !== start) setT(start);
+  const play = $("play");
+  play.textContent = "Pause";
+  play.setAttribute("aria-pressed", "true");
+  playing = window.setInterval(() => setT(T + 10 * MIN >= end ? loop : T + 10 * MIN), 60);
+}
+function stopPlay(): void {
+  window.clearInterval(playing);
+  playing = 0;
+  const play = $("play");
+  play.textContent = "Play";
+  play.setAttribute("aria-pressed", "false");
+}
+
 function wireTime(): void {
   const s = $("slider") as HTMLInputElement;
   s.min = String(X0);
   s.max = String(X1);
-  s.addEventListener("input", () => setT(Number(s.value)));
-  $("back").addEventListener("click", () => setT(T - 10 * MIN));
+  s.addEventListener("input", () => moveT(Number(s.value)));
+  const jump = $("jump") as HTMLSelectElement;
+  (jump.querySelector('option[value="buoy"]') as HTMLOptionElement).disabled = !D.buoy;
+  jump.addEventListener("change", async () => {
+    const to = jump.value;
+    jump.value = "";
+    if (to === "buoy" && D.buoy) moveT(sec(D.buoy.last));
+    else if (to === "pane") {
+      // The window is known once the pane has loaded its data; from the map, switch to 3D first.
+      if (VIEW !== "3d") await showView("3d");
+      const r = await paneRange;
+      if (r) moveT(r[0]);
+    }
+  });
+  $("back").addEventListener("click", () => moveT(T - 10 * MIN));
   const zoom = $("zoom");
   zoom.addEventListener("click", () => {
     SPAN = SPAN == null ? 3 * 86400 : null;
@@ -456,7 +608,7 @@ function wireTime(): void {
     view();
     drawPlots();
   });
-  $("fwd").addEventListener("click", () => setT(T + 10 * MIN));
+  $("fwd").addEventListener("click", () => moveT(T + 10 * MIN));
   const pick = (attr: string, on: (v: string) => void) => {
     document.querySelectorAll<HTMLButtonElement>(`[${attr}]`).forEach((btn) =>
       btn.addEventListener("click", () => {
@@ -468,32 +620,41 @@ function wireTime(): void {
   };
   pick("data-rows", (v) => (stripCount = Number(v)));
   pick("data-align", (v) => (stripAlign = v === "tide" ? "tide" : "clock"));
-  $("to-now").addEventListener("click", () => setT(now()));
-  const play = $("play");
-  play.addEventListener("click", () => {
-    if (playing) {
-      window.clearInterval(playing);
-      playing = 0;
-      play.textContent = "Play";
-      play.setAttribute("aria-pressed", "false");
-      return;
-    }
-    // Through the buoy's record, 10 minutes a frame; from the start again at its end.
-    const b = D.buoy;
-    const start = b ? sec(b.t0) : X0;
-    const end = b ? sec(b.last) : X1;
-    if (T >= end) setT(Math.max(start, end - 2 * 86400));
-    play.textContent = "Pause";
-    play.setAttribute("aria-pressed", "true");
-    playing = window.setInterval(() => setT(T + 10 * MIN >= end ? Math.max(start, end - 2 * 86400) : T + 10 * MIN), 60);
-  });
-  $("heat").addEventListener("click", (e) => {
+  $("to-now").addEventListener("click", () => moveT(now()));
+  $("play").addEventListener("click", () => (playing ? stopPlay() : startPlay()));
+  // The strips scrub: press anywhere on a strip (or the cursor's knob) and drag. A drag stays on the row it started
+  // in, so the time runs smoothly along one day; a vertical touch drag still scrolls the page (touch-action: pan-y).
+  const heat = $("heat");
+  let dragRow = -1;
+  const timeAt = (e: PointerEvent, row: number) => {
     const box = ($("heat-canvas") as HTMLCanvasElement).getBoundingClientRect();
-    const px = e.clientX - box.left - LABEL_W;
-    const row = Math.floor((e.clientY - box.top - HOURS_H + ROW_GAP / 2) / (rowH() + ROW_GAP));
-    if (px < 0 || row < 0 || row >= strips.length - 1) return;
-    setT(strips[row] + (px / (box.width - LABEL_W)) * (strips[row + 1] - strips[row]));
+    const f = Math.min(1, Math.max(0, (e.clientX - box.left - LABEL_W) / (box.width - LABEL_W)));
+    return strips[row] + f * (strips[row + 1] - strips[row]);
+  };
+  heat.addEventListener("pointerdown", (e) => {
+    const box = ($("heat-canvas") as HTMLCanvasElement).getBoundingClientRect();
+    const onKnob = (e.target as HTMLElement).classList.contains("pq-knob");
+    let row = Math.floor((e.clientY - box.top - HOURS_H + ROW_GAP / 2) / (rowH() + ROW_GAP));
+    if (onKnob) {
+      const n = strips.length - 1;
+      row = 0;
+      while (row < n - 1 && T >= strips[row + 1]) row++;
+    } else if (e.clientX - box.left < LABEL_W || row < 0 || row >= strips.length - 1) return;
+    dragRow = row;
+    heat.setPointerCapture(e.pointerId);
+    heat.classList.add("pq-dragging");
+    if (!onKnob) moveT(timeAt(e, row));
+    e.preventDefault();
   });
+  heat.addEventListener("pointermove", (e) => {
+    if (dragRow >= 0 && dragRow < strips.length - 1) moveT(timeAt(e, dragRow));
+  });
+  const end = () => {
+    dragRow = -1;
+    heat.classList.remove("pq-dragging");
+  };
+  heat.addEventListener("pointerup", end);
+  heat.addEventListener("pointercancel", end);
 }
 
 // ---------- The map: NECOFS surface currents, the buoy and the NOAA stations ----------
@@ -637,7 +798,7 @@ function drawMapScale(): void {
   }
   const pos = (ms: number) => ((Math.log(ms) - Math.log(CURRENTS_FLOOR)) / (Math.log(CURRENTS_TOP) - Math.log(CURRENTS_FLOOR))) * 100;
   const stops = curRamp().map(([ms, c]) => `${c} ${pos(ms).toFixed(1)}%`).join(",");
-  box.innerHTML = `<span>${CURRENTS_FLOOR * 100} cm/s</span><i style="background:linear-gradient(90deg,${stops})"></i><span>${CURRENTS_TOP} m/s (6 kt)</span><span class="pq-faded">the Sound page's currents scale; arrows show where the water goes</span>`;
+  box.innerHTML = `<span>${spdNice(CURRENTS_FLOOR * 100)}</span><i style="background:linear-gradient(90deg,${stops})"></i><span>${spdNice(CURRENTS_TOP * 100)}</span><span class="pq-faded">the Sound page's currents scale; arrows show where the water goes</span>`;
 }
 
 async function drawMap(): Promise<void> {
@@ -674,7 +835,7 @@ async function drawMap(): Promise<void> {
    it updates when the time moves. */
 let tipAt: { x: number; y: number } | null = null;
 let refreshTip: () => void = () => undefined;
-const KTS = (cms: number) => `${(cms * KT).toFixed(2)} kt (${Math.round(cms)} cm/s)`;
+const KTS = (cms: number) => spdTxt(cms, 2);
 const TOWARD = (u: number, v: number) => `${Math.round(((Math.atan2(u, v) * 180) / Math.PI + 360) % 360)}°`;
 
 function buoyTip(): string {
@@ -713,7 +874,7 @@ function stationTip(i: number): string {
   }
   const v = at(D.current, T);
   const next = D.current?.events.find((e) => sec(e.t) > T && e.type === "slack");
-  return `<b>NOAA Portsmouth Harbor Entrance</b><br>${v == null ? "No prediction at this time." : `Predicted ${Math.abs(v * KT).toFixed(2)} kt ${v >= 0 ? "flood" : "ebb"} at 2.4 m`}` +
+  return `<b>NOAA Portsmouth Harbor Entrance</b><br>${v == null ? "No prediction at this time." : `Predicted ${spdTxt(Math.abs(v), 2)} ${v >= 0 ? "flood" : "ebb"} at 2.4 m`}` +
     (next ? `<br>Next slack ${fmtShort.format(new Date(next.t))}` : "");
 }
 
@@ -784,20 +945,31 @@ function wireMapTip(map: MapLibreMap, popup: import("maplibre-gl").Popup, pins: 
 
 const restyleMap = () => MAP?.setStyle(light() ? STYLE_LIGHT : STYLE_DARK);
 
-/* The 3D view: a separate module with its own data (/piscataqua/pane/), loaded the first time it is chosen. The page
-   owns the clock: it passes every time change in, and the pane's "Go to data window" moves the page's time. */
-interface Pane { setTime(t: number): void; setTheme(light: boolean): void; dispose(): void }
+/* The 3D view: a separate module with its own data (/portsmouth-harbor/pane/), the default view. The page owns the clock:
+   it passes every time change in, and learns the pane's data window (for Jump to and Play) once its data load. */
+interface Pane { setTime(t: number): void; setTheme(light: boolean): void; setUnits?(unit: "kt" | "mph" | "ms"): void; dispose(): void }
+interface PaneOpts { dataBase: string; title?: boolean; onReady?: (range: { t0: number; t1: number }) => void }
 let PANE: Pane | null = null;
-const PANE_BASE = "/piscataqua/pane/"; // the module; its data come from the Worker (Workers KV)
+let PANE_RANGE: [number, number] | null = null; // the pane's data window, epoch s
+let paneReady: (r: [number, number] | null) => void = () => undefined;
+const paneRange = new Promise<[number, number] | null>((res) => (paneReady = res));
+const PANE_BASE = "/portsmouth-harbor/pane/"; // the module; its data come from the Worker (Workers KV)
 const PANE_DATA = "/data/v1/piscataqua-pane/";
+let VIEW: "map" | "3d" = "3d";
 
 async function showView(next: "map" | "3d"): Promise<void> {
+  VIEW = next;
   $("map").hidden = next !== "map";
   $("pane3d").hidden = next !== "3d";
-  $("view-label").textContent = next === "map" ? "Surface currents" : "Currents in 3D";
+  $("map-scale").hidden = next !== "map";
+  $("view-label").textContent = next === "map" ? "Surface currents, NECOFS model" : "Currents in 3D";
   $("map-when").hidden = next !== "map";
   document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === next)));
+  // The view in the address, so a link opens it (3D needs none: it is the default).
+  history.replaceState(null, "", next === "map" ? "#map" : location.pathname + location.search);
   if (next === "map") {
+    // The map is built the first time it is shown, so the 3D default never loads MapLibre.
+    if (!MAP) await drawMap();
     MAP?.resize();
     return;
   }
@@ -805,35 +977,62 @@ async function showView(next: "map" | "3d"): Promise<void> {
   const box = $("pane3d");
   box.innerHTML = `<p class="note pq-3d-wait">Loading the 3D view…</p>`;
   try {
-    const mod = (await import(/* @vite-ignore */ `${PANE_BASE}pane.js`)) as { mountPane: (el: HTMLElement, o: { dataBase: string; onTime?: (t: number) => void }) => Pane };
+    const mod = (await import(/* @vite-ignore */ `${PANE_BASE}pane.js`)) as { mountPane: (el: HTMLElement, o: PaneOpts) => Pane };
     box.replaceChildren();
-    PANE = mod.mountPane(box, { dataBase: PANE_DATA, onTime: (t) => setT(t) });
+    PANE = mod.mountPane(box, {
+      dataBase: PANE_DATA,
+      title: false, // the figure's caption names the view
+      onReady: ({ t0, t1 }) => {
+        PANE_RANGE = [t0, t1];
+        extendRange(t0, t1);
+        paneReady(PANE_RANGE);
+      },
+    });
     PANE.setTheme(light());
+    PANE.setUnits?.(U);
     PANE.setTime(T);
   } catch {
     box.innerHTML = `<p class="note">The 3D view could not be loaded.</p>`;
+    paneReady(null);
   }
 }
 
+/** Move the time bar into a box that covers the page (full screen, the charts dialog), or back to its place (null). */
+let barHome: Comment | null = null;
+function dockBar(into: HTMLElement | null): void {
+  const bar = $("timebar");
+  if (!barHome) {
+    barHome = document.createComment("time bar");
+    bar.before(barHome);
+  }
+  if (into && bar.parentElement !== into) into.append(bar);
+  else if (!into && bar.parentElement !== barHome.parentNode) barHome.after(bar);
+  bar.classList.toggle("pq-timebar-in", !!into);
+}
+
 function wireViews(): void {
-  document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((b) => b.addEventListener("click", () => void showView(b.dataset.view === "3d" ? "3d" : "map")));
+  document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((b) => b.addEventListener("click", () => void showView(b.dataset.view === "map" ? "map" : "3d")));
   // Full screen on the view's box (map or 3D); both fill it and follow its size. A fixed full-window class where the
-  // Fullscreen API is missing (iPhone Safari).
+  // Fullscreen API is missing (iPhone Safari). The time bar moves into the box while it is full screen, and back.
   const box = $("viewbox");
   const btn = $("fullscreen");
   const sync = () => {
     const on = document.fullscreenElement === box || box.classList.contains("pq-full");
     btn.textContent = on ? "Exit full screen" : "Full screen";
     btn.setAttribute("aria-pressed", String(on));
+    dockBar(on ? box : null);
+    $("fs-exit").hidden = !on; // the page's button is outside the box, so the bar carries its own way out
     window.setTimeout(() => MAP?.resize(), 50);
   };
-  btn.addEventListener("click", () => {
+  const toggle = () => {
     if (document.fullscreenElement === box) void document.exitFullscreen();
     else if (box.classList.contains("pq-full")) box.classList.remove("pq-full");
     else if (box.requestFullscreen) void box.requestFullscreen().catch(() => box.classList.add("pq-full"));
     else box.classList.add("pq-full");
     window.setTimeout(sync, 60);
-  });
+  };
+  btn.addEventListener("click", toggle);
+  $("fs-exit").addEventListener("click", toggle);
   document.addEventListener("fullscreenchange", sync);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && box.classList.contains("pq-full")) {
@@ -862,6 +1061,27 @@ function drawMethod(): void {
     ["Gaps", "The buoy reports through a shore computer, so its record can stop for days. The page shows how old each source is and draws gaps as gaps; the map, the tide and the predicted current run to now and beyond."],
   ];
   $("method").innerHTML = items.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+}
+
+// ---------- Units ----------
+
+/** The kt / mph / m/s switch in the masthead: saved under the Sound page's key, so the choice carries between pages. */
+function wireUnits(redraw: () => void): void {
+  const buttons = document.querySelectorAll<HTMLButtonElement>("[data-unit]");
+  const mark = () => buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.unit === U)));
+  mark();
+  buttons.forEach((b) =>
+    b.addEventListener("click", () => {
+      U = (b.dataset.unit as Unit) in UNITS ? (b.dataset.unit as Unit) : "kt";
+      try {
+        localStorage.setItem("lhzn-blue-wind-unit", U);
+      } catch {
+        /* private mode: the choice lasts for this page only */
+      }
+      mark();
+      redraw();
+    }),
+  );
 }
 
 // ---------- Theme ----------
@@ -899,18 +1119,25 @@ function drawPlots(): void {
   framePending = requestAnimationFrame(() => {
     framePending = 0;
     drawHeat();
-    drawTide();
-    drawFlow();
+    drawCharts();
     markAsOf(T);
   });
+}
+
+/** The small chart always; the full ones only while their dialog is open. */
+function drawCharts(): void {
+  drawSpark();
+  if (chartsOpen()) {
+    drawTide();
+    drawFlow();
+  }
 }
 
 function drawAll(): void {
   drawFresh();
   view();
   drawHeat();
-  drawTide();
-  drawFlow();
+  drawCharts();
   setT(T);
 }
 
@@ -935,7 +1162,6 @@ async function main(): Promise<void> {
     const e = $("load-error");
     e.hidden = false;
     e.innerHTML = "<b>The data could not be loaded.</b> Please try again in a few minutes.";
-    $("fresh").textContent = "";
     return;
   }
   D = d;
@@ -947,19 +1173,28 @@ async function main(): Promise<void> {
   if (CUR) ends.push(sec(CUR.field.t0) + (CUR.field.steps - 1) * CUR.field.step);
   X1 = Math.max(now() + HOUR, ...ends);
   X0 = Math.min(b ? sec(b.t0) : now() - 7 * 86400, now() - 7 * 86400);
-  T = now(); // the live view; a quiet buoy's banner offers a jump to its last record
+  T = now(); // the live view; the time bar's Jump to reaches a quiet buoy's last record
   wireTime();
+  extendRange(X0, X1); // onto the slider's 10-minute grid
   wireTheme(() => {
     drawAll();
     drawMapScale();
     restyleMap();
     PANE?.setTheme(light());
   });
+  wireUnits(() => {
+    drawAll();
+    drawMapScale();
+    refreshTip();
+    PANE?.setUnits?.(U);
+  });
   wireViews();
+  wireNotice();
+  wireCharts();
   drawMethod();
   drawMapScale();
   drawAll();
-  void drawMap();
+  void showView(location.hash === "#map" ? "map" : "3d");
   let pending = 0;
   window.addEventListener("resize", () => {
     window.clearTimeout(pending);

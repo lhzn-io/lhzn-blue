@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Light by default; a saved choice of dark is applied before first paint so the page never flashes.
+      document.documentElement.dataset.theme = "light";
+      try {
+        if (localStorage.getItem("lhzn-blue-theme") === "dark") delete document.documentElement.dataset.theme;
+      } catch (e) {}
+    </script>
+    <title>Portsmouth Harbor | longhorizon.blue</title>
+    <meta name="description" content="Currents under the UNH buoy at the mouth of the Piscataqua River, with NOAA water level, tide and tidal current predictions." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Josefin+Sans:wght@300;400;600;700&family=Martian+Mono:wght@300;400;500&display=swap"
+    />
+  </head>
+  <body class="fc pq">
+    <header class="mast fc-mast">
+      <div class="mast-id">
+        <span class="fc-eyebrow">Buoy spotlight</span>
+        <h1 class="fc-title">Portsmouth Harbor</h1>
+        <p class="mast-by"><a class="lho" href="https://longhorizon.eco/observatory">Long Horizon Observatory</a> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An unlisted preview: views, wording and data handling may change">Preview</span> <span class="outage-wrap"><button class="outage-icon" id="outage-icon" type="button" hidden aria-describedby="outage-pop" title="Data notice" aria-label="Data notice"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.4v4.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.4" r="0.9" fill="currentColor"/></svg><span id="outage-label">Data</span></button><span class="outage-pop" id="outage-pop" role="tooltip"></span></span></p>
+      </div>
+      <nav class="fc-nav" aria-label="Page">
+        <span class="pq-seg pq-units" role="group" aria-label="Units for currents"><button type="button" class="pq-btn" data-unit="kt" aria-pressed="true">kt</button><button type="button" class="pq-btn" data-unit="mph" aria-pressed="false">mph</button><button type="button" class="pq-btn" data-unit="ms" aria-pressed="false">m/s</button></span>
+        <button class="theme-icon" id="theme-toggle" type="button" aria-pressed="false"></button>
+      </nav>
+    </header>
+
+    <main class="fc-main">
+      <p class="outage" id="load-error" role="status" hidden></p>
+      <dialog class="outage-dialog" id="outage-dialog" aria-label="Data notice"><p id="outage-dialog-text"></p><button type="button" id="outage-dialog-close">Close</button></dialog>
+
+      <!-- One clock for the page: pinned while scrolling, and moved into the view's box in full screen. -->
+      <div class="pq-timebar" id="timebar" role="group" aria-label="Time">
+        <div class="pq-tb-row">
+          <button type="button" class="pq-btn pq-play" id="play" aria-pressed="false">Play</button>
+          <button type="button" class="pq-btn" id="back" aria-label="Back 10 minutes">&minus;10m</button>
+          <input type="range" id="slider" min="0" max="1" step="600" value="0" aria-label="Time" />
+          <button type="button" class="pq-btn" id="fwd" aria-label="Ahead 10 minutes">+10m</button>
+          <button type="button" class="pq-btn" id="to-now">Now</button>
+          <select class="pq-btn pq-jump" id="jump" aria-label="Jump to">
+            <option value="" selected>Jump to</option>
+            <option value="buoy">Buoy's last record</option>
+            <option value="pane">3D data window</option>
+          </select>
+          <button type="button" class="pq-btn" id="zoom" aria-pressed="false" title="Plots: three days around the time, or the whole record">Full record</button>
+          <button type="button" class="pq-btn" id="fs-exit" hidden>Exit full screen</button>
+        </div>
+        <p class="fc-read pq-tb-read" id="read" aria-live="polite"></p>
+      </div>
+
+      <section class="fc-sec" aria-labelledby="cur-title">
+        <h2 class="fc-h" id="cur-title">Currents</h2>
+        <p class="prose fc-say">The currents in 3D or on a map, the buoy's profile beside them, and every profile in time below. The time bar moves all of them, and the tide, together.</p>
+        <div class="pq-pair">
+          <figure class="pq-mapfig">
+            <div class="pq-viewctl">
+              <span class="pq-seg pq-seg-view" role="group" aria-label="View"><button type="button" class="pq-btn" data-view="3d" aria-pressed="true">3D</button><button type="button" class="pq-btn" data-view="map" aria-pressed="false">Map</button></span>
+              <button type="button" class="pq-btn" id="fullscreen" aria-pressed="false">Full screen</button>
+            </div>
+            <figcaption><span class="cap-label" id="view-label">Currents in 3D</span><span class="cap-sub" id="map-when" hidden>NECOFS model forecast</span></figcaption>
+            <div class="pq-viewbox" id="viewbox">
+              <div class="pq-map" id="map" role="region" aria-label="Map of the model's surface currents, the buoy and the NOAA stations" hidden></div>
+              <div class="pq-3d" id="pane3d" role="region" aria-label="3D view of the model's currents, the seabed and the buoy's profile"></div>
+            </div>
+            <div class="pq-scale" id="map-scale"></div>
+          </figure>
+          <div class="pq-side">
+            <figure class="fc-panel pq-panel">
+              <figcaption><span class="cap-label" id="prof-cap">Profile</span></figcaption>
+              <div class="fc-svgbox" id="profile"></div>
+              <p class="note" id="prof-note"></p>
+            </figure>
+            <!-- The NOAA series in brief: one small chart, current or tide, three days around the time; Expand opens both. -->
+            <figure class="pq-sparkfig">
+              <div class="pq-spark-head">
+                <span class="pq-seg" role="group" aria-label="Chart"><button type="button" class="pq-btn" data-spark="flow" aria-pressed="true">Current</button><button type="button" class="pq-btn" data-spark="tide" aria-pressed="false">Tide</button></span>
+                <button type="button" class="pq-btn" id="charts-open" aria-haspopup="dialog">Expand</button>
+              </div>
+              <div class="plot pq-spark" id="spark-plot"><svg role="img" aria-label="Current along the channel or water level, three days around the selected time"></svg><div class="plot-labels" aria-hidden="true"></div></div>
+              <p class="pq-spark-legend" id="spark-legend"></p>
+            </figure>
+          </div>
+        </div>
+        <figure class="pq-heatfig">
+          <figcaption><span class="cap-label">Current speed by day, UNH buoy</span><span class="cap-sub">one strip per day, cells 1 to 10 from the surface down</span></figcaption>
+          <div class="pq-strip-ctl">
+            <span class="pq-ctl"><span class="fc-ctl-label">Days</span><span class="pq-seg" role="group" aria-label="Days shown"><button type="button" class="pq-btn" data-rows="7" aria-pressed="true">7</button><button type="button" class="pq-btn" data-rows="16" aria-pressed="false">16</button><button type="button" class="pq-btn" data-rows="0" aria-pressed="false">All</button></span></span>
+            <span class="pq-ctl"><span class="fc-ctl-label">Align</span><span class="pq-seg" role="group" aria-label="Align rows"><button type="button" class="pq-btn" data-align="clock" aria-pressed="true">Clock</button><button type="button" class="pq-btn" data-align="tide" aria-pressed="false">Tide</button></span></span>
+          </div>
+          <div class="pq-heat" id="heat"><canvas id="heat-canvas" aria-label="Current speed by depth cell and time"></canvas><div class="pq-cursor" id="heat-cursor"><span class="pq-knob" title="Drag to move the time"></span></div><div class="plot-labels" id="heat-labels" aria-hidden="true"></div></div>
+          <div class="pq-scale" id="heat-scale"></div>
+        </figure>
+      </section>
+
+      <!-- The two charts at full size; the time bar moves in while it is open, so the time can still be moved. -->
+      <dialog class="pq-charts" id="charts-dialog" aria-labelledby="charts-title">
+        <div class="pq-charts-head"><h2 class="fc-h" id="charts-title">Current and tide</h2><button type="button" class="pq-btn" id="charts-close">Close</button></div>
+        <div class="pq-charts-bar" id="charts-bar"></div>
+        <figure>
+          <figcaption><span class="cap-label">Current along the channel</span><span class="cap-sub"><span id="flow-unit">kt</span>, flood (in, toward 342&deg;) positive, Eastern time</span></figcaption>
+          <div class="plot" id="flow-plot"><svg role="img" aria-label="NOAA predicted tidal current at the harbour entrance and the buoy's near-surface current"></svg><div class="plot-labels" aria-hidden="true"></div></div>
+          <div class="legend">
+            <span><i style="background: var(--fc-mid)"></i>predicted, NOAA Portsmouth Harbor Entrance (2.4 m)</span>
+            <span><i style="background: #1f7f86"></i>NECOFS model at the buoy (surface, dashed)</span>
+            <span><i style="background: var(--now)"></i>UNH buoy, cells 1 to 10 averaged</span>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><span class="cap-label">Water level</span><span class="cap-sub">ft above MLLW, Eastern time</span></figcaption>
+          <div class="plot" id="tide-plot"><svg role="img" aria-label="Observed water level at Seavey Island and predicted tide at Fort Point"></svg><div class="plot-labels" aria-hidden="true"></div></div>
+          <div class="legend">
+            <span><i style="background: var(--now)"></i>observed, NOAA Seavey Island (3 km up-river)</span>
+            <span><i style="background: var(--fc-mid)"></i>predicted, NOAA Fort Point</span>
+          </div>
+        </figure>
+      </dialog>
+
+      <section class="fc-sec fc-method" aria-labelledby="method-title">
+        <h2 class="fc-h" id="method-title">Method and caveats</h2>
+        <dl class="about-list" id="method"></dl>
+      </section>
+
+      <section class="fc-sec pq-refs" aria-labelledby="refs-title">
+        <h2 class="fc-h" id="refs-title">References</h2>
+        <ol class="pq-reflist">
+          <li id="ref-chen2003">Chen, C., Liu, H. and Beardsley, R. C. (2003). An unstructured grid, finite-volume, three-dimensional, primitive equations ocean model: application to coastal ocean and estuaries. <i>Journal of Atmospheric and Oceanic Technology</i>, 20(1), 159&ndash;186. <a href="https://doi.org/10.1175/1520-0426(2003)020%3C0159:AUGFVT%3E2.0.CO;2">doi:10.1175/1520-0426(2003)020&lt;0159:AUGFVT&gt;2.0.CO;2</a></li>
+          <li id="ref-chen2006">Chen, C., Beardsley, R. C. and Cowles, G. (2006). An unstructured grid, finite-volume coastal ocean model (FVCOM) system. <i>Oceanography</i>, 19(1), 78&ndash;89. <a href="https://doi.org/10.5670/oceanog.2006.92">doi:10.5670/oceanog.2006.92</a></li>
+          <li id="ref-mclaughlin">McLaughlin, J. W., Bilgili, A. and Lynch, D. R. (2003). Numerical modeling of tides in the Great Bay Estuarine System: dynamical balance and spring&ndash;neap residual modulation. <i>Estuarine, Coastal and Shelf Science</i>, 57, 283&ndash;296. <a href="https://doi.org/10.1016/S0272-7714(02)00355-4">doi:10.1016/S0272-7714(02)00355-4</a></li>
+          <li id="ref-bilgili">Bilgili, A., Swift, M. R., Lynch, D. R. and Ip, J. T. C. (2003). Modeling bed-load transport of coarse sediments in the Great Bay Estuary, New Hampshire. <i>Estuarine, Coastal and Shelf Science</i>, 58, 937&ndash;950. <a href="https://doi.org/10.1016/j.ecss.2003.07.007">doi:10.1016/j.ecss.2003.07.007</a></li>
+          <li id="ref-qartod">U.S. Integrated Ocean Observing System (2019). <i>Manual for Real-Time Quality Control of In-Situ Current Observations: A Guide to Quality Control and Quality Assurance of Acoustic Doppler Current Profiler Observations</i>, version 2.1. <a href="https://doi.org/10.25923/sqe9-e310">doi:10.25923/sqe9-e310</a></li>
+        </ol>
+      </section>
+
+      <footer class="credits">
+        <p>
+          <b>Data:</b> the current profiler on the University of New Hampshire's G-2000 buoy (UNH Center for Sustainable Seafood Systems), as logged;
+          water level, tide and tidal current predictions from
+          <a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a>; surface currents from the <a href="https://fvcom.smast.umassd.edu/necofs/">NECOFS</a> FVCOM model,
+          University of Massachusetts Dartmouth (SMAST). Thank you to all three.
+        </p>
+        <p><b>Provisional data.</b> Not for navigation. <a href="/terms/">Terms</a>.</p>
+        <p>A <a href="/">longhorizon.blue</a> page by <a href="https://longhorizon.eco/observatory">Long Horizon Observatory</a>.</p>
+      </footer>
+    </main>
+
+    <script type="module" src="../src/piscataqua-page.ts"></script>
+  </body>
+</html>

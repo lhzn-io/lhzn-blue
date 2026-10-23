@@ -41,13 +41,13 @@ const FILES: Record<string, number> = {
   "v1/waves-nwps.json": 1800,
   "v1/advisories.json": 3600,
   "v1/advisories-now.json": 300,
-  "v1/piscataqua.json": 300, // the unlisted /piscataqua/ page
+  "v1/piscataqua.json": 300, // the unlisted /portsmouth-harbor/ page
   "v1/panels.json": 300,
   "v1/fields/sst.json": 3600,
   "v1/fields/chl.json": 3600,
   "v1/fields/kd490.json": 3600,
   "v1/fields/currents.json": 3600,
-  "v1/fields/piscataqua-currents.json": 3600, // the unlisted /piscataqua/ page's own box
+  "v1/fields/piscataqua-currents.json": 3600, // the unlisted /portsmouth-harbor/ page's own box
   "v1/fields/piscataqua-currents-mesh.json": 86400,
   "v1/fields/piscataqua-currents-history.bin": 3600, // the model's past hours, loaded when the time goes back
   "v1/fields/hrrr-wind.json": 600,
@@ -64,7 +64,7 @@ const FILES: Record<string, number> = {
   "v1/fields/sst-90d.bin": 3600,
   "v1/fields/chl-90d.bin": 3600,
   "v1/fields/kd490-90d.bin": 3600,
-  // The /piscataqua/ page's 3D view: one fixed window (a spring tide), uploaded once with scripts/upload-pane-data.sh.
+  // The /portsmouth-harbor/ page's 3D view: one fixed window (a spring tide), uploaded once with scripts/upload-pane-data.sh.
   ...Object.fromEntries(
     ["mesh.json", "nodes.f32", "tri.u16", "zeta.i16", "u.i16", "v.i16", "profile.json", "tracks.f32", "tracks.json", "dem.bin", "dem.json", "buoy.json"].map((f) => [`v1/piscataqua-pane/${f}`, 86400]),
   ),

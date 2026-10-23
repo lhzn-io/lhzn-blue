@@ -1,0 +1,3 @@
+# The buoy page's earlier address (Cloudflare Workers static assets; a #map link keeps its hash).
+/piscataqua /portsmouth-harbor/ 301
+/piscataqua/ /portsmouth-harbor/ 301

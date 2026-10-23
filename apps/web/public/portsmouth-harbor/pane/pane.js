@@ -1,11 +1,13 @@
 // Piscataqua River, 3D: NECOFS currents on their native FVCOM mesh, particle tracks,
 // fused bathymetry and the UNH buoy current profile, over a 4.4 km box centred on the buoy.
 //
-// mountPane(el, { dataBase, onTime }) => { setTime(t), setTheme(light), dispose() }
-//   t is epoch seconds UTC. The page owns the clock: the pane never advances time itself. Each
-//   source is shown at its latest record at or before t and held until its next record; nothing
-//   is interpolated in time. onTime(t), if given, is called only when the viewer asks the pane to
-//   jump into the data window (the "Go to data window" button); the page decides whether to follow.
+// mountPane(el, { dataBase, title, controls, onReady }) => { setTime(t), setTheme(light), timeRange(), dispose() }
+//   t is epoch seconds UTC. The page owns the clock: the pane never advances time itself and has
+//   no time controls. Each source is shown at its latest record at or before t and held until its
+//   next record; nothing is interpolated in time. onReady({ t0, t1 }), if given, is called once the
+//   data have loaded, with the model's first and last hours (timeRange() returns the same, or null
+//   before then), so the page can offer a jump into the window. title: false drops the heading
+//   (the page's caption names the view); controls: false drops the Controls panel.
 //
 // Frame: east and north metres from the buoy (43.06870 N, 70.70790 W); scene x = east,
 // scene -z = north, scene y = elevation in metres times the vertical exaggeration.
@@ -180,23 +182,33 @@ const CSS = `
 .pqp-status { font-family: "Martian Mono", ui-monospace, Menlo, monospace; font-size: 11px; color: var(--pqp-dim);
   pointer-events: none; }
 .pqp-status b { color: var(--pqp-ink-soft); font-weight: 500; }
-.pqp-panelwrap { right: 10px; top: 52px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
-  max-height: calc(100% - 64px); }
-.pqp-btn { font: inherit; font-size: 12px; color: var(--pqp-ink); background: var(--pqp-panel); border: 1px solid var(--pqp-rule);
-  border-radius: 3px; padding: 5px 9px; cursor: pointer; }
-.pqp-btn[aria-pressed="true"] { background: var(--pqp-accent); color: var(--pqp-button-ink); border-color: var(--pqp-accent); }
-.pqp-panel { background: var(--pqp-panel); border: 1px solid var(--pqp-rule); border-radius: 4px; padding: 8px 10px;
-  width: 238px; overflow-y: auto; display: flex; flex-direction: column; gap: 7px; }
+.pqp-top { right: 56px; } /* clear of the panel's icon button */
+.pqp-panelwrap { right: 10px; top: 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  max-height: calc(100% - 16px); }
+.pqp-iconbtn { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; cursor: pointer; color: var(--pqp-ink);
+  background: var(--pqp-panel); border: 1px solid var(--pqp-rule); border-radius: 3px; }
+.pqp-iconbtn:hover { border-color: var(--pqp-accent); }
+.pqp-iconbtn[aria-expanded="true"] { background: var(--pqp-accent); color: var(--pqp-button-ink); border-color: var(--pqp-accent); }
+.pqp-btn { min-height: 28px; padding: 0 10px; font: 600 9.5px/1 "Josefin Sans", "Futura", "Century Gothic", sans-serif;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--pqp-ink-soft); background: var(--pqp-panel);
+  border: 1px solid var(--pqp-rule); border-radius: 3px; cursor: pointer; white-space: nowrap; }
+.pqp-btn:hover { color: var(--pqp-ink); border-color: var(--pqp-accent); }
+.pqp-btn[aria-pressed="true"], .pqp-btn[aria-expanded="true"] { background: var(--pqp-accent); color: var(--pqp-button-ink); border-color: var(--pqp-accent); }
+.pqp-panel { background: var(--pqp-panel); border: 1px solid var(--pqp-rule); border-radius: 3px; padding: 6px 10px 10px;
+  width: 212px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
 .pqp-panel[hidden] { display: none; }
-.pqp-panel h4 { margin: 4px 0 0; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--pqp-accent); }
+.pqp-panel h4 { margin: 6px 0 0; padding-top: 6px; border-top: 1px solid var(--pqp-rule); font-size: 8.5px; font-weight: 700;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--pqp-faint); }
+.pqp-panel h4:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .pqp-row { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
 .pqp-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-.pqp-panel select, .pqp-panel input[type=range] { font: inherit; font-size: 12px; color: var(--pqp-ink);
-  background: transparent; border: 1px solid var(--pqp-rule); border-radius: 3px; max-width: 140px; }
+.pqp-panel select, .pqp-panel input[type=range] { font: inherit; font-size: 11.5px; color: var(--pqp-ink);
+  background: transparent; border: 1px solid var(--pqp-rule); border-radius: 3px; max-width: 118px; }
 .pqp-panel select option { color: #111; }
-.pqp-panel input[type=range] { width: 120px; accent-color: var(--pqp-accent); border: none; }
+.pqp-panel input[type=range] { width: 100px; accent-color: var(--pqp-accent); border: none; }
 .pqp-panel input[type=checkbox] { accent-color: var(--pqp-accent); }
+.pqp-panel .pqp-btn { min-height: 26px; padding: 0 8px; }
+.pqp-acts { justify-content: flex-start; margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--pqp-rule); }
 .pqp-note { font-size: 11px; color: var(--pqp-dim); }
 .pqp-legend { left: 10px; bottom: 26px; background: var(--pqp-panel); border: 1px solid var(--pqp-rule); border-radius: 4px;
   padding: 7px 9px; max-width: 300px; display: flex; flex-direction: column; gap: 5px; font-size: 11px; }
@@ -209,8 +221,19 @@ const CSS = `
   pointer-events: none; }
 .pqp-msg { left: 50%; top: 50%; transform: translate(-50%, -50%); background: var(--pqp-panel); border: 1px solid var(--pqp-rule);
   border-radius: 4px; padding: 10px 14px; text-align: center; max-width: 80%; }
-.pqp-msg[hidden], .pqp-goto[hidden] { display: none; }
-.pqp-legtoggle { display: none; }
+.pqp-msg[hidden] { display: none; }
+.pqp-out { color: var(--pqp-ink-soft); }
+/* The legend starts closed to its button, at every width; the (i) beside it opens the notes. */
+.pqp-legbtns { display: flex; gap: 6px; align-items: center; }
+.pqp-legbtns .pqp-iconbtn { width: 28px; height: 28px; }
+.pqp-about { inset: 10px; z-index: 3; overflow-y: auto; padding: 10px 14px 12px; background: var(--pqp-bg); border: 1px solid var(--pqp-rule);
+  border-radius: 3px; font-size: 12px; line-height: 1.45; color: var(--pqp-ink-soft); }
+.pqp-about[hidden] { display: none; }
+.pqp-about-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; color: var(--pqp-ink); font-size: 13px; }
+.pqp-about h5 { margin: 10px 0 2px; font-size: 8.5px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--pqp-faint); }
+.pqp-about p { margin: 0; max-width: 72ch; }
+.pqp-legend[data-collapsed="true"] { padding: 0; background: none; border: 0; }
+.pqp-legend[data-collapsed="true"] .pqp-legbody { display: none; }
 .pqp-exag { font-size: 11px; color: var(--pqp-dim); pointer-events: none; }
 .pqp-exag b { color: var(--pqp-ink-soft); font-weight: 600; }
 .pqp-more { font-size: 11px; color: var(--pqp-dim); }
@@ -225,19 +248,22 @@ const CSS = `
   .pqp-legbody { max-height: none; }
   .pqp-title { font-size: 13px; }
   .pqp-status { font-size: 10px; }
-  .pqp-panelwrap { top: auto; bottom: 46px; right: 8px; max-height: calc(100% - 90px); }
-  .pqp-panel { width: min(238px, calc(100vw - 40px)); }
+  .pqp-panelwrap { right: 8px; max-height: calc(100% - 60px); }
+  .pqp-panel { width: min(212px, calc(100vw - 40px)); }
+  .pqp-btn { min-height: 36px; }
   .pqp-legend { left: 8px; bottom: 46px; max-width: calc(100% - 110px); }
-  .pqp-legend[data-collapsed="true"] .pqp-legbody { display: none; }
-  .pqp-legtoggle { display: inline-block; align-self: flex-start; padding: 2px 6px; font-size: 11px; }
 }
 `;
 
 function themeVars(th) {
+    // On longhorizon.blue the panel's text and controls take the site's own colours (read after the page has set its
+    // theme); the pane's values stand in elsewhere. The scene's background stays the pane's.
+    const css = getComputedStyle(document.documentElement);
+    const site = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
     return {
-        '--pqp-bg': th.bg, '--pqp-ink': th.ink, '--pqp-ink-soft': th.inkSoft, '--pqp-dim': th.dim,
-        '--pqp-faint': th.faint, '--pqp-rule': th.rule, '--pqp-accent': th.accent, '--pqp-panel': th.panel,
-        '--pqp-button-ink': th.buttonInk,
+        '--pqp-bg': th.bg, '--pqp-ink': site('--ink', th.ink), '--pqp-ink-soft': site('--ink-soft', th.inkSoft),
+        '--pqp-dim': site('--dim', th.dim), '--pqp-faint': site('--faint', th.faint), '--pqp-rule': site('--rule', th.rule),
+        '--pqp-accent': site('--accent', th.accent), '--pqp-panel': th.panel, '--pqp-button-ink': site('--bg', th.buttonInk),
     };
 }
 
@@ -245,12 +271,15 @@ function themeVars(th) {
 
 export function mountPane(el, opts = {}) {
     const dataBase = opts.dataBase || './data/';
-    const onTime = typeof opts.onTime === 'function' ? opts.onTime : null;
+    const onReady = typeof opts.onReady === 'function' ? opts.onReady : null;
+    const showTitle = opts.title !== false;
+    const showControls = opts.controls !== false;
 
     const state = {
         t: null, light: false, exag: 10, disposed: false, ready: false,
         cells: 'surface', layer: 1, cellOpacity: 0.3, curtain: false, curtainAz: 'along', edges: true,
         bed: 'dem', tracers: true, trailH: 3, buoy: true, buoyDeep: false, showMeas: true, showModel: true, showDiff: false, opacityTouched: false,
+        profiles: 'both', curtainMode: 'off', // the panel's two combined choices (onControl maps them onto the flags above)
     };
 
     // DOM
@@ -261,59 +290,44 @@ export function mountPane(el, opts = {}) {
         document.head.appendChild(st);
     }
     const root = document.createElement('div');
-    root.className = 'pqp';
+    root.className = showTitle ? 'pqp' : 'pqp pqp-notitle';
     root.innerHTML = `
       <div class="pqp-hud pqp-top">
-        <div class="pqp-title">Piscataqua River, Portsmouth Harbor, 3D</div>
+        ${showTitle ? '<div class="pqp-title">Piscataqua River, Portsmouth Harbor, 3D</div>' : ''}
         <div class="pqp-status" aria-live="polite">Loading</div>
         <div class="pqp-exag">Vertical exaggeration <b data-v="exagTop">10</b>x (land above 2.5 m MSL <b data-v="landTop">1</b>x)</div>
       </div>
-      <div class="pqp-hud pqp-panelwrap">
-        <button class="pqp-btn pqp-toggle" aria-expanded="true">Controls</button>
-        <div class="pqp-panel">
-          <h4>Model currents (NECOFS)</h4>
-          <div class="pqp-row"><span>Cells</span><select data-k="cells">
-            <option value="surface">Surface layer</option><option value="one">One layer</option>
-            <option value="all">All layers, translucent</option><option value="none">None</option></select></div>
-          <div class="pqp-row" data-show="one"><span>Layer <b data-v="layer">1</b> of <span data-v="nlay">45</span></span>
-            <input type="range" data-k="layer" min="1" max="45" step="1" value="1"></div>
-          <div class="pqp-row"><span>Cell opacity</span><input type="range" data-k="cellOpacity" min="0.05" max="1" step="0.05" value="0.3"></div>
-          <div class="pqp-row"><label><input type="checkbox" data-k="curtain">Curtain through buoy</label></div>
-          <div class="pqp-row"><span>Curtain line</span><select data-k="curtainAz">
-            <option value="along">Along channel, 342 deg</option><option value="across">Across channel, 72 deg</option></select></div>
-          <details class="pqp-more"><summary>About the curtain</summary>
-            <p>Vertical slice of the model cells through the buoy, coloured by the current along the line; best seen from the side.</p></details>
-          <div class="pqp-row"><label><input type="checkbox" data-k="edges" checked>Mesh edges</label></div>
-          <h4>Seabed</h4>
-          <div class="pqp-row"><span>Show</span><select data-k="bed">
-            <option value="dem">Fused 3 m survey DEM</option><option value="necofs">NECOFS model bed</option>
+      <div class="pqp-hud pqp-panelwrap"${showControls ? '' : ' hidden'}>
+        <button class="pqp-iconbtn pqp-toggle" aria-expanded="false" aria-label="Layers and view" title="Layers and view">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 2 1.5 5.5 8 9l6.5-3.5L8 2Z M1.5 8.5 8 12l6.5-3.5 M1.5 11 8 14.5l6.5-3.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>
+        <div class="pqp-panel" hidden>
+          <div class="pqp-row"><span>Buoy profile</span><select data-k="profiles">
+            <option value="both">Both</option><option value="meas">Measured</option>
+            <option value="model">Model</option><option value="diff">Difference</option><option value="none">None</option></select></div>
+          <div class="pqp-row"><span>Model cells</span><select data-k="cells">
+            <option value="surface">Surface</option><option value="all">All layers</option><option value="none">None</option></select></div>
+          <div class="pqp-row"><span>Curtain</span><select data-k="curtainMode">
+            <option value="off">Off</option><option value="along">Along channel</option><option value="across">Across channel</option></select></div>
+          <div class="pqp-row"><span>Seabed</span><select data-k="bed">
+            <option value="dem">Survey</option><option value="necofs">Model</option>
             <option value="both">Both</option><option value="none">None</option></select></div>
-          <h4>Tracers</h4>
-          <div class="pqp-row"><button class="pqp-btn" data-k="tracers" aria-pressed="true">Tracers on</button>
-            <span>Trail <select data-k="trailH"><option value="1">1 h</option><option value="3" selected>3 h</option>
-            <option value="6">6 h</option></select></span></div>
-          <h4>Profiles at the buoy</h4>
-          <div class="pqp-row pqp-checks"><label><input type="checkbox" data-k="showMeas" checked>Measured</label>
-            <label><input type="checkbox" data-k="showModel" checked>Model</label>
-            <label><input type="checkbox" data-k="showDiff">Difference</label></div>
-          <div class="pqp-row"><label><input type="checkbox" data-k="buoyDeep">Buoy cells 11 to 20 (likely noise)</label></div>
-          <h4>View</h4>
-          <div class="pqp-row"><span>Vertical exaggeration <b data-v="exag">10</b>x</span>
-            <input type="range" data-k="exag" min="1" max="30" step="1" value="10"></div>
-          <details class="pqp-more"><summary>About the exaggeration</summary>
-            <p>Water and seabed at the chosen exaggeration; land above 2.5 m MSL at a tenth of it, so the shore stays readable.</p></details>
-          <div class="pqp-row"><button class="pqp-btn" data-act="focus">Focus buoy</button>
+          <div class="pqp-row pqp-checks"><label><input type="checkbox" data-k="tracers" checked>Tracers</label>
+            <label><input type="checkbox" data-k="edges" checked>Mesh</label></div>
+          <div class="pqp-row"><span>Vertical <b data-v="exag">10</b>x</span>
+            <input type="range" data-k="exag" min="1" max="30" step="1" value="10" aria-label="Vertical exaggeration"></div>
+          <div class="pqp-row pqp-acts"><button class="pqp-btn" data-act="focus">Focus buoy</button>
             <button class="pqp-btn" data-act="reset">Reset view</button></div>
-          <div class="pqp-row"><button class="pqp-btn pqp-goto" data-act="goto" hidden>Go to data window</button></div>
         </div>
       </div>
       <div class="pqp-hud pqp-legend" data-collapsed="true">
-        <button class="pqp-btn pqp-legtoggle" aria-expanded="false">Legend</button>
+        <div class="pqp-legbtns"><button class="pqp-btn pqp-legtoggle" aria-expanded="false">Legend</button>
+          <button class="pqp-iconbtn pqp-info" data-act="about" aria-expanded="false" aria-label="About the 3D view" title="About the 3D view">
+            <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 7.2v4.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="4.8" r="0.9" fill="currentColor"/></svg></button></div>
         <div class="pqp-legbody">
-          <div><span class="pqp-k"><b>Model (NECOFS)</b> speed, m/s (log)</span>
+          <div><span class="pqp-k"><b>Model (NECOFS)</b> speed, <span data-u>m/s</span> (log)</span>
             <div class="pqp-bar" data-bar="speed"></div>
             <div class="pqp-ticks" data-ticks="speed"><span>0.02</span><span>0.1</span><span>0.5</span><span>1</span><span>3.1</span></div></div>
-          <div data-leg="buoy"><span class="pqp-k"><b>Measured (UNH buoy)</b> speed, m/s</span>
+          <div data-leg="buoy"><span class="pqp-k"><b>Measured (UNH buoy)</b> speed, <span data-u>m/s</span></span>
             <div class="pqp-bar" data-bar="measured"></div>
             <div class="pqp-ticks" data-ticks="measured"><span>0</span><span>0.1</span><span>0.2</span><span>0.3</span><span>0.4</span><span>0.5+</span></div></div>
           <div data-leg="curtain" style="display:none"><span class="pqp-k"><b>Curtain</b>: <span data-v="curtainTxt"></span></span>
@@ -321,40 +335,43 @@ export function mountPane(el, opts = {}) {
             <div class="pqp-ticks" data-ticks="curtain"><span>-0.8</span><span>0</span><span>+0.8</span></div></div>
           <div data-leg="buoy"><span class="pqp-k">Profile arrows</span> <svg width="56" height="10" viewBox="0 0 64 10" style="vertical-align:middle">
             <path data-arrow d="M0 4 H50 V1 L64 5 L50 9 V6 H0 Z"/></svg> <span data-v="arrowscale"></span></div>
-          <div data-diff style="display:none"><span class="pqp-k"><b>Model minus measured</b>, m/s</span>
+          <div data-diff style="display:none"><span class="pqp-k"><b>Model minus measured</b>, <span data-u>m/s</span></span>
             <div class="pqp-bar" data-bar="diff"></div>
             <div class="pqp-ticks" data-ticks="diff"><span>0</span><span>0.1</span><span>0.2</span><span>0.3+</span></div>
             <span class="pqp-k">Nearest model layer, buoy record within 5 min of the model hour.</span>
             <details class="pqp-more"><summary>Difference by cell</summary>
-              <table class="pqp-table"><thead><tr><th>Cell</th><th>Layer</th><th>|diff| m/s</th><th>Angle deg</th></tr></thead><tbody></tbody></table>
+              <table class="pqp-table"><thead><tr><th>Cell</th><th>Layer</th><th>|diff| <span data-u>m/s</span></th><th>Angle deg</th></tr></thead><tbody></tbody></table>
               <p>Angle: model direction minus measured, positive clockwise. Directions true. Flagged buoy records are excluded.</p></details></div>
-          <details class="pqp-more" data-leg="tracers"><summary>Tracers</summary>
-            <p>Particle tracks computed offline with FVCOM's own method (which takes the hourly fields linear in time while
-            integrating), shown at their 5-minute records. Coloured by speed over each record on the particle variant of the
-            model's teal scale, kept clear of the seabed's lightness; faded along the trail, newest segment brighter.
-            Released every 3 h at 1, 5 and 10 m depth on a 9 by 9 grid across the box; each lives 9 h.</p></details>
-          <details class="pqp-more" data-leg="buoy"><summary>Measured profile</summary>
-            <p>One arrow per profiler cell, at the buoy. Buoy directions converted from magnetic to true north
-            (declination <span data-v="decl">14.2</span> deg W, WMM2025); the logged values are inferred to be magnetic,
-            not confirmed by UNH. Cell size unconfirmed (about 1 m cells from a profiler near 0.35 m fits the data).
-            Cells 11 to 20 look like noise at or below the seabed (10.2 m below NAVD88) and are hidden unless chosen.
-            Faded arrows: record flagged suspect (tilt over 20 deg) or failed.</p></details>
-          <details class="pqp-more" data-leg="buoy"><summary>Model profile</summary>
-            <p>NECOFS u, v at the layer centres of the model element that holds the buoy, every third of its 45 layers
-            (1, 4, ... 43), at the current hourly record; directions true. Drawn at the buoy, behind the measured stack
-            and fainter. Coloured on the tracers' teal scale.</p></details>
-          <details class="pqp-more" data-leg="curtain"><summary>Curtain</summary>
-            <p>Vertical slice of the model cells along a line through the buoy, each element-layer one flat colour: the
-            velocity component along the line (u sin a + v cos a for the line's bearing a), on a fixed symmetric scale of
-            plus or minus 0.8 m/s, clamped beyond (the window's 99th percentile is 0.73 m/s along the channel and 1.05 m/s across it), drawn at 0.8 opacity.</p></details>
-          <details class="pqp-more"><summary>Datums</summary>
-            <p>Heights are relative to local mean sea level. The survey DEM was raised 0.095 m from NAVD88 (NOAA CO-OPS
-            8423898 Fort Point, NH, epoch 1983 to 2001; Seavey Island 8419870 gives 0.077 m). NECOFS bed and surface are
-            relative to the model's own mean sea level.</p></details>
-          <details class="pqp-more"><summary>Exaggeration</summary>
-            <p>Water and seabed at <span data-v="exag2">10</span>x, land above 2.5 m MSL at <span data-v="landx2">1</span>x.
-            Box 4.4 km, centred on the buoy.</p></details>
         </div>
+      </div>
+      <div class="pqp-hud pqp-about" role="dialog" aria-modal="false" aria-label="About the 3D view" hidden>
+        <div class="pqp-about-head"><b>About the 3D view</b><button class="pqp-btn" data-act="about-close">Close</button></div>
+        <h5>Tracers</h5>
+        <p>Particle tracks computed offline with FVCOM's own method (which takes the hourly fields linear in time while
+        integrating), shown at their 5-minute records. Coloured by speed over each record on the particle variant of the
+        model's teal scale, kept clear of the seabed's lightness; faded along a 3 h trail, newest segment brighter.
+        Released every 3 h at 1, 5 and 10 m depth on a 9 by 9 grid across the box; each lives 9 h.</p>
+        <h5>Measured profile</h5>
+        <p>One arrow per profiler cell, at the buoy. Buoy directions converted from magnetic to true north
+        (declination <span data-v="decl">14.2</span> deg W, WMM2025); the logged values are inferred to be magnetic,
+        not confirmed by UNH. Cell size unconfirmed (about 1 m cells from a profiler near 0.35 m fits the data).
+        Cells 11 to 20 look like noise at or below the seabed (10.2 m below NAVD88) and are not drawn.
+        Faded arrows: record flagged suspect (tilt over 20 deg) or failed.</p>
+        <h5>Model profile</h5>
+        <p>NECOFS u, v at the layer centres of the model element that holds the buoy, every third of its 45 layers
+        (1, 4, ... 43), at the current hourly record; directions true. Drawn at the buoy, behind the measured stack
+        and fainter. Coloured on the tracers' teal scale.</p>
+        <h5>Curtain</h5>
+        <p>Vertical slice of the model cells along a line through the buoy, each element-layer one flat colour: the
+        velocity component along the line (u sin a + v cos a for the line's bearing a), on a fixed symmetric scale of
+        plus or minus 0.8 m/s, clamped beyond (the window's 99th percentile is 0.73 m/s along the channel and 1.05 m/s across it), drawn at 0.8 opacity.</p>
+        <h5>Datums</h5>
+        <p>Heights are relative to local mean sea level. The survey DEM was raised 0.095 m from NAVD88 (NOAA CO-OPS
+        8423898 Fort Point, NH, epoch 1983 to 2001; Seavey Island 8419870 gives 0.077 m). NECOFS bed and surface are
+        relative to the model's own mean sea level.</p>
+        <h5>Exaggeration</h5>
+        <p>Water and seabed at <span data-v="exag2">10</span>x, land above 2.5 m MSL at <span data-v="landx2">1</span>x.
+        Box 4.4 km, centred on the buoy.</p>
       </div>
       <div class="pqp-hud pqp-credits">Currents model: NECOFS (FVCOM GOM7), UMass Dartmouth SMAST. Buoy data: UNH. Bathymetry: NOAA, USACE, USGS.</div>
       <div class="pqp-hud pqp-msg" hidden></div>`;
@@ -371,7 +388,7 @@ export function mountPane(el, opts = {}) {
         panel.hidden = !open;
         toggleBtn.setAttribute('aria-expanded', String(open));
     }
-    setPanelOpen(!narrow());
+    setPanelOpen(false); // the panel and the legend start closed, so the scene has the box
     // On a narrow pane the controls and the legend share the space, so opening one closes the other.
     function setLegendOpen(open) {
         legend.dataset.collapsed = String(!open);
@@ -419,7 +436,27 @@ export function mountPane(el, opts = {}) {
         place('[data-ticks="diff"]', [0, 0.1, 0.2, 0.3], (v) => v / DIFF_TOP);
     }
     applyThemeCss();
-    $('[data-v="arrowscale"]').textContent = `0.5 m/s = ${0.5 * ARROW_M_PER_MS} m on the ground`;
+    // Speeds in the page's unit (setUnits): the legend's words, its tick labels and the difference table. The scales
+    // themselves stay where they are in m/s; only their labels change.
+    const UNITS = { ms: { f: 1, label: 'm/s' }, kt: { f: 1.943844, label: 'kt' }, mph: { f: 2.236936, label: 'mph' } };
+    let unit = 'ms';
+    const unitOf = () => UNITS[unit];
+    function applyUnits() {
+        const u = unitOf();
+        root.querySelectorAll('[data-u]').forEach((s) => { s.textContent = u.label; });
+        root.querySelectorAll('[data-ticks] span').forEach((s) => {
+            if (!s.dataset.ms) s.dataset.ms = s.textContent; // the m/s label, kept to convert from
+            const m = s.dataset.ms.match(/^([+-]?)([\d.]+)(\+?)$/);
+            if (!m) return;
+            const v = Number(m[2]) * u.f;
+            s.textContent = `${m[1]}${v === 0 ? '0' : Number(v.toPrecision(2))}${m[3]}`;
+        });
+        $('[data-v="arrowscale"]').textContent = `${Number((0.5 * u.f).toPrecision(2))} ${u.label} = ${0.5 * ARROW_M_PER_MS} m on the ground`;
+        $('[data-v="curtainTxt"]').textContent = state.curtainAz === 'along'
+            ? `current along the line, ${u.label}; blue ebb (toward 162 deg), brown flood (toward 342 deg)`
+            : `current along the line, ${u.label}; blue toward 252 deg, brown toward 72 deg`;
+    }
+    applyUnits();
 
     // Scene objects, filled in by init().
     let THREE = null, renderer = null, scene = null, camera = null, controls = null, world = null;
@@ -438,13 +475,9 @@ export function mountPane(el, opts = {}) {
     // ---- controls wiring ----
     root.querySelectorAll('[data-k]').forEach((inp) => {
         const k = inp.dataset.k;
-        const ev = inp.tagName === 'BUTTON' ? 'click' : inp.type === 'range' ? 'input' : 'change';
+        const ev = inp.type === 'range' ? 'input' : 'change';
         inp.addEventListener(ev, () => {
-            if (inp.tagName === 'BUTTON') {
-                state[k] = !state[k];
-                inp.setAttribute('aria-pressed', String(state[k]));
-                inp.textContent = state[k] ? 'Tracers on' : 'Tracers off';
-            } else if (inp.type === 'checkbox') state[k] = inp.checked;
+            if (inp.type === 'checkbox') state[k] = inp.checked;
             else if (inp.type === 'range') state[k] = Number(inp.value);
             else state[k] = isNaN(Number(inp.value)) ? inp.value : Number(inp.value);
             onControl(k);
@@ -452,29 +485,33 @@ export function mountPane(el, opts = {}) {
     });
     root.querySelector('[data-act="reset"]').addEventListener('click', () => resetView());
     root.querySelector('[data-act="focus"]').addEventListener('click', () => { if (state.ready) focusBuoy(); });
-    root.querySelector('[data-act="goto"]').addEventListener('click', () => {
-        if (onTime && mesh) onTime(mesh.times[0]);
-    });
+    // The notes on each layer, in one panel over the scene (the (i) beside Legend opens it; Close or Escape shuts it).
+    const about = $('.pqp-about'), aboutBtn = $('[data-act="about"]');
+    const setAbout = (open) => { about.hidden = !open; aboutBtn.setAttribute('aria-expanded', String(open)); };
+    aboutBtn.addEventListener('click', () => setAbout(about.hidden));
+    $('[data-act="about-close"]').addEventListener('click', () => { setAbout(false); aboutBtn.focus(); });
+    about.addEventListener('keydown', (e) => { if (e.key === 'Escape') { setAbout(false); aboutBtn.focus(); } });
 
     function onControl(k) {
-        $('[data-v="layer"]').textContent = String(state.layer);
+        // Combined choices: one menu each for the buoy's profiles and the curtain.
+        if (k === 'profiles') {
+            const p = state.profiles;
+            [state.showMeas, state.showModel, state.showDiff] = [p === 'both' || p === 'meas', p === 'both' || p === 'model', p === 'diff'];
+            k = 'showMeas';
+        } else if (k === 'curtainMode') {
+            const turned = state.curtainMode !== 'off' && state.curtainMode !== state.curtainAz;
+            state.curtain = state.curtainMode !== 'off';
+            if (state.curtain) state.curtainAz = state.curtainMode;
+            k = turned ? 'curtainAz' : 'curtain';
+        }
         $('[data-v="exag"]').textContent = String(state.exag);
         $('[data-v="exag2"]').textContent = String(state.exag);
         $('[data-v="exagTop"]').textContent = String(state.exag);
         const landx = String(+(state.exag * LAND_RELIEF).toFixed(1));
         $('[data-v="landTop"]').textContent = landx;
         $('[data-v="landx2"]').textContent = landx;
-        root.querySelectorAll('[data-show]').forEach((r) => { r.style.display = r.dataset.show === state.cells ? '' : 'none'; });
-        if (k === 'cellOpacity') state.opacityTouched = true;
-        // Difference replaces the two stacks; either stack replaces the difference.
-        if (k === 'showDiff' && state.showDiff) { state.showMeas = false; state.showModel = false; }
-        if ((k === 'showMeas' && state.showMeas) || (k === 'showModel' && state.showModel)) state.showDiff = false;
-        for (const q of ['showMeas', 'showModel', 'showDiff']) $(`input[data-k="${q}"]`).checked = state[q];
         root.querySelectorAll('[data-leg="curtain"]').forEach((x) => { x.style.display = state.curtain ? '' : 'none'; });
-        $('[data-v="curtainTxt"]').textContent = state.curtainAz === 'along'
-            ? 'current along the line, m/s; blue ebb (toward 162 deg), brown flood (toward 342 deg)'
-            : 'current along the line, m/s; blue toward 252 deg, brown toward 72 deg';
-        $('[data-leg="tracers"]').style.display = state.tracers ? '' : 'none';
+        applyUnits(); // the curtain's line of text names its bearing
         root.querySelectorAll('[data-leg="buoy"]').forEach((x) => { x.style.display = state.buoy ? '' : 'none'; });
         if (!state.ready) return;
         if (k === 'exag') { world.scale.y = state.exag; if (objs.dem.visible) demNormals(); updateBuoy(); }
@@ -519,6 +556,7 @@ export function mountPane(el, opts = {}) {
             updateCells(); updateCurtain(); updateBeds(); updateTracks(); updateBuoy();
             applyTime();
             loop();
+            if (onReady) onReady({ t0: mesh.times[0], t1: mesh.times[mesh.times.length - 1] });
         } catch (err) {
             console.error(err);
             showMsg(`The 3D view could not load: ${err.message || err}`);
@@ -549,9 +587,6 @@ export function mountPane(el, opts = {}) {
         // Horizontal speed per element-layer-record, mm/s, from u and v.
         mesh.speed = new Uint16Array(mesh.u.length);
         for (let i = 0; i < mesh.u.length; i++) mesh.speed[i] = Math.min(65535, Math.round(Math.hypot(mesh.u[i], mesh.v[i])));
-        $('[data-v="nlay"]').textContent = String(L);
-        const lr = $('input[data-k="layer"]');
-        lr.max = String(L);
         // Boundary edges of the displayed subset (sides are drawn only there).
         const cnt = new Map();
         const key = (a, b) => (a < b ? a * 65536 + b : b * 65536 + a);
@@ -1274,7 +1309,7 @@ export function mountPane(el, opts = {}) {
             .filter((w) => w.c < BUOY_GOOD_CELLS || state.buoyDeep)
             .map((w) => (w.k < 0
                 ? `<tr><td>${w.c + 1}</td><td>below model bed</td><td></td><td></td></tr>`
-                : `<tr><td>${w.c + 1}</td><td>${w.k + 1}</td><td>${w.mag.toFixed(2)}</td><td>${w.dAng >= 0 ? '+' : ''}${w.dAng.toFixed(0)}</td></tr>`))
+                : `<tr><td>${w.c + 1}</td><td>${w.k + 1}</td><td>${(w.mag * unitOf().f).toFixed(2)}</td><td>${w.dAng >= 0 ? '+' : ''}${w.dAng.toFixed(0)}</td></tr>`))
             .join('');
     }
     function focusBuoy() {
@@ -1339,12 +1374,12 @@ export function mountPane(el, opts = {}) {
         parts.push(`<b>Tracks</b> ${trk.rec >= 0 ? fmtUtc(m.t0 + trk.rec * m.record_step_s).replace(/^\w+ \d+ /, '') : 'no record yet'}`);
         updateTracks();
         if (profStatus) parts.push(profStatus);
-        statusEl.innerHTML = parts.join(' &nbsp;|&nbsp; ');
-        const inWindow = t != null && t >= mesh.times[0] && t <= mesh.times[mesh.times.length - 1] + 3600;
-        root.querySelector('[data-act="goto"]').hidden = inWindow || !onTime;
-        if (!inWindow && t != null) {
-            statusEl.innerHTML += ` &nbsp;|&nbsp; data window ${fmtUtc(mesh.times[0])} to ${fmtUtc(mesh.times[mesh.times.length - 1])}`;
-        }
+        // Outside the window one plain line replaces the per-source times (which would all read the same).
+        const t0 = mesh.times[0], t1 = mesh.times[mesh.times.length - 1];
+        const inWindow = t != null && t >= t0 && t <= t1 + 3600;
+        const day = (x) => fmtUtc(x).replace(/ \d\d:\d\d UTC$/, '');
+        statusEl.innerHTML = inWindow || t == null ? parts.join(' &nbsp;|&nbsp; ')
+            : `<span class="pqp-out">3D data cover ${day(t0)} to ${day(t1)} UTC; ${t < t0 ? 'nothing to show yet' : 'showing their last hour'}.</span>`;
         needsRender = true;
     }
 
@@ -1355,14 +1390,20 @@ export function mountPane(el, opts = {}) {
             state.t = t;
             applyTime();
         },
+        setUnits(u) {
+            if (state.disposed || !(u in UNITS)) return;
+            unit = u;
+            applyUnits();
+            if (state.ready) applyTime(); // the difference table
+        },
+        timeRange() {
+            return mesh ? { t0: mesh.times[0], t1: mesh.times[mesh.times.length - 1] } : null;
+        },
         setTheme(light) {
             if (state.disposed) return;
             state.light = !!light;
             // Default surface-cell opacity per theme (lower on light), until the viewer sets it.
-            if (!state.opacityTouched) {
-                state.cellOpacity = state.light ? 0.15 : 0.3;
-                $('input[data-k="cellOpacity"]').value = String(state.cellOpacity);
-            }
+            state.cellOpacity = state.light ? 0.15 : 0.3;
             applyThemeCss();
             if (!state.ready) return;
             applyThemeScene();

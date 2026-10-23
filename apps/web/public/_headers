@@ -2,8 +2,8 @@
 /references.bib
   Content-Type: text/plain; charset=utf-8
 
-# The unlisted Piscataqua page: kept out of search results (and out of the sitemap and the nav).
-/piscataqua/*
+# The unlisted Portsmouth Harbor buoy page: kept out of search results (and out of the sitemap and the nav).
+/portsmouth-harbor/*
   X-Robots-Tag: noindex, nofollow
-/piscataqua/
+/portsmouth-harbor/
   X-Robots-Tag: noindex, nofollow

@@ -1,120 +1,78 @@
 # Roadmap
 
-What `longhorizon.blue` does next, in rough order. Status as of 2026-10-13.
+What `longhorizon.blue` builds next, in rough order. Last revised 2026-10-23.
 
 ## Principles
 
-- **Observations first, with their age and source.** Every value says when it was measured, where it came from, and
-  what quality control it passed. Not for navigation.
-- **Complement the observing systems, do not replace them.** LISICOS (University of Connecticut) runs the buoys;
-  NERACOOS runs the Mariners' Dashboard; NOAA and USGS run the shore and river gauges. We add depth, comparisons with
-  earlier years, and continuity during outages.
-- **Keep the record.** Data that leaves a public server is not lost to the public: we keep what we have downloaded,
-  show it with its provenance, and say plainly when a sensor is not reporting.
-- **Availability is not reliability.** A series can be published and still be wrong (a fouled sensor, a placeholder
-  column). We say which readings fail a check, and why, rather than drop them silently.
-- **Estimates are labelled as estimates.** Anything not directly observed is drawn differently, carries its method
-  and validation error, and is never mixed into the observed record or the AI prompt's numbers.
+- **Observations first.** Every value carries the time it was measured, its source, and the quality checks it
+  passed. The site is not for navigation.
+- **Complement the observing systems.** LISICOS (University of Connecticut) operates the buoys, NERACOOS publishes
+  the regional Mariners' Dashboard, and NOAA and USGS operate the shore and river gauges. This site adds comparisons
+  with earlier years, model context, and continuity during outages.
+- **Keep the record.** Downloaded data is kept and shown with its provenance. A sensor that stops reporting is
+  marked as missing.
+- **Flag readings; do not drop them.** A reading that fails a check stays visible with the reason it failed.
+- **Label estimates.** Model output and derived values are drawn differently from observations and state their
+  method and measured error. They never enter the observed record or the numbers given to the AI prompt.
 
 ## Done
 
-- [x] Long Island Sound page: Western Sound, Execution Rocks, ARTG, Central Sound
-- [x] This year against earlier years, 7-day change, water column, surface minus bottom, stratification status
-- [x] Full record view per chart, with coverage and provenance; zoom view with tooltips
-- [x] Hourly and daily ingest with range, spike and placeholder tests; a per-waterway salinity range
-- [x] Outage handling: every listed dataset is retried hourly and picked up again if it returns; the daily build
-      never drops an hour it already holds
-- [x] Collect: gather plots, readouts and the map, then ask your own AI (one image and a prompt scoped to them) or
-      send us a suggestion; a mode, so the "+" marks show only while collecting
-- [x] Custom domains (longhorizon.blue, lhzn.blue) and a contact address per waterway
-- [x] Salinity and dissolved oxygen, with oxygen reference levels (Long Island Sound Partnership hypoxia and anoxia,
-      EPA's growth criterion)
-- [x] Shore stations: NOAA CO-OPS at Kings Point, Bridgeport, New Haven and New London (water and air temperature,
-      wind, pressure, water level, tide predictions)
-- [x] Wind and waves view: wind, air, pressure tendency, and waves from our saved downloads, with the wave datasets
-      checked hourly so they return on their own
-- [x] Rivers view: ten USGS gauges (the Pawcatuck added in October 2026), flow against normal for the date, year
-      comparisons, and a watershed map
-- [x] Turbidity view: the buoys' point observations with a stuck-value test and a fouling flag, the biofouling
-      explained, and the Connecticut River's serviced USGS sensor as the river input
-- [x] Surface fields on the map, chosen from a layers control: satellite sea surface temperature (NASA JPL MUR),
-      chlorophyll-a and water clarity (Kd490, NOAA CoastWatch VIIRS, merged across sensors with each pixel's age), and
-      modelled surface currents (NECOFS FVCOM, UMass Dartmouth) on the model's own triangles, 24h back to 72h ahead;
-      fetched through `forcingkit` by a daily job that keeps no cache
-- [x] A page timeline (24h back to 72h ahead) that moves the currents and a rule on every chart; values shown on the
-      chart lines at the cursor
-- [x] Satellite history: the last 90 days of SST, chlorophyll-a and Kd490 played on the map, the timeline switching
-      to days for a satellite layer. One frame a day (SST as analysed; chlorophyll and Kd490 as rolling 7-day
-      composites with each pixel's age), on a fixed colour scale, from one gzipped binary file per field (one byte
-      per pixel for the value and one for the age) that the daily job updates in place: the last 10 days recomputed,
-      older days dropped
-- [x] Per-plot About dialogs with numbered references and the sensors at each buoy; the sections' notes behind an (i)
-      by their names, with only a one-line status for a gap in the data; deep links to a view, a time and a plot
-- [x] Trends under each reading (arrows angled by rate; veering and backing for wind) and seasonal percentiles
-- [x] Weather history: daily wind, air temperature and pressure from NDBC's archives of the same buoys (from 2004 and
-      2005), our saved downloads and the server, for the weather percentiles
-- [x] Wind directions to true north: the server's read about 14 degrees clockwise of NDBC's records of the same buoys
-- [x] Saved copies of the server's datasets three times a week (every dataset for our buoys, with a manifest), so a
-      withdrawn or renamed dataset is not lost
-- [x] Phone layout: one-line bar (View, the data's age, a menu), larger tap targets, nothing wider than the screen;
-      the map pans and zooms only when the reader moves it; hover hints in the site's own style
-- [x] "Use of AI" on the Terms page
+Long Island Sound page:
+
+- [x] Four LISICOS buoys (Western Sound, Execution Rocks, ARTG, Central Sound): water temperature, salinity,
+      dissolved oxygen with the Long Island Sound Partnership hypoxia and anoxia levels and EPA's growth criterion,
+      turbidity with fouling flags, wind, air temperature, pressure and waves
+- [x] This year against earlier years, 7-day change, seasonal percentiles, the water column, and stratification
+- [x] NOAA CO-OPS shore stations at Kings Point, Bridgeport, New Haven and New London; USGS tidal gauges on the Sound;
+      airport wind at Sikorsky and Tweed (NWS ASOS)
+- [x] Rivers view: ten USGS gauges, flow against normal for the date, and a watershed map
+- [x] Map layers: satellite sea surface temperature (NASA JPL MUR) with isotherms, chlorophyll-a and water clarity
+      (NOAA CoastWatch VIIRS) with 90 days of history, NECOFS surface currents, HRRR 10 m wind with 14 days of
+      history, NWPS waves, wind against tide, a small-craft comfort index with discomfort zones, and NWS advisory
+      zones
+- [x] One timeline that sets the time for the map, the charts, the overview table and the pins, with the tidal
+      current's phase beneath it
+- [x] Forecast verification: HRRR wind at the buoys since January 2024, scored by lead time, with the typical error
+      shown on every forecast plot
+- [x] Wind models compared: four models' 10 m wind for the next 48 hours on their own grids
+- [x] Reading the tides: predictions, datums and the moon for the shore stations
+- [x] About, References and Terms pages, including the use of AI
+- [x] Collect: gather plots, readouts and the map, then ask your own AI or send a suggestion
+- [x] Outage handling: every dataset retried hourly, saved copies of the source datasets three times a week, a
+      transcribed record from the LISICOS station panels while the data server is down, and model stand-ins labelled
+      as such
+- [x] Phone layout, and an embed mode for one live figure
 
 ## Next
 
-1. **Station values at the timeline's time.** Map pins and the overview table follow the timeline cursor, marked
-   observed (or forecast, once there is one), with "--" where nothing covers the time.
-2. **Forecast against observed.** Archive NOAA's HRRR forecasts at each station, every hourly run, with the time each
-   was issued and the time it is for, back to 2024 from NOAA's open archive. Then a view with two linked sliders (the
-   time, and how far ahead the forecast was made) showing the observed wind against what each run predicted, and the
-   forecast's errors by lead time, wind direction, speed, season and stability. ECMWF and GFS follow for longer leads.
-3. **Compact currents.** The currents in the same binary frame format as the satellite history (about a third of
-   today's 3.5 MB), and a longer satellite record from the gap-filled 2 km products.
-4. **Design notes.** The palette and the plot grammar written down, with their licence.
+1. **Global models at longer leads.** ECMWF and GFS wind at the buoys, scored the same way as HRRR.
+2. **Tidal currents beside the model.** NOAA tidal current predictions at The Race, Plum Gut and Hell Gate shown
+   with the NECOFS surface currents, and the two compared at each station.
+3. **Compact currents file.** The currents in the binary frame format the satellite history uses, about a third of
+   today's size.
+4. **Design notes.** The palette and the plot grammar documented, with their licence.
 
 ## After that
 
-1. **Fog.** The ingredients at the buoys (how close the air is to its dew point, the air-sea temperature difference),
-   observed visibility from the airport stations around the Sound and satellite fog, and visibility forecasts checked
-   against them.
-2. **Currents, continued.** Tidal current predictions at the CO-OPS current stations (The Race, Plum Gut, Hell Gate)
-   beside the modelled field, and the modelled currents checked against them. Higher-resolution model runs of our own
-   later.
-3. **Tide-averaged flow at Middle Haddam.** The lowest Connecticut River gauge with a tide-free record is
-   Thompsonville, above Hartford (about 86% of the watershed). Below it USGS publishes only tidal flow at Middle
-   Haddam, which reverses with the tide. Add a 25-hour mean of that flow as our own derived series, labelled as such,
-   without normals (USGS publishes none for it).
-4. **Turbidity field.** A modelled turbidity field and short forecast from river discharge, wind and waves, and
-   currents, first at the surface and then through the water column, validated against the USGS river sensor and
-   satellite turbidity rather than the fouling buoy sensors.
-5. **Weather percentiles at the shore stations**, from NOAA's records of their own weather.
-6. **Quality control.** Flat-line test; evaluate IOOS `ioos_qc` (QARTOD) for all tests; use the operator's own QC
-   flags where published.
-7. **Expand east.** The eastern Sound, The Race, and Block Island Sound, from any further buoy data on the LISICOS
-   server, the NERACOOS data servers, NDBC, or other public servers.
-8. **Remote MCP server and documented data files**, so AI clients and the boat-side assistant can query the same
-   numbers the page shows. Until then the data files serve this site only.
+1. **Fog.** Dew-point depression and the air-sea temperature difference at the buoys, visibility from the airport
+   stations around the Sound, satellite fog products, and visibility forecasts scored against them.
+2. **Tide-averaged flow at Middle Haddam.** USGS publishes only tidal flow below Thompsonville on the Connecticut
+   River. A 25-hour mean of the Middle Haddam flow, published as a derived series without normals.
+3. **Turbidity estimate.** A derived surface turbidity field from river discharge, wind, waves and currents, scored
+   against the USGS river sensor and satellite turbidity.
+4. **Weather percentiles at the shore stations**, from NOAA's records of their own weather.
+5. **Quality control.** A flat-line test for every series, the IOOS QARTOD tests through `ioos_qc`, and the
+   operators' own flags where they publish them.
+6. **The eastern Sound.** The Race and Block Island Sound, from any further public buoy, NDBC or NERACOOS data.
+7. **Documented data access.** A remote MCP server and documented data files that return the same numbers the page
+   shows. The current data files serve this site's pages only.
 
 ## Later
 
-- **Gap filling with labelled estimates.** During outages, estimate a buoy's conditions from its neighbours and its
-  own seasonal relationships (for example Central Sound from ARTG and Execution Rocks by season and depth), validated
-  by withholding known periods and publishing the error. Drawn dashed, never merged with observations.
-- **Derived maps.** Chlorophyll, dissolved oxygen, and salinity fields across the Sound.
-- **Vessel traffic summaries** from a contributed AIS receiver: commercial traffic individually, recreational boats
-  only in aggregate.
-- **More waterways**, each when a local partner wants to curate one.
-- **ERDDAP as the data backbone.** Read partner datasets from ERDDAP servers rather than their raw files: the
-  regional ones (NERACOOS and others) and, for the Piscataqua, the UNH buoy's tables once they are served from
-  ERDDAP. One reader for many servers; the Piscataqua step's file-store reader is the stopgap until then.
-
-## Partnerships
-
-- **LISICOS:** credit on every view; restoring the series missing from the public server (Central Sound water
-  quality, the ARTG surface sensor, the wave datasets); correcting the 2023 placeholder values in the Western Sound
-  mid-depth salinity column; servicing dates for the ECO FLNTU turbidity sensors, to mark fouling honestly; the
-  current profiler (ADCP) records from the buoys' surface packages, for the currents view; and operational help
-  getting the full historical record into public catalogs.
-- **NERACOOS:** regional context and the Mariners' Dashboard.
-- **USGS:** the Nissequogue River gauge, discontinued in October 2022 after a record from 1943.
-- **Open Waters:** tides, chart tiles, and AIS contribution.
+- **Gap filling with labelled estimates.** A buoy's conditions estimated from its neighbours and its own seasonal
+  relationships during an outage, scored by withholding known periods, and drawn dashed.
+- **Derived maps.** Chlorophyll, dissolved oxygen and salinity fields across the Sound.
+- **Vessel traffic summaries** from an AIS receiver: commercial traffic by vessel, recreational traffic in aggregate.
+- **More waterways.** A new waterway page starts when a local group wants to curate it.
+- **ERDDAP as the data backbone.** One reader for many ERDDAP servers, so new sources join as dataset names rather
+  than new code.

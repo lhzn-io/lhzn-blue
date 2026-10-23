@@ -16,6 +16,13 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
     fouling flags).
   - `fields.py` (satellite rasters and NECOFS surface currents via forcingkit), `forecast.py` (HRRR at the buoys
     and shore stations via forcingkit `hrrr_points`: a create-only archive per cycle plus the last 48 h to KV).
+  - Map and forecast layers: `hrrr_grid.py` (HRRR wind on its own grid), `hrrr_history.py` (HRRR's last forecast
+    before each hour), `model_grids.py` (the models compared page), `nwps.py` (NWS wave model runs), `wat.py` (wind
+    against tide), `phase.py` (tidal current phase), `rips.py` (charted rips), `advisories.py` (NWS marine
+    advisories), `verify.py` (HRRR scored against the buoys).
+  - More stations: `asos.py` (airport weather), `usgs_tidal.py` (USGS tidal gauges), `tides.py` (tide predictions,
+    datums and moon phases), `panels.py` (a transcribed record from the LISICOS station panels during outages).
+  - `piscataqua.py` and `piscataqua_model.py` (an unlisted page's buoy, NOAA and model data).
   - `snapshot.py` (saved copies of the server's datasets), `archive.py` (reads saved downloads for the imports),
     `cli.py`.
 - `apps/web/src/`:
@@ -29,7 +36,8 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
   - `methods.ts` (the text behind every (i) and the method notes in the prompt; `[[key]]` cites
     `docs/references.bib`), `collect.ts` and `snapshot.ts` (Collect: the tray, the "Ask your AI" prompt, one PNG
     of the collected items), `hints.ts`, `suggest.ts`, `site.css` (design tokens).
-- `apps/web/` pages: `/` (landing), `/long-island-sound/`, `/references/`, `/terms/`. `public/` holds
+- `apps/web/` pages: `/` (landing), `/long-island-sound/` with `forecast/`, `models/` and `tides/`, `/about/`,
+  `/references/`, `/terms/`, and unlisted pages (any page not in `public/sitemap.xml`). `public/` holds
   `basins.geojson`, `references.bib`, `_headers`, `robots.txt` and `sitemap.xml`.
 - `worker/src/index.ts`: static assets plus the files listed in `FILES` under `/data/v1/`, from the `DATA` KV
   binding, same-origin (no CORS) and throttled per client by the `LIMITER` binding. It does no data processing.
@@ -38,9 +46,11 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
 
 ## Rules
 
-- **Public repository.** Describe any ocean model generically ("a downstream ocean model"). Do not reference
-  unannounced projects, internal run names, or private infrastructure; keep project ids, account ids beyond what
-  `wrangler.toml` needs, and tokens in `~/.config/lhzn-blue/env` or Secret Manager.
+- **Public repository.** Name only the public sources and models the site uses. Do not reference unannounced
+  projects, partners or plans, internal run names, or private infrastructure. Bucket names, project ids, account
+  ids beyond what `wrangler.toml` needs, and tokens belong in `~/.config/lhzn-blue/env` or Secret Manager.
+- **Unlisted pages** stay out of the sitemap, the navigation, the README and the roadmap, and send
+  `X-Robots-Tag: noindex` (`public/_headers`).
 - **Cost guards.** `build.Store.write_json` writes only the allow-listed object names (`WRITABLE`) under a size cap.
   Keep it that way: no per-run or timestamped object names in KV. (The forecast archive's per-cycle files go to its
   own create-only store, not KV.)

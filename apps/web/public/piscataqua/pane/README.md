@@ -6,7 +6,7 @@ A self-contained three.js pane (no build step) showing, over a 4.4 km box centre
 - NECOFS (FVCOM GOM7) currents on their native unstructured mesh: one flat colour per element-layer
   prism, a surface skin by default, optionally one layer, all layers, or a curtain through the buoy;
 - particle tracks computed offline with FVCOM's own offline Lagrangian method;
-- the fused 3 m survey topobathymetry (DEM), switchable against the NECOFS faceted bed;
+- 3 m topobathymetry (DEM) merged from NOAA, USACE and USGS surveys, switchable against the NECOFS faceted bed;
 - current profiles at the buoy: measured (UNH buoy), model (NECOFS at the buoy's element), and their
   difference.
 
@@ -14,8 +14,8 @@ Window: 2026-09-28 00:00 to 2026-10-01 00:00 UTC (a spring tide; 73 hourly NECOF
 
 ## Files
 
-On longhorizon.blue the data files are served by the site's Worker from Workers KV at
-`/data/v1/piscataqua-pane/` (uploaded with `scripts/upload-pane-data.sh`); they are not kept in this repository.
+The data files are not kept in this repository. On longhorizon.blue the site's Worker serves them from Workers
+KV at `/data/v1/piscataqua-pane/`, and `scripts/upload-pane-data.sh` uploads them.
 
 | File | Contents |
 | :--- | :--- |
@@ -32,7 +32,7 @@ On longhorizon.blue the data files are served by the site's Worker from Workers 
 | `data/buoy.json` | UNH buoy records in the window: speed (cm/s), logged and true directions, flags, declination |
 
 All coordinates are east and north metres from the buoy (an equirectangular projection about the
-buoy); heights are metres, positive up. About 17 MB in total.
+buoy), and heights are metres, positive up. The data files total about 17 MB.
 
 ## Contract
 
@@ -49,11 +49,11 @@ pane.dispose();        // frees GPU resources and removes the pane's DOM
   latest record at or before `t`, held until its next record, with no time interpolation: NECOFS
   hourly, the buoy every 10 minutes, tracks every 5 minutes. A status line names each record time.
 - `onTime(t)` is called only when the viewer presses "Go to data window" while `t` lies outside the
-  window; the page decides whether to follow.
+  window. The page decides whether to follow.
 - `measuredColour(ms, light)` returns the measured (gold) ramp colour for a speed in m/s, linear
   from 0 to 0.5 m/s, matching the site's own.
-- Works at 375 px (controls and legend collapse to buttons; touch orbit). Theme tokens follow
-  longhorizon.blue (dark by default; light on `setTheme(true)`).
+- At 375 px the controls and legend collapse to buttons, and orbit works by touch. The theme tokens are
+  longhorizon.blue's: dark by default, light after `setTheme(true)`.
 
 ## Sources and credits
 
@@ -61,9 +61,8 @@ Currents model: NECOFS (FVCOM GOM7), UMass Dartmouth SMAST. Buoy data: UNH. Bath
 USACE, USGS. Datums: NOAA CO-OPS. Magnetic declination: NOAA/BGS World Magnetic Model 2025.
 
 The NECOFS files here (`mesh.json`, `nodes.f32`, `tri.u16`, `zeta.i16`, `u.i16`, `v.i16`,
-`profile.json`, and the tracks computed from NECOFS) are a subset of the SMAST NECOFS archive. Wherever
-they or the pane are published, NECOFS is credited to UMass Dartmouth SMAST, as the pane's credit
-line does.
+`profile.json`, and the tracks computed from NECOFS) are a subset of the SMAST NECOFS archive. The
+pane's credit line credits NECOFS to UMass Dartmouth SMAST.
 
 ## Caveats (also shown in the pane's collapsed notes)
 
@@ -80,12 +79,12 @@ line does.
 - Model profile: every third of the 45 layers is drawn, at the buoy, behind the measured stack.
 - Difference: model minus measured at each buoy cell, paired with the model layer whose interfaces
   contain the cell's depth below the moving surface (no pair below the model bed), using the buoy
-  record nearest each model hour within 5 minutes; held between hours. Difference arrows are coloured
-  rose to plum by |difference|, linear from 0 to 0.3 m/s, at 0.55 opacity.
+  record nearest each model hour within 5 minutes. The difference holds between model hours. Difference
+  arrows are coloured rose to plum by |difference|, linear from 0 to 0.3 m/s, at 0.55 opacity.
 - Tracers: released every 3 h at 1, 5 and 10 m depth on a 9 by 9 grid across the box, each tracked 9 h
   on a padded model subset (RK4, 30 s step, the fields linear in time between hourly records as
-  FVCOM's offline method does); drawn only at their 5-minute records.
+  FVCOM's offline method does). Tracks are drawn only at their 5-minute records.
 - The curtain is coloured by the velocity component along its line on a fixed scale of +-0.8 m/s
   (just above the 0.73 m/s along-channel 99th percentile; stronger flow, mostly on the cross-channel
-  line, clamps to the end colours), drawn at 0.8 opacity.
-- three.js is loaded from jsDelivr's `+esm` builds; a site Content Security Policy must allow it.
+  line, clamps to the end colours). The curtain is drawn at 0.8 opacity.
+- three.js loads from jsDelivr's `+esm` builds, so a site Content Security Policy must allow cdn.jsdelivr.net.

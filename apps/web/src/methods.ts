@@ -368,9 +368,9 @@ METHODS["map-comfort"] = {
     "the boat set in the byline; cold water raises a level. Shore cells (harbours, coves) carry wind only. Shown as a " +
     "score from 0 to 7: each factor runs linearly between its steps, so 1 is the Moderate step, 2 Uncomfortable and 3 " +
     "Discomfort; past Discomfort it gains a point for each half of that step again (for a center console, 30, 40 and " +
-    "50 kt of wind, or 1.5, 2 and 2.5 m of waves), and the worst factor sets the score. Up to 3 it is a light brick " +
-    "tint, clear at 0; past 3 the colour itself darkens, toward oxblood and near black (a deeper crimson on the dark " +
-    "map), with opacity rising only modestly. The Discomfort zones overlay marks where the score reaches 3, " +
+    "50 kt of wind, or 1.5, 2 and 2.5 m of waves), and the worst factor sets the score. The shading runs from clear at 0 " +
+    "through pale pink to rose at 3, then raspberry and plum toward 7 (on the dark map, from dim plum to pale pink). " +
+    "NWS advisories keep their brick outline, apart from this scale. The Discomfort zones overlay marks where the score reaches 3, " +
     "crosshatched within a fine outline, over this field or over wind, waves or currents.",
   caveats:
     "The score places a cell between fixed thresholds; it is not a probability, and its fractions are as much a judgement " +

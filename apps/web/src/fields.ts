@@ -1285,19 +1285,20 @@ function comfortCellsGeoJSON(m: WindField["mesh"], cells: number[]) {
   };
 }
 
-/** The comfort score's shading (score, colour, opacity). Up to Discomfort (3) it is the advisory brick as a light
- * tint, so an ordinary blowy day reads as a wash with the basemap clear beneath. Past it the colour itself darkens,
- * brick to oxblood to near black on the light map (deeper, denser crimson on the dark one), with opacity rising
- * only modestly: the worst water is the darkest, not merely the most opaque. The discomfort zones overlay adds a
- * crosshatch (comfortHatch). */
+/** The comfort score's shading (score, colour, opacity): pale pink below Moderate, rose at Discomfort (3), then
+ * raspberry to plum at 7 on the light map; on the dark map the same hues run from dim plum to pale pink, so the worst
+ * water is the strongest colour on either. Opacity rises from about a quarter to three quarters. The NWS advisories
+ * keep the brick (map.ts), so a forecast advisory and the water's comfort never share a colour; lightness is
+ * monotonic, so the order holds for colour-blind readers. The discomfort zones overlay adds a crosshatch
+ * (comfortHatch) in the Discomfort rose. */
 const SCORE_TOP = 7;
 type ComfortStop = [number, string, number];
 const COMFORT_STOPS: Record<"light" | "dark", ComfortStop[]> = {
-  light: [[0, "#9e2418", 0], [1, "#9e2418", 0.03], [2, "#9e2418", 0.08], [3, "#9e2418", 0.16], [4, "#851c12", 0.26], [5, "#62120b", 0.36], [6, "#420a06", 0.46], [7, "#280403", 0.56]],
-  dark: [[0, "#d24a37", 0], [1, "#d24a37", 0.04], [2, "#d24a37", 0.1], [3, "#d24a37", 0.18], [4, "#c83a2a", 0.28], [5, "#b0201c", 0.4], [6, "#8c0e16", 0.52], [7, "#640410", 0.64]],
+  light: [[0, "#ffb3cc", 0], [1, "#ffb3cc", 0.28], [2, "#f77fa8", 0.34], [3, "#e8487f", 0.42], [4, "#cf2670", 0.5], [5, "#a81563", 0.58], [6, "#7f0f56", 0.66], [7, "#560a45", 0.74]],
+  dark: [[0, "#5a1638", 0], [1, "#6e1a45", 0.3], [2, "#8f2257", 0.38], [3, "#c2316f", 0.46], [4, "#e04a88", 0.54], [5, "#f06fa0", 0.62], [6, "#f896ba", 0.7], [7, "#ffc0d6", 0.78]],
 };
 const comfortStops = () => COMFORT_STOPS[mapTheme() === "light" ? "light" : "dark"];
-const comfortBrick = () => comfortStops()[3][1];
+const comfortRose = () => comfortStops()[3][1]; // the Discomfort step's colour: the zones' hatch and outline
 const hexA = (hex: string, a: number) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a.toFixed(3)})`;
 /** The shading at a score, as rgba (the strip charts and the key use it too). */
 function comfortRgba(s: number): string {
@@ -1317,7 +1318,7 @@ function comfortRgba(s: number): string {
   return hexA(c, a);
 }
 
-/** A fine brick crosshatch for the discomfort zones (score 3 and up), as a map image named for the theme; seamless at
+/** A fine rose crosshatch for the discomfort zones (score 3 and up), as a map image named for the theme; seamless at
  * any offset. Over another field each line has an under-stroke (casing); over the comfort shading it has none, so the
  * shading's darkness shows through. */
 function comfortHatch(map: maplibregl.Map, casing = true): string {
@@ -1338,7 +1339,7 @@ function comfortHatch(map: maplibregl.Map, casing = true): string {
     }
     g.stroke();
   };
-  // Every currents ramp crosses the brick's lightness somewhere (dark theme near 1.1 m/s, light near 2.8 m/s), so each
+  // Every currents ramp crosses the rose's lightness somewhere (dark theme near 1.1 m/s, light near 2.8 m/s), so each
   // line gets an under-stroke in the basemap's ground colour, dark or light: it then stands out by lightness as well as
   // hue over every field colour.
   if (casing) {
@@ -1347,7 +1348,7 @@ function comfortHatch(map: maplibregl.Map, casing = true): string {
     g.lineWidth = 3;
     lines();
   }
-  g.strokeStyle = comfortBrick();
+  g.strokeStyle = comfortRose();
   g.globalAlpha = 0.85;
   g.lineWidth = 1; // one device pixel: the finest pen
   lines();
@@ -1401,7 +1402,7 @@ function addComfort(map: maplibregl.Map, src: PointSources, fill: boolean, zones
   );
   map.addSource("comfort-edge", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   if (zones) map.addLayer({ id: "comfort-edge-casing", type: "line", source: "comfort-edge", paint: { "line-color": mapTheme() === "dark" ? "#0c0c0c" : "#f7f7f4", "line-width": 2.8, "line-opacity": 0.8 } }, beneathLabels(map));
-  if (zones) map.addLayer({ id: "comfort-edge", type: "line", source: "comfort-edge", paint: { "line-color": comfortBrick(), "line-width": 0.9, "line-opacity": 0.9 } }, beneathLabels(map));
+  if (zones) map.addLayer({ id: "comfort-edge", type: "line", source: "comfort-edge", paint: { "line-color": comfortRose(), "line-width": 0.9, "line-opacity": 0.9 } }, beneathLabels(map));
   paintComfort(map);
 }
 
@@ -2287,7 +2288,7 @@ function renderPanel(fallback: HTMLElement): void {
       const hb = controls?.boat ?? "console";
       const hf = hazard.wind && comfortHour >= 0 ? hazard.wind.frames[comfortHour] : null;
       body += `<div class="field-key field-overlay"><span class="field-name" title="Where the comfort index for your boat reaches 3 (Discomfort)">+ ${boatIcon(hb, 10)} Discomfort zones, ${BOATS[hb].name.toLowerCase()}</span><span class="field-when">${hf ? `HRRR ${hf.cycle.slice(11, 13)}Z run` : "no HRRR hour"}</span>
-        <button type="button" class="field-info" data-about="map-comfort" aria-haspopup="dialog" aria-label="About the comfort index" title="About the comfort index">i</button><i class="hatch-swatch" style="background:${hatchCss(comfortBrick(), "0 0/100% 100%")}"></i></div>`;
+        <button type="button" class="field-info" data-about="map-comfort" aria-haspopup="dialog" aria-label="About the comfort index" title="About the comfort index">i</button><i class="hatch-swatch" style="background:${hatchCss(comfortRose(), "0 0/100% 100%")}"></i></div>`;
     }
   }
   panel.innerHTML = body;

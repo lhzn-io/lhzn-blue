@@ -64,6 +64,10 @@ const FILES: Record<string, number> = {
   "v1/fields/sst-90d.bin": 3600,
   "v1/fields/chl-90d.bin": 3600,
   "v1/fields/kd490-90d.bin": 3600,
+  // The /piscataqua/ page's 3D view: one fixed window (a spring tide), uploaded once with scripts/upload-pane-data.sh.
+  ...Object.fromEntries(
+    ["mesh.json", "nodes.f32", "tri.u16", "zeta.i16", "u.i16", "v.i16", "profile.json", "tracks.f32", "tracks.json", "dem.bin", "dem.json", "buoy.json"].map((f) => [`v1/piscataqua-pane/${f}`, 86400]),
+  ),
 };
 
 async function data(req: Request, env: Env, path: string): Promise<Response> {
@@ -88,8 +92,8 @@ async function data(req: Request, env: Env, path: string): Promise<Response> {
   return new Response(req.method === "HEAD" ? null : body, {
     status: 200,
     headers: {
-      // The history files are gzipped binary that the page unzips itself.
-      "content-type": key.endsWith(".bin") ? "application/octet-stream" : "application/json; charset=utf-8",
+      // JSON, or binary the page reads itself (the gzipped histories, the 3D view's typed arrays).
+      "content-type": key.endsWith(".json") ? "application/json; charset=utf-8" : "application/octet-stream",
       "cache-control": `public, max-age=${seconds}`,
       "x-robots-tag": "noindex",
     },

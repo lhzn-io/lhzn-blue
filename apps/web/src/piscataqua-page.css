@@ -58,3 +58,13 @@
 .pq-reflist li { margin-bottom: 8px; }
 .pq-reflist a { overflow-wrap: anywhere; }
 .pq-reflist li:target { background: var(--panel); outline: 1px solid var(--accent-line); }
+
+/* Map or 3D, in one box that can go full screen. */
+.pq-viewctl { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 6px; }
+.pq-viewbox { position: relative; background: var(--bg); }
+.pq-3d { height: 470px; border: 1px solid var(--rule); }
+@media (max-width: 860px) { .pq-3d { height: 420px; } }
+.pq-3d-wait { padding: 16px; }
+.pq-viewbox:fullscreen .pq-map, .pq-viewbox:fullscreen .pq-3d, .pq-viewbox.pq-full .pq-map, .pq-viewbox.pq-full .pq-3d { height: 100%; border: 0; }
+.pq-viewbox:fullscreen { width: 100vw; height: 100vh; }
+.pq-viewbox.pq-full { position: fixed; inset: 0; z-index: 100; }

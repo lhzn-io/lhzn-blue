@@ -436,6 +436,7 @@ function setT(t: number): void {
   placeCursor();
   paintCurrents();
   refreshTip();
+  PANE?.setTime(T);
   drawProfile();
   drawRead();
 }
@@ -782,6 +783,65 @@ function wireMapTip(map: MapLibreMap, popup: import("maplibre-gl").Popup, pins: 
 }
 
 const restyleMap = () => MAP?.setStyle(light() ? STYLE_LIGHT : STYLE_DARK);
+
+/* The 3D view: a separate module with its own data (/piscataqua/pane/), loaded the first time it is chosen. The page
+   owns the clock: it passes every time change in, and the pane's "Go to data window" moves the page's time. */
+interface Pane { setTime(t: number): void; setTheme(light: boolean): void; dispose(): void }
+let PANE: Pane | null = null;
+const PANE_BASE = "/piscataqua/pane/"; // the module; its data come from the Worker (Workers KV)
+const PANE_DATA = "/data/v1/piscataqua-pane/";
+
+async function showView(next: "map" | "3d"): Promise<void> {
+  $("map").hidden = next !== "map";
+  $("pane3d").hidden = next !== "3d";
+  $("view-label").textContent = next === "map" ? "Surface currents" : "Currents in 3D";
+  $("map-when").hidden = next !== "map";
+  document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === next)));
+  if (next === "map") {
+    MAP?.resize();
+    return;
+  }
+  if (PANE) return PANE.setTime(T);
+  const box = $("pane3d");
+  box.innerHTML = `<p class="note pq-3d-wait">Loading the 3D view…</p>`;
+  try {
+    const mod = (await import(/* @vite-ignore */ `${PANE_BASE}pane.js`)) as { mountPane: (el: HTMLElement, o: { dataBase: string; onTime?: (t: number) => void }) => Pane };
+    box.replaceChildren();
+    PANE = mod.mountPane(box, { dataBase: PANE_DATA, onTime: (t) => setT(t) });
+    PANE.setTheme(light());
+    PANE.setTime(T);
+  } catch {
+    box.innerHTML = `<p class="note">The 3D view could not be loaded.</p>`;
+  }
+}
+
+function wireViews(): void {
+  document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((b) => b.addEventListener("click", () => void showView(b.dataset.view === "3d" ? "3d" : "map")));
+  // Full screen on the view's box (map or 3D); both fill it and follow its size. A fixed full-window class where the
+  // Fullscreen API is missing (iPhone Safari).
+  const box = $("viewbox");
+  const btn = $("fullscreen");
+  const sync = () => {
+    const on = document.fullscreenElement === box || box.classList.contains("pq-full");
+    btn.textContent = on ? "Exit full screen" : "Full screen";
+    btn.setAttribute("aria-pressed", String(on));
+    window.setTimeout(() => MAP?.resize(), 50);
+  };
+  btn.addEventListener("click", () => {
+    if (document.fullscreenElement === box) void document.exitFullscreen();
+    else if (box.classList.contains("pq-full")) box.classList.remove("pq-full");
+    else if (box.requestFullscreen) void box.requestFullscreen().catch(() => box.classList.add("pq-full"));
+    else box.classList.add("pq-full");
+    window.setTimeout(sync, 60);
+  });
+  document.addEventListener("fullscreenchange", sync);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && box.classList.contains("pq-full")) {
+      box.classList.remove("pq-full");
+      sync();
+    }
+  });
+}
 const MODEL_LINE = () => (light() ? "#1f7f86" : "#5fc3c4"); // the model's teal
 const BUOY_LAT = () => D.buoy?.lat ?? 43.0687;
 const BUOY_LON = () => D.buoy?.lon ?? -70.7079;
@@ -893,7 +953,9 @@ async function main(): Promise<void> {
     drawAll();
     drawMapScale();
     restyleMap();
+    PANE?.setTheme(light());
   });
+  wireViews();
   drawMethod();
   drawMapScale();
   drawAll();

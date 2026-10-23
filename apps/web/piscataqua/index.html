@@ -43,8 +43,15 @@
         <p class="prose fc-say">The model's surface currents on the map, the buoy's profile beside it, and every profile in time below. Move the time to see all three, and the tide, at that moment.</p>
         <div class="pq-pair">
           <figure class="pq-mapfig">
-            <figcaption><span class="cap-label">Surface currents</span><span class="cap-sub" id="map-when">NECOFS model forecast</span></figcaption>
-            <div class="pq-map" id="map" role="region" aria-label="Map of the model's surface currents, the buoy and the NOAA stations"></div>
+            <figcaption><span class="cap-label" id="view-label">Surface currents</span><span class="cap-sub" id="map-when">NECOFS model forecast</span></figcaption>
+            <div class="pq-viewctl">
+              <span class="pq-seg" role="group" aria-label="View"><button type="button" class="tab" data-view="map" aria-pressed="true">Map</button><button type="button" class="tab" data-view="3d" aria-pressed="false">3D</button></span>
+              <button type="button" class="tab" id="fullscreen" aria-pressed="false">Full screen</button>
+            </div>
+            <div class="pq-viewbox" id="viewbox">
+              <div class="pq-map" id="map" role="region" aria-label="Map of the model's surface currents, the buoy and the NOAA stations"></div>
+              <div class="pq-3d" id="pane3d" role="region" aria-label="3D view of the model's currents, the seabed and the buoy's profile" hidden></div>
+            </div>
             <div class="pq-scale" id="map-scale"></div>
           </figure>
           <figure class="fc-panel pq-panel">

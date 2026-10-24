@@ -7,3 +7,9 @@
   X-Robots-Tag: noindex, nofollow
 /portsmouth-harbor/
   X-Robots-Tag: noindex, nofollow
+
+# The Piscataqua Region waterway page, the same way.
+/piscataqua-region/*
+  X-Robots-Tag: noindex, nofollow
+/piscataqua-region/
+  X-Robots-Tag: noindex, nofollow

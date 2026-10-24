@@ -1,0 +1,60 @@
+/* The Piscataqua Region (/piscataqua-region/): built on site.css (map, status grid, plots) and forecast-page.css
+   (masthead, sections); this file adds the station cards, the units switch and the page's time colour. */
+
+/* The selected time, wherever it is drawn: purple, clear of the gold measurements, blue predictions and teal model. */
+:root { --rg-time: #c4a1ff; }
+:root[data-theme="light"] { --rg-time: #5e2b8f; }
+
+/* Buttons as on the Portsmouth Harbor page: boxed, the pressed one filled. */
+.rg-btn { cursor: pointer; white-space: nowrap; min-height: 26px; padding: 0 7px; font: 600 9.5px/1 var(--sans); letter-spacing: 0.06em;
+  color: var(--ink-soft); background: var(--bg); border: 1px solid var(--rule); border-radius: 0; }
+.rg-btn:hover { color: var(--ink); border-color: var(--accent-line); }
+.rg-btn[aria-pressed="true"] { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.rg-btn:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; }
+@media (pointer: coarse) { .rg-btn { min-height: 40px; min-width: 40px; } }
+.rg-seg { display: inline-flex; }
+.rg-seg .rg-btn + .rg-btn { margin-left: -1px; }
+.rg-seg .rg-btn:first-child { border-radius: 3px 0 0 3px; }
+.rg-seg .rg-btn:last-child { border-radius: 0 3px 3px 0; }
+.fc-nav .rg-units { margin-right: 10px; }
+
+/* The masthead's data chip with nothing to warn about: the plain rule, not the delayed colour. */
+.mast .outage-icon.rg-notice-calm:not([hidden]), .mast .outage-icon.rg-notice-calm:not([hidden]):hover { border-left-color: var(--rule); }
+
+/* The map: tall enough that the estuary, not the Gulf, fills it (the region's box is taller than it is wide). */
+.rg .map { min-height: 560px; }
+@media (max-width: 760px) { .rg .map { min-height: 420px; } }
+
+/* The status table: group rows, and a station's state in its name's colour. */
+.rg-grid .rg-group th { padding-top: 14px; text-align: left; font: 700 9px/1 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--faint); border-bottom: 0; }
+.rg-grid td small { display: block; }
+.rg-grid tr.st-delayed th a { color: var(--delayed); }
+.rg-grid tr.st-offline th a, .rg-grid tr.st-offline td b { color: var(--faint); }
+
+/* The page's view chips, over the map (as the Sound page's view switch): larger than the in-section switches. */
+.rg-themes { flex-wrap: wrap; row-gap: 4px; margin: 18px 0 0; }
+.rg-themes .rg-btn { min-height: 34px; padding: 0 16px; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; }
+@media (max-width: 560px) { .rg-themes .rg-btn { padding: 0 11px; } }
+
+/* The buoys: a view switch over their cards (one figure per row inside a card). */
+.rg-viewbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; }
+.rg-viewbar .note { flex: 1 1 260px; }
+.rg-views { flex-wrap: wrap; row-gap: 4px; }
+.rg-views .rg-btn { min-height: 30px; padding: 0 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+.rg-fig { margin: 10px 0 0; }
+.rg-fig figcaption { margin-bottom: 4px; }
+.rg-read { margin: 4px 0 2px; font: 12.5px/1.45 var(--sans); color: var(--ink-soft); }
+.rg-read b { color: var(--ink); font-weight: 600; }
+
+/* Station cards. */
+.rg-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 22px 30px; }
+.rg-cards-3 { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
+.rg-card { min-width: 0; scroll-margin-top: 16px; }
+.rg-card-h { margin: 0; font: 700 10px/1.3 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
+.rg-card-sub { margin: 4px 0 8px; font-size: 12px; line-height: 1.45; color: var(--dim); }
+.plot.rg-plot { height: 150px; margin-bottom: 10px; }
+.rg-cards-3 .plot.rg-plot { height: 120px; }
+.rg-tides { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+.rg-tides th, .rg-tides td { padding: 6px 4px; border-bottom: 1px solid var(--rule); text-align: left; font-weight: 400; vertical-align: top; }
+.rg-tides th { font-family: var(--sans); font-size: 12.5px; }
+.rg-tides small { color: var(--dim); }

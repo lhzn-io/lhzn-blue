@@ -41,12 +41,23 @@ const STYLES = {
 type Theme = keyof typeof STYLES;
 
 /** The Sound, the map's home view: the NWS marine zones' extent (ANZ335, ANZ331, ANZ332), to the shore. */
-const HOME: maplibregl.LngLatBoundsLike = [
+let HOME: maplibregl.LngLatBoundsLike = [
   [-73.83, 40.77],
   [-71.85, 41.40],
 ];
 /** Around the Sound: a location outside this is not used to centre the map. */
-const NEAR: [[number, number], [number, number]] = [[-74.4, 40.4], [-71.3, 41.8]];
+let NEAR: [[number, number], [number, number]] = [[-74.4, 40.4], [-71.3, 41.8]];
+let ZONES_URL = "/nws-zones-lis.json";
+let BASINS_URL = "/basins.geojson";
+
+/** Another waterway's map: its home view, the area a reader's location must fall in to centre the map, and its own
+ * NWS zones and river basins files. Call before drawMap; anything left out keeps the Sound's value. */
+export function configureMap(o: { home?: [[number, number], [number, number]]; near?: [[number, number], [number, number]]; zonesUrl?: string; basinsUrl?: string }): void {
+  if (o.home) HOME = o.home;
+  if (o.near) NEAR = o.near;
+  if (o.zonesUrl) ZONES_URL = o.zonesUrl;
+  if (o.basinsUrl) BASINS_URL = o.basinsUrl;
+}
 const BASIN_COLOR: Record<Theme, string> = { dark: "#7fb8d8", light: "#133c8b" };
 
 let current: maplibregl.Map | null = null;
@@ -127,7 +138,7 @@ export async function setAdvisoryZones(active: ZoneAdvisory[]): Promise<void> {
   const key = active.map((z) => `${z.id}${z.strong ? "!" : ""}${z.title}`).sort().join("|");
   if (key === zoneKey) return;
   zoneActive = active;
-  zoneLoading ??= fetch("/nws-zones-lis.json")
+  zoneLoading ??= fetch(ZONES_URL)
     .then((r) => (r.ok ? r.json() : null))
     .then((j) => void (zoneShapes = j))
     .catch(() => undefined);
@@ -301,7 +312,7 @@ export async function setRiverMode(on: boolean, gauges: Pin[]): Promise<void> {
   gaugePins = gauges.map((g) => ({ ...g, kind: "gauge" }));
   if (on && !basins) {
     try {
-      basins = (await (await fetch("/basins.geojson")).json()) as Basins;
+      basins = (await (await fetch(BASINS_URL)).json()) as Basins;
     } catch {
       basins = null; // the gauges still show; the basins are a nicety
     }

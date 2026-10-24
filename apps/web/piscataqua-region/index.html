@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Light by default; a saved choice of dark is applied before first paint so the page never flashes.
+      document.documentElement.dataset.theme = "light";
+      try {
+        if (localStorage.getItem("lhzn-blue-theme") === "dark") delete document.documentElement.dataset.theme;
+      } catch (e) {}
+    </script>
+    <title>Piscataqua Region | longhorizon.blue</title>
+    <meta name="description" content="Water, tides, currents, rivers and wind from Great Bay to the Isles of Shoals: NOAA, USGS, UNH and NERACOOS observations with NECOFS, HRRR and satellite fields." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Josefin+Sans:wght@300;400;600;700&family=Martian+Mono:wght@300;400;500&display=swap"
+    />
+  </head>
+  <body class="fc rg">
+    <header class="mast fc-mast">
+      <div class="mast-id">
+        <span class="fc-eyebrow">Local water conditions</span>
+        <h1 class="fc-title">Piscataqua Region</h1>
+        <p class="mast-by"><a class="lho" href="https://longhorizon.eco/observatory">Long Horizon Observatory</a> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="A preview: views, wording and data handling may change">Preview</span> <span class="outage-wrap"><button class="outage-icon" id="outage-icon" type="button" hidden aria-describedby="outage-pop" title="Data notice" aria-label="Data notice"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.4v4.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.4" r="0.9" fill="currentColor"/></svg><span id="outage-label">Data</span></button><span class="outage-pop" id="outage-pop" role="tooltip"></span></span></p>
+        <p class="mast-caveat">Provisional observations and model forecasts. Not for navigation. <a href="/terms/">Terms</a></p>
+      </div>
+      <nav class="fc-nav" aria-label="Page">
+        <span class="rg-seg rg-units" role="group" aria-label="Units for wind and currents"><button type="button" class="rg-btn" data-unit="kt" aria-pressed="true">kt</button><button type="button" class="rg-btn" data-unit="mph" aria-pressed="false">mph</button><button type="button" class="rg-btn" data-unit="ms" aria-pressed="false">m/s</button></span>
+        <button class="theme-icon" id="theme-toggle" type="button" aria-pressed="false"></button>
+      </nav>
+      <dialog class="outage-dialog" id="outage-dialog" aria-label="Data notice"><p id="outage-dialog-text"></p><button type="button" id="outage-dialog-close">Close</button></dialog>
+    </header>
+
+    <main class="fc-main">
+      <p class="outage" id="load-error" role="status" hidden></p>
+      <nav class="rg-seg rg-themes" id="themes" aria-label="View"></nav>
+      <section class="overview" aria-label="The region at a glance">
+        <div class="map-col">
+          <div class="map" id="map" role="region" aria-label="Map of the stations, with the model's currents, wind or the satellite's sea surface temperature"></div>
+          <div class="map-foot" id="map-foot"></div>
+        </div>
+        <div class="status" id="status" aria-live="polite"></div>
+      </section>
+
+      <div id="stations"></div>
+
+      <section class="fc-sec fc-method" aria-labelledby="method-title">
+        <h2 class="fc-h" id="method-title">Method and sources</h2>
+        <dl class="about-list" id="method"></dl>
+      </section>
+
+      <footer class="credits" id="credits"></footer>
+    </main>
+
+    <script type="module" src="../src/region.ts"></script>
+  </body>
+</html>

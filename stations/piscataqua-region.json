@@ -33,8 +33,8 @@
     {"id": "NEDK", "dataset": "Hohonu_tide_Cape_Neddick_River_York_ME", "name": "Cape Neddick River", "place": "York, ME", "operator": "Gulf of Maine Research Institute (Hohonu)", "lat": 43.1888, "lon": -70.6053, "datum": "NAVD88", "column": "navd88_meters"}
   ],
   "buoys": [
-    {"id": "GBB", "dataset": "UNH_GBB", "name": "Great Bay buoy", "place": "Great Bay", "operator": "University of New Hampshire", "lat": 43.0715, "lon": -70.8678, "depth_m": 1.0, "oxygen_unit": "% saturation", "info_url": "https://data.neracoos.org/erddap/tabledap/UNH_GBB.html"},
-    {"id": "CML", "dataset": "UNH_CML", "name": "Coastal Marine Laboratory", "place": "New Castle, NH", "operator": "University of New Hampshire", "lat": 43.0718, "lon": -70.7098, "depth_m": 3.0, "oxygen_unit": "umol/kg", "pressure_unit": "bar", "info_url": "https://data.neracoos.org/erddap/tabledap/UNH_CML.html"}
+    {"id": "GBB", "dataset": "UNH_GBB", "record_start": "2022-05-10T00:00:00Z", "name": "Great Bay buoy", "place": "Great Bay", "operator": "University of New Hampshire", "lat": 43.0715, "lon": -70.8678, "depth_m": 1.0, "oxygen_unit": "% saturation", "info_url": "https://data.neracoos.org/erddap/tabledap/UNH_GBB.html"},
+    {"id": "CML", "dataset": "UNH_CML", "record_start": "2008-01-01T00:00:00Z", "name": "Coastal Marine Laboratory", "place": "New Castle, NH", "operator": "University of New Hampshire", "lat": 43.0718, "lon": -70.7098, "depth_m": 3.0, "oxygen_unit": "umol/kg", "pressure_unit": "bar", "info_url": "https://data.neracoos.org/erddap/tabledap/UNH_CML.html"}
   ],
   "rivers": {
     "gauges": [

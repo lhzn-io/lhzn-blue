@@ -16,6 +16,7 @@ About 37 writes a day in all.
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import os
@@ -39,6 +40,7 @@ WINDOW_DAYS = 30  # tide gauges, buoys and the current meter: hourly, the last 3
 FETCH_HOURS = 6  # each run asks for the last 6 hours (more if a run was missed, up to the window)
 PREDICTION_BACK_H, PREDICTION_AHEAD_H = 24, 48
 M_TO_FT = 1 / 0.3048
+DAY_S = 86400
 MS_TO_KT = shore.MS_TO_KT
 BAD_FLAGS = (3, 4)  # QARTOD suspect and fail; 1 pass, 2 not evaluated and 9 missing are kept
 # Buoy variables: the dataset's column, ours, and its QARTOD aggregate flag where the dataset has one.
@@ -223,7 +225,10 @@ def current_meters(prev: dict, end: datetime, reg: dict) -> dict:
 def current_predictions(prev: dict, end: datetime, reg: dict) -> dict:
     """NOAA's predicted tidal current at each station, a day back to two ahead (piscataqua.current_part)."""
     out = {}
-    start, stop = end - timedelta(hours=PREDICTION_BACK_H), end + timedelta(hours=PREDICTION_AHEAD_H)
+    # On the hour: NOAA returns predictions at the start time's own minutes, and the 30-minute grid
+    # (piscataqua._grid) sits on :00 and :30, so a start at 18:14 would leave every value off the grid.
+    hour = pd.Timestamp(end).floor("h").to_pydatetime()
+    start, stop = hour - timedelta(hours=PREDICTION_BACK_H), hour + timedelta(hours=PREDICTION_AHEAD_H)
     for p in reg["currents"]["predictions"]:
         try:
             out[p["id"]] = piscataqua.current_part(start, stop, p)
@@ -268,19 +273,119 @@ def live(store: Store, end: datetime | None = None) -> list[str]:
     return failed
 
 
+# The buoys' whole record as daily values, for the year-on-year views: (the dataset's column, ours, how a day is
+# summarised, the QARTOD flag to filter on). ERDDAP does the daily step itself (orderByMean / orderByMax).
+BUOY_DAILY = [
+    ("temperature", "water_f", "Mean", "temperature_QARTOD_agg"),
+    ("salinity", "salinity", "Mean", "salinity_QARTOD_agg"),
+    ("oxygen", "oxygen", "Mean", "oxygen_QARTOD_agg"),
+    ("chlorophyll", "chl", "Mean", "chlorophyll_QARTOD_agg"),
+    ("turbidity", "turb", "Mean", "turbidity_QARTOD_agg"),
+    ("wspd", "wind_kt", "Mean", "wspd_QARTOD_agg"),
+    ("wgust", "gust_kt", "Max", "wgust_QARTOD_agg"),
+    ("airtemp", "air_f", "Mean", "airtemp_QARTOD_agg"),
+    ("atmospheric_pressure", "pressure_mb", "Mean", None),
+]
+DAILY_RANGES = {"water_f": (28.0, 95.0), "air_f": (-22.0, 113.0), "wind_kt": (0.0, 100.0), "gust_kt": (0.0, 150.0),
+                "pressure_mb": (900.0, 1080.0), **RANGES}
+DAILY_REFETCH_DAYS = 10  # each run asks again for the last 10 days (late and revised records)
+
+
+def _daily_values(server: Erddap, ds: str, src: str, how: str, flag: str | None, start: datetime, end: datetime) -> pd.Series:
+    """One variable's daily mean (or max) from ``start``, with the operator's suspect and failed values left out."""
+    stamp = lambda ts: pd.Timestamp(ts).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    # NaN != 3 holds in ERDDAP, so records from before the flags existed are kept.
+    cut = f"&{flag}!=3&{flag}!=4" if flag else ""
+    # orderByMean averages every column per day; orderByMax keeps the row with each day's largest value of the last
+    # variable named, so it is named there.
+    group = "time/1day" if how == "Mean" else f"time/1day,{src}"
+    url = f'{server.base_url}/tabledap/{ds}.csv?time,{src}&time%3E={stamp(start)}&time%3C{stamp(end)}{cut}&orderBy{how}(%22{group}%22)'
+    resp = server._get(url, timeout=180)
+    if resp is None:
+        return pd.Series(dtype=float)
+    df = pd.read_csv(io.StringIO(resp.text), skiprows=[1])
+    idx = pd.to_datetime(df["time"], utc=True).dt.floor("D")
+    return pd.Series(pd.to_numeric(df[src], errors="coerce").to_numpy(), index=idx).dropna()
+
+
+def _encode_days(frame: pd.DataFrame, decimals: dict[str, int]) -> dict:
+    if frame.empty:
+        return {"t0": None, "step": DAY_S}
+    full = frame.reindex(pd.date_range(frame.index[0], frame.index[-1], freq="D"))
+    out: dict = {"t0": iso(full.index[0]), "step": DAY_S}
+    for col in full.columns:
+        out[col] = [None if pd.isna(v) else round(float(v), decimals.get(col, 1)) for v in full[col]]
+    return out
+
+
+def _decode_days(obj: dict | None) -> pd.DataFrame:
+    if not obj or not obj.get("t0"):
+        return pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC"), dtype=float)
+    cols = [k for k, v in obj.items() if isinstance(v, list)]
+    idx = pd.date_range(pd.Timestamp(obj["t0"]), periods=len(obj[cols[0]]), freq="D") if cols else []
+    return pd.DataFrame({c: pd.to_numeric(pd.Series(obj[c], index=idx), errors="coerce") for c in cols}).dropna(how="all")
+
+
+def buoy_history(prev: dict, end: datetime, reg: dict, server: Erddap) -> dict:
+    """Each buoy's daily values for its whole record (the first run fetches it all, later runs the last days)."""
+    out = {}
+    for b in reg["buoys"]:
+        before = prev.get(b["id"], {})
+        held = _decode_days(before)
+        first = pd.Timestamp(b.get("record_start", "2000-01-01T00:00:00Z"))
+        start = first if held.empty else held.index[-1] - pd.Timedelta(days=DAILY_REFETCH_DAYS)
+        fresh: dict[str, pd.Series] = {}
+        error = None
+        for src, ours, how, flag in BUOY_DAILY:
+            try:
+                s = _daily_values(server, b["dataset"], src, how, flag, start.to_pydatetime(), end)
+            except Exception as exc:  # keep what we hold for this variable
+                log.warning("%s %s daily fetch failed: %s", b["id"], src, exc)
+                error = f"{src}: {exc.__class__.__name__}: {exc}"
+                continue
+            if ours in ("water_f", "air_f"):
+                s = s * 9 / 5 + 32
+            elif ours in ("wind_kt", "gust_kt"):
+                s = s * MS_TO_KT
+            elif ours == "pressure_mb" and b.get("pressure_unit") == "bar":
+                s = s * 1000.0
+            lo, hi = DAILY_RANGES[ours]
+            fresh[ours] = s.where(s.between(lo, hi)).dropna()
+        new = pd.DataFrame(fresh)
+        frame = new.combine_first(held) if not held.empty else new
+        obj = _encode_days(frame.sort_index(), {"salinity": 2, "chl": 2, "oxygen": 1})
+        obj.update({"oxygen_unit": b["oxygen_unit"], "status": _status(before.get("status"), end, error)})
+        out[b["id"]] = obj
+    return out
+
+
 def daily(store: Store, end: datetime | None = None) -> list[str]:
-    """Refresh history.json: the rivers' daily record since 1990 and their day-of-year percentiles."""
+    """Refresh history.json: the rivers' daily record since 1990 and their day-of-year percentiles, and each buoy's
+    daily record (one file, one write a day)."""
+    end = end or now_utc()
     reg = load()
     rel = key(reg, "history.json")
     prev = store.read_json(rel) or {}
+    failed = []
+    doc = {"schema": SCHEMA, "waterway": reg["waterway"]["id"], "generated_at": iso(end)}
     try:
-        doc = {"schema": SCHEMA, "waterway": reg["waterway"]["id"], "generated_at": iso(end or now_utc()),
-               "rivers": rivers.history(prev.get("rivers"), end, registry=reg["rivers"])}
+        doc["rivers"] = rivers.history(prev.get("rivers"), end, registry=reg["rivers"])
     except Exception:
-        log.exception("region history not refreshed")
-        return ["history"]
+        log.exception("region river history not refreshed")
+        failed.append("rivers-history")
+        if "rivers" in prev:
+            doc["rivers"] = prev["rivers"]
+    server = Erddap(NERACOOS_URL, budget=60)
+    try:
+        doc["buoys"] = buoy_history(prev.get("buoys") or {}, end, reg, server)
+    except Exception:
+        log.exception("region buoy history not refreshed")
+        failed.append("buoy-history")
+        if "buoys" in prev:
+            doc["buoys"] = prev["buoys"]
+    log.info("region daily: %s", server.summary())
     store.write_json(rel, doc, max_age=3600)
-    return []
+    return failed
 
 
 def publish_fields(store: Store, end: datetime | None = None) -> list[str]:

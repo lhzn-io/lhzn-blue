@@ -1,11 +1,11 @@
 /**
- * The Piscataqua Region (/piscataqua-region/): Great Bay to the Isles of Shoals. A slimmer page than the
- * Sound's, built on the shared map (map.ts), surface fields (fields.ts), time bar (timeline.ts) and charts (chart.ts).
+ * A registry-driven waterway page, today the Piscataqua Region (/piscataqua-region/): built on the shared map
+ * (map.ts), surface fields (fields.ts), time bar (timeline.ts) and charts (chart.ts).
  *
- * Data: v1/piscataqua-region/live.json hourly (jobs: region.py), history.json daily (the rivers' record), and the
- * field files under the same prefix. The station list comes from stations/piscataqua-region.json at build time.
- * Renderers that the Sound page also has (river percentiles, readouts) are written here for now; they move to shared
- * modules later, one at a time.
+ * What is particular to the waterway (data prefix, map box, views, card words, method) is in its config
+ * (waterways/piscataqua-region.ts); its stations come from stations/piscataqua-region.json at build time, read into one
+ * station model (waterway/stations.ts) by the region adapter. Data: <prefix>live.json hourly (jobs: region.py),
+ * history.json daily (the rivers' and buoys' record), and the field files under the same prefix.
  */
 import "./site.css";
 import "./away-links";
@@ -18,18 +18,20 @@ import type { FieldControls, FieldData, FieldKind, RasterHistory } from "./field
 import { compass, LIGHT_KT, windArrow, windGlyphs } from "./wind-dir";
 import { chainButton, navigateTo, revealLinked, wireLinks } from "./links";
 import { BUOY_VIEWS, buoyCardsHtml, buoyViewSwitchHtml, drawBuoyFigures, type BuoyCtx, type BuoyView } from "./buoy-views";
+import { PISCATAQUA_REGION as CFG, type Theme } from "./waterways/piscataqua-region";
+import { at, sec, series, type Frame } from "./waterway/frames";
+import { stationState, Stations, type Station } from "./waterway/stations";
+import { measuringShore, regionStations, type RegionRegistry } from "./adapters/region";
 
-const DATA = "/data/v1/piscataqua-region";
+const DATA = CFG.data;
 const TZ = "America/New_York";
 const HOUR = 3600;
 const DAY = 86400;
 const CHART_BACK = 7 * DAY; // the station charts: a week back
 const CHART_AHEAD = 2 * DAY; // and two days ahead (predictions)
-const STALE_H = { default: 3, rivers: 6, buoys: 4 };
 
 const $ = (id: string) => document.getElementById(id)!;
 const now = () => Date.now() / 1000;
-const sec = (iso: string) => Date.parse(iso) / 1000;
 const fmtTime = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", hour: "numeric", minute: "2-digit" });
 const fmtShort = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const light = () => document.documentElement.dataset.theme === "light";
@@ -44,7 +46,6 @@ function ago(t: number): string {
 
 // ---------- Data shapes (region.py) ----------
 
-interface Frame { t0: string | null; step: number; [col: string]: unknown }
 interface Status { last_ok?: string; last_error?: string }
 interface ShoreSt extends Frame { last_obs: Record<string, number | string | null> | null; tides: { t: string; ft: number; type: "H" | "L" }[]; datum: string; coops_id: string }
 interface Level extends Frame { datum: string; last_obs: { time: string; level_ft: number } | null; status: Status }
@@ -66,16 +67,6 @@ interface RiverHist {
   rivers?: { daily: Record<string, { t0: string; flow_cfs: (number | null)[] }>; normals: Record<string, Record<string, (number | null)[]> | null> };
   buoys?: Record<string, Frame>; // each buoy's daily record (region.py buoy_history)
 }
-
-/** The value of an hourly (or regular) column at time t: the nearest step, within half a step. */
-function at(f: Frame | undefined, col: string, t: number): number | null {
-  const v = f?.[col] as (number | null)[] | undefined;
-  if (!f?.t0 || !v?.length) return null;
-  const i = Math.round((t - sec(f.t0)) / f.step);
-  return i >= 0 && i < v.length && v[i] != null ? (v[i] as number) : null;
-}
-/** A column on the chart's grid, NaN for gaps. */
-const series = (f: Frame | undefined, col: string, xs: number[], scale = 1) => xs.map((t) => { const v = at(f, col, t); return v == null ? NaN : v * scale; });
 
 // ---------- Units (the site's saved choice) ----------
 
@@ -104,24 +95,16 @@ let T: number | null = null; // the time bar's time (null: now)
 const tNow = () => T ?? now();
 type Layer = FieldKind | "none";
 const LINK = new URLSearchParams(location.search);
-/* The page's views, as the Sound page's view switch: one chip sets the map layer, the status table and the station
-   sections together. The region's stations differ more than the Sound's buoys, so the views are themes (what kind of
-   station) rather than variables; Water carries its own switch for the buoys' variables. */
-type Theme = "water" | "tides" | "currents" | "rivers" | "weather";
-const THEMES: { key: Theme; label: string; layer: Layer }[] = [
-  { key: "water", label: "Water", layer: "sst" },
-  { key: "tides", label: "Tides", layer: "currents" },
-  { key: "currents", label: "Currents", layer: "currents" },
-  { key: "rivers", label: "Rivers", layer: "none" },
-  { key: "weather", label: "Weather", layer: "wind" },
-];
+/* The page's views (the config's themes), as the Sound page's view switch: one chip sets the map layer, the status
+   table and the station sections together. */
+const THEMES = CFG.themes;
 const WATER_VIEWS = BUOY_VIEWS.filter(([k]) => k !== "weather"); // the buoys' weather is under Weather
-let theme: Theme = "water";
+let theme: Theme = THEMES[0].key;
 let bview: BuoyView = "temp";
 try {
-  const t = LINK.get("view") ?? localStorage.getItem("lhzn-blue-region-view");
+  const t = LINK.get("view") ?? localStorage.getItem(CFG.storage.view);
   if (t && THEMES.some((x) => x.key === t)) theme = t as Theme;
-  const v = LINK.get("var") ?? localStorage.getItem("lhzn-blue-region-bview");
+  const v = LINK.get("var") ?? (CFG.storage.bview ? localStorage.getItem(CFG.storage.bview) : null);
   if (v && WATER_VIEWS.some(([k]) => k === v)) bview = v as BuoyView;
 } catch {
   /* private mode */
@@ -137,22 +120,19 @@ const METERS = reg.currents.meters;
 const PREDS = reg.currents.predictions;
 const GAUGES = reg.rivers.gauges;
 const AIRPORTS = reg.asos.stations;
+/** The stations as one model (rebuilt when the live file loads), and the waterway's reference tide gauge (the first
+ * shore station that measures, not only predicts). */
+let S: Stations = regionStations(reg as unknown as RegionRegistry, {}, CFG);
+const refShore = (): Station | undefined => measuringShore(S)[0];
 
 // ---------- Freshness ----------
 
-function stateOf(t: string | null | undefined, staleH = STALE_H.default): Pin["state"] {
-  if (!t) return "offline";
-  const age = (now() - sec(t)) / HOUR;
-  return age <= staleH ? "live" : age <= 48 ? "delayed" : "offline";
-}
-
 function drawNotice(): void {
-  const quiet: string[] = [];
-  for (const b of BUOYS) if (stateOf(L.buoys?.[b.id]?.last_obs?.time as string | undefined, STALE_H.buoys) !== "live") quiet.push(`UNH ${b.name}`);
-  for (const g of LEVELS) if (stateOf(L.levels?.[g.id]?.last_obs?.time) !== "live") quiet.push(g.name);
-  for (const g of GAUGES) if (stateOf(L.rivers?.gauges[g.id]?.last_obs?.time, STALE_H.rivers) !== "live") quiet.push(`${g.river} River gauge`);
+  const quiet = S.all
+    .filter((s) => (s.kind === "buoy" || s.kind === "level" || s.kind === "gauge") && stationState(s) !== "live")
+    .map((s) => (s.kind === "buoy" ? `${CFG.text["notice:buoy"] ?? ""}${s.name}` : s.kind === "gauge" ? `${s.name} gauge` : s.name));
   const note = quiet.length ? `Not reporting in the last hours: ${quiet.join(", ")}. Their charts show their last records.` : "";
-  const text = [note, `Updated ${L.generated_at ? ago(sec(L.generated_at)) : "never"}; observations hourly, model fields daily (currents, SST) and every three hours (wind).`].filter(Boolean).join(" ");
+  const text = [note, `Updated ${L.generated_at ? ago(sec(L.generated_at)) : "never"}; ${CFG.cadence}`].filter(Boolean).join(" ");
   $("outage-pop").textContent = text;
   $("outage-dialog-text").textContent = text;
   $("outage-label").textContent = note ? "Station data" : "Data";
@@ -178,24 +158,24 @@ function lastAt<F extends Frame>(f: F | undefined, col: string, live: number | n
   return T == null ? (live ?? at(f, col, now() - HOUR)) : at(f, col, T);
 }
 
+/** A station's value at the time bar's time (its newest reading at now). */
+const val = (s: Station | undefined, col: string) => (s ? lastAt(s.frame, col, s.lastObs?.[col] as number | null | undefined) : null);
+
 function statusHtml(): string {
   const rows: string[] = [];
-  const row = (id: string, name: string, cells: string, state: Pin["state"]) =>
-    rows.push(`<tr class="st-${state}" data-go="${id}"><th scope="row"><a href="#st-${id}">${esc(name)}</a></th>${cells}</tr>`);
+  const row = (s: Station, cells: string) =>
+    rows.push(`<tr class="st-${stationState(s)}" data-go="${s.id}"><th scope="row"><a href="#st-${s.id}">${esc(s.label)}</a></th>${cells}</tr>`);
   const group = (title: string) => rows.push(`<tr class="rg-group"><th colspan="3">${title}</th></tr>`);
+  const ref = refShore();
   if (theme === "water") {
     group("Buoys");
-    for (const b of BUOYS) {
-      const d = L.buoys?.[b.id];
-      const water = lastAt(d, "water_f", d?.last_obs?.water_f as number | null);
-      const sal = lastAt(d, "salinity", d?.last_obs?.salinity as number | null);
-      row(b.id, `${b.name} (UNH)`, `<td><b>${f1(water)} °F</b><small>water</small></td><td><b>${f1(sal)}</b><small>salinity</small></td>`, stateOf(d?.last_obs?.time as string, STALE_H.buoys));
+    for (const b of S.ofKind("buoy")) row(b, `<td><b>${f1(val(b, "water_f"))} °F</b><small>water</small></td><td><b>${f1(val(b, "salinity"))}</b><small>salinity</small></td>`);
+    if (ref) {
+      group("Shore");
+      row(ref, `<td><b>${f1(val(ref, "water_f"))} °F</b><small>water</small></td><td></td>`);
     }
-    group("Shore");
-    const sv = L.shore?.stations.SEAV;
-    row("SEAV", "Seavey Island (NOAA)", `<td><b>${f1(lastAt(sv, "water_f", sv?.last_obs?.water_f as number | null))} °F</b><small>water</small></td><td></td>`, stateOf(sv?.last_obs?.time as string));
   }
-  if (theme === "tides") statusTides(row, group);
+  if (theme === "tides") statusTides(row, group, ref);
   if (theme === "currents") statusCurrents(row, group);
   if (theme === "rivers") statusRivers(row, group);
   if (theme === "weather") statusWeather(row, group);
@@ -203,59 +183,49 @@ function statusHtml(): string {
   return `<table class="status-grid rg-grid"><caption>${THEMES.find((x) => x.key === theme)!.label}, ${when}</caption><tbody>${rows.join("")}</tbody></table>`;
 }
 
-type RowFn = (id: string, name: string, cells: string, state: Pin["state"]) => void;
+type RowFn = (s: Station, cells: string) => void;
 type GroupFn = (title: string) => void;
 
-function statusTides(row: RowFn, group: GroupFn): void {
+function statusTides(row: RowFn, group: GroupFn, ref: Station | undefined): void {
   group("Tide and water level");
-  const seav = L.shore?.stations.SEAV;
-  row("SEAV", "Seavey Island (NOAA)", `<td><b>${f1(lastAt(seav, "level_ft", seav?.last_obs?.level_ft as number | null), 1)} ft</b><small>MLLW</small></td><td><b>${f1(lastAt(seav, "water_f", seav?.last_obs?.water_f as number | null))} °F</b><small>water</small></td>`, stateOf(seav?.last_obs?.time as string));
-  for (const g of LEVELS) {
-    const d = L.levels?.[g.id];
-    row(g.id, g.name, `<td><b>${f1(lastAt(d, "level_ft", d?.last_obs?.level_ft), 1)} ft</b><small>${g.datum}</small></td><td><small>${esc(g.place)}</small></td>`, stateOf(d?.last_obs?.time));
-  }
+  if (ref) row(ref, `<td><b>${f1(val(ref, "level_ft"), 1)} ft</b><small>MLLW</small></td><td><b>${f1(val(ref, "water_f"))} °F</b><small>water</small></td>`);
+  for (const g of S.ofKind("level")) row(g, `<td><b>${f1(val(g, "level_ft"), 1)} ft</b><small>${g.meta.datum}</small></td><td><small>${esc(g.place ?? "")}</small></td>`);
 }
 
 function statusCurrents(row: RowFn, group: GroupFn): void {
   group("Currents");
-  for (const m of METERS) {
-    const d = L.current_meters?.[m.id];
-    const s = lastAt(d, "spd_cms", d?.last_obs?.spd_cms);
-    const dir = lastAt(d, "dir_deg", d?.last_obs?.dir_deg);
-    row(m.id, `${m.name} (NOAA PORTS)`, `<td><b>${s == null ? "--" : cur(s)}</b><small>measured</small></td><td><b>${dir == null ? "--" : `toward ${compass(dir)}`}</b><small>${dir == null ? "" : `${Math.round(dir)}°`}</small></td>`, stateOf(d?.last_obs?.time));
+  for (const m of S.ofKind("meter")) {
+    const s = val(m, "spd_cms");
+    const dir = val(m, "dir_deg");
+    row(m, `<td><b>${s == null ? "--" : cur(s)}</b><small>measured</small></td><td><b>${dir == null ? "--" : `toward ${compass(dir)}`}</b><small>${dir == null ? "" : `${Math.round(dir)}°`}</small></td>`);
   }
-  for (const p of PREDS) {
-    const d = L.current_predictions?.[p.id];
-    const v = d ? at({ t0: d.t0, step: d.step, v: d.v }, "v", tNow()) : null;
-    row(p.id, p.name, `<td><b>${v == null ? "--" : cur(Math.abs(v))}</b><small>predicted</small></td><td><b>${v == null ? "" : v >= 0 ? "flood" : "ebb"}</b><small>NOAA</small></td>`, d ? "live" : "offline");
+  for (const p of S.ofKind("prediction")) {
+    const v = p.frame ? at(p.frame, "v", tNow()) : null;
+    row(p, `<td><b>${v == null ? "--" : cur(Math.abs(v))}</b><small>predicted</small></td><td><b>${v == null ? "" : v >= 0 ? "flood" : "ebb"}</b><small>NOAA</small></td>`);
   }
 }
 
 function statusRivers(row: RowFn, group: GroupFn): void {
   group("Rivers");
-  for (const g of GAUGES) {
-    const d = L.rivers?.gauges[g.id];
-    const q = lastAt(d, "flow_cfs", d?.last_obs?.flow_cfs);
+  for (const g of S.ofKind("gauge")) {
+    const q = val(g, "flow_cfs");
     const pct = q == null ? null : percentileWord(g.id, q, tNow());
-    row(g.id, `${g.river} River`, `<td><b>${q == null ? "--" : q < 10 ? q.toFixed(1) : Math.round(q)} cfs</b><small>flow</small></td><td><b>${pct ?? ""}</b><small>${pct ? "for the date" : ""}</small></td>`, stateOf(d?.last_obs?.time, STALE_H.rivers));
+    row(g, `<td><b>${q == null ? "--" : q < 10 ? q.toFixed(1) : Math.round(q)} cfs</b><small>flow</small></td><td><b>${pct ?? ""}</b><small>${pct ? "for the date" : ""}</small></td>`);
   }
 }
 
 function statusWeather(row: RowFn, group: GroupFn): void {
   group("Airport");
-  for (const a of AIRPORTS) {
-    const d = L.asos?.stations[a.id];
-    const w = lastAt(d, "wind_kt", d?.last_obs?.wind_kt as number | null);
-    const dir = lastAt(d, "dir_deg", d?.last_obs?.dir_deg as number | null);
-    const air = lastAt(d, "air_f", d?.last_obs?.air_f as number | null);
-    row(a.id, `${a.name.replace("Portsmouth International Airport at ", "")} (ASOS)`, `<td><b>${dir == null ? "" : windArrow(dir, w != null && w < LIGHT_KT)}${w == null ? "--" : wind(w)}</b><small>${dir == null ? "wind" : `from ${compass(dir)}`}</small></td><td><b>${f1(air)} °F</b><small>air</small></td>`, stateOf(d?.last_obs?.time as string));
+  for (const a of S.ofKind("airport")) {
+    const w = val(a, "wind_kt");
+    const dir = val(a, "dir_deg");
+    row(a, `<td><b>${dir == null ? "" : windArrow(dir, w != null && w < LIGHT_KT)}${w == null ? "--" : wind(w)}</b><small>${dir == null ? "wind" : `from ${compass(dir)}`}</small></td><td><b>${f1(val(a, "air_f"))} °F</b><small>air</small></td>`);
   }
   group("Buoys");
-  for (const b of BUOYS) {
-    const d = L.buoys?.[b.id];
-    const w = lastAt(d, "wind_kt", d?.last_obs?.wind_kt as number | null);
-    const g = lastAt(d, "gust_kt", d?.last_obs?.gust_kt as number | null);
-    row(b.id, `${b.name} (UNH)`, `<td><b>${w == null ? "--" : wind(w)}</b><small>wind</small></td><td><b>${g == null ? "--" : wind(g)}</b><small>gust</small></td>`, stateOf(d?.last_obs?.time as string, STALE_H.buoys));
+  for (const b of S.ofKind("buoy")) {
+    const w = val(b, "wind_kt");
+    const g = val(b, "gust_kt");
+    row(b, `<td><b>${w == null ? "--" : wind(w)}</b><small>wind</small></td><td><b>${g == null ? "--" : wind(g)}</b><small>gust</small></td>`);
   }
 }
 
@@ -307,14 +277,14 @@ function hourGrid(back = CHART_BACK, ahead = 0): number[] {
 function renderStations(): void {
   const html: string[] = [];
   if (theme === "water") {
-    html.push(`<section class="fc-sec" aria-labelledby="sec-water"><h2 class="fc-h" id="sec-water">Buoys</h2><div class="rg-viewbar">${buoyViewSwitchHtml(bview, WATER_VIEWS)}<p class="note">This year in gold, earlier years in grey (the newest darkest); a year shows where it covers half the dates.</p></div><div class="rg-cards rg-buoys">${buoyCardsHtml(buoyCtx(), bview)}</div></section>`);
+    html.push(`<section class="fc-sec" aria-labelledby="sec-water"><h2 class="fc-h" id="sec-water">Buoys</h2><div class="rg-viewbar">${buoyViewSwitchHtml(bview, WATER_VIEWS)}<p class="note">${CFG.text.buoys}</p></div><div class="rg-cards rg-buoys">${buoyCardsHtml(buoyCtx(), bview)}</div></section>`);
   }
   if (theme === "tides") tidesHtml(html);
   if (theme === "currents") currentsHtml(html);
   if (theme === "rivers") riversHtml(html);
   if (theme === "weather") {
     html.push(`<section class="fc-sec" aria-labelledby="sec-air"><h2 class="fc-h" id="sec-air">Weather</h2><div class="rg-cards">`);
-    for (const a of AIRPORTS) html.push(card(a.id, a.name, `${esc(a.note)} NWS ASOS through the Iowa Environmental Mesonet.`, plot(a.id, `Wind at ${a.name}`) + legend([[MEASURED(), `wind, ${UL()}`], [SECOND(), `gust, ${UL()}`]])));
+    for (const a of AIRPORTS) html.push(card(a.id, a.name, `${esc(a.note)} ${CFG.text.airport}`, plot(a.id, `Wind at ${a.name}`) + legend([[MEASURED(), `wind, ${UL()}`], [SECOND(), `gust, ${UL()}`]])));
     html.push(buoyCardsHtml(buoyCtx(), "weather"));
     html.push(`</div></section>`);
   }
@@ -324,15 +294,17 @@ function renderStations(): void {
 
 function tidesHtml(html: string[]): void {
   html.push(`<section class="fc-sec" aria-labelledby="sec-tide"><h2 class="fc-h" id="sec-tide">Tide and water level</h2><div class="rg-cards">`);
-  const seav = L.shore?.stations.SEAV;
-  const next = (seav?.tides ?? []).filter((e) => sec(e.t) > now()).slice(0, 4);
-  html.push(card("SEAV", "Seavey Island", `Kittery, ME. NOAA CO-OPS 8419870, the only NOAA water level gauge in the estuary. Next: ${next.map((e) => `${e.type === "H" ? "high" : "low"} ${fmtShort.format(new Date(sec(e.t) * 1000))} (${e.ft.toFixed(1)} ft)`).join(", ") || "no predictions"}.`,
-    plot("SEAV", "Water level at Seavey Island") + legend([[MEASURED(), "observed, ft above MLLW"]])));
-  html.push(card("LV-MLLW", "Up the estuary", "Hohonu tide gauges (Gulf of Maine Research Institute), ft above MLLW as each gauge publishes it.",
+  const ref = refShore();
+  if (ref) {
+    const next = (((ref.frame as ShoreSt | undefined)?.tides) ?? []).filter((e) => sec(e.t) > now()).slice(0, 4);
+    html.push(card(ref.id, ref.name, `${CFG.text[ref.id] ?? ""} Next: ${next.map((e) => `${e.type === "H" ? "high" : "low"} ${fmtShort.format(new Date(sec(e.t) * 1000))} (${e.ft.toFixed(1)} ft)`).join(", ") || "no predictions"}.`,
+      plot(ref.id, `Water level at ${ref.name}`) + legend([[MEASURED(), "observed, ft above MLLW"]])));
+  }
+  html.push(card("LV-MLLW", CFG.text["LV-MLLW:title"], CFG.text["LV-MLLW"],
     plot("LV-MLLW", "Water level at the estuary's tide gauges") + legend(LEVELS.filter((g) => g.datum === "MLLW").map((g, i) => [[MEASURED(), SECOND(), THIRD()][i % 3], g.name]))));
-  html.push(card("LV-NAVD", "Exeter, Hampton and York", "Gauges that publish NAVD88 only (Hohonu; Onset at Hampton Harbor), ft above NAVD88: compare their swings, not their levels with the others.",
+  html.push(card("LV-NAVD", CFG.text["LV-NAVD:title"], CFG.text["LV-NAVD"],
     plot("LV-NAVD", "Water level at the NAVD88 gauges") + legend(LEVELS.filter((g) => g.datum !== "MLLW").map((g, i) => [[MEASURED(), SECOND(), THIRD()][i % 3], g.name]))));
-  const preds = SHORE.filter((s) => s.products.length === 1);
+  const preds = SHORE.filter((s) => !measuringShore(S).some((m) => m.id === s.id));
   const rowsHtml = preds.map((s) => {
     const ev = (L.shore?.stations[s.id]?.tides ?? []).filter((e) => sec(e.t) > now()).slice(0, 2);
     return `<tr><th scope="row">${esc(s.name)}</th>${ev.map((e) => `<td>${e.type === "H" ? "High" : "Low"} ${fmtShort.format(new Date(sec(e.t) * 1000))}<br><small>${e.ft.toFixed(1)} ft</small></td>`).join("")}</tr>`;
@@ -344,7 +316,7 @@ function tidesHtml(html: string[]): void {
 function currentsHtml(html: string[]): void {
   html.push(`<section class="fc-sec" aria-labelledby="sec-cur"><h2 class="fc-h" id="sec-cur">Currents</h2><div class="rg-cards">`);
   for (const m of METERS) {
-    html.push(card(m.id, `${m.name}`, `${esc(m.place)}. NOAA PORTS current meter, buoy-mounted; hourly means of its 6-minute readings.`,
+    html.push(card(m.id, `${m.name}`, `${esc(m.place)}. ${CFG.text.meter}`,
       plot(m.id, `Measured current at ${m.name}`) + legend([[MEASURED(), `speed, ${UL()}`]])));
   }
   html.push(card("PRED", "Predicted tidal current", `NOAA predictions at ${PREDS.map((p) => p.name).join(" and ")}, ${UL()}, flood positive.`,
@@ -381,7 +353,7 @@ function wireThemes(): void {
     if (!btn || btn.dataset.themeView === theme) return;
     theme = btn.dataset.themeView as Theme;
     try {
-      localStorage.setItem("lhzn-blue-region-view", theme);
+      localStorage.setItem(CFG.storage.view, theme);
     } catch {
       /* private mode */
     }
@@ -400,7 +372,7 @@ function wireBuoyViews(): void {
     if (!btn) return;
     bview = btn.dataset.bview as BuoyView;
     try {
-      localStorage.setItem("lhzn-blue-region-bview", bview);
+      if (CFG.storage.bview) localStorage.setItem(CFG.storage.bview, bview);
     } catch {
       /* private mode */
     }
@@ -422,8 +394,8 @@ function drawCharts(): void {
   const xs = hourGrid();
   if (theme === "water") drawBuoyFigures(buoyCtx(), bview);
   if (theme === "weather") drawBuoyFigures(buoyCtx(), "weather");
-  const seav = L.shore?.stations.SEAV;
-  draw("SEAV", { xs, lines: [{ ys: series(seav, "level_ft", xs), color: MEASURED(), width: 1.6, label: "Observed", fmt: (v) => `${v.toFixed(2)} ft` }], unit: " ft", ...MARKS(), empty: "No readings this week." });
+  const ref = refShore();
+  if (ref) draw(ref.id, { xs, lines: [{ ys: series(ref.frame, "level_ft", xs), color: MEASURED(), width: 1.6, label: "Observed", fmt: (v) => `${v.toFixed(2)} ft` }], unit: " ft", ...MARKS(), empty: "No readings this week." });
   for (const datum of ["MLLW", "NAVD"] as const) {
     const gs = LEVELS.filter((g) => (datum === "MLLW" ? g.datum === "MLLW" : g.datum !== "MLLW"));
     const lines: Line[] = gs.map((g, i) => ({ ys: series(L.levels?.[g.id], "level_ft", xs), color: [MEASURED(), SECOND(), THIRD()][i % 3], width: i ? 1.2 : 1.6, label: g.name, fmt: (v: number) => `${v.toFixed(2)} ft` }));
@@ -482,35 +454,38 @@ function drawCharts(): void {
 
 // ---------- The map: pins and the surface fields ----------
 
-const HOME: [[number, number], [number, number]] = [[-70.95, 42.88], [-70.55, 43.2]];
-const NEAR: [[number, number], [number, number]] = [[-71.3, 42.7], [-70.3, 43.45]];
+const { home: HOME, near: NEAR } = CFG.map;
 
+/** A station's pin text: its newest reading, by kind. */
+function pinLabel(s: Station): string {
+  const lo = s.lastObs as Record<string, number | string | null> | null | undefined;
+  if (!lo) return s.kind === "airport" ? "No recent reports" : "No recent readings";
+  const when = `<br>${ago(sec(lo.time as string))}`;
+  const n = (k: string) => lo[k] as number | null;
+  switch (s.kind) {
+    case "buoy": return `Water ${f1(n("water_f"))} °F, salinity ${f1(n("salinity"))}${when}`;
+    case "shore": return `Water level ${f1(n("level_ft"), 2)} ft MLLW${when}`;
+    case "level": return `Water level ${(n("level_ft") as number).toFixed(2)} ft ${s.meta.datum}${when}`;
+    case "meter": return `Current ${cur(n("spd_cms") as number)} toward ${compass(n("dir_deg") as number)}${when}`;
+    case "gauge": return `Flow ${n("flow_cfs")} cfs${when}`;
+    case "airport": {
+      const w = n("wind_kt");
+      const dir = n("dir_deg");
+      return `Wind ${dir == null ? "" : windArrow(dir, w != null && w < LIGHT_KT)}${w == null ? "--" : wind(w)}${dir == null ? "" : ` from ${compass(dir)}`}${when}`;
+    }
+    default: return "";
+  }
+}
+
+/** Every station on the map but the prediction points (and the shore stations that only predict): buoys gold, gauges
+ * as river marks, the rest as shore stations. */
 function pins(): Pin[] {
-  const out: Pin[] = [];
-  for (const b of BUOYS) {
-    const lo = L.buoys?.[b.id]?.last_obs;
-    out.push({ id: b.id, name: `${b.name} (UNH)`, lat: b.lat, lon: b.lon, kind: "buoy", state: stateOf(lo?.time as string, STALE_H.buoys), label: lo ? `Water ${f1(lo.water_f as number | null)} °F, salinity ${f1(lo.salinity as number | null)}<br>${ago(sec(lo.time as string))}` : "No recent readings" });
-  }
-  const seav = L.shore?.stations.SEAV?.last_obs;
-  const s0 = SHORE[0];
-  out.push({ id: "SEAV", name: s0.name, lat: s0.lat, lon: s0.lon, kind: "shore", state: stateOf(seav?.time as string), label: seav ? `Water level ${f1(seav.level_ft as number | null, 2)} ft MLLW<br>${ago(sec(seav.time as string))}` : "No recent readings" });
-  for (const g of LEVELS) {
-    const lo = L.levels?.[g.id]?.last_obs;
-    out.push({ id: g.id, name: g.name, lat: g.lat, lon: g.lon, kind: "shore", state: stateOf(lo?.time), label: lo ? `Water level ${lo.level_ft.toFixed(2)} ft ${g.datum}<br>${ago(sec(lo.time))}` : "No recent readings" });
-  }
-  for (const m of METERS) {
-    const lo = L.current_meters?.[m.id]?.last_obs;
-    out.push({ id: m.id, name: m.name, lat: m.lat, lon: m.lon, kind: "shore", state: stateOf(lo?.time), label: lo ? `Current ${cur(lo.spd_cms)} toward ${compass(lo.dir_deg)}<br>${ago(sec(lo.time))}` : "No recent readings" });
-  }
-  for (const g of GAUGES) {
-    const lo = L.rivers?.gauges[g.id]?.last_obs;
-    out.push({ id: g.id, name: `${g.river} River`, lat: g.lat, lon: g.lon, kind: "gauge", state: stateOf(lo?.time, STALE_H.rivers), label: lo ? `Flow ${lo.flow_cfs} cfs<br>${ago(sec(lo.time))}` : "No recent readings" });
-  }
-  for (const a of AIRPORTS) {
-    const lo = L.asos?.stations[a.id]?.last_obs;
-    out.push({ id: a.id, name: a.name, lat: a.lat, lon: a.lon, kind: "shore", state: stateOf(lo?.time as string), label: lo ? `Wind ${lo.dir_deg == null ? "" : windArrow(lo.dir_deg as number, lo.wind_kt != null && (lo.wind_kt as number) < LIGHT_KT)}${lo.wind_kt == null ? "--" : wind(lo.wind_kt as number)}${lo.dir_deg == null ? "" : ` from ${compass(lo.dir_deg as number)}`}<br>${ago(sec(lo.time as string))}` : "No recent reports" });
-  }
-  return out;
+  const shown = (s: Station) => s.kind !== "prediction" && (s.kind !== "shore" || measuringShore(S).includes(s));
+  return S.all.filter(shown).map((s) => ({
+    id: s.id, name: s.kind === "buoy" ? s.label : s.name, lat: s.lat, lon: s.lon,
+    kind: s.kind === "buoy" ? "buoy" : s.kind === "gauge" ? "gauge" : "shore",
+    state: stationState(s), label: pinLabel(s),
+  }));
 }
 
 const fieldCache = new Map<string, Promise<FieldData>>();
@@ -537,12 +512,7 @@ function sstHistoryData(): Promise<RasterHistory | null> {
   return sstHistory;
 }
 
-const CHOICES: FieldControls["choices"] = [
-  { kind: "none", label: "None" },
-  { kind: "currents", label: "Currents (NECOFS)" },
-  { kind: "wind", label: "Wind (HRRR)" },
-  { kind: "sst", label: "Sea surface temperature" },
-];
+const CHOICES: FieldControls["choices"] = CFG.layers;
 let mapWide = false;
 function controls(): FieldControls {
   return {
@@ -687,17 +657,8 @@ function redraw(): void {
 // ---------- Method and credits ----------
 
 function drawMethod(): void {
-  const items: [string, string][] = [
-    ["Area", "Great Bay, Little Bay, the Piscataqua, Portsmouth Harbor and the Hampton-Seabrook estuary, out to the Isles of Shoals (42.88 to 43.20 N, 70.95 to 70.55 W)."],
-    ["Buoys", 'The University of New Hampshire\'s <a href="https://data.neracoos.org/erddap/tabledap/UNH_GBB.html">Great Bay buoy</a> and <a href="https://data.neracoos.org/erddap/tabledap/UNH_CML.html">Coastal Marine Laboratory</a> station, through the NERACOOS ERDDAP. Values the operator flags suspect or failed (QARTOD) are left out; that currently includes both stations\' wind direction. Hourly means; oxygen as each station reports it (percent saturation at the buoy, micromoles per kilogram at the lab).'],
-    ["Water level", 'NOAA CO-OPS <a href="https://tidesandcurrents.noaa.gov/stationhome.html?id=8419870">Seavey Island (8419870)</a>, and the Gulf of Maine Research Institute\'s Hohonu gauges and Onset\'s Hampton Harbor gauge through NERACOOS. Gauges that publish a level above MLLW are shown so; the others above NAVD88. Tide predictions from NOAA CO-OPS.'],
-    ["Currents", 'The NOAA PORTS current meter at <a href="https://tidesandcurrents.noaa.gov/cdata/StationInfo?id=pm0101">Gangway Rocks (pm0101)</a>, hourly means by components of its 6-minute readings; NOAA tidal current predictions for the harbour entrance (PIR0701) and the General Sullivan Bridge (PIR0710). On the map, the NECOFS model\'s surface currents (FVCOM GOM7, top layer), University of Massachusetts Dartmouth (SMAST), hourly.'],
-    ["Rivers", "USGS streamflow, provisional. The percentile bands are USGS's day-of-year statistics of daily mean discharge for each gauge's record."],
-    ["Wind and SST", "NOAA's HRRR 10 m wind (3 km), and the satellite sea surface temperature analysis (MUR, NASA JPL), each over the region's box. Pease airport (KPSM) through the Iowa Environmental Mesonet."],
-    ["Colours", "Measurements are gold, predictions blue, the model teal; the selected time is purple and now a grey dash."],
-  ];
-  $("method").innerHTML = items.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
-  $("credits").innerHTML = `<p><b>Data:</b> ${(registry.credits as string[]).map(esc).join("; ")}. Thank you to all of them.</p><p><b>Provisional data.</b> Not for navigation. <a href="/terms/">Terms</a>.</p><p>A <a href="/">longhorizon.blue</a> page by <a href="https://longhorizon.eco/observatory">Long Horizon Observatory</a>.</p>`;
+  $("method").innerHTML = CFG.method.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+  $("credits").innerHTML = `<p><b>Data:</b> ${CFG.credits.map(esc).join("; ")}. Thank you to all of them.</p><p><b>Provisional data.</b> Not for navigation. <a href="/terms/">Terms</a>.</p><p>A <a href="/">longhorizon.blue</a> page by <a href="https://longhorizon.eco/observatory">Long Horizon Observatory</a>.</p>`;
 }
 
 // ---------- Boot ----------
@@ -715,6 +676,7 @@ async function main(): Promise<void> {
     const r = await fetch(`${DATA}/live.json`, { cache: "no-cache" });
     if (!r.ok) throw new Error(String(r.status));
     L = (await r.json()) as Live;
+    S = regionStations(reg as unknown as RegionRegistry, L, CFG);
   } catch {
     const e = $("load-error");
     e.hidden = false;

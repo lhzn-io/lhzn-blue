@@ -9,7 +9,8 @@ import shoreRegistry from "../../../stations/shore.json";
 import asosRegistry from "../../../stations/asos.json";
 import { emphasise, highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
 import { wireHints } from "./hints";
-import { BUOY_SENSORS, METHODS, methodHtml, REF_LABELS } from "./methods";
+import { chainButton, navigateTo, revealLinked, wireLinks } from "./links";
+import { ARROW_PATH, compass, LIGHT_KT, measuredOr, windArrow, windGlyphs, type WindAt } from "./wind-dir";import { BUOY_SENSORS, METHODS, methodHtml, REF_LABELS } from "./methods";
 import { BOATS, boatIcon, boatLabel, boatPickerHtml, comfortTableHtml } from "./comfort-thresholds";
 import { mountCollect } from "./collect";
 import { percentileText, SEASONS, seasonalPercentile, smoothByAge, trend, trendText, TRENDS, veerText } from "./trends";
@@ -443,15 +444,6 @@ function metOf(w: MetWindow | undefined): Met | null {
   };
 }
 
-const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-/** Wind direction (degrees it blows from) as a 16-point compass name. */
-const compass = (deg: number) => COMPASS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
-
-/** A small arrow pointing downwind (the way the wind is blowing), with the compass point it comes from. */
-function windArrow(fromDeg: number): string {
-  const to = (fromDeg + 180) % 360;
-  return `<svg class="wind-arrow" viewBox="-6 -6 12 12" width="12" height="12" role="img" aria-label="from ${compass(fromDeg)}"><title>from ${compass(fromDeg)} (${Math.round(fromDeg)}°), blowing toward ${compass(to)}</title><g transform="rotate(${to.toFixed(0)})"><path d="M0 -5 L3.2 2.6 L0 1 L-3.2 2.6 Z" fill="currentColor"/></g></svg>`;
-}
 
 /** Speed units for wind and currents: buoy data arrives in knots; the reader picks how it is shown (remembered per browser). */
 const WIND_UNITS = {
@@ -1055,9 +1047,18 @@ const FIGS: Record<Kind, Fig> = {
         if (!vals.length) return null;
         return vintageLabel(d.meta.id, vals.reduce((a, b) => (Math.abs(b.y - yv) < Math.abs(a.y - yv) ? b : a)).r);
       };
+      // Direction: measured up to now (gold), HRRR's dashed in slate where there is no observation, then the
+      // stitched forecast's (slate).
+      const nowH = Math.floor(now / HOUR) * HOUR;
+      const model = (t: number) => {
+        const f = forecastAt(d.meta.id, t);
+        return f ? { from: f.dir, kt: f.spd, color: P.line } : null;
+      };
+      const windAt = (t: number): WindAt | null => (t <= nowH ? measuredOr(m?.dir?.at(t) ?? NaN, m?.wind?.at(t) ?? NaN, P.now, () => model(t)) : model(t));
+      const glyphs = windGlyphs(x0, x1, windAt);
       return {
         opts: {
-          xs, lines, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" }, empty: "No forecast or measurement in this window.", pick,
+          xs, lines, glyphs, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" }, empty: "No forecast or measurement in this window.", pick,
           areas: [{ lo: fc.map((v, i) => windVal(Math.max(0, v - err(xs[i])))), hi: fc.map((v, i) => windVal(v + err(xs[i]))), fill: P.miss, opacity: 0.22 }],
         },
         legend: [["Measured", P.now, 1], ["Stitched forecast", P.line, 1], ["Typical miss (shaded)", P.miss, 0.5], ["Gusts", P.contrast, 0.55], ["Earlier forecasts", P.line, 0.3]],
@@ -1111,7 +1112,10 @@ const FIGS: Record<Kind, Fig> = {
         .filter((a) => a.kind in ADV_WIND && a.t1 > x0 && a.t0 < x1)
         .map((a) => ({ x0: a.t0, x1: a.t1, fill: P.advisory[ADV_WIND[a.kind]], title: `${ADV!.kinds[a.kind]}, ${a.zone}: ${fmtWhen(a.t0)} to ${fmtWhen(a.t1)}` }));
       return {
-        opts: { xs, lines, spans, unit: ` ${u.label}`, zero: true, empty: "No weather data in this window." },
+        opts: {
+          xs, lines, spans, unit: ` ${u.label}`, zero: true, empty: "No weather data in this window.",
+          glyphs: m?.dir ? windGlyphs(xs[0], xs[xs.length - 1], (t) => ({ from: m.dir!.at(t), kt: m.wind?.at(t) ?? NaN, color: P.line })) : undefined,
+        },
         legend: [[smoothLabel, P.line, 1], ["Wind, hourly", P.line, 0.35], ["Daily peak gust", P.contrast, 0.55], ...(hh?.wind ? [[HRRR_HIST_LABEL, P.line, 0.7] as [string, string, number]] : [])],
         note: zone ? `red: NWS small craft advisory (light), gale or stronger (dark), zone ${zone}` : undefined,
       };
@@ -2005,6 +2009,62 @@ const WS_STOPS: Record<Theme, [number, string][]> = {
 const WS_BACK = 14 * DAY, WS_AHEAD = 48 * HOUR;
 const WS_REACH = { back: WS_BACK, ahead: 72 * HOUR }; // the time slider's hours scale in this view (timeline.ts)
 const WS = { W: 480, L: 34, R: 4, top: 12, row: 8, ribbon: 3, gap: 7, bot: 13 };
+/** The strip's station rows as last drawn (viewBox units), for the pointer to find its station. */
+const WS_ROWS: { d: StationData; y0: number; y1: number }[] = [];
+
+/** The strip's hour and station row under a pointer event, or null off the clickable span. */
+function wsPoint(e: MouseEvent): { svg: SVGSVGElement; t: number; row: (typeof WS_ROWS)[number] | undefined } | null {
+  const target = e.target as Element;
+  const svg = target.closest<SVGSVGElement>(".ws-svg");
+  if (!svg || !target.closest(".ws-hit")) return null;
+  const r = svg.getBoundingClientRect();
+  const H = svg.viewBox.baseVal.height || r.height;
+  const vx = ((e.clientX - r.left) / r.width) * WS.W;
+  const vy = ((e.clientY - r.top) / r.height) * H;
+  const { t0, t1 } = windStripSpan();
+  const t = t0 + ((vx - WS.L) / (WS.W - WS.L - WS.R)) * (t1 - t0);
+  if (t < t0 || t > t1) return null;
+  return { svg, t, row: WS_ROWS.find((w) => vy >= w.y0 && vy < w.y1) };
+}
+
+function hideWsTip(): void {
+  const tip = document.querySelector<HTMLElement>(".ws-tip");
+  if (tip) tip.hidden = true;
+}
+
+/** The station's wind at an hour, as the strip draws it: measured, else the forecast (or the model under a buoy that
+ * is out), with how to act on it. */
+function showWsTip(svg: SVGSVGElement, e: MouseEvent, d: StationData, t: number): void {
+  const sec = svg.closest<HTMLElement>(".ws");
+  if (!sec) return;
+  let tip = sec.querySelector<HTMLElement>(".ws-tip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.className = "tip ws-tip";
+    sec.append(tip);
+  }
+  const h = hourOf(t);
+  const now = Date.now() / 1000;
+  const u = WIND_UNITS[WU].label;
+  const obs = h <= now ? d.met?.wind?.at(h) ?? NaN : NaN;
+  const f = Number.isFinite(obs) || (h <= now && d.kind !== "buoy") ? null : forecastAt(d.meta.id, h);
+  const kt = Number.isFinite(obs) ? obs : f?.spd ?? NaN;
+  const from = Number.isFinite(obs) ? d.met?.dir?.at(h) ?? NaN : f?.dir ?? NaN;
+  const gust = Number.isFinite(obs) ? d.met?.gust?.at(h) ?? NaN : f?.gust ?? NaN;
+  const what = Number.isFinite(obs) ? "measured" : !f ? "" : h > now ? "HRRR forecast" : "HRRR, buoy out";
+  const wind = Number.isFinite(kt)
+    ? `<div>${Number.isFinite(from) ? windArrow(from, kt < LIGHT_KT) : ""}${windFmt(kt)} ${u}${Number.isFinite(from) ? ` from ${compass(from)}` : ""}<b>${what}</b></div>` +
+      (Number.isFinite(gust) ? `<div>gusts ${windFmt(gust)} ${u}</div>` : "")
+    : "<div>no reading</div>";
+  tip.innerHTML = `<span class="tip-time">${d.meta.name}, ${fmtWhenMin.format(new Date(h * 1000))}</span>${wind}<span class="tip-time ws-tip-hint">click: set the time &middot; double-click: wind chart</span>`;
+  tip.hidden = false;
+  const box = sec.getBoundingClientRect();
+  const x = e.clientX - box.left;
+  const right = x > box.width * 0.6;
+  tip.style.left = right ? "" : `${x + 14}px`;
+  tip.style.right = right ? `${box.width - x + 14}px` : "";
+  tip.style.top = `${e.clientY - box.top + 14}px`;
+}
 
 function windColour(kt: number): string {
   const st = WS_STOPS[currentTheme()];
@@ -2039,6 +2099,7 @@ function soundWindHtml(stations: StationData[]): string {
   }
   const groups = zoneOrder.map((z) => ({ z, rows: rows.filter((d) => (zoneOf(d.meta.id) ?? "") === z) }));
   const { W, L: X0, R: XR, top, row, ribbon, gap, bot } = WS;
+  WS_ROWS.length = 0;
   const nowS = Date.now() / 1000;
   const { t0, t1 } = windStripSpan();
   const pw = W - X0 - XR;
@@ -2046,7 +2107,7 @@ function soundWindHtml(stations: StationData[]): string {
   const H = top + groups.reduce((h, g) => h + ribbon + 2 + g.rows.length * row, 0) + gap * (groups.length - 1) + bot;
   const u = WIND_UNITS[WU];
   const fmtU = (kt: number) => `${windFmt(kt)} ${u.label}`;
-  let g = `<defs><pattern id="ws-hatch" width="3" height="3" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="3" class="ws-hatch-line"/></pattern></defs>`;
+  let g = "";
   g += `<rect x="${x(nowS).toFixed(1)}" y="${top - 2}" width="${(W - XR - x(nowS)).toFixed(1)}" height="${H - top - bot + 2}" class="hi-ahead-band"/>`;
   let y = top;
   for (const grp of groups) {
@@ -2063,6 +2124,7 @@ function soundWindHtml(stations: StationData[]): string {
     }
     y += ribbon + 2;
     for (const d of grp.rows) {
+      WS_ROWS.push({ d, y0: y, y1: y + row });
       g += `<text x="${X0 - 4}" y="${(y + row - 1.5).toFixed(1)}" text-anchor="end"><title>${d.meta.name}</title>${d.meta.id}</text>`;
       // Hours merged into runs of the same whole-knot speed and source, so the strip stays a few hundred shapes.
       type Run = { a: number; b: number; kt: number; src: "obs" | "model" | "fcst"; lead?: number };
@@ -2088,7 +2150,30 @@ function soundWindHtml(stations: StationData[]): string {
         const xa = x(r.a), w = Math.max(0.6, x(r.b) - xa);
         const what = r.src === "obs" ? "measured" : r.src === "model" ? "HRRR at the station, the newest run for the hour; a model, not a measurement" : "HRRR forecast";
         g += `<rect x="${xa.toFixed(2)}" y="${y}" width="${w.toFixed(2)}" height="${row - 1}" fill="${windColour(r.kt)}"${r.src === "fcst" ? ' opacity="0.8"' : ""}><title>${d.meta.name}: ${fmtU(r.kt)}, ${fmtWhenMin.format(new Date(r.a * 1000))}${r.b - r.a > HOUR ? ` to ${fmtWhenMin.format(new Date(r.b * 1000))}` : ""} (${what})</title></rect>`;
-        if (r.src === "model") g += `<rect x="${xa.toFixed(2)}" y="${y}" width="${w.toFixed(2)}" height="${row - 1}" fill="url(#ws-hatch)" pointer-events="none"/>`;
+      }
+      // Hours where a buoy was out and the model stands in: one dashed outline per stretch, over the colour (dashed
+      // marks a model in place of a reading, as on the charts).
+      const spans: [number, number][] = [];
+      for (const r of runs) {
+        if (r.src !== "model") continue;
+        const s = spans[spans.length - 1];
+        if (s && s[1] === r.a) s[1] = r.b;
+        else spans.push([r.a, r.b]);
+      }
+      for (const [a, b] of spans) g += `<rect x="${x(a).toFixed(2)}" y="${(y + 0.4).toFixed(1)}" width="${Math.max(0.6, x(b) - x(a)).toFixed(2)}" height="${row - 1.8}" class="ws-model" pointer-events="none"/>`;
+      // Direction: a downwind arrow every 12 hours on the speed colour, measured where there is a reading, else the
+      // forecast (or the model, for a buoy that is out).
+      for (let h = Math.ceil(t0 / (12 * HOUR)) * 12 * HOUR + 6 * HOUR; h < t1; h += 12 * HOUR) {
+        const obsDir = h <= nowS ? d.met?.dir?.at(h) ?? NaN : NaN;
+        const f = Number.isFinite(obsDir) || (h <= nowS && d.kind !== "buoy") ? null : forecastAt(d.meta.id, h);
+        const from = Number.isFinite(obsDir) ? obsDir : f?.dir ?? NaN;
+        if (!Number.isFinite(from)) continue;
+        const kt = Number.isFinite(obsDir) ? d.met?.wind?.at(h) ?? NaN : f?.spd ?? NaN;
+        const s = (row - 1) / 12; // the arrow's -6..6 box to the row's height
+        const at = `translate(${x(h).toFixed(1)} ${(y + (row - 1) / 2).toFixed(2)}) scale(${s.toFixed(3)}) rotate(${((from + 180) % 360).toFixed(0)})`;
+        // The pen darkens with the wind: barely there in light air, full ink from 25 kt.
+        const ink = Number.isFinite(kt) ? 0.15 + 0.75 * Math.min(1, Math.max(0, kt - LIGHT_KT) / (25 - LIGHT_KT)) : 0.4;
+        g += `<path d="${ARROW_PATH}" transform="${at}" class="ws-dir" opacity="${ink.toFixed(2)}" pointer-events="none"/>`;
       }
       y += row;
     }
@@ -2108,13 +2193,13 @@ function soundWindHtml(stations: StationData[]): string {
   if (cur != null && cur >= t0 && cur <= t1) g += `<line x1="${x(cur).toFixed(1)}" x2="${x(cur).toFixed(1)}" y1="${top - 2}" y2="${H - bot}" class="hi-cursor"/>`;
   // The span the time slider reaches (all of it, in this view): the part a click acts on.
   const r0 = Math.max(t0, nowS - WS_REACH.back), r1 = Math.min(t1, nowS + WS_REACH.ahead);
-  g += `<rect x="${x(r0).toFixed(1)}" y="${top - 2}" width="${(x(r1) - x(r0)).toFixed(1)}" height="${H - top - bot + 2}" class="ws-hit"><title>Click to move the page's time</title></rect>`;
+  g += `<rect x="${x(r0).toFixed(1)}" y="${top - 2}" width="${(x(r1) - x(r0)).toFixed(1)}" height="${H - top - bot + 2}" class="ws-hit"/>`;
   const sw = (fill: string, extra = "") => `<svg width="10" height="9" class="ws-sw" aria-hidden="true"><rect width="10" height="9" fill="${fill}"${extra}/></svg>`;
   const ramp = `<svg width="64" height="9" class="ws-sw" aria-hidden="true"><defs><linearGradient id="ws-ramp">${WS_STOPS[currentTheme()].map(([k, c]) => `<stop offset="${(k / 35).toFixed(3)}" stop-color="${c}"/>`).join("")}</linearGradient></defs><rect width="64" height="9" fill="url(#ws-ramp)"/></svg>`;
   return `<section class="ws" id="${WIND_STRIP_HASH.slice(1)}" aria-label="Wind across the Sound">
     <p class="ol-title">Wind across the Sound <span class="ol-src">west to east, by NWS zone; two weeks back, 48 h ahead &middot; click to move the time</span></p>
     <svg viewBox="0 0 ${W} ${H}" class="hi-svg ws-svg" role="img" aria-label="Hourly wind at each station, two weeks back to 48 hours ahead, with NWS advisories">${g}</svg>
-    <p class="status-key">0 ${ramp} ${fmtU(35)} &middot; <svg width="10" height="9" class="ws-sw" aria-hidden="true"><rect width="10" height="9" fill="${windColour(16)}"/><rect width="10" height="9" fill="url(#ws-hatch)"/></svg>model where a buoy is out &middot; past now: HRRR forecast${(() => { const a = hrrrAsOf(rows[0].meta.id, Array.from({ length: 48 }, (_, i) => hourOf(nowS) + (i + 1) * HOUR)); return a ? `, ${a}` : ""; })()} &middot; ${sw("var(--advisory)", ' opacity="0.45"')}small craft ${sw("var(--advisory)")}gale or stronger (NWS)</p>
+    <p class="status-key">0 ${ramp} ${fmtU(35)} &middot; arrows point downwind, darker in stronger wind &middot; <svg width="14" height="9" class="ws-sw" aria-hidden="true"><rect width="14" height="9" fill="${windColour(16)}"/><rect x="0.6" y="0.6" width="12.8" height="7.8" class="ws-model ws-model-key"/></svg>model where a buoy is out &middot; past now: HRRR forecast${(() => { const a = hrrrAsOf(rows[0].meta.id, Array.from({ length: 48 }, (_, i) => hourOf(nowS) + (i + 1) * HOUR)); return a ? `, ${a}` : ""; })()} &middot; ${sw("var(--advisory)", ' opacity="0.45"')}small craft ${sw("var(--advisory)")}gale or stronger (NWS)</p>
   </section>`;
 }
 
@@ -3384,16 +3469,30 @@ function wireStatusTabs(stations: StationData[]): void {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>(".stab");
     if (b) pick(b.dataset.group as Group);
   });
+  // A click moves the page's time. Two clicks close together in time and place also open that station's wind chart
+  // at that hour (the next 48 hours where it reaches, else the wind record). Counted here, not with dblclick: the
+  // first click redraws the strip, so the second lands on a new element and the browser never fires dblclick.
+  let last = { at: -Infinity, x: 0, y: 0 };
   box.addEventListener("click", (e) => {
-    const svg = (e.target as Element).closest<SVGSVGElement>(".ws-svg");
-    if (!svg || !timelineModule || !(e.target as Element).closest(".ws-hit")) return;
-    const r = svg.getBoundingClientRect();
-    const vx = ((e.clientX - r.left) / r.width) * WS.W;
-    const { t0, t1 } = windStripSpan();
-    const t = t0 + ((vx - WS.L) / (WS.W - WS.L - WS.R)) * (t1 - t0);
-    if (t < t0 || t > t1) return;
-    timelineModule.setOffset(Math.round((t - Date.now() / 1000) / HOUR));
+    const p = wsPoint(e);
+    if (!p || !timelineModule) return;
+    timelineModule.setOffset(Math.round((p.t - Date.now() / 1000) / HOUR));
+    const double = e.timeStamp - last.at < 450 && Math.abs(e.clientX - last.x) < 8 && Math.abs(e.clientY - last.y) < 8;
+    last = double ? { at: -Infinity, x: 0, y: 0 } : { at: e.timeStamp, x: e.clientX, y: e.clientY };
+    if (!double || !p.row) return;
+    hideWsTip();
+    const sid = p.row.d.meta.id;
+    const fig = p.t >= Date.now() / 1000 - 36 * HOUR && document.getElementById(`${sid}-next48`) ? "next48" : "wind";
+    if (!document.getElementById(`${sid}-${fig}`)) return;
+    navigateTo(`${sid}-${fig}`);
   });
+  // The strip's own tooltip: the station's wind at the hour under the pointer.
+  box.addEventListener("pointermove", (e) => {
+    const p = e.pointerType === "mouse" ? wsPoint(e) : null;
+    if (p?.row) showWsTip(p.svg, e, p.row.d, p.t);
+    else hideWsTip();
+  });
+  box.addEventListener("pointerleave", hideWsTip);
   box.addEventListener("keydown", (e) => {
     if (!(e.target as HTMLElement).closest(".stab") || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
     pick(SG === "buoy" ? "shore" : "buoy");
@@ -3426,6 +3525,7 @@ async function wireTimeline(box: HTMLElement): Promise<void> {
     void showAt(t);
     import("./fields").then((f) => f.setFieldTime(t)).catch(() => undefined);
   });
+  tl.setHoursBack(VK === "wind" ? WS_BACK / HOUR : 24); // the view's reach first, or a linked time is clamped to a day
   applyPendingOffset("hours"); // after the listener, so a linked time reaches the charts, the table and the pins
   void syncPhase(tl.position().scale === "hours");
 }
@@ -3461,7 +3561,7 @@ function stationPin(d: StationData): Pin {
     const f = forecastAt(d.meta.id, AT);
     if (f) {
       const u = WIND_UNITS[WU].label;
-      const label = `Forecast: wind ${compass(f.dir)} ${windFmt(f.spd)} ${u}, gusts ${windFmt(f.gust)}${Number.isFinite(f.air) ? `<br>air ${Math.round(f.air)}&deg;F` : ""}<br>HRRR, ${f.lead} h ahead, typically &plusmn;${windFmt(f.err)} ${u}<br>${atLabel(AT)}`;
+      const label = `Forecast: wind ${windArrow(f.dir, f.spd < LIGHT_KT)}${compass(f.dir)} ${windFmt(f.spd)} ${u}, gusts ${windFmt(f.gust)}${Number.isFinite(f.air) ? `<br>air ${Math.round(f.air)}&deg;F` : ""}<br>HRRR, ${f.lead} h ahead, typically &plusmn;${windFmt(f.err)} ${u}<br>${atLabel(AT)}`;
       return { ...base, state: overallState(d), label };
     }
   }
@@ -3471,7 +3571,7 @@ function stationPin(d: StationData): Pin {
     const dir = d.met?.dir?.at(AT) ?? NaN;
     const parts = [
       Number.isFinite(water) ? `${d.kind === "shore" ? "Water" : DEPTH_LABEL[dep]} ${pinValue(k, water)}` : "",
-      Number.isFinite(wind) ? `wind ${Number.isFinite(dir) ? compass(dir) + " " : ""}${windFmt(wind)} ${WIND_UNITS[WU].label}` : "",
+      Number.isFinite(wind) ? `wind ${Number.isFinite(dir) ? windArrow(dir, wind < LIGHT_KT) + compass(dir) + " " : ""}${windFmt(wind)} ${WIND_UNITS[WU].label}` : "",
     ].filter(Boolean);
     // A buoy without its own wind at that hour: the model under the fault, marked as such.
     const f = !Number.isFinite(wind) ? hrrrStandIn(d, AT) : null;
@@ -3485,7 +3585,7 @@ function stationPin(d: StationData): Pin {
   const lv = o ? WATER_VARS[k].obs(o) : null;
   const state = overallState(d);
   const w = d.met?.last;
-  const wind = w && w.wind_kt != null ? `wind ${w.dir_deg != null ? compass(w.dir_deg) + " " : ""}${windFmt(w.wind_kt)} ${WIND_UNITS[WU].label}, ${ago(w.time)}` : "";
+  const wind = w && w.wind_kt != null ? `wind ${w.dir_deg != null ? windArrow(w.dir_deg, w.wind_kt < LIGHT_KT) + compass(w.dir_deg) + " " : ""}${windFmt(w.wind_kt)} ${WIND_UNITS[WU].label}, ${ago(w.time)}` : "";
   const reading =
     state === "partial"
       ? `Weather live: ${wind}<br>Water quality offline${o ? ` since ${fmtDate.format(new Date(o.time))}` : ""}`
@@ -3537,7 +3637,7 @@ async function overviewMap(stations: StationData[]): Promise<void> {
     drawMap(
       box,
       stations.map(stationPin),
-      (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }),
+      (id) => navigateTo(id),
       currentTheme(),
     );
     void syncMap();
@@ -3581,8 +3681,8 @@ function sectionHtml(d: StationData): string {
     const f = FIGS[key];
     return `
     <figure${f.wide ? ' class="wide"' : ""}>
-      <figcaption><span class="cap-label">${f.label?.(d) ?? f.title}</span><span class="cap-sub">${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}</span>${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
-        <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button><button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
+      <figcaption><span class="cap-label"><span class="cap-code">${id}</span>: ${f.label?.(d) ?? f.title}</span><span class="cap-sub">${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}</span>${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
+        <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
       <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}" title="Click to expand"><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
     </figure>`;
@@ -3764,7 +3864,7 @@ function weatherReadouts(d: StationData): string[] {
   const u = WIND_UNITS[WU].label;
   if (o?.wind_kt != null && state !== "offline") {
     const dir = o.dir_deg != null ? `from ${compass(o.dir_deg)}` : "";
-    out.push(readoutHtml(`${windFmt(o.wind_kt)}<small>${u}</small>`, "Wind", "wind", `${dir}${dir ? " &middot; " : ""}gusts ${windFmt(o.gust_kt)} ${u} &middot; ${ago(o.time)}${o.source === "panel" ? " &middot; transcribed from the LISICOS panel" : ""}`, state,
+    out.push(readoutHtml(`${o.dir_deg != null ? windArrow(o.dir_deg, o.wind_kt < LIGHT_KT) : ""}${windFmt(o.wind_kt)}<small>${u}</small>`, "Wind", "wind", `${dir}${dir ? " &middot; " : ""}gusts ${windFmt(o.gust_kt)} ${u} &middot; ${ago(o.time)}${o.source === "panel" ? " &middot; transcribed from the LISICOS panel" : ""}`, state,
       [contextLine(d.met?.wind, "wind", (v) => `${windFmt(v)} ${u}`), veerText(d.met?.dir, d.met?.wind), percentileText(seasonalPercentile(d.metLong?.wind ?? d.met?.wind, SEASONS.wind), "last 3 days")]
         .filter(Boolean)
         .join(" &middot; ")));
@@ -4731,15 +4831,12 @@ function applyPendingOffset(scale: "hours" | "days"): void {
   pendingOffset = null;
 }
 
-/** Scroll to a linked plot (or station) and outline it for a moment. */
-function revealLinked(): void {
-  const id = decodeURIComponent(location.hash.slice(1));
-  const el = id ? document.getElementById(id) : null;
-  if (!el) return;
-  const target = el.closest("figure") ?? el;
-  target.scrollIntoView({ block: "center" });
-  target.classList.add("linked");
-  window.setTimeout(() => target.classList.remove("linked"), 2600);
+/** A click on a row of the status table goes to its station, except in Wind and Tides, where a row picks the station
+ * for the outlook under the table (its name still goes to the station). */
+function statusRowAnchor(e: MouseEvent): string | null {
+  if (VK === "wind" || VK === "tides") return null;
+  const a = (e.target as HTMLElement).closest(".status-grid tbody tr")?.querySelector<HTMLAnchorElement>('th a[href^="#"]');
+  return a ? decodeURIComponent(a.getAttribute("href")!.slice(1)) : null;
 }
 let mapWide = false;
 try {
@@ -5252,18 +5349,18 @@ function airportPin(d: StationData): Pin {
   const u = WIND_UNITS[WU].label;
   if (AT != null && atFuture()) {
     const f = forecastAt(d.meta.id, AT);
-    if (f) return { ...base, state: overallState(d), label: `Forecast: wind ${compass(f.dir)} ${windFmt(f.spd)} ${u}, gusts ${windFmt(f.gust)}<br>HRRR, ${f.lead} h ahead<br>${atLabel(AT)}` };
+    if (f) return { ...base, state: overallState(d), label: `Forecast: wind ${windArrow(f.dir, f.spd < LIGHT_KT)}${compass(f.dir)} ${windFmt(f.spd)} ${u}, gusts ${windFmt(f.gust)}<br>HRRR, ${f.lead} h ahead<br>${atLabel(AT)}` };
   }
   if (AT != null) {
     const wind = d.met?.wind?.at(AT) ?? NaN;
     const dir = d.met?.dir?.at(AT) ?? NaN;
     return Number.isFinite(wind)
-      ? { ...base, state: overallState(d), label: `Airport wind ${Number.isFinite(dir) ? compass(dir) + " " : ""}${windFmt(wind)} ${u}<br>observed ${atLabel(AT)}` }
+      ? { ...base, state: overallState(d), label: `Airport wind ${Number.isFinite(dir) ? windArrow(dir, wind < LIGHT_KT) + compass(dir) + " " : ""}${windFmt(wind)} ${u}<br>observed ${atLabel(AT)}` }
       : { ...base, state: "offline", label: `no reading at ${atLabel(AT)}` };
   }
   const w = d.met?.last;
   const label = w && w.wind_kt != null
-    ? `Airport wind ${w.dir_deg != null ? compass(w.dir_deg) + " " : ""}${windFmt(w.wind_kt)} ${u}${w.gust_kt != null ? `, gusts ${windFmt(w.gust_kt)}` : ""}, ${ago(w.time)}${w.air_f != null ? `<br>air ${Math.round(w.air_f)}&deg;F` : ""}`
+    ? `Airport wind ${w.dir_deg != null ? windArrow(w.dir_deg, w.wind_kt < LIGHT_KT) + compass(w.dir_deg) + " " : ""}${windFmt(w.wind_kt)} ${u}${w.gust_kt != null ? `, gusts ${windFmt(w.gust_kt)}` : ""}, ${ago(w.time)}${w.air_f != null ? `<br>air ${Math.round(w.air_f)}&deg;F` : ""}`
     : "no recent report";
   return { ...base, state: overallState(d), label };
 }
@@ -5453,7 +5550,14 @@ async function main(): Promise<void> {
     });
     wireZoom();
     wireAbout();
-    window.setTimeout(revealLinked, 300); // after the sections draw
+    window.setTimeout(() => revealLinked(), 300); // after the sections draw
+    wireLinks(linkUrl, statusRowAnchor);
+    // Back and Forward between the page's own entries (a jump from the wind strip, a station link): the browser
+    // restores the scroll; the time comes back from the address.
+    window.addEventListener("popstate", () => {
+      const m = /^([+-]?\d+)([hd])$/.exec((new URLSearchParams(location.search).get("t") ?? "").replace(/^ /, "+"));
+      timelineModule?.setOffset(m ? Number(m[1]) * (m[2] === "d" ? 24 : 1) : 0);
+    });
     updatedStrip(meta, live);
     about(meta);
     wireCollect(meta, live, stations);

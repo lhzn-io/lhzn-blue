@@ -4,6 +4,7 @@
  * weather. Written apart from lis.ts (whose figures depend on its own page state); they take what they need as
  * arguments. Data: the buoy's hourly window (live.json, the last 30 days) and its daily record (history.json).
  */
+import { chainButton } from "./links";
 import { renderLines, type Area, type Line } from "./chart";
 import { Daily, Hourly, yearLines } from "./series";
 import { percentileText, seasonalPercentile, SEASONS } from "./trends";
@@ -92,7 +93,8 @@ export function buoyViewSwitchHtml(view: BuoyView, views: [BuoyView, string][] =
 }
 
 const plot = (id: string, label: string) => `<div class="plot rg-plot" id="pl-${id}"><svg role="img" aria-label="${esc(label)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>`;
-const fig = (id: string, title: string, sub: string, label: string) => `<figure class="rg-fig"><figcaption><span class="cap-label">${esc(title)}</span> <span class="cap-sub">${sub}</span></figcaption>${plot(id, label)}</figure>`;
+// The title leads with the buoy's code ("GBB: Wind"), as on every station plot.
+const fig = (id: string, title: string, sub: string, label: string) => `<figure class="rg-fig"><figcaption><span class="cap-label"><span class="cap-code">${id.split("-")[0]}</span>: ${esc(title)}</span> <span class="cap-sub">${sub}</span>${chainButton(`pl-${id}`, esc(label))}</figcaption>${plot(id, label)}</figure>`;
 
 function readout(ctx: BuoyCtx, b: BuoyMeta, key: string): string {
   const v = VARS[key];
@@ -126,7 +128,7 @@ export function buoyCardsHtml(ctx: BuoyCtx, view: BuoyView): string {
           fig(`${b.id}-${key}-chg`, "7-day change", `${esc(v.title)} now against a week before, each year`, `7-day change in ${v.title} at the ${b.name}`);
       }
     }
-    return `<article class="rg-card rg-buoy" id="st-${b.id}"><h3 class="rg-card-h">${esc(b.name)}</h3><p class="rg-card-sub">${esc(b.place)}. University of New Hampshire, ${b.depth_m} m down. ${record}.</p>${body}</article>`;
+    return `<article class="rg-card rg-buoy" id="st-${b.id}"><h3 class="rg-card-h">${esc(b.name)}${chainButton(`st-${b.id}`, esc(b.name))}</h3><p class="rg-card-sub">${esc(b.place)}. University of New Hampshire, ${b.depth_m} m down. ${record}.</p>${body}</article>`;
   }).join("");
 }
 

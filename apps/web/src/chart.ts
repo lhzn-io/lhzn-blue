@@ -4,6 +4,8 @@
  * tooltip labels are shown in Eastern time, where the readers are.
  */
 
+import { arrowMarkup } from "./wind-dir";
+
 const SVG = "http://www.w3.org/2000/svg";
 export const YELLOW = "#decf03";
 const TZ = "America/New_York";
@@ -69,6 +71,29 @@ export interface ChartOptions {
   /** The label of the line under the pointer (e.g. a forecast run) for the hovered sample and the value at the
    * pointer, or null; reported to the page as a "linepick" event on the plot when it changes. */
   pick?: (i: number, value: number) => string | null;
+  /** Arrows in a row along the top (e.g. wind direction); the value axis leaves them room. Thinned to whole-hour
+   * steps that fit the plot's width. */
+  glyphs?: Glyph[];
+}
+
+/** An arrow at a time, pointing `deg` degrees clockwise from north (up). */
+export interface Glyph {
+  x: number; // epoch seconds, on a whole hour
+  deg: number;
+  color: string;
+  faint?: boolean; // drawn pale (e.g. a light wind, whose direction wanders)
+  dashed?: boolean; // a dashed shaft: a model value where there is no observation
+  title?: string;
+}
+
+const GLYPH_PX = 22; // the row's height, and the least room between arrows
+const GLYPH_STEPS = [1, 2, 3, 6, 12, 24, 48, 96, 168, 336, 672]; // hours between arrows
+
+/** The arrows that fit: every n hours, n the smallest step leaving GLYPH_PX between them. */
+function thinGlyphs(gs: Glyph[], x0: number, x1: number, widthPx: number): Glyph[] {
+  const pxPerHour = (widthPx * 3600) / Math.max(1, x1 - x0);
+  const n = GLYPH_STEPS.find((h) => h * pxPerHour >= GLYPH_PX) ?? GLYPH_STEPS[GLYPH_STEPS.length - 1];
+  return gs.filter((g) => g.x > x0 && g.x < x1 && Math.round(g.x / 3600) % n === 0);
 }
 
 const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "short", day: "numeric" });
@@ -230,9 +255,22 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   const pad = Math.max(0.5, (hi - lo) * 0.08);
   lo -= pad;
   hi += pad;
+  const glyphs = o.glyphs?.length ? thinGlyphs(o.glyphs, x0, x1, svg.clientWidth || 600) : [];
+  if (glyphs.length) {
+    // The arrow row's band at the top, kept clear of the lines.
+    const f = Math.min(0.4, GLYPH_PX / Math.max(1, svg.clientHeight || plot.clientHeight - 16 || 174));
+    hi += ((hi - lo) * f) / (1 - f);
+  }
   const px = (t: number) => ((t - x0) / (x1 - x0)) * W;
   const py = (v: number) => H - ((v - lo) / (hi - lo)) * H;
   const labels: string[] = [];
+  labelsEl.classList.toggle("has-glyphs", glyphs.length > 0);
+  for (const g of glyphs) {
+    labels.push(
+      `<span class="glyph${g.faint ? " faint" : ""}" style="left:${(100 * px(g.x)) / W}%;color:${g.color}"${g.title ? ` title="${g.title}"` : ""}>` +
+        `<svg viewBox="-6 -6 12 12" width="14" height="14" aria-hidden="true">${arrowMarkup(g.deg, 1, g.dashed)}</svg></span>`,
+    );
+  }
 
   for (const b of o.bands ?? []) {
     const ya = py(Math.min(hi, Math.max(lo, b.y1)));

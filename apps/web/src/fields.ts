@@ -15,6 +15,7 @@ import { BOATS, COMFORT_WORDS, boatIcon, type Boat } from "./comfort-thresholds"
 import { SST_STOPS, SST_STOPS_DARK, isothermStep, isotherms, stopColour } from "./sst-scale";
 import { CURRENTS_FLOOR, CURRENTS_KNOTS, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURRENTS_TOP } from "./currents-ramp";
 import { mapReady, mapTheme, onStyle } from "./map";
+import { compass as compass16, LIGHT_KT, windArrow } from "./wind-dir";
 
 export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind" | "waves" | "wat" | "comfort";
 
@@ -751,7 +752,6 @@ function windUnit(): { label: string; perMs: number; digits: number } {
   return { label: sp.label, perMs: sp.perCms * 100, digits: sp.label === "m/s" ? 1 : 0 };
 }
 
-const compass16 = (deg: number) => ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"][Math.round(deg / 22.5) % 16];
 
 /** One cell's wind for the frame shown: speed in the reader's unit and the direction it blows from. */
 function windText(w: WindField, id: number): string {
@@ -1618,8 +1618,26 @@ function windLine(w: WindField, lng: number, lat: number): string | null {
   const word = !Number.isFinite(dKt) || Math.abs(dKt) < 2 ? "steady" : dKt > 0 ? "rising" : "easing";
   const pk = peakAhead(pts, t);
   const peak = pk ? `; peak ${(pk[1] * un.perMs).toFixed(un.digits)} ${un.label} ${fmtProbe.format(new Date(pk[0] * 1000))}` : "";
-  return `<span class="pop-l1"><b>Wind</b> ${(Math.hypot(u[id], v[id]) * un.perMs).toFixed(un.digits)} ${un.label} from ${compass16(from)}${sparkSvg(pts, 35 * 0.514444, t, sparkColours().wind)}</span>` +
-    `<br><small>${word}${peak}${w.mesh.land[id] ? ", land cell" : ""}</small>`;
+  const spd = Math.hypot(u[id], v[id]);
+  return `<span class="pop-l1"><b>Wind</b> ${windArrow(from, spd * 1.943844 < LIGHT_KT)}${(spd * un.perMs).toFixed(un.digits)} ${un.label} from ${compass16(from)}${sparkSvg(pts, 35 * 0.514444, t, sparkColours().wind)}</span>` +
+    `<br><small>${word}${peak}${turnAhead(w, id, t, from, spd)}${w.mesh.land[id] ? ", land cell" : ""}</small>`;
+}
+
+/** "; veering to NW by Sun 6 AM" when the wind 12 hours on comes from 45° or more away (both above light air). */
+function turnAhead(w: WindField, id: number, t: number, from: number, spd: number): string {
+  const target = t + 12 * 3600;
+  let best = -1;
+  w.frames.forEach((f, k) => {
+    const dt = Math.abs(Date.parse(f.valid_time) / 1000 - target);
+    if (dt <= 2 * 3600 && (best < 0 || dt < Math.abs(Date.parse(w.frames[best].valid_time) / 1000 - target))) best = k;
+  });
+  if (best < 0) return "";
+  const { u, v } = windUV(w, best);
+  const later = ((Math.atan2(-u[id], -v[id]) * 180) / Math.PI + 360) % 360;
+  const light = LIGHT_KT / 1.943844;
+  const turn = ((later - from + 540) % 360) - 180; // clockwise positive
+  if (spd < light || Math.hypot(u[id], v[id]) < light || Math.abs(turn) < 45) return "";
+  return `; ${turn > 0 ? "veering" : "backing"} to ${compass16(later)} by ${fmtProbe.format(new Date(Date.parse(w.frames[best].valid_time)))}`;
 }
 
 function waveLine(w: WindField, lng: number, lat: number): string | null {
@@ -1832,6 +1850,24 @@ function cellRow(label: string, unit: string, pts: [number, number][], top: numb
     `<line x1="${x(cursor).toFixed(1)}" x2="${x(cursor).toFixed(1)}" y1="0" y2="${H}" class="cell-cursor"/></svg><span class="cell-read">${read}</span></div>`;
 }
 
+/** A row of downwind arrows under the wind plot, every 6 hours on the same axis, faint in light air; the direction at
+ * the cursor written at the right. */
+function cellDirRow(w: WindField, id: number, t0: number, t1: number, cursor: number): string {
+  const pts = w.frames
+    .map((f, k) => {
+      const { u, v } = windUV(w, k);
+      return { t: Date.parse(f.valid_time) / 1000, from: ((Math.atan2(-u[id], -v[id]) * 180) / Math.PI + 360) % 360, kt: Math.hypot(u[id], v[id]) * 1.943844 };
+    })
+    .filter((p) => p.t >= t0 && p.t <= t1);
+  const arrows = pts
+    .filter((p) => Math.round(p.t / 3600) % 6 === 0)
+    .map((p) => `<span class="cell-dir${p.kt < LIGHT_KT ? " faint" : ""}" style="left:${((100 * (p.t - t0)) / (t1 - t0)).toFixed(2)}%">${windArrow(p.from)}</span>`)
+    .join("");
+  const at = pts.reduce<(typeof pts)[number] | null>((a, p) => (!a || Math.abs(p.t - cursor) < Math.abs(a.t - cursor) ? p : a), null);
+  const read = at && Math.abs(at.t - cursor) <= 3600 ? `from ${compass16(at.from)}` : "--";
+  return `<div class="cell-row"><span class="cell-label">Direction<small>arrows downwind</small></span><div class="cell-dirs">${arrows}</div><span class="cell-read">${read}</span></div>`;
+}
+
 /** Draw the open cell view for the time bar's hour. */
 function renderCell(): void {
   if (!cellDialog || !cellAt || !cellDialog.open) return;
@@ -1850,6 +1886,7 @@ function renderCell(): void {
     const id = windCellFor(src.wind.mesh, lng, lat);
     if (id >= 0) {
       rows.push(cellRow("Wind", un.label, cellSeries(src.wind, id), 35 * 0.514444, un.perMs, un.digits, c.wind, t0, t1, cursor));
+      rows.push(cellDirRow(src.wind, id, t0, t1, cursor));
       const k = windFrameAt(src.wind);
       if (k >= 0) notes.push(`wind HRRR ${src.wind.frames[k].cycle.slice(11, 13)}Z run, ${src.wind.frames[k].lead} h ahead`);
     }

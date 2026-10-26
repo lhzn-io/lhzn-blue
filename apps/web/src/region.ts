@@ -15,6 +15,8 @@ import registry from "../../../stations/piscataqua-region.json";
 import { cssVar, markAsOf, renderLines, type Area, type Line } from "./chart";
 import type { Pin } from "./map";
 import type { FieldControls, FieldData, FieldKind, RasterHistory } from "./fields";
+import { compass, LIGHT_KT, windArrow, windGlyphs } from "./wind-dir";
+import { chainButton, navigateTo, revealLinked, wireLinks } from "./links";
 import { BUOY_VIEWS, buoyCardsHtml, buoyViewSwitchHtml, drawBuoyFigures, type BuoyCtx, type BuoyView } from "./buoy-views";
 
 const DATA = "/data/v1/piscataqua-region";
@@ -93,7 +95,6 @@ try {
 const UL = () => UNITS[U].label;
 const cur = (cms: number, digits: number = UNITS[U].digits) => `${(cms * UNITS[U].perCms).toFixed(digits)} ${UL()}`;
 const wind = (kt: number) => `${(kt * UNITS[U].perKt).toFixed(U === "ms" ? 1 : 0)} ${UL()}`;
-const compass = (d: number) => ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"][Math.round(d / 22.5) % 16];
 
 // ---------- State ----------
 
@@ -247,7 +248,7 @@ function statusWeather(row: RowFn, group: GroupFn): void {
     const w = lastAt(d, "wind_kt", d?.last_obs?.wind_kt as number | null);
     const dir = lastAt(d, "dir_deg", d?.last_obs?.dir_deg as number | null);
     const air = lastAt(d, "air_f", d?.last_obs?.air_f as number | null);
-    row(a.id, `${a.name.replace("Portsmouth International Airport at ", "")} (ASOS)`, `<td><b>${w == null ? "--" : wind(w)}</b><small>${dir == null ? "wind" : `from ${compass(dir)}`}</small></td><td><b>${f1(air)} °F</b><small>air</small></td>`, stateOf(d?.last_obs?.time as string));
+    row(a.id, `${a.name.replace("Portsmouth International Airport at ", "")} (ASOS)`, `<td><b>${dir == null ? "" : windArrow(dir, w != null && w < LIGHT_KT)}${w == null ? "--" : wind(w)}</b><small>${dir == null ? "wind" : `from ${compass(dir)}`}</small></td><td><b>${f1(air)} °F</b><small>air</small></td>`, stateOf(d?.last_obs?.time as string));
   }
   group("Buoys");
   for (const b of BUOYS) {
@@ -282,7 +283,7 @@ function percentileWord(id: string, q: number, t: number): string | null {
 // ---------- Station sections ----------
 
 function card(id: string, title: string, sub: string, body: string): string {
-  return `<article class="rg-card" id="st-${id}"><h3 class="rg-card-h">${esc(title)}</h3><p class="rg-card-sub">${sub}</p>${body}</article>`;
+  return `<article class="rg-card" id="st-${id}"><h3 class="rg-card-h">${esc(title)}${chainButton(`st-${id}`, esc(title))}</h3><p class="rg-card-sub">${sub}</p>${body}</article>`;
 }
 const plot = (id: string, label: string) => `<div class="plot rg-plot" id="pl-${id}"><svg role="img" aria-label="${esc(label)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>`;
 const legend = (items: [string, string][]) => `<div class="legend">${items.map(([c, t]) => `<span><i style="background:${c}"></i>${esc(t)}</span>`).join("")}</div>`;
@@ -469,6 +470,7 @@ function drawCharts(): void {
     const d = L.asos?.stations[a.id];
     draw(a.id, {
       xs, unit: ` ${UL()}`, ...MARKS(), empty: "No reports this week.",
+      glyphs: windGlyphs(xs[0], xs[xs.length - 1], (t) => ({ from: at(d, "dir_deg", t) ?? NaN, kt: at(d, "wind_kt", t) ?? NaN, color: MEASURED() })),
       lines: [
         { ys: series(d, "gust_kt", xs, UNITS[U].perKt), color: SECOND(), width: 1, dots: true, label: "Gust", fmt: (v) => `${v.toFixed(0)} ${UL()}` },
         { ys: series(d, "wind_kt", xs, UNITS[U].perKt), color: MEASURED(), width: 1.6, label: "Wind", fmt: (v) => `${v.toFixed(U === "ms" ? 1 : 0)} ${UL()}` },
@@ -506,7 +508,7 @@ function pins(): Pin[] {
   }
   for (const a of AIRPORTS) {
     const lo = L.asos?.stations[a.id]?.last_obs;
-    out.push({ id: a.id, name: a.name, lat: a.lat, lon: a.lon, kind: "shore", state: stateOf(lo?.time as string), label: lo ? `Wind ${lo.wind_kt == null ? "--" : wind(lo.wind_kt as number)}${lo.dir_deg == null ? "" : ` from ${compass(lo.dir_deg as number)}`}<br>${ago(sec(lo.time as string))}` : "No recent reports" });
+    out.push({ id: a.id, name: a.name, lat: a.lat, lon: a.lon, kind: "shore", state: stateOf(lo?.time as string), label: lo ? `Wind ${lo.dir_deg == null ? "" : windArrow(lo.dir_deg as number, lo.wind_kt != null && (lo.wind_kt as number) < LIGHT_KT)}${lo.wind_kt == null ? "--" : wind(lo.wind_kt as number)}${lo.dir_deg == null ? "" : ` from ${compass(lo.dir_deg as number)}`}<br>${ago(sec(lo.time as string))}` : "No recent reports" });
   }
   return out;
 }
@@ -588,9 +590,10 @@ async function syncField(): Promise<void> {
 async function drawMap(): Promise<void> {
   const map = await import("./map");
   map.configureMap({ home: HOME, near: NEAR });
-  map.drawMap($("map"), pins(), (id) => document.getElementById(`st-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), light() ? "light" : "dark");
+  map.drawMap($("map"), pins(), (id) => navigateTo(`st-${id}`), light() ? "light" : "dark");
   const [tl, chart] = await Promise.all([import("./timeline"), import("./chart")]);
   tl.mountTimeline($("map-foot"));
+  TL = tl;
   tl.onAsOf((t) => {
     T = t;
     chart.markAsOf(t);
@@ -605,19 +608,28 @@ async function drawMap(): Promise<void> {
 
 // ---------- The link: the layer and the time ----------
 
+let TL: typeof import("./timeline") | null = null;
+
+/** The page's address for what is on screen: view, buoy variable, layer, time, and optionally an anchor (a station's
+ * card "st-SEAV", a plot "pl-GBB-temp-yoy"). */
+function linkUrl(anchor?: string): string {
+  const q: string[] = [];
+  if (theme !== "water") q.push(`view=${theme}`);
+  if (theme === "water" && bview !== "temp") q.push(`var=${bview}`);
+  if (layer !== themeLayer()) q.push(`layer=${layer}`);
+  const off = TL?.position().offset ?? 0;
+  if (off) q.push(`h=${off}`);
+  return location.pathname + (q.length ? `?${q.join("&")}` : "") + (anchor ? `#${anchor}` : "");
+}
+
+/** Keep the address bar current (no history entry); the anchor stays while what it names is on the page. */
 let linkPending = 0;
 function writeLink(): void {
   if (linkPending) return;
-  linkPending = window.setTimeout(async () => {
+  linkPending = window.setTimeout(() => {
     linkPending = 0;
-    const tl = await import("./timeline");
-    const q: string[] = [];
-    if (theme !== "water") q.push(`view=${theme}`);
-    if (theme === "water" && bview !== "temp") q.push(`var=${bview}`);
-    if (layer !== themeLayer()) q.push(`layer=${layer}`);
-    const off = tl.position().offset;
-    if (off) q.push(`h=${off}`);
-    history.replaceState(null, "", location.pathname + (q.length ? `?${q.join("&")}` : ""));
+    const a = decodeURIComponent(location.hash.slice(1));
+    history.replaceState(null, "", linkUrl(a && document.getElementById(a) ? a : undefined));
   }, 400);
 }
 
@@ -717,7 +729,27 @@ async function main(): Promise<void> {
   drawNotice();
   drawStatus();
   renderStations();
-  void drawMap();
+  void drawMap().then(() => revealLinked()); // again once the map and time bar are in, which move the page
+  // Jumps to a station or plot are history entries, and every plot and card has a chain button (links.ts); a row of
+  // the status table goes to its station. A linked anchor is revealed once the sections draw.
+  wireLinks(linkUrl, (e) => {
+    const go = (e.target as HTMLElement).closest<HTMLElement>("tr[data-go]")?.dataset.go;
+    return go ? `st-${go}` : null;
+  });
+  window.setTimeout(() => revealLinked(), 300);
+  // The address names the view shown from the start (a remembered one included), so Back to it is not read as a
+  // change of view.
+  history.replaceState(null, "", linkUrl(decodeURIComponent(location.hash.slice(1)) || undefined));
+  // Back and Forward: the browser restores the scroll; the time comes back from the address, and a different view or
+  // variable reloads the page as linked.
+  window.addEventListener("popstate", () => {
+    const p = new URLSearchParams(location.search);
+    if ((p.get("view") ?? "water") !== theme || (theme === "water" && (p.get("var") ?? "temp") !== bview)) {
+      location.reload();
+      return;
+    }
+    TL?.setOffset(Number(p.get("h")) || 0);
+  });
   let pending = 0;
   window.addEventListener("resize", () => {
     window.clearTimeout(pending);

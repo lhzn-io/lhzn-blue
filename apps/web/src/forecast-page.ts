@@ -12,6 +12,7 @@ import "./away-links";
 import { mountAdvisories } from "./advisory";
 import "./forecast-page.css";
 import { cssVar, el, niceStep, renderLines, type Line } from "./chart";
+import { measuredOr, windGlyphs } from "./wind-dir";
 
 const DATA = "/data/v1";
 const $ = (id: string) => document.getElementById(id)!;
@@ -72,6 +73,7 @@ interface Met {
   t0: string;
   step: number;
   wind_kt: Num[];
+  dir_deg?: Num[];
 }
 interface Live {
   met: Record<string, Met | undefined>;
@@ -216,6 +218,14 @@ function obsAt(b: string, t: number): number {
   const v = m.wind_kt[i];
   return v == null || !Number.isFinite(v) ? NaN : v * FACTOR;
 }
+/** The buoy's observed wind direction (degrees from) at an hour, or NaN. */
+function obsDirAt(b: string, t: number): number {
+  const m = LIVE?.met[b];
+  if (!m?.dir_deg) return NaN;
+  const i = (t - sec(m.t0)) / (m.step || HOUR);
+  const v = Number.isInteger(i) && i >= 0 ? m.dir_deg[i] : null;
+  return v == null || !Number.isFinite(v) ? NaN : v;
+}
 /** Time of the buoy's latest observed hour (epoch seconds), or -Infinity. */
 function lastObs(b: string): number {
   const m = LIVE?.met[b];
@@ -265,7 +275,7 @@ function drawIntro(): void {
 
 interface Run {
   issue: number;
-  pts: Map<number, { L: number; v: number }>; // valid time -> lead and speed (kt)
+  pts: Map<number, { L: number; v: number; dir: number }>; // valid time -> lead, speed (kt) and direction (degrees from)
 }
 let convBuoy: Buoy = "EXRX";
 let convXs: number[] = [];
@@ -281,12 +291,12 @@ function runsFor(b: Buoy): Run[] {
     const issue = sec(key.replace(/Z$/, ":00:00Z"));
     const p = c.points[b];
     if (!Number.isFinite(issue) || !p) continue;
-    const pts = new Map<number, { L: number; v: number }>();
+    const pts = new Map<number, { L: number; v: number; dir: number }>();
     c.leads.forEach((L, i) => {
       const u = p.u10[i];
       const v = p.v10[i];
       if (u == null || v == null || !Number.isFinite(u) || !Number.isFinite(v)) return;
-      pts.set(issue + L * HOUR, { L, v: Math.hypot(u, v) * MS_TO_KT });
+      pts.set(issue + L * HOUR, { L, v: Math.hypot(u, v) * MS_TO_KT, dir: ((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360 });
     });
     if (pts.size) out.push({ issue, pts });
   }
@@ -381,9 +391,23 @@ function drawConv(): void {
   const obs = convXs.map((t) => obsAt(b, t));
   lines.push({ ys: obs, color: C.now, width: 2.4, label: "Observed, 10 m" });
   const now = Date.now() / 1000;
+  // Direction along the top: observed where the buoy reported, else the newest run reaching the hour.
+  const newest = (t: number) => {
+    for (let k = convRuns.length - 1; k >= 0; k--) {
+      const p = convRuns[k].pts.get(t);
+      if (p) return p;
+    }
+    return null;
+  };
+  const glyphs = windGlyphs(convXs[0], convXs[convXs.length - 1], (t) => {
+    const p = newest(t);
+    const run = p ? { from: p.dir, kt: p.v, color: C.strong } : null;
+    return t <= now ? measuredOr(obsDirAt(b, t), obsAt(b, t), C.now, () => run) : run;
+  });
   const r = renderLines($("conv-plot"), {
     xs: convXs,
     lines,
+    glyphs,
     unit: " kt",
     floor: 0,
     marker: now > convXs[0] && now < convXs[convXs.length - 1] ? { x: now, label: "now" } : undefined,
@@ -424,7 +448,7 @@ function drawPanel(): void {
   const T = convXs[convT];
   const forT = convRuns
     .map((r) => r.pts.get(T))
-    .filter((p): p is { L: number; v: number } => !!p)
+    .filter((p): p is { L: number; v: number; dir: number } => !!p)
     .sort((a, c) => c.L - a.L);
   const oT = obsAt(b, T);
   const haveObs = Number.isFinite(oT);

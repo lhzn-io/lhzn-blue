@@ -303,7 +303,9 @@ figure.wide { grid-column: 1 / -1; }
 .var-switch .tab.loading { opacity: 0.55; cursor: progress; }
 .status-grid td.low b, .status-grid td.low small { color: var(--delayed); }
 .unit-switch > span { padding-top: 6px; margin-right: 4px; font: 700 8.5px/1 var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--faint); }
-.status-grid .wind-arrow { width: 12px; height: 12px; margin-right: 4px; vertical-align: -1px; color: var(--accent); }
+.wind-arrow { width: 12px; height: 12px; margin-right: 4px; vertical-align: -1px; flex: none; }
+.wind-arrow.faint { opacity: 0.35; }
+.status-grid .wind-arrow { color: var(--accent); }
 
 main { padding: 0 var(--gutter) 40px; }
 
@@ -417,6 +419,7 @@ main { padding: 0 var(--gutter) 40px; }
 figure { margin: 0; display: flex; flex-direction: column; min-width: 0; }
 figcaption { display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
 .cap-label { font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; }
+.cap-code { letter-spacing: 0.12em; } /* the station code that leads a plot's title */
 .cap-sub { font-size: 12px; color: var(--dim); }
 .plot { position: relative; height: 190px; padding-bottom: 16px; padding-right: 44px; }
 .plot svg { width: 100%; height: 100%; display: block; overflow: visible; touch-action: pan-y; }
@@ -427,7 +430,11 @@ figcaption { display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wra
 .plot-labels .axis { left: 0; right: 44px; bottom: -1px; height: 1px; background: var(--chart-axis); }
 .plot-labels .ylab { right: 0; transform: translateY(-50%); width: 40px; text-align: right; }
 .plot-labels .arriving { top: 2px; padding-left: 5px; color: var(--chart-label); font-style: italic; font-family: var(--serif); font-size: 12px; }
-.plot-labels .empty { left: 0; right: 52px; top: 40%; pointer-events: auto; font-family: var(--serif); font-style: italic; font-size: 13px; line-height: 1.4; white-space: normal; color: var(--dim); }
+.plot-labels.has-glyphs .arriving { top: 24px; }
+/* Direction arrows along the top of a chart (chart.ts glyphs), each centred on its hour. */
+.plot-labels .glyph { top: 4px; width: 14px; height: 14px; transform: translateX(-50%); line-height: 0; }
+.plot-labels .glyph svg { display: block; }
+.plot-labels .glyph.faint { opacity: 0.3; }.plot-labels .empty { left: 0; right: 52px; top: 40%; pointer-events: auto; font-family: var(--serif); font-style: italic; font-size: 13px; line-height: 1.4; white-space: normal; color: var(--dim); }
 .plot-labels .empty a { color: var(--ink); }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--chart-legend); }
 .legend i { display: inline-block; width: 14px; height: 2px; margin-right: 5px; vertical-align: 3px; }
@@ -610,6 +617,19 @@ body.landing {
 }
 .fig-info:hover, .fig-info:focus-visible { color: var(--accent); border-color: var(--accent-line); outline: none; }
 .strip-cap .fig-info { margin: 0 0 0 6px; }
+/* A plot's chain: copies the address of the plot as shown (view, layer, time). */
+.fig-link {
+  position: relative; flex: none; width: 15px; height: 15px; padding: 0; margin-right: 6px; cursor: pointer; vertical-align: middle;
+  display: inline-grid; place-items: center; color: var(--dim); background: none; border: 1px solid var(--rule); border-radius: 3px;
+}
+.fig-link:hover, .fig-link:focus-visible { color: var(--accent); border-color: var(--accent-line); outline: none; }
+.fig-link[data-copied] { color: var(--accent); border-color: var(--accent-line); }
+.fig-link[data-copied]::before {
+  content: "Link copied"; position: absolute; right: calc(100% + 6px); top: 50%; transform: translateY(-50%); white-space: nowrap;
+  padding: 1px 6px; font: 10px/1.6 var(--mono); color: var(--ink); background: var(--pop-bg); border-left: 2px solid var(--accent);
+}
+/* A station's row in the status table goes to its section (in Wind and Tides it picks the outlook's station). */
+.status-grid tbody tr:has(th a[href^="#"]) { cursor: pointer; }
 .station-head .head-info { align-self: center; margin-left: -6px; }
 /* The readouts' context line (trend and %ile), and the (i) that explains it. */
 .readout .trend { display: block; margin-top: 2px; font: 11px/1.35 var(--mono); color: var(--ink-soft); }
@@ -629,6 +649,8 @@ body.landing {
 .about-actions { display: inline-flex; gap: 6px; flex: none; }
 /* A plot opened from a link: outlined for a moment. */
 figure.linked, .station.linked { outline: 2px solid var(--accent-line); outline-offset: 6px; transition: outline-color 0.6s; }
+/* A linked plot lands with its title and the outline clear of the sticky bar. */
+.station figure { scroll-margin-top: 62px; }
 .about-head h2 { margin: 0; font: 600 12px/1.3 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); }
 .about-list { margin: 0; display: grid; grid-template-columns: 6.5em 1fr; gap: 8px 14px; font-size: 13.5px; line-height: 1.5; }
 .about-list dt { font: 700 9.5px/1.9 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
@@ -835,7 +857,8 @@ body:not(.landing) .stage { padding: 0; border: 0; border-radius: 0; color: var(
 
   /* Buttons: a larger invisible tap area around the same 15 px marks; taller tabs and pills. */
   .collect-btn, .fig-info { position: relative; }
-  .collect-btn::after, .fig-info::after { content: ""; position: absolute; inset: -9px -6px; }
+  .collect-btn::after, .fig-info::after, .fig-link::after { content: ""; position: absolute; inset: -9px -6px; }
+  .fig-link { margin-right: 12px; }
   .collect-btn { margin-right: 12px; }
   .fig-info { margin-right: 12px; }
   .fig-actions { gap: 4px; align-items: center; }
@@ -1001,7 +1024,11 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .hi-svg .hi-cursor { stroke: var(--ink); stroke-width: 1; opacity: 0.6; }
 /* Wind across the Sound: hourly wind per station, NWS advisories as a red ribbon per zone. */
 
-.ws { margin: 18px 0 0; padding-top: 10px; border-top: 1px solid var(--rule); color: var(--ink); }
+.ws { position: relative; margin: 18px 0 0; padding-top: 10px; border-top: 1px solid var(--rule); color: var(--ink); }
+.ws-tip { min-width: 170px; }
+.ws-tip .wind-arrow { margin-right: 2px; }
+.ws-tip b { color: var(--dim); font-weight: 400; }
+.ws-tip .ws-tip-hint { margin-top: 3px; font-size: 9px; }
 .ws-svg .ws-hit { fill: transparent; cursor: crosshair; }
 .ws-svg .ws-ribbon { fill: var(--rule); }
 .ws-svg .ws-adv { fill: var(--advisory); opacity: 0.45; }
@@ -1009,7 +1036,9 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .ws-svg .ws-zone { font-size: 5.5px; fill: var(--faint); letter-spacing: 0.04em; }
 .ws-svg .ws-tick { stroke: var(--faint); stroke-width: 0.6; }
 .ws-svg .ws-now { stroke: var(--now); stroke-width: 0.8; stroke-dasharray: 2 2; }
-.ws-svg .ws-hatch-line { stroke: var(--bg); stroke-width: 1.1; opacity: 0.85; }
+.ws-model { fill: none; stroke: var(--ink); stroke-width: 0.6; stroke-dasharray: 1.6 1.2; }
+.ws-model-key { stroke-width: 1; stroke-dasharray: 2.4 1.6; }
+.ws-svg .ws-dir { fill: none; stroke: var(--ink); stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
 .ws .ws-sw { vertical-align: -1px; margin: 0 3px 0 6px; }
 .status-grid caption .cap-moon { vertical-align: -1px; margin-right: 6px; overflow: visible; }
 
@@ -1021,6 +1050,7 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .plot path.lit { stroke-opacity: 0.95 !important; stroke-width: 1.8px; stroke-dasharray: 6 3; } /* dashed like the newest forecast: a forecast, not a measurement */
 .plot .vintage { position: absolute; top: 4px; left: 6px; z-index: 3; display: flex; align-items: center; gap: 7px;
   padding: 1px 6px; background: var(--pop-bg); font: 10px/1.6 var(--mono); color: var(--ink-soft); }
+.plot:has(.plot-labels.has-glyphs) .vintage { top: 26px; } /* below the direction arrows */
 .vintage input[type="range"].vg-range { -webkit-appearance: none; appearance: none; width: 110px; height: 16px; margin: 0; background: transparent; cursor: pointer; }
 .vintage input[type="range"].vg-range::-webkit-slider-runnable-track { height: 1px; background: var(--dim); }
 .vintage input[type="range"].vg-range::-moz-range-track { height: 1px; background: var(--dim); }
@@ -1121,6 +1151,10 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .cell-label { font: 600 11.5px/1.2 var(--sans); color: var(--accent); }
 .cell-label small { display: block; font: 9.5px/1.3 var(--mono); color: var(--dim); }
 .cell-plot { width: 100%; height: 54px; touch-action: none; cursor: ew-resize; }
+.cell-dirs { position: relative; height: 16px; }
+.cell-dir { position: absolute; top: 2px; transform: translateX(-50%); line-height: 0; color: var(--ink); }
+.cell-dir .wind-arrow { margin: 0; }
+.cell-dir.faint { opacity: 0.3; }
 .cell-band { height: 14px; }
 .cell-base { stroke: var(--rule); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .cell-tick { stroke: var(--rule); stroke-width: 1; vector-effect: non-scaling-stroke; }

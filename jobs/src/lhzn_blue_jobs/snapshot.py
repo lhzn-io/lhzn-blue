@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import merlin
+from . import merlin, outages
 from .build import iso, load_stations, now_utc
 
 log = logging.getLogger(__name__)
@@ -185,9 +185,9 @@ def snapshot(root: str) -> dict:
     for ds in our_datasets(listed):
         try:
             files.append(save_dataset(sink, ds, by_id.get(ds), end))
-        except Exception as exc:  # carry on with the rest; the manifest records the failure
+        except Exception as exc:  # carry on with the rest; the manifest records the failure, and whether it was an outage
             log.warning("snapshot of %s failed: %s", ds, exc)
-            failed.append({"dataset": ds, "error": str(exc)[:200]})
+            failed.append({"dataset": ds, "error": str(exc)[:200], "outage": outages.is_outage(exc)})
     manifest = {"downloaded_at": iso(end), "server": merlin.BASE_URL, "files": files, "failed": failed, "server_datasets": listed}
     sink.put("manifest.json", json.dumps(manifest, indent=1).encode(), "application/json")
     return manifest

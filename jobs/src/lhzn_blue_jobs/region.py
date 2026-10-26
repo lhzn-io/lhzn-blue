@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import asos, coops, fields, hrrr_grid, piscataqua, rivers, shore
+from . import asos, coops, fields, hrrr_grid, outages, piscataqua, rivers, shore
 from .build import Store, decode_frame, encode_frame, iso, now_utc
 from .erddap import NERACOOS_URL, Erddap
 
@@ -263,9 +263,8 @@ def live(store: Store, end: datetime | None = None) -> list[str]:
     for name, run in parts.items():
         try:
             doc[name] = run()
-        except Exception:
-            log.exception("region %s not refreshed", name)
-            failed.append(name)
+        except Exception as exc:
+            outages.record(failed, f"region {name}", exc, log)
             if name in prev:
                 doc[name] = prev[name]
     log.info("region live: %s", server.summary())
@@ -370,17 +369,15 @@ def daily(store: Store, end: datetime | None = None) -> list[str]:
     doc = {"schema": SCHEMA, "waterway": reg["waterway"]["id"], "generated_at": iso(end)}
     try:
         doc["rivers"] = rivers.history(prev.get("rivers"), end, registry=reg["rivers"])
-    except Exception:
-        log.exception("region river history not refreshed")
-        failed.append("rivers-history")
+    except Exception as exc:
+        outages.record(failed, "region rivers-history", exc, log)
         if "rivers" in prev:
             doc["rivers"] = prev["rivers"]
     server = Erddap(NERACOOS_URL, budget=60)
     try:
         doc["buoys"] = buoy_history(prev.get("buoys") or {}, end, reg, server)
-    except Exception:
-        log.exception("region buoy history not refreshed")
-        failed.append("buoy-history")
+    except Exception as exc:
+        outages.record(failed, "region buoy-history", exc, log)
         if "buoys" in prev:
             doc["buoys"] = prev["buoys"]
     log.info("region daily: %s", server.summary())
@@ -399,25 +396,22 @@ def publish_fields(store: Store, end: datetime | None = None) -> list[str]:
         store.write_json(key(reg, "fields/currents-mesh.json"), mesh, max_age=86400)
         store.write_json(key(reg, "fields/currents.json"), data, max_age=3600)
         water = mesh
-    except Exception:
-        log.exception("region currents not refreshed")
-        failed.append("currents")
+    except Exception as exc:
+        outages.record(failed, "region currents", exc, log)
         water = store.read_json(key(reg, "fields/currents-mesh.json"))
         if water is None or water.get("bbox") != bbox:
             water = None
     try:
         store.write_json(key(reg, "fields/sst.json"), fields.raster("sst", end, water, bbox), max_age=3600)
-    except Exception:
-        log.exception("region sst not refreshed")
-        failed.append("sst")
+    except Exception as exc:
+        outages.record(failed, "region sst", exc, log)
     rel = key(reg, "fields/sst-90d.bin")
     try:
         blob, summary = fields.history("sst", store.read_bytes(rel), end, water, bbox)
         store.write_bytes(rel, blob, max_age=3600)
         log.info("region sst history: %s", summary)
-    except Exception:
-        log.exception("region sst history not refreshed")
-        failed.append("sst-90d")
+    except Exception as exc:
+        outages.record(failed, "region sst-90d", exc, log)
     return failed
 
 
@@ -426,9 +420,9 @@ def publish_wind(store: Store) -> list[str]:
     reg = load()
     x0, y0, x1, y1 = reg["waterway"]["bbox"]
     box = (x0 - 0.15, y0 - 0.1, x1 + 0.15, y1 + 0.1)
+    failed: list[str] = []
     try:
         hrrr_grid.publish(store, key(reg, "fields/hrrr-wind.json"), box, with_history=False)
-    except Exception:
-        log.exception("region HRRR wind not refreshed")
-        return ["hrrr-wind"]
-    return []
+    except Exception as exc:
+        outages.record(failed, "region hrrr-wind", exc, log)
+    return failed

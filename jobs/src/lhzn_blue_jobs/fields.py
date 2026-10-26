@@ -37,6 +37,7 @@ from datetime import date, datetime, time, timedelta, timezone
 import numpy as np
 import pandas as pd
 
+from . import outages
 from .build import SCHEMA, Store, iso, now_utc
 
 log = logging.getLogger(__name__)
@@ -329,16 +330,16 @@ def piscataqua(store: Store, end: datetime, new_days: int = 6) -> list[str]:
     store.write_json("v1/fields/piscataqua-currents-mesh.json", mesh, max_age=86400)
     try:
         log.info("piscataqua history: %s", piscataqua_model.update(store, PISCATAQUA_BBOX, mesh, end, max_new_days=new_days))
-    except Exception:
-        log.exception("piscataqua history not refreshed")
-        failed.append("piscataqua-history")
+    except Exception as exc:
+        outages.record(failed, "piscataqua-history", exc, log)
     data["at_buoy"] = piscataqua_model.at_buoy(store, mesh, data)
     store.write_json("v1/fields/piscataqua-currents.json", data, max_age=3600)
     return failed
 
 
 def publish(store: Store) -> list[str]:
-    """Fetch every field and write it; a field that fails is logged and left as it was. Returns the failures."""
+    """Fetch every field and write it; a field that fails is logged and left as it was. Returns the faults (a source
+    with no data is an outage, not a fault: see outages.py)."""
     failed = []
     end = now_utc()
     # Currents first: their mesh is the coastline every raster is cut to (the stored mesh if today's read fails).
@@ -348,32 +349,28 @@ def publish(store: Store) -> list[str]:
         store.write_json("v1/fields/currents-mesh.json", mesh, max_age=86400)
         store.write_json("v1/fields/currents.json", data, max_age=3600)
         water = mesh
-    except Exception:
-        log.exception("currents not refreshed")
-        failed.append("currents")
+    except Exception as exc:
+        outages.record(failed, "currents", exc, log)
         water = store.read_json("v1/fields/currents-mesh.json")
         if water is None or water.get("bbox") != BBOX:
             log.warning("no water mesh for this box; rasters are not cut to the coastline this run")
             water = None
     try:  # the Piscataqua page's own small box
         failed.extend(piscataqua(store, end))
-    except Exception:
-        log.exception("piscataqua currents not refreshed")
-        failed.append("piscataqua-currents")
+    except Exception as exc:
+        outages.record(failed, "piscataqua-currents", exc, log)
     for name in RASTERS:
         try:
             store.write_json(f"v1/fields/{name}.json", raster(name, end, water), max_age=3600)
-        except Exception:
-            log.exception("field %s not refreshed", name)
-            failed.append(name)
+        except Exception as exc:
+            outages.record(failed, name, exc, log)
     for name in RASTERS:
         rel = f"v1/fields/{name}-90d.bin"
         try:
             blob, summary = history(name, store.read_bytes(rel), end, water)
             store.write_bytes(rel, blob, max_age=3600)
             log.info("history %s: %s", name, summary)
-        except Exception:
-            log.exception("history %s not refreshed", name)
-            failed.append(f"{name}-90d")
+        except Exception as exc:
+            outages.record(failed, f"{name}-90d", exc, log)
     return failed
 

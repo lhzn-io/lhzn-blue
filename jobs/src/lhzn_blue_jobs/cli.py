@@ -13,7 +13,7 @@ import sys
 import os
 from pathlib import Path
 
-from . import build, merlin, rivers, shore, tides, turbidity, usgs_tidal, waves, weather
+from . import build, merlin, outages, rivers, shore, tides, turbidity, usgs_tidal, waves, weather
 
 
 def _main() -> None:
@@ -168,8 +168,8 @@ def _main() -> None:
         if not args.to:
             parser.error("snapshot needs --to (or LHZN_BLUE_SNAPSHOTS)")
         manifest = snapshot.snapshot(args.to)
-        if manifest["failed"]:
-            _failed.extend(f["dataset"] for f in manifest["failed"])
+        # The manifest lists every dataset not saved; only faults fail the run (a quiet server is an outage).
+        _failed.extend(f["dataset"] for f in manifest["failed"] if not f.get("outage"))
     elif args.command == "import-weather":
         if not args.archive_dir:
             parser.error("import-weather needs --archive-dir")
@@ -182,7 +182,9 @@ def _main() -> None:
         if not args.archive_dir:
             parser.error("import-archive needs --archive-dir")
         build.import_archive(store, args.archive_dir, args.vintage)
-    if _failed:  # the run shows as failed, though everything that could be written was
+    # The run shows as failed, though everything that could be written was, only for a fault: a source with no data
+    # (an outage) is logged as a warning and the previous files stay (outages.py).
+    if _failed:
         sys.exit(1)
 
 
@@ -202,12 +204,12 @@ def _usgs_fit(store: build.Store) -> None:
 
 
 def _shore(step, what: str = "shore") -> None:
-    """Run a secondary step; on failure log it, carry on with the rest, and exit non-zero at the end."""
+    """Run a secondary step; on failure log it and carry on with the rest. A fault exits non-zero at the end; an
+    outage (the source had no data) is a warning only."""
     try:
         step()
-    except Exception:  # the buoy files are already written
-        logging.getLogger(f"lhzn_blue_jobs.{what}").exception("%s not refreshed", what)
-        _failed.append(what)
+    except Exception as exc:  # the buoy files are already written
+        outages.record(_failed, what, exc, logging.getLogger(f"lhzn_blue_jobs.{what}"))
 
 
 def main() -> None:

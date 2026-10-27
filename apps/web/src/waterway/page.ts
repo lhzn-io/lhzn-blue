@@ -55,6 +55,10 @@ let A: Adapter;
 let PAGES: { base: string } | null = null;
 let STATION_ID: string | null = null;
 const onStation = (d: StationData) => !STATION_ID || d.meta.id === STATION_ID;
+/** Move to a station's page (or the overview, null) within the page; null until the page has loaded. */
+let goToPlace: ((id: string | null, push: boolean) => Promise<void>) | null = null;
+/** The masthead and title as the page has them, for the way back to the overview. */
+let MAST: { top: string; bottom: string; title: string } | null = null;
 
 let DATA = "";
 const $ = (id: string) => document.getElementById(id)!;
@@ -955,9 +959,9 @@ function statusGrid(all: StationData[]): void {
     return;
   }
   if (!stations.some((d) => d.kind === "shore")) SG = "buoy";
-  if (STATION_ID) SG = stations[0]?.kind === "shore" ? "shore" : "buoy";
+  const group = STATION_ID ? (stations[0]?.kind === "shore" ? "shore" : "buoy") : SG;
   // An airport is in neither table: its page leads with the outlook. The shore gauges' own table is the overview's.
-  const table = STATION_ID && stations[0]?.kind === "airport" ? "" : stationTables(stations, SG);
+  const table = STATION_ID && stations[0]?.kind === "airport" ? "" : stationTables(stations, group);
   $("status").innerHTML = `${table}${stationPhoto()}${isWater(VK) && !STATION_ID ? PARTS.shoreTable() : ""}${outlookHtml(all)}${windAcrossHtml(all, CFG.called)}`;
   markOutlookRow();
 }
@@ -1109,11 +1113,11 @@ async function overviewMap(stations: StationData[]): Promise<void> {
     drawMap(
       box,
       stations.map(stationPin),
-      (id) => (PAGES && id !== STATION_ID && hasPage(id) ? location.assign(placeUrl(id)) : navigateTo(id)),
+      // With station pages a pin opens its station's page; without them it goes to the station's section.
+      (id) => (PAGES ? void (id !== STATION_ID && hasPage(id) && goToPlace?.(id, true)) : navigateTo(id)),
       currentTheme(),
+      STATIONS.find((d) => d.meta.id === STATION_ID)?.meta,
     );
-    const here = STATIONS.find((d) => d.meta.id === STATION_ID);
-    if (here) void (await import("../map")).focusOn({ lon: here.meta.lon, lat: here.meta.lat });
     void syncMap();
   } catch {
     box.innerHTML = `<p class="note">The map could not load.</p>`;
@@ -1756,7 +1760,7 @@ async function main(): Promise<void> {
         VK = views[0] ?? VK;
         if (!LINK.get("layer")) fieldPick = VIEW_LAYERS[VK].def;
       }
-      document.querySelectorAll<HTMLButtonElement>(".var-switch [data-var]").forEach((b) => (b.hidden = !views.includes(b.dataset.var as VarKey)));
+      showViews(views);
       OUTLOOK.pin = STATION_ID;
     }
     const byId = (id: string) => [...stations, ...A.RIVER_SECTIONS, ...(A.TURB_SECTION ? [A.TURB_SECTION] : [])].find((d) => d.meta.id === id)!;
@@ -1823,6 +1827,35 @@ async function main(): Promise<void> {
       });
       void syncMap();
     });
+    // Between stations within the page: all is loaded, so only what shows changes. A station without the view on screen
+    // opens on its first one (loaded first, if it has not been).
+    goToPlace = async (id, push) => {
+      if (id === STATION_ID) return;
+      const d = id ? stations.find((s) => s.meta.id === id) : undefined;
+      if (id && !d) return;
+      const views = d ? (CFG.stationPages?.views[d.kind] ?? []) : null;
+      if (views && !views.includes(VK)) {
+        const k = views[0];
+        try {
+          await A.ensureVar(k, live, stations, addSources);
+        } catch {
+          return; // the view could not load: stay where we are
+        }
+        VK = k;
+        fieldPick = VIEW_LAYERS[VK].def;
+      }
+      STATION_ID = id;
+      if (push) history.pushState(null, "", placeUrl(id));
+      OUTLOOK.pin = id ?? CFG.defaults.outlookStation;
+      showViews(views);
+      markStationPage();
+      ($("zoom") as HTMLDialogElement).close();
+      renderSections();
+      statusGrid(stations);
+      syncUrl();
+      void syncMap();
+      void import("../map").then((m) => m.focusOn(d ? { lon: d.meta.lon, lat: d.meta.lat } : null, true));
+    };
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && mapWide && !document.querySelector("dialog[open]")) {
         mapWide = false;
@@ -1893,6 +1926,7 @@ async function main(): Promise<void> {
     // Back and Forward between the page's own entries (a jump from the wind strip, a station link): the browser
     // restores the scroll; the time comes back from the address.
     window.addEventListener("popstate", () => {
+      if (PAGES && goToPlace) void goToPlace(placeFromPath(), false);
       const m = /^([+-]?\d+)([hd])$/.exec((new URLSearchParams(location.search).get("t") ?? "").replace(/^ /, "+"));
       timelineModule?.setOffset(m ? Number(m[1]) * (m[2] === "d" ? 24 : 1) : 0);
     });
@@ -1987,12 +2021,18 @@ function drawPlaces(): void {
 /** Place links carry the page's time and view at the moment they are followed; the menu closes on a click outside it
  * or Escape; a station's name in the table opens its page. */
 function wirePlaces(): void {
+  const plain = (e: MouseEvent) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
   document.addEventListener("click", (e) => {
     const t = e.target as HTMLElement;
     const a = t.closest<HTMLAnchorElement>("a[data-place]");
-    if (a) a.href = placeUrl(a.dataset.place || null);
     const menu = document.querySelector<HTMLDetailsElement>(".place-menu");
-    if (menu?.open && !menu.contains(t)) menu.open = false;
+    if (menu?.open && (!menu.contains(t) || a)) menu.open = false;
+    if (!a) return;
+    a.href = placeUrl(a.dataset.place || null);
+    if (plain(e) && goToPlace) {
+      e.preventDefault();
+      void goToPlace(a.dataset.place || null, true);
+    }
   }, true);
   document.addEventListener("keydown", (e) => {
     const menu = document.querySelector<HTMLDetailsElement>(".place-menu");
@@ -2007,24 +2047,48 @@ function wirePlaces(): void {
     if (!a || !id || id === STATION_ID || !hasPage(id)) return;
     e.preventDefault();
     e.stopPropagation();
-    location.assign(placeUrl(id));
+    if (plain(e) && goToPlace) void goToPlace(id, true);
+    else if (plain(e)) location.assign(placeUrl(id));
+    else window.open(placeUrl(id), "_blank");
   }, true);
 }
 
 /** A station's page names it: the waterway above, the station in the wordmark and the title. An unknown station goes
  * back to the overview. */
 function markStationPage(): void {
-  if (!STATION_ID) return;
+  const top = document.querySelector(".wm-top");
+  const bottom = document.querySelector(".wm-bottom");
+  MAST ??= { top: top?.textContent ?? "", bottom: bottom?.textContent ?? "", title: document.title };
+  if (!STATION_ID) {
+    if (top) top.textContent = MAST.top;
+    if (bottom) bottom.textContent = MAST.bottom;
+    document.title = MAST.title;
+    return;
+  }
   const d = STATIONS.find((s) => s.meta.id === STATION_ID);
   if (!d || !hasPage(d.meta.id)) {
     location.replace(placeUrl(null));
     return;
   }
-  const top = document.querySelector(".wm-top");
-  const bottom = document.querySelector(".wm-bottom");
   if (top) top.textContent = CFG.name.toUpperCase();
   if (bottom) bottom.textContent = d.meta.name.toUpperCase();
   document.title = `${d.meta.name} | ${CFG.name} (alpha) | longhorizon.blue`;
+}
+
+/** The station an address is for (null on the overview). */
+function placeFromPath(): string | null {
+  return PAGES && location.pathname.startsWith(PAGES.base) ? location.pathname.slice(PAGES.base.length).split("/")[0].toUpperCase() || null : null;
+}
+
+/** The view buttons a page offers: a station's own (null: all of them), the one on screen marked. */
+function showViews(views: VarKey[] | null): void {
+  const buttons = document.querySelectorAll<HTMLButtonElement>(".var-switch [data-var]");
+  buttons.forEach((b) => {
+    b.hidden = !!views && !views.includes(b.dataset.var as VarKey);
+    b.setAttribute("aria-pressed", String(b.dataset.var === VK));
+  });
+  const current = document.querySelector(".view-menu .vm-current");
+  if (current) current.textContent = [...buttons].find((b) => b.dataset.var === VK)?.textContent ?? "";
 }
 
 /** On a station's page, our photo of it (where we have one) under its row in the table, with when it was taken and the
@@ -2054,7 +2118,7 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   PARTS = parts;
   A = parts.adapter;
   PAGES = opts.stationPages ?? null;
-  if (PAGES && location.pathname.startsWith(PAGES.base)) STATION_ID = location.pathname.slice(PAGES.base.length).split("/")[0].toUpperCase() || null;
+  STATION_ID = placeFromPath();
   if (PAGES) wirePlaces();
   DATA = CFG.data;
   ({ fig: EMBED, station: EMBED_STATION } = embedMode(LINK, CFG.defaults.embedStation));

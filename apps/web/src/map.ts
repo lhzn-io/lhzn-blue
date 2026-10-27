@@ -78,17 +78,24 @@ export function onStyle(hook: (map: maplibregl.Map, theme: Theme) => void): void
   if (current?.isStyleLoaded()) hook(current, theme);
 }
 
-/** Centre the map on a place near the Sound (the reader's own location, when they turn that on), or return to the
- * whole Sound (null). Returns false when the place is not near the Sound. */
-export async function focusOn(at: { lon: number; lat: number } | null): Promise<boolean> {
-  const map = await mapReady();
+/** The zoom the map comes in to for one place (a station, the reader's location). */
+export const PLACE_ZOOM = 9.6;
+
+/** Centre the map on a place near the Sound (the reader's own location, when they turn that on; a station's page), or
+ * return to the whole Sound (null); with `jump`, at once rather than in flight. Returns false when the place is not
+ * near the Sound. */
+export async function focusOn(at: { lon: number; lat: number } | null, jump = false): Promise<boolean> {
+  // The map as soon as it exists (moving it needs no tiles); before it is drawn, wait for it.
+  const map = current ?? (await mapReady());
   if (!at) {
-    map.fitBounds(HOME, { padding: map.getContainer().clientWidth < 560 ? 6 : 24, duration: 600 });
+    map.fitBounds(HOME, { padding: map.getContainer().clientWidth < 560 ? 6 : 24, duration: jump ? 0 : 600 });
     return true;
   }
   const [[x0, y0], [x1, y1]] = NEAR;
   if (at.lon < x0 || at.lon > x1 || at.lat < y0 || at.lat > y1) return false;
-  map.flyTo({ center: [at.lon, at.lat], zoom: Math.max(map.getZoom(), 9.6), duration: 900 });
+  const view = { center: [at.lon, at.lat] as [number, number], zoom: Math.max(map.getZoom(), PLACE_ZOOM) };
+  if (jump) map.jumpTo(view);
+  else map.flyTo({ ...view, duration: 900 });
   return true;
 }
 
@@ -212,19 +219,25 @@ function marker(map: maplibregl.Map, p: Pin, go: string): maplibregl.Marker {
     if (p.kind === "gauge") focusBasin(p.id);
   });
   el.addEventListener("mouseleave", () => popup.remove());
-  el.addEventListener("click", () => select(p.id));
+  // A pin's click is the pin's alone: the map under it would read it as a click on the water and open that spot's
+  // readout. Its own label closes too (the map may move the pin from under the pointer).
+  el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    popup.remove();
+    select(p.id);
+  });
   pinIndex.set(p.id, { el, popup, pin: p, go });
   return new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lon, p.lat]).addTo(map);
 }
 
-export function drawMap(container: HTMLElement, pins: Pin[], onSelect: (id: string) => void, initial: Theme): void {
+/** Draw the map: on the home view, or on `start` (a station's page opens on its station, without a flight). */
+export function drawMap(container: HTMLElement, pins: Pin[], onSelect: (id: string) => void, initial: Theme, start?: { lon: number; lat: number }): void {
   theme = initial;
   select = onSelect;
   const map = new maplibregl.Map({
     container,
     style: STYLES[initial],
-    bounds: HOME,
-    fitBoundsOptions: { padding: container.clientWidth < 560 ? 6 : 24 },
+    ...(start ? { center: [start.lon, start.lat] as [number, number], zoom: PLACE_ZOOM } : { bounds: HOME, fitBoundsOptions: { padding: container.clientWidth < 560 ? 6 : 24 } }),
     canvasContextAttributes: { preserveDrawingBuffer: true }, // Collect paints the map into its image
     // Credits behind the (i) button; set explicitly so they never depend on the style loading.
     attributionControl: {

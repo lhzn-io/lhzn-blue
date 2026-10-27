@@ -7,10 +7,10 @@ import promptTemplate from "../../../configs/prompts/visitor_prompt.txt?raw";
 import registry from "../../../stations/stations.json";
 import shoreRegistry from "../../../stations/shore.json";
 import asosRegistry from "../../../stations/asos.json";
-import { emphasise, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
+import { renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
 import { wireHints } from "./hints";
 import { chainButton, navigateTo, revealLinked, wireLinks } from "./links";
-import { ARROW_PATH, compass, LIGHT_KT, measuredOr, windArrow, windGlyphs, type WindAt } from "./wind-dir";
+import { ARROW_PATH, compass, LIGHT_KT, windArrow, windGlyphs } from "./wind-dir";
 import { BUOY_SENSORS, METHODS, REF_LABELS } from "./methods";
 import { BOATS, boatIcon, boatLabel, boatPickerHtml, comfortTableHtml } from "./comfort-thresholds";
 import { mountCollect } from "./collect";
@@ -25,15 +25,20 @@ import {
   type WaveHistory, type MetHistory, type WaveLive, type WaveObs, type YearLine, Daily, type RiverHistory, type RiverLive, type TurbHistory, type TurbFrame,
 } from "./series";
 import { alertsNow, mountAdvisories, WIND_STRIP_HASH } from "./advisory";
-import { ago, cToF, f1, feet, fmtDate, fmtRun, fmtUtc, fmtWhen, fmtWhenMin, hourOf, hoursOld, lastValue, signed, signedFt, span, tideText } from "./waterway/format";
+import { ago, cToF, f1, feet, fmtDate, fmtUtc, fmtWhen, fmtWhenMin, hourOf, hoursOld, lastValue, signed, signedFt, span, tideText } from "./waterway/format";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./waterway/cursor";
-import { DELAYED_HOURS, DEPTH_LABEL, DEPTHS, type FcStats, type FcValue, type Gauge, isWater, type Met, nextTide, obsState, OFFLINE_HOURS, overallState, type RiverData, type StationData, stationState, type TurbData, unitName, type VarKey, type VarView, WATER_VARS, type Waves } from "./waterway/station-data";
+import { DELAYED_HOURS, DEPTH_LABEL, DEPTHS, type Gauge, isWater, type Met, nextTide, obsState, OFFLINE_HOURS, overallState, type RiverData, type StationData, stationState, type TurbData, unitName, type VarKey, type VarView, WATER_VARS, type Waves } from "./waterway/station-data";
 import { atCell, levelCell, predictedLevel, stationPin, stationTables, valueAt } from "./waterway/cells";
 import { configureModels } from "./waterway/models";
 import { type Built, type Fig, legendHtml, openZoom, redrawZoom, wireLegend, wireZoom } from "./waterway/figures";
 import { stationReadouts, stratNow } from "./waterway/readouts";
 import { openAbout, wireAbout } from "./waterway/about";
-import { currentSpeed, setUnit, waveFmt, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./waterway/units";
+import { configureData, onModelData, requestRedraw } from "./waterway/data";
+import { FCST, forecastAt, HRRR_HIST_LABEL, hrrrAsOf, hrrrHist, loadForecast, mountVintage } from "./waterway/forecast";
+import { loadNwps, mountNwpsVintage, NWPS, nwpsLabel, nwpsRunAt, nwpsRuns, nwpsSeries } from "./waterway/nwps";
+import { OUTLOOK, outlookHtml } from "./waterway/outlook";
+import { NEXT48 } from "./waterway/next48";
+import { currentSpeed, setUnit, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./waterway/units";
 
 const DATA = "/data/v1";
 const $ = (id: string) => document.getElementById(id)!;
@@ -790,83 +795,7 @@ const FIGS: Record<Kind, Fig> = {
       };
     },
   },
-  next48: {
-    title: "The next 48 hours",
-    varies: false,
-    wide: true, // the plot a reader looks ahead with: the full width, like the map and table above
-    in: (k) => k === "wind",
-    sub: "wind and gusts, measured and forecast",
-    depthTabs: false,
-    seasonal: false,
-    available: (d) => d.kind === "buoy" || d.kind === "shore" || d.kind === "airport", // every station has HRRR runs; drawn once they load
-    window: () => {
-      const now = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
-      return [now - 36 * HOUR, now + 48 * HOUR];
-    },
-    maxSpan: 7 * DAY,
-    build: (d, _depth, x0, x1) => {
-      if (!FCST) void loadForecast();
-      const xs = grid(x0, x1, 400).map((t) => Math.round(t / HOUR) * HOUR);
-      const u = WIND_UNITS[WU];
-      const fmtU = (v: number) => `${v.toFixed(u.digits)} ${u.label}`;
-      const now = Date.now() / 1000;
-      const runs = FCST?.runs[d.meta.id] ?? [];
-      const newest = runs.find((r) => r.issue <= now);
-      const at = (r: FcRun, t: number) => {
-        const i = r.leads.indexOf(Math.round((t - r.issue) / HOUR));
-        const uu = r.u[i], vv = r.v[i];
-        return i < 0 || uu == null || vv == null ? NaN : Math.hypot(uu, vv) * MS_KT;
-      };
-      // Earlier runs, faint and fainter with age: where they agree the forecast is settled; where they fan out it is not.
-      const older = vintageRuns(d.meta.id, x0, x1).filter((r) => r !== newest).reverse();
-      const runLines: Line[] = older.map((r, i) => ({
-        ys: xs.map((t) => windVal(at(r, t))),
-        color: P.line,
-        width: 0.8,
-        opacity: 0.32 - (0.24 * i) / Math.max(1, older.length - 1),
-        label: `HRRR run ${fmtRun.format(new Date(r.issue * 1000))}`,
-        tip: false,
-      }));
-      // Ahead of now: for each hour, the newest run that reaches it (most runs reach 18 h, the 00, 06, 12 and 18 UTC
-      // runs 48 h), with that lead's typical error.
-      const ahead = xs.map((t) => (t >= Math.floor(now / HOUR) * HOUR ? forecastAt(d.meta.id, t) : null));
-      const fc = ahead.map((f) => (f ? f.spd : NaN));
-      const err = (t: number) => ahead[xs.indexOf(t)]?.err ?? NaN;
-      const m = d.met;
-      const lines: Line[] = [
-        ...runLines,
-        { ys: fc.map((_, i) => err(xs[i])), color: P.miss, label: "Typical miss at the buoys", hidden: true, fmt: (v) => `&plusmn;${windFmt(v)} ${u.label}` },
-        { ys: ahead.map((f) => (f ? windVal(f.gust) : NaN)), color: P.contrast, opacity: 0.5, label: "Forecast gust", dots: true, fmt: fmtU },
-        { ys: fc.map((v) => windVal(v)), color: P.line, width: 2, dash: "6 3", label: "Stitched forecast", fmt: fmtU },
-        { ys: xs.map((t) => windVal(m?.gust?.at(t) ?? NaN)), color: P.contrast, opacity: 0.55, label: "Gust, measured", dots: true, fmt: fmtU },
-        { ys: xs.map((t) => windVal(m?.wind?.at(t) ?? NaN)), color: P.now, width: 2.2, label: "Wind, measured", fmt: fmtU },
-        { ys: xs.map((t) => m?.dir?.at(t) ?? NaN), color: P.line, label: "From", hidden: true, fmt: (v) => `${compass(v)} (${Math.round(v)}°)` },
-      ];
-      // The run whose line is nearest the pointer at the hovered hour (the vintage slider follows it).
-      const pick = (i: number, yv: number) => {
-        const vals = vintageRuns(d.meta.id, x0, x1).map((r) => ({ r, y: windVal(at(r, xs[i])) })).filter((x) => Number.isFinite(x.y));
-        if (!vals.length) return null;
-        return vintageLabel(d.meta.id, vals.reduce((a, b) => (Math.abs(b.y - yv) < Math.abs(a.y - yv) ? b : a)).r);
-      };
-      // Direction: measured up to now (gold), HRRR's dashed in slate where there is no observation, then the
-      // stitched forecast's (slate).
-      const nowH = Math.floor(now / HOUR) * HOUR;
-      const model = (t: number) => {
-        const f = forecastAt(d.meta.id, t);
-        return f ? { from: f.dir, kt: f.spd, color: P.line } : null;
-      };
-      const windAt = (t: number): WindAt | null => (t <= nowH ? measuredOr(m?.dir?.at(t) ?? NaN, m?.wind?.at(t) ?? NaN, P.now, () => model(t)) : model(t));
-      const glyphs = windGlyphs(x0, x1, windAt);
-      return {
-        opts: {
-          xs, lines, glyphs, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" }, empty: "No forecast or measurement in this window.", pick,
-          areas: [{ lo: fc.map((v, i) => windVal(Math.max(0, v - err(xs[i])))), hi: fc.map((v, i) => windVal(v + err(xs[i]))), fill: P.miss, opacity: 0.22 }],
-        },
-        legend: [["Measured", P.now, 1], ["Stitched forecast", P.line, 1], ["Typical miss (shaded)", P.miss, 0.5], ["Gusts", P.contrast, 0.55], ["Earlier forecasts", P.line, 0.3]],
-        note: `NOAA HRRR, raw &middot; the shading is HRRR's typical miss at each lead, ${verTag()}`,
-      };
-    },
-  },
+  next48: NEXT48,
   wind: {
     title: "Wind",
     varies: false,
@@ -1535,7 +1464,7 @@ function drawLadder(d: StationData, x0: number, x1: number): void {
  * (amber 0.8 ft or more above mean higher high water, willow above it, pale below), the NWS minor flood level and
  * MHHW as labelled lines, the moon's phases above. */
 function highestAheadHtml(stations: StationData[]): string {
-  const pick = OUTLOOK_PEEK ?? OUTLOOK_PIN;
+  const pick = OUTLOOK.peek ?? OUTLOOK.pin;
   const d = stations.find((s) => s.meta.id === pick && s.kind === "shore") ?? stations.find((s) => s.meta.id === "KPTN");
   const tide = d ? TIDES?.[d.meta.id] : undefined;
   if (!d || !tide?.hilo) return "";
@@ -1633,135 +1562,6 @@ function tidesTable(stations: StationData[]): string {
     <thead><tr><th></th><th scope="col">Level</th><th scope="col">Departure</th><th scope="col">Next high</th><th scope="col">Next low</th><th scope="col">Below flood</th></tr></thead>
     <tbody>${rows.join("")}</tbody></table>
     <p class="status-key">feet above MLLW, preliminary; highs and lows predicted; below flood: the next high plus the current departure, against NWS minor flood</p>`;
-}
-
-/* ---------- The HRRR forecast at the stations ---------- */
-
-/** The forecast job's runs at each station (the last 78 hours of HRRR cycles) and the verification of those
- * forecasts at the buoys. Loaded when a reader first looks ahead or opens Wind and waves. Values are raw HRRR,
- * never blended with observations: a time before now shows only what was measured. */
-interface FcRun { issue: number; leads: number[]; u: (number | null)[]; v: (number | null)[]; gust: (number | null)[]; t2m: (number | null)[]; mslp: (number | null)[] }
-interface Verification { leads: number[]; by_lead: Record<string, { all: FcStats; buoys: Record<string, FcStats> }> }
-let FCST: { runs: Record<string, FcRun[]>; ver: Verification | null; generated: number } | null = null;
-let fcstLoading: Promise<void> | null = null;
-let fcstRedraw: () => void = () => undefined;
-let fcstPending = 0;
-/** Data arriving together (eight station histories, the forecasts, the advisories) costs one redraw, a moment after the
- * last arrival, not one each. */
-function requestFcstRedraw(): void {
-  window.clearTimeout(fcstPending);
-  fcstPending = window.setTimeout(() => fcstRedraw(), 60);
-}
-const MS_KT = 1.943844;
-
-function loadForecast(): Promise<void> {
-  fcstLoading ??= Promise.all([
-    getJson<{ generated_at: string; cycles: Record<string, { leads: number[]; points: Record<string, Record<string, (number | null)[]>> }> }>(`${DATA}/forecast-hrrr.json`),
-    getJson<Verification>(`${DATA}/forecast-verification.json`).catch(() => null),
-  ])
-    .then(([page, ver]) => {
-      const runs: Record<string, FcRun[]> = {};
-      for (const [key, c] of Object.entries(page.cycles)) {
-        const issue = Date.parse(key.replace(/Z$/, ":00Z")) / 1000;
-        for (const [id, f] of Object.entries(c.points)) {
-          const none = c.leads.map(() => null);
-          (runs[id] ??= []).push({ issue, leads: c.leads, u: f.u10 ?? none, v: f.v10 ?? none, gust: f.gust ?? none, t2m: f.t2m ?? none, mslp: f.mslp ?? none });
-        }
-      }
-      Object.values(runs).forEach((r) => r.sort((a, b) => b.issue - a.issue));
-      FCST = { runs, ver, generated: Date.parse(page.generated_at) / 1000 };
-      requestFcstRedraw();
-    })
-    .catch(() => undefined);
-  return fcstLoading;
-}
-
-/** HRRR's last forecast before each hour at a station (lead 1 to 3 h, from 2024; the jobs' hrrr_history.py): the
- * model's stand-in for the record where the station is out. Loaded per station when a plot first asks. */
-const HRRR_HIST = new Map<string, Met | null>();
-const hrrrHistLoading = new Set<string>();
-type HistFile = { t0: string | null; wind_kt?: (number | null)[]; gust_kt?: (number | null)[]; dir_deg?: (number | null)[]; air_f?: (number | null)[]; pressure_mb?: (number | null)[] };
-const RECENT_HIST = 99 * DAY; // the recent file holds 100 days (the inline plots reach 96 back); a day to spare
-
-/** A station's HRRR history file ("WLIS" or "WLIS-recent"), loaded once; undefined while loading. A missing recent
- * file falls back to the full one. */
-function histFile(name: string, id: string): Met | null | undefined {
-  if (HRRR_HIST.has(name)) return HRRR_HIST.get(name);
-  if (!hrrrHistLoading.has(name)) {
-    hrrrHistLoading.add(name);
-    const get = (n: string) => getJson<HistFile>(`${DATA}/hrrr-history/${n}.json`);
-    get(name)
-      .catch((err) => (name !== id ? get(id) : Promise.reject(err)))
-      .then((h) => {
-        HRRR_HIST.set(name, {
-          wind: Hourly.fromArray(h.t0, h.wind_kt),
-          gust: Hourly.fromArray(h.t0, h.gust_kt),
-          dir: Hourly.fromArray(h.t0, h.dir_deg),
-          air: Hourly.fromArray(h.t0, h.air_f),
-          pressure: Hourly.fromArray(h.t0, h.pressure_mb),
-          last: null,
-        });
-        requestFcstRedraw();
-      })
-      .catch(() => HRRR_HIST.set(name, null));
-  }
-  return undefined;
-}
-
-/** HRRR's last forecast before each hour, for a plot from x0 to x1: fetched only when the window has past hours
- * without a reading (the last 3 h are left out, as readings arrive late), from the recent file when the window lies
- * within it and the full one otherwise (a zoomed plot at full range). */
-function hrrrHist(id: string, x0: number, x1: number, observed: (t: number) => number): Met | null {
-  const nowS = Date.now() / 1000;
-  const end = Math.min(x1, nowS - 3 * HOUR);
-  let gap = false;
-  for (let t = Math.ceil(x0 / HOUR) * HOUR; t <= end; t += HOUR) {
-    if (!Number.isFinite(observed(t))) {
-      gap = true;
-      break;
-    }
-  }
-  if (!gap) return null;
-  if (x0 >= nowS - RECENT_HIST) return histFile(`${id}-recent`, id) ?? null;
-  // The full file; the recent one, if already in, meanwhile.
-  return histFile(id, id) ?? HRRR_HIST.get(`${id}-recent`) ?? null;
-}
-const HRRR_HIST_LABEL = "HRRR, last forecast before each hour"; // drawn only where the station has no reading
-
-/** The typical error (mean absolute, verified at the buoys) at a lead, between the verified leads. */
-function typicalError(id: string, lead: number, key: keyof FcStats): number {
-  const v = FCST?.ver;
-  if (!v) return NaN;
-  const at = (L: number) => (v.by_lead[L]?.buoys[id]?.[key] ?? v.by_lead[L]?.all[key] ?? NaN) as number;
-  const ls = v.leads;
-  if (lead <= ls[0]) return at(ls[0]);
-  for (let i = 1; i < ls.length; i++) {
-    if (lead <= ls[i]) return at(ls[i - 1]) + ((at(ls[i]) - at(ls[i - 1])) * (lead - ls[i - 1])) / (ls[i] - ls[i - 1]);
-  }
-  return at(ls[ls.length - 1]);
-}
-
-/** The newest run's forecast for a station and hour (epoch seconds), or null where no run reaches it. */
-function forecastAt(id: string, t: number): FcValue | null {
-  for (const r of FCST?.runs[id] ?? []) {
-    const lead = Math.round((t - r.issue) / HOUR);
-    if (lead < 1 || Math.abs(t - r.issue - lead * HOUR) > 60) continue;
-    const i = r.leads.indexOf(lead);
-    const u = r.u[i], v = r.v[i];
-    if (i < 0 || u == null || v == null) continue;
-    return {
-      spd: Math.hypot(u, v) * MS_KT,
-      dir: ((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360,
-      gust: r.gust[i] != null ? r.gust[i]! * MS_KT : NaN,
-      air: r.t2m[i] != null ? ((r.t2m[i]! - 273.15) * 9) / 5 + 32 : NaN,
-      pres: r.mslp[i] != null ? r.mslp[i]! / 100 : NaN,
-      lead,
-      issue: r.issue,
-      err: typicalError(id, lead, "mae"),
-      airErr: (typicalError(id, lead, "air_mae") * 9) / 5,
-    };
-  }
-  return null;
 }
 
 /* ---------- Wind across the Sound (the Wind view, under the table) ----------
@@ -1971,75 +1771,6 @@ function soundWindHtml(stations: StationData[]): string {
 }
 
 
-/** The forecast's vintage over some hours at a station: the HRRR run behind each stretch, in order (the hourly runs
- * reach 18 h, the 00, 06, 12 and 18 UTC runs 48 h, so a 48 h forecast is usually two runs). "" before the runs load. */
-function hrrrAsOf(id: string, ts: number[]): string {
-  const segs: { issue: number; from: number }[] = [];
-  const nowH = hourOf(Date.now() / 1000);
-  for (const t of ts) {
-    if (t < nowH) continue;
-    const f = forecastAt(id, hourOf(t));
-    if (!f) continue;
-    if (segs[segs.length - 1]?.issue !== f.issue) segs.push({ issue: f.issue, from: hourOf(t) });
-  }
-  if (!segs.length) return "";
-  const run = (issue: number) => `${fmtRun.format(new Date(issue * 1000))} run`;
-  return `as of the ${run(segs[0].issue)}${segs.slice(1, 3).map((g) => `, then the ${run(g.issue)} from ${fmtWhenMin.format(new Date(g.from * 1000))}`).join("")}`;
-}
-
-/** The newest NWS wave model run: "as of the Fri 8 PM run". */
-function nwpsAsOf(): string {
-  const r = NWPS?.runs[0];
-  return r ? `as of the ${fmtRun.format(new Date(r.issue * 1000))} run` : "";
-}
-
-/* ---------- Model stand-ins while a buoy's sensors are out ----------
- * For an hour with no reading, the newest model run that covers it, at the buoy: HRRR (3 km) for wind, air and
- * pressure; NWS NWPS (SWAN, about 1.8 km) for waves. Shown under the fault, never in its place, and labelled as a
- * model; the outage stays an open fault. */
-
-interface NwpsRun { issue: number; steps: number[]; points: Record<string, Record<string, (number | null)[]>> }
-interface NwpsValue { hs: number; tp: number; dir: number; lead: number; issue: number }
-let NWPS: { runs: NwpsRun[]; cells: Record<string, { lat: number; lon: number; km: number }> } | null = null;
-let nwpsLoading: Promise<void> | null = null;
-
-function loadNwps(): Promise<void> {
-  nwpsLoading ??= getJson<{ cells: Record<string, { lat: number; lon: number; km: number }>; runs: Record<string, { steps: number[]; points: NwpsRun["points"] }> }>(`${DATA}/waves-nwps.json`)
-    .then((p) => {
-      const runs = Object.entries(p.runs).map(([k, r]) => ({ issue: Date.parse(k.replace(/Z$/, ":00Z")) / 1000, steps: r.steps, points: r.points }));
-      runs.sort((a, b) => b.issue - a.issue);
-      NWPS = { runs, cells: p.cells };
-      requestFcstRedraw();
-    })
-    .catch(() => undefined);
-  return nwpsLoading;
-}
-
-/** The newest NWPS run's waves at a buoy for an hour (epoch seconds), or null where no run covers it. */
-function nwpsAt(id: string, t: number): NwpsValue | null {
-  for (const r of NWPS?.runs ?? []) {
-    const lead = Math.round((t - r.issue) / HOUR);
-    if (lead < 0 || Math.abs(t - r.issue - lead * HOUR) > 60) continue;
-    const i = r.steps.indexOf(lead);
-    const p = r.points[id];
-    const hs = i < 0 || !p ? null : p.hs?.[i];
-    if (hs == null) continue;
-    return { hs, tp: p.tp?.[i] ?? NaN, dir: p.dir?.[i] ?? NaN, lead, issue: r.issue };
-  }
-  return null;
-}
-
-/** NWPS waves on a time grid (for the wave plot): the newest run covering each hour, linear between hours. */
-function nwpsSeries(id: string, xs: number[]): number[] {
-  return xs.map((t) => {
-    const h = Math.floor(t / HOUR) * HOUR;
-    const a = nwpsAt(id, h), b = nwpsAt(id, h + HOUR);
-    if (!a) return NaN;
-    return b ? a.hs + ((b.hs - a.hs) * (t - h)) / HOUR : a.hs;
-  });
-}
-
-
 /* ---------- NWS marine advisories (M14) ----------
  * Warnings and advisories NWS New York issued for each station's forecast zone, from the IEM VTEC archive. Before
  * April 2021 the eastern Sound was one zone (ANZ330), whose events stand for both of today's eastern zones. */
@@ -2062,7 +1793,7 @@ function loadAdvisories(): Promise<void> {
     .then((a) => {
       ADV = a;
       ADV_CACHE.clear();
-      requestFcstRedraw();
+      requestRedraw();
     })
     .catch(() => undefined);
   return advLoading;
@@ -2095,12 +1826,6 @@ function advisoriesFor(id: string): Advisory[] {
   return out;
 }
 
-/** The HRRR stand-in for a buoy at a time: only for buoys, and only where the newest run reaches the hour. */
-function hrrrStandIn(d: StationData, t: number): FcValue | null {
-  if (d.kind !== "buoy") return null;
-  if (!FCST) void loadForecast();
-  return forecastAt(d.meta.id, hourOf(t));
-}
 
 
 const SOUND_ZONES = ["ANZ335", "ANZ331", "ANZ332"];
@@ -2148,184 +1873,10 @@ async function syncZones(): Promise<void> {
 }
 
 
-const FORECAST_PAGE = "/long-island-sound/forecast/";
-/** The verification tag: HRRR's typical miss at the buoys for this hour's lead at a station (the first in the table), linked to the page. */
-function verTag(t?: number, id?: string): string {
-  const f = t != null && id ? forecastAt(id, hourOf(t)) : null;
-  const n = FCST?.ver ? Object.values(FCST.ver.by_lead).reduce((a, b) => a + ((b.all as FcStats & { n?: number }).n ?? 0), 0) : 0;
-  const what = f ? `typical miss &plusmn;${windFmt(f.err)} ${WIND_UNITS[WU].label} at ${f.lead} h ahead` : "verified at the buoys";
-  return `<a class="ver-tag" href="${FORECAST_PAGE}" title="HRRR scored against the buoys${n ? ` over ${n.toLocaleString("en-US")} forecast hours` : ""}">${what}</a>`;
-}
-
-/* ---------- Outlook: the next 48 hours at one station ---------- */
-
-// "Sat 1 PM": the weekday and the hour, without Intl's comma.
-const fmtHourET = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" });
-/** "Sat 1p", "Fri 3:34a": short times for the outlook's text column. */
-const shortWhen = (ms: number, minutes = false) =>
-  (minutes ? fmtWhenMin : fmtWhen).format(new Date(ms)).replace(/:00 /, " ").replace(" AM", "a").replace(" PM", "p");
-
-let OUTLOOK_PIN = "EXRX"; // the station the outlook shows: Execution Rocks until a reader picks another row
-let OUTLOOK_PEEK: string | null = null; // the row under the pointer, shown while it is there
-const OL_W = 160;
-const OL_H = 22;
-
-/** The nearest NOAA tide gauge to a station (a shore station is its own). */
-function tideGauge(d: StationData, stations: StationData[]): StationData | undefined {
-  if (d.kind === "shore") return d;
-  const shore = stations.filter((s) => s.kind === "shore");
-  const k = Math.cos((d.meta.lat * Math.PI) / 180);
-  const dist = (s: StationData) => (s.meta.lat - d.meta.lat) ** 2 + ((s.meta.lon - d.meta.lon) * k) ** 2;
-  return shore.length ? shore.reduce((a, b) => (dist(b) < dist(a) ? b : a)) : undefined;
-}
-
-const olX = (t: number, t0: number) => ((t - t0) / (48 * HOUR)) * OL_W;
-
-/** Midnights (Eastern) as faint ticks, so every row reads on the same days. */
-function olDays(t0: number): string {
-  let out = "";
-  for (let h = 1; h < 48; h++) {
-    const t = t0 + h * HOUR;
-    if (fmtHourET.format(new Date(t * 1000)) === "0") out += `<line x1="${olX(t, t0).toFixed(1)}" x2="${olX(t, t0).toFixed(1)}" y1="0" y2="${OL_H}" stroke="currentColor" opacity="0.18"/>`;
-  }
-  return out;
-}
-
-/** One quantity over the next 48 hours on the outlook's shared time axis, its peak (or low) marked by a tick. */
-function olSpark(ts: number[], ys: number[], t0: number, mark: "max" | "min"): string {
-  const ok = ys.filter(Number.isFinite);
-  if (ok.length < 2) return `<span class="ol-spark"></span>`;
-  const a = Math.min(...ok), b = Math.max(...ok);
-  const y = (v: number) => OL_H - 3 - ((v - a) / Math.max(1e-6, b - a)) * (OL_H - 6);
-  let path = "";
-  let pen = false;
-  ts.forEach((t, i) => {
-    const v = ys[i];
-    if (!Number.isFinite(v)) {
-      pen = false;
-      return;
-    }
-    path += `${pen ? "L" : "M"}${olX(t, t0).toFixed(1)},${y(v).toFixed(1)}`;
-    pen = true;
-  });
-  const k = ys.indexOf(mark === "max" ? b : a);
-  return `<svg class="ol-spark" viewBox="0 0 ${OL_W} ${OL_H}" preserveAspectRatio="none" aria-hidden="true">${olDays(t0)}<path d="${path}" fill="none" stroke="${P.line}" stroke-width="1.4" vector-effect="non-scaling-stroke"/><line x1="${olX(ts[k], t0).toFixed(1)}" x2="${olX(ts[k], t0).toFixed(1)}" y1="${(y(ys[k]) - 5).toFixed(1)}" y2="${(y(ys[k]) + 5).toFixed(1)}" stroke="${P.line}" stroke-width="1.2" vector-effect="non-scaling-stroke"/></svg>`;
-}
-
-/** The tide on the same axis: NOAA's predicted water level as a curve (it shows the unequal highs of the day), with
- * a tick at each high, amber where the high comes within 1 ft of the NWS minor flood level. */
-function olTides(g: StationData | undefined, t0: number): string {
-  const p = g ? TIDES?.[g.meta.id]?.pred : undefined;
-  if (!g || !p) return `<span class="ol-spark"></span>`;
-  const p0 = Date.parse(p.t0) / 1000;
-  const ts: number[] = [];
-  const ys: number[] = [];
-  for (let t = t0; t <= t0 + 48 * HOUR; t += p.step) {
-    const v = p.ft[Math.round((t - p0) / p.step)];
-    ts.push(t);
-    ys.push(v == null ? NaN : v);
-  }
-  const ok = ys.filter(Number.isFinite);
-  if (ok.length < 4) return `<span class="ol-spark"></span>`;
-  const a = Math.min(...ok), b = Math.max(...ok);
-  const y = (v: number) => OL_H - 3 - ((v - a) / Math.max(1e-6, b - a)) * (OL_H - 6);
-  let path = "";
-  let pen = false;
-  ts.forEach((t, i) => {
-    if (!Number.isFinite(ys[i])) {
-      pen = false;
-      return;
-    }
-    path += `${pen ? "L" : "M"}${olX(t, t0).toFixed(1)},${y(ys[i]).toFixed(1)}`;
-    pen = true;
-  });
-  const minor = TIDES?.[g.meta.id]?.flood_ft?.nws_minor ?? null;
-  const ticks = g.tides
-    .filter((e) => e.type === "H" && Date.parse(e.t) / 1000 > t0 && Date.parse(e.t) / 1000 <= t0 + 48 * HOUR)
-    .map((e) => {
-      const x = olX(Date.parse(e.t) / 1000, t0).toFixed(1);
-      const c = minor != null && minor - e.ft < 1 ? P.delayed : P.line;
-      return `<line x1="${x}" x2="${x}" y1="${(y(e.ft) - 5).toFixed(1)}" y2="${(y(e.ft) + 5).toFixed(1)}" stroke="${c}" stroke-width="1.2" vector-effect="non-scaling-stroke"><title>High ${e.ft.toFixed(1)} ft, ${shortWhen(Date.parse(e.t), true)}</title></line>`;
-    })
-    .join("");
-  return `<svg class="ol-spark" viewBox="0 0 ${OL_W} ${OL_H}" preserveAspectRatio="none" aria-hidden="true">${olDays(t0)}<path d="${path}" fill="none" stroke="${P.line}" stroke-width="1.4" vector-effect="non-scaling-stroke"/>${ticks}</svg>`;
-}
-
-/** The range of the recent runs' forecasts for one station and hour: how far they disagree. */
-function runSpread(id: string, t: number): [number, number] | null {
-  const now = Date.now() / 1000;
-  const vals = (FCST?.runs[id] ?? [])
-    .filter((r) => r.issue <= now)
-    .map((r) => {
-      const i = r.leads.indexOf(Math.round((t - r.issue) / HOUR));
-      const u = r.u[i], v = r.v[i];
-      return i < 0 || u == null || v == null ? NaN : Math.hypot(u, v) * MS_KT;
-    })
-    .filter(Number.isFinite);
-  return vals.length >= 3 ? [Math.min(...vals), Math.max(...vals)] : null;
-}
-
-/** The Outlook, in Wind and waves only: the next 48 hours at one station, every row on the same time axis.
- * Empty until the forecast has loaded. */
-function outlookHtml(stations: StationData[]): string {
-  if (VK !== "wind") return "";
-  if (!FCST) {
-    void loadForecast();
-    return "";
-  }
-  const id = OUTLOOK_PEEK ?? OUTLOOK_PIN;
-  const d = stations.find((s) => s.meta.id === id) ?? stations.find((s) => s.kind === "buoy");
-  if (!d) return "";
-  const t0 = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
-  const ts = Array.from({ length: 48 }, (_, h) => t0 + (h + 1) * HOUR);
-  const fs = ts.map((t) => forecastAt(d.meta.id, t));
-  if (fs.filter(Boolean).length < 6) return "";
-  const col = (f: (v: FcValue) => number) => fs.map((v) => (v ? f(v) : NaN));
-  const spd = col((v) => v.spd), gust = col((v) => v.gust), pres = col((v) => v.pres), air = col((v) => v.air);
-  const at = (ys: number[], best: number) => ts[ys.indexOf(best)] * 1000;
-  const fin = (ys: number[]) => ys.filter(Number.isFinite);
-  const u = WIND_UNITS[WU].label;
-  const pk = Math.max(...fin(spd)), gk = Math.max(...fin(gust)), pl = Math.min(...fin(pres));
-  const pkF = fs[spd.indexOf(pk)]!;
-  const spread = runSpread(d.meta.id, ts[spd.indexOf(pk)]);
-  const g = tideGauge(d, stations);
-  const hi = (g?.tides ?? []).find((e) => e.type === "H" && Date.parse(e.t) > Date.now());
-  const airs = fin(air);
-  const rows: [string, string, string][] = [
-    ["Wind", olSpark(ts, spd.map(windVal), t0, "max"),
-      `${windFmt(pk)} ${u} ${shortWhen(at(spd, pk))} ${compass(pkF.dir)}${spread ? ` <small>runs ${windFmt(spread[0])} to ${windFmt(spread[1])}</small>` : ""}`],
-    ["Gusts", olSpark(ts, gust.map(windVal), t0, "max"), `${windFmt(gk)} ${u} ${shortWhen(at(gust, gk))}`],
-    ["Pressure", olSpark(ts, pres, t0, "min"), `${pl.toFixed(0)} mb ${shortWhen(at(pres, pl))}`],
-    ["Air", olSpark(ts, air, t0, "max"), airs.length ? `${Math.round(Math.min(...airs))} to ${Math.round(Math.max(...airs))}&deg;F` : "--"],
-  ];
-  // Waves: the NWS wave model at a buoy (the newest run for each hour), in place of the tide curve; a shore station,
-  // which the wave model does not reach, keeps its tide row. The next high tide stays as a line under the rows.
-  if (!NWPS) void loadNwps();
-  const hs = d.kind === "buoy" ? ts.map((t) => nwpsAt(d.meta.id, t)?.hs ?? NaN) : [];
-  const hsOk = fin(hs);
-  const tideText = hi ? `high ${hi.ft.toFixed(1)} ft ${shortWhen(Date.parse(hi.t), true)}` : "--";
-  if (hsOk.length >= 6) {
-    const wu = waveUnit();
-    const hk = Math.max(...hsOk);
-    const pkW = nwpsAt(d.meta.id, ts[hs.indexOf(hk)]);
-    rows.push([`Waves <small>model</small>`, olSpark(ts, hs.map((m) => m * wu.factor), t0, "max"),
-      `${waveFmt(hk)} ${wu.label} ${shortWhen(at(hs, hk))}${pkW && Number.isFinite(pkW.tp) ? ` &middot; ${pkW.tp.toFixed(0)} s` : ""} <small>NWPS, ${nwpsAsOf().replace(/^as of the /, "")}</small>`]);
-  } else {
-    rows.push([g && g !== d ? `Tide <small>${g.meta.name}</small>` : "Tide", olTides(g, t0), tideText]);
-  }
-  const tideLine = hsOk.length >= 6 && hi
-    ? `<p class="status-key ol-tide">Next high tide ${g && g !== d ? `at ${g.meta.name} ` : ""}${hi.ft.toFixed(1)} ft, ${shortWhen(Date.parse(hi.t), true)}</p>`
-    : "";
-  return `<section class="outlook" aria-label="The next 48 hours at ${d.meta.name}">
-    <p class="ol-title">Next 48 h &middot; ${d.meta.name} <span class="ol-hint">pick a row above</span><span class="ol-src">NOAA HRRR, raw${(() => { const a = hrrrAsOf(d.meta.id, ts); return a ? `, ${a}` : ""; })()} &middot; <a href="${FORECAST_PAGE}">verified at the buoys</a></span></p>
-    ${rows.map(([k, sp, txt]) => `<div class="ol-row"><span class="ol-k">${k}</span>${sp}<span class="ol-v">${txt}</span></div>`).join("")}
-    ${tideLine}
-  </section>`;
-}
 
 /** The table row whose station the outlook shows, marked. */
 function markOutlookRow(): void {
-  const on = OUTLOOK_PEEK ?? OUTLOOK_PIN;
+  const on = OUTLOOK.peek ?? OUTLOOK.pin;
   document.querySelectorAll<HTMLTableRowElement>("#status tbody tr").forEach((tr) => {
     const id = tr.querySelector<HTMLAnchorElement>('th a[href^="#"]')?.getAttribute("href")?.slice(1);
     const shown = VK === "tides" && !STATIONS.some((d) => d.meta.id === on && d.kind === "shore") ? "KPTN" : on;
@@ -2495,22 +2046,22 @@ function syncSchematic(): void {
     const idOf = (e: Event) => (e.target as Element).closest<SVGGElement>("g[data-id]")?.dataset.id ?? null;
     box.addEventListener("mouseover", (e) => {
       const id = idOf(e);
-      if (id && id !== (OUTLOOK_PEEK ?? OUTLOOK_PIN)) {
-        OUTLOOK_PEEK = id;
+      if (id && id !== (OUTLOOK.peek ?? OUTLOOK.pin)) {
+        OUTLOOK.peek = id;
         statusGrid(STATIONS);
       }
     });
     box.addEventListener("mouseleave", () => {
-      if (OUTLOOK_PEEK) {
-        OUTLOOK_PEEK = null;
+      if (OUTLOOK.peek) {
+        OUTLOOK.peek = null;
         statusGrid(STATIONS);
       }
     });
     box.addEventListener("click", (e) => {
       const id = idOf(e);
       if (id) {
-        OUTLOOK_PIN = id;
-        OUTLOOK_PEEK = null;
+        OUTLOOK.pin = id;
+        OUTLOOK.peek = null;
         statusGrid(STATIONS);
       }
     });
@@ -2645,7 +2196,7 @@ function schematicSvg(sc: Schematic, W: number, H: number): string {
   const band = nar ? null : { y0: bandY0, y1: bandY1 };
   if (band) taken.push({ x0: 0, y0: band.y0 - 14, x1: W, y1: band.y1 + 4 });
   // Marks first (so labels keep off them), then labels.
-  const on = OUTLOOK_PEEK ?? OUTLOOK_PIN;
+  const on = OUTLOOK.peek ?? OUTLOOK.pin;
   const shown = sc.gauges.some((q) => q.id === on && q.kind === "site") ? on : "KPTN";
   const FT = Math.max(14, s * 4); // px per foot of departure
   type Mark = { q: Schematic["gauges"][number]; x: number; y: number; svg: string; rows: string[]; cls: string[]; title: string };
@@ -2884,21 +2435,21 @@ function wireStatusTabs(stations: StationData[]): void {
   };
   box.addEventListener("mouseover", (e) => {
     const id = VK === "wind" || VK === "tides" ? rowId(e) : null;
-    if (id && id !== (OUTLOOK_PEEK ?? OUTLOOK_PIN)) {
-      OUTLOOK_PEEK = id;
+    if (id && id !== (OUTLOOK.peek ?? OUTLOOK.pin)) {
+      OUTLOOK.peek = id;
       redrawOutlook();
     }
   });
   box.addEventListener("mouseleave", () => {
-    if (OUTLOOK_PEEK) {
-      OUTLOOK_PEEK = null;
+    if (OUTLOOK.peek) {
+      OUTLOOK.peek = null;
       redrawOutlook();
     }
   });
   box.addEventListener("focusin", (e) => {
     const id = VK === "wind" || VK === "tides" ? rowId(e) : null;
     if (id) {
-      OUTLOOK_PEEK = id;
+      OUTLOOK.peek = id;
       redrawOutlook();
     }
   });
@@ -2906,8 +2457,8 @@ function wireStatusTabs(stations: StationData[]): void {
     if ((VK !== "wind" && VK !== "tides") || (e.target as HTMLElement).closest("a, button")) return;
     const id = rowId(e);
     if (id) {
-      OUTLOOK_PIN = id;
-      OUTLOOK_PEEK = null;
+      OUTLOOK.pin = id;
+      OUTLOOK.peek = null;
       redrawOutlook();
     }
   });
@@ -3166,100 +2717,6 @@ function readouts(d: StationData): void {
 
 const activeDepth = (d: StationData, key: Kind): string =>
   document.querySelector<HTMLButtonElement>(`#${d.meta.id} .tab[data-fig="${key}"][aria-pressed="true"]`)?.dataset.depth ?? d.depths[0];
-
-/* ---------- Forecast vintage: which run's forecast the next-48-hours plot emphasises ---------- */
-
-const VINTAGE = new Map<string, number>(); // station id -> the chosen run's issue time (epoch seconds)
-const VINTAGE_LISTENERS = new WeakMap<HTMLElement, (e: Event) => void>();
-
-const RECENT_RUNS = 24; // the last day's hourly runs; before them, only the 48 h runs (00, 06, 12 and 18 UTC)
-
-/** The runs the plot draws for a station between x0 and x1, oldest first: the newest run (the dashed line), the
- * hourly runs before it for a day, and the 48 h runs before those (the page file keeps them for a week). A run is
- * drawn when any of its hours falls in the window. */
-function vintageRuns(id: string, x0 = -Infinity, x1 = Infinity): FcRun[] {
-  const now = Date.now() / 1000;
-  const last = (r: FcRun) => r.issue + r.leads[r.leads.length - 1] * HOUR;
-  return (FCST?.runs[id] ?? [])
-    .filter((r) => r.issue <= now)
-    .filter((r, k) => (k <= RECENT_RUNS || r.leads[r.leads.length - 1] > 18) && last(r) >= x0 && r.issue < x1)
-    .reverse();
-}
-/** A run's line label in the plot: the newest is the stitched forecast's line, the others "HRRR run <time>". */
-function vintageLabel(id: string, r: FcRun): string {
-  const now = Date.now() / 1000;
-  return r === (FCST?.runs[id] ?? []).find((q) => q.issue <= now) ? "Stitched forecast" : `HRRR run ${fmtRun.format(new Date(r.issue * 1000))}`;
-}
-
-function mountVintage(d: StationData, plot: HTMLElement, x0?: number, x1?: number): void {
-  mountRunSlider(plot, { store: d.meta.id, model: "HRRR", runs: vintageRuns(d.meta.id, x0, x1), lineLabel: (r) => vintageLabel(d.meta.id, r as FcRun) });
-}
-
-/** The NWPS runs the Waves plot draws for a buoy between x0 and x1, oldest first (the newest is the stitched line). */
-function nwpsRuns(id: string, x0 = -Infinity, x1 = Infinity): NwpsRun[] {
-  return (NWPS?.runs ?? [])
-    .filter((r) => r.points[id] && r.issue < x1 && r.issue + r.steps[r.steps.length - 1] * HOUR >= x0)
-    .reverse();
-}
-/** An NWPS run's line label: the newest is the stitched model line, the others "NWPS run <time>". */
-function nwpsLabel(r: NwpsRun): string {
-  return r === NWPS?.runs[0] ? "NWS wave model (NWPS)" : `NWPS run ${fmtRun.format(new Date(r.issue * 1000))}`;
-}
-/** One NWPS run's significant height at a buoy for a time, linear between its hours. */
-function nwpsRunAt(r: NwpsRun, id: string, t: number): number {
-  const f = (t - r.issue) / HOUR;
-  const a = Math.floor(f);
-  const hs = r.points[id]?.hs;
-  const at = (lead: number) => {
-    const i = r.steps.indexOf(lead);
-    return i < 0 ? NaN : hs?.[i] ?? NaN;
-  };
-  const va = at(a);
-  return f === a ? va : va + (at(a + 1) - va) * (f - a);
-}
-function mountNwpsVintage(d: StationData, plot: HTMLElement, x0?: number, x1?: number): void {
-  mountRunSlider(plot, { store: `${d.meta.id}:nwps`, model: "NWPS", runs: nwpsRuns(d.meta.id, x0, x1), lineLabel: (r) => nwpsLabel(r as NwpsRun) });
-}
-
-/** A version slider on a plot: picks one of a model's runs (oldest to newest), shows only "<model>, as of <run>", and
- * emphasises that run's line; hovering a run's line moves it. The choice is kept per plot (store key). */
-function mountRunSlider(plot: HTMLElement, o: { store: string; model: string; runs: { issue: number }[]; lineLabel: (r: { issue: number }) => string }): void {
-  plot.querySelector(".vintage")?.remove();
-  const runs = o.runs;
-  if (runs.length < 2) return;
-  const chosen = runs.findIndex((r) => r.issue === VINTAGE.get(o.store));
-  const k0 = chosen >= 0 ? chosen : runs.length - 1;
-  const box = document.createElement("div");
-  box.className = "vintage";
-  box.innerHTML = `<input class="vg-range" type="range" min="0" max="${runs.length - 1}" step="1" value="${k0}" aria-label="Forecast run"><span class="vg-label"></span>`;
-  plot.append(box);
-  // In the expanded chart a drag pans and the wheel zooms: not when they start on the slider.
-  for (const type of ["pointerdown", "mousedown", "touchstart", "wheel"]) box.addEventListener(type, (e) => e.stopPropagation());
-  const range = box.querySelector<HTMLInputElement>(".vg-range")!;
-  const label = box.querySelector<HTMLElement>(".vg-label")!;
-  const set = (k: number, picked: boolean) => {
-    const r = runs[k];
-    label.textContent = `${o.model}, as of ${fmtRun.format(new Date(r.issue * 1000))}`;
-    range.value = String(k);
-    range.setAttribute("aria-valuetext", label.textContent);
-    if (picked) VINTAGE.set(o.store, r.issue);
-    emphasise(plot, picked || chosen >= 0 ? o.lineLabel(r) : null);
-  };
-  set(k0, false);
-  range.addEventListener("input", () => set(Number(range.value), true));
-  // The plot element outlives each drawing: one hover listener at a time.
-  const old = VINTAGE_LISTENERS.get(plot);
-  if (old) plot.removeEventListener("linepick", old);
-  const onPick = (e: Event) => {
-    const k = runs.findIndex((r) => o.lineLabel(r) === (e as CustomEvent<string>).detail);
-    if (k >= 0) {
-      VINTAGE.set(o.store, runs[k].issue);
-      set(k, true);
-    }
-  };
-  VINTAGE_LISTENERS.set(plot, onPick);
-  plot.addEventListener("linepick", onPick);
-}
 
 function drawInline(d: StationData, key: Kind): void {
   if (!shows(d, key)) return;
@@ -4388,16 +3845,11 @@ const SHORE: ShoreMetaStation[] = shoreRegistry.stations
   .sort((a, b) => a.lon - b.lon);
 
 /** The engine's cells, readouts and figures (waterway/) read the page's view, colours and models through these. */
+configureData({ data: DATA, forecastPage: "/long-island-sound/forecast/" });
+OUTLOOK.pin = "EXRX"; // Execution Rocks until a reader picks another row
 configureModels({
   view: () => VK,
   palette: () => P,
-  forecastAt,
-  typicalError,
-  standIn: hrrrStandIn,
-  loadWaves: () => {
-    if (!NWPS) void loadNwps();
-  },
-  wavesAt: nwpsAt,
   waveSensor: wavesOf,
   wavePanel: (id) => panelsOf(id).waves,
   wavesText,
@@ -4406,7 +3858,6 @@ configureModels({
   tidePred: (id) => TIDES?.[id]?.pred,
   departure,
   predictedHour,
-  verTag,
   floodMinor: (id) => TIDES?.[id]?.flood_ft?.nws_minor ?? null,
 });
 
@@ -4585,11 +4036,11 @@ async function main(): Promise<void> {
       drawAll();
       statusGrid(stations);
     };
-    fcstRedraw = () => {
+    onModelData(() => {
       drawAll();
       void showAt(AT);
       statusGrid(stations);
-    };
+    });
     tidesRedraw = () => {
       DEPARTURE.clear();
       drawAll();

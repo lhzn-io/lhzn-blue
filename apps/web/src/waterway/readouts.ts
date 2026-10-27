@@ -9,6 +9,8 @@ import { waveFmt, waveUnit, WIND_UNITS, windFmt, WU } from "./units";
 import { nextTide, obsState, stationState, type StationData } from "./station-data";
 import { runText } from "./cells";
 import { M } from "./models";
+import { standIn } from "./forecast";
+import { loadNwps, NWPS, nwpsAt } from "./nwps";
 
 export function stratNow(d: StationData): { deltaC: number; status: string } {
   const delta = d.temp.delta;
@@ -103,7 +105,7 @@ export function weatherReadouts(d: StationData): string[] {
         .join(" &middot; ")));
   } else {
     out.push(readoutHtml("--", "Wind", "wind", "no recent reading", "offline"));
-    const f = M.standIn(d, Date.now() / 1000);
+    const f = standIn(d, Date.now() / 1000);
     if (f) out.push(readoutHtml(`<span class="model-num">${windFmt(f.spd)}</span><small>${u}</small>`, "Wind, model", "model", `HRRR at the buoy, from ${compass(f.dir)}, gusts ${windFmt(f.gust)} ${u} &middot; ${runText(f.issue, f.lead)} &middot; not a measurement`, "model"));
   }
   if (d.kind === "buoy" && M.waveSensor(d.meta.id)?.sensor) {
@@ -116,8 +118,8 @@ export function weatherReadouts(d: StationData): string[] {
         : readoutHtml("--", "Waves", "waves", M.wavesText(d.meta.id, true), "offline"),
     );
     if (!live) {
-      M.loadWaves();
-      const m = M.wavesAt(d.meta.id, hourOf(Date.now() / 1000));
+      if (!NWPS) void loadNwps();
+      const m = nwpsAt(d.meta.id, hourOf(Date.now() / 1000));
       if (m) out.push(readoutHtml(`<span class="model-num">${waveFmt(m.hs)}</span><small>${waveUnit().label}</small>`, "Waves, model", "model", `NWS wave model (NWPS) at the buoy${Number.isFinite(m.tp) ? `, ${m.tp.toFixed(0)} s period` : ""} &middot; ${runText(m.issue, m.lead)} &middot; not a measurement`, "model"));
     }
   }

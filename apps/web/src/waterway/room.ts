@@ -8,6 +8,7 @@ const ROOM = new Map<string, number>();
 let held = "";
 let survey = 0;
 let check = 0;
+let probe: HTMLElement | null = null;
 
 /** The column's parts that can change height: table captions and rows (a row by its station), and the blocks that hold
  * no table (a photo fills what is left, so it is not one). */
@@ -43,27 +44,40 @@ function apply(box: HTMLElement): void {
   }
 }
 
-/** Draw the column at each time in a hidden copy of the box and keep the tallest of each part. */
-function surveyRoom(box: HTMLElement, render: () => string, times: (number | null)[]): void {
-  const probe = box.cloneNode(false) as HTMLElement;
-  probe.removeAttribute("id");
-  probe.removeAttribute("aria-live");
-  probe.setAttribute("aria-hidden", "true");
-  probe.inert = true;
-  Object.assign(probe.style, { position: "absolute", left: "0", top: "0", visibility: "hidden", pointerEvents: "none", width: getComputedStyle(box).width });
-  box.parentElement?.append(probe);
-  const at = AT;
-  try {
-    for (const t of times) {
-      setAt(t);
-      probe.innerHTML = render();
-      grow(probe);
+/** Draw the column at each time in a hidden copy of the box and keep the tallest of each part, a few milliseconds at a
+ * time so the page stays responsive; a newer survey ends this one. */
+function surveyRoom(box: HTMLElement, key: string, render: () => string, times: (number | null)[]): void {
+  probe?.remove();
+  const p = box.cloneNode(false) as HTMLElement;
+  probe = p;
+  p.removeAttribute("id");
+  p.removeAttribute("aria-live");
+  p.setAttribute("aria-hidden", "true");
+  p.inert = true;
+  Object.assign(p.style, { position: "absolute", left: "0", top: "0", visibility: "hidden", pointerEvents: "none", width: getComputedStyle(box).width });
+  box.parentElement?.append(p);
+  let i = 0;
+  const slice = () => {
+    if (probe !== p || held !== key || !box.isConnected) return p.remove();
+    const at = AT;
+    const end = performance.now() + 8;
+    try {
+      while (i < times.length && performance.now() < end) {
+        setAt(times[i++]);
+        p.innerHTML = render();
+        grow(p);
+      }
+    } finally {
+      setAt(at);
     }
-  } finally {
-    setAt(at);
-    probe.remove();
-  }
-  apply(box);
+    apply(box);
+    if (i < times.length) survey = window.setTimeout(slice, 0);
+    else {
+      p.remove();
+      probe = null;
+    }
+  };
+  slice();
 }
 
 /** After each draw of the column: hold its parts at their room. `key` names what it shows (a new one starts the room
@@ -86,7 +100,7 @@ export function holdRoom(box: HTMLElement, key: string, changed: boolean, render
   if (fresh || changed) {
     window.clearTimeout(survey);
     survey = window.setTimeout(() => {
-      if (held === key && box.isConnected) surveyRoom(box, render, times());
+      if (held === key && box.isConnected) surveyRoom(box, key, render, times());
     }, 150);
   }
 }

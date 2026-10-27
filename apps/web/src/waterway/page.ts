@@ -943,8 +943,9 @@ function turbTable(): string {
   <p class="status-key">Point observations at 1 m. The check flags a day as likely sensor fouling when its quietest readings sit above 5 NTU; flagged readings are kept and drawn faintly. See the note below the table.</p>`;
 }
 
-/** The status column at the cursor's time, for the view on screen. */
-function statusHtml(all: StationData[]): string {
+/** The status column at the cursor's time, for the view on screen. `survey` leaves out the wind across the waterway (by
+ * far the costliest part to draw; its height is held from the column as drawn). */
+function statusHtml(all: StationData[], survey = false): string {
   const stations = all.filter(onStation);
   if (VK === "turbidity") return turbTable() + PARTS.shoreTable() + outlookHtml(STATIONS);
   if (VK === "rivers") return riverTable(A.RIVER_SECTIONS[0]) + outlookHtml(STATIONS);
@@ -952,7 +953,9 @@ function statusHtml(all: StationData[]): string {
   const group = STATION_ID ? (stations[0]?.kind === "shore" ? "shore" : "buoy") : SG;
   // An airport is in neither table: its page leads with the outlook. The shore gauges' own table is the overview's.
   const table = STATION_ID && stations[0]?.kind === "airport" ? "" : stationTables(stations, group);
-  return `${table}${stationPhoto()}${isWater(VK) && !STATION_ID ? PARTS.shoreTable() : ""}${outlookHtml(all)}${windAcrossHtml(all, CFG.called)}`;
+  // The wind across the whole waterway is the overview's: a station's page keeps to the station.
+  const across = STATION_ID || survey ? "" : windAcrossHtml(all, CFG.called);
+  return `${table}${stationPhoto()}${isWater(VK) && !STATION_ID ? PARTS.shoreTable() : ""}${outlookHtml(all)}${across}`;
 }
 
 /** The times the room in the status column is surveyed at: now, then across the time bar's reach (90 days back, 72
@@ -973,7 +976,7 @@ function statusGrid(all: StationData[], timeOnly = false): void {
   const box = $("status");
   box.innerHTML = statusHtml(all);
   if (VK !== "turbidity" && VK !== "rivers") markOutlookRow();
-  if (!EMBED) holdRoom(box, `${VK}|${STATION_ID}|${SG}|${box.clientWidth}`, !timeOnly, () => statusHtml(all), roomTimes);
+  if (!EMBED) holdRoom(box, `${VK}|${STATION_ID}|${SG}|${box.clientWidth}`, !timeOnly, () => statusHtml(all, true), roomTimes);
 }
 
 /** Tab clicks and arrow keys on the overview table (wired once; the table itself is redrawn often). */

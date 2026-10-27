@@ -15,7 +15,6 @@ import { BUOY_SENSORS, METHODS, REF_LABELS } from "./methods";
 import { BOATS, boatIcon, boatLabel, boatPickerHtml, comfortTableHtml } from "./comfort-thresholds";
 import { mountCollect } from "./collect";
 import { smoothByAge } from "./trends";
-import type { Pin } from "./map";
 import type { FieldData, FieldKind, RasterHistory } from "./fields";
 import { wireSuggest } from "./suggest";
 import {
@@ -27,7 +26,7 @@ import {
 import { mountAdvisories } from "./advisory";
 import { ago, cToF, f1, fmtDate, fmtUtc, hourOf, hoursOld, signed, span, tideText } from "./waterway/format";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./waterway/cursor";
-import { DELAYED_HOURS, DEPTH_LABEL, DEPTHS, type Gauge, isWater, type Met, nextTide, obsState, OFFLINE_HOURS, overallState, type RiverData, type StationData, stationState, type TurbData, unitName, type VarKey, type VarView, WATER_VARS, type Waves } from "./waterway/station-data";
+import { DELAYED_HOURS, DEPTH_LABEL, DEPTHS, isWater, type Met, nextTide, obsState, OFFLINE_HOURS, overallState, type StationData, stationState, type TurbData, unitName, type VarKey, type VarView, WATER_VARS, type Waves } from "./waterway/station-data";
 import { atCell, stationPin, stationTables, valueAt } from "./waterway/cells";
 import { configureModels } from "./waterway/models";
 import { type Built, type Fig, legendHtml, openZoom, redrawZoom, wireLegend, wireZoom } from "./waterway/figures";
@@ -43,6 +42,8 @@ import { hideWsTip, showWsTip, windAcrossHtml, WS_BACK, wsPoint } from "./waterw
 import { addFittedTides, DEPARTURE, loadTides, onTides, TIDES } from "./waterway/tides";
 import { departureBuilt, departureRowsSvg, drawLadder, highestAheadHtml, hiloBuilt, tidesTable } from "./waterway/tides-view";
 import { configureSchematic, syncSchematic } from "./waterways/sound-schematic";
+import { cfs, dailyFlow, ordinal, pct, percentileOf, riverFlow, riverSections } from "./waterway/rivers";
+import { gaugePins, riverReadoutsHtml, riverTable, wireRiverHover } from "./waterway/rivers-view";
 import { currentSpeed, setUnit, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./waterway/units";
 
 const DATA = "/data/v1";
@@ -201,119 +202,8 @@ function turbSection(stations: StationData[], live: Live, hist: TurbHistory | nu
   };
 }
 
-/* ---------- Rivers ---------- */
-
-
-/** Index of a time's Eastern calendar date in a leap year (0 to 365), for the day-of-year percentiles. */
-const etMonthDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric" });
-function dayOfYear(t: number): number {
-  const p = Object.fromEntries(etMonthDay.formatToParts(new Date(t * 1000)).map((x) => [x.type, x.value]));
-  return Math.round((Date.UTC(2024, Number(p.month) - 1, Number(p.day)) - Date.UTC(2024, 0, 1)) / 86400000);
-}
-
-/** Flow at a time: the hourly window where it reaches, the daily means before it. */
-const riverFlow = (r: RiverData, id: string, t: number) => {
-  const h = r.flow[id]?.at(t) ?? NaN;
-  return Number.isFinite(h) ? h : (r.daily[id]?.at(t) ?? NaN);
-};
-type Pct = "p5" | "p10" | "p25" | "p50" | "p75" | "p90" | "p95";
-const pct = (r: RiverData, id: string, p: Pct, t: number) => r.normals[id]?.[p]?.[dayOfYear(t)] ?? NaN;
-
-/**
- * Where a flow sits among the date's percentiles (5th to 95th), interpolated between them in log flow (flow
- * spreads by ratios). Below the 5th it reads 2.5 and above the 95th 97.5: beyond those the record says only
- * that the flow is rarer than one year in twenty for the date.
- */
-const PCTS: [number, Pct][] = [[5, "p5"], [10, "p10"], [25, "p25"], [50, "p50"], [75, "p75"], [90, "p90"], [95, "p95"]];
-function percentileOf(r: RiverData, id: string, t: number, flow: number): number {
-  if (!Number.isFinite(flow) || flow <= 0) return NaN;
-  const pts = PCTS.map(([q, k]) => [q, pct(r, id, k, t)] as [number, number]).filter(([, v]) => Number.isFinite(v) && v > 0);
-  if (pts.length < 2) return NaN;
-  if (flow <= pts[0][1]) return 2.5;
-  if (flow >= pts[pts.length - 1][1]) return 97.5;
-  for (let i = 1; i < pts.length; i++) {
-    const [qa, va] = pts[i - 1];
-    const [qb, vb] = pts[i];
-    if (flow <= vb) return vb === va ? qb : qa + ((qb - qa) * Math.log(flow / va)) / Math.log(vb / va);
-  }
-  return NaN;
-}
-
-/** USGS's flow classes against the day-of-year percentiles of the gauge's approved record. */
-function riverClass(r: RiverData, id: string, t: number, flow: number): string {
-  if (!Number.isFinite(flow)) return "";
-  const at = (p: "p10" | "p25" | "p75" | "p90") => pct(r, id, p, t);
-  if (!Number.isFinite(at("p25"))) return "";
-  if (flow < at("p10")) return "much below normal";
-  if (flow < at("p25")) return "below normal";
-  if (flow <= at("p75")) return "normal";
-  if (flow <= at("p90")) return "above normal";
-  return "much above normal";
-}
-/** A percentile for a readout: beyond the 5th and 95th the record says only that it is rarer than that. */
-const pctText = (v: number) => (!Number.isFinite(v) ? "--" : v <= 2.5 ? "<5<small>th</small>" : v >= 97.5 ? "&gt;95<small>th</small>" : ordinal(v).replace(/(\D+)$/, "<small>$1</small>"));
-
-/** 1st, 2nd, 3rd, 4th, 11th, 12th, 13th, 21st... */
-const ordinal = (n: number) => {
-  const r = Math.round(n);
-  const s = r % 100 >= 11 && r % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[r % 10] ?? "th";
-  return `${r}${s}`;
-};
-const cfs = (v: number) => (Number.isFinite(v) ? Math.round(v).toLocaleString("en-US") : "--");
-
 let RIVER_SECTIONS: StationData[] = [];
 let TURB_SECTION: StationData | null = null;
-
-/** The Rivers view's sections: an all-rivers summary, then one section per gauge, west to east. */
-function riverSections(rl: RiverLive, rh: RiverHistory): StationData[] {
-  // Largest gauged basin first: the order of the table, the sections and the all-rivers chart.
-  const gauges = [...rh.meta.gauges].sort((a, b) => b.drainage_sqmi - a.drainage_sqmi);
-  const river: RiverData = {
-    gauges,
-    flow: Object.fromEntries(gauges.map((g) => [g.id, Hourly.fromArray(rl.gauges[g.id]?.t0, rl.gauges[g.id]?.flow_cfs)])),
-    daily: Object.fromEntries(gauges.map((g) => [g.id, Daily.fromArray(rh.daily[g.id]?.t0, rh.daily[g.id]?.flow_cfs)])),
-    normals: rh.normals,
-    turb: Hourly.fromArray(rl.gauges.CONN?.t0, rl.gauges.CONN?.turb_fnu),
-    last: Object.fromEntries(gauges.map((g) => [g.id, rl.gauges[g.id]?.last_obs ?? null])),
-  };
-  const now = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
-  const area = gauges.reduce((a, g) => a + g.drainage_sqmi, 0);
-  const empty = { hourly: {}, m36: {}, chg: {}, delta: null, delta36: null };
-  const obsOf = (g: Gauge): LastObs | null =>
-    river.last[g.id] ? { time: river.last[g.id]!.time, depth_m: null, temperature_c: null, salinity: null, oxygen_mg_l: null } : null;
-  const base = { ...empty, temp: empty, views: {}, live: true, now, anchor: now, met: null, level: null, tides: [], levelNow: null, waves: null, river };
-  const summary: StationData = {
-    ...base,
-    kind: "rivers",
-    meta: {
-      id: "RIVERS", name: "All rivers", operator: "USGS", lat: 41.5, lon: -72.6, info_url: null, series: [],
-      note:
-        `${gauges.length} USGS stream gauges draining ${Math.round(area).toLocaleString("en-US")} square miles, about three quarters of it the Connecticut River above Thompsonville. ` +
-        `On Long Island most fresh water reaches the Sound as groundwater, which stream gauges do not measure, so the north shore is under-represented here.`,
-    },
-    depths: gauges.map((g) => g.id),
-    obs: Object.fromEntries(gauges.map((g) => [g.id, obsOf(g)])),
-  };
-  const sections = gauges.map(
-    (g): StationData => ({
-      ...base,
-      kind: "river",
-      gauge: g,
-      meta: {
-        id: g.id, name: `${g.river} River`, operator: "USGS", lat: g.lat, lon: g.lon, info_url: `https://waterdata.usgs.gov/monitoring-location/USGS-${g.usgs_id}/`,
-        note: [`${g.name}, draining ${g.drainage_sqmi.toLocaleString("en-US")} square miles; reaches the Sound at ${g.mouth}.`, g.status_note ?? "Values are provisional until USGS approves them."].join(" "),
-        series: [{ key: g.id, depth: "SFC", label: "Flow", depth_m: [], record_start: g.record_start, hours: 0, sources: [], live: true, archived_last_obs: null }],
-      },
-      depths: ["SFC"],
-      obs: { SFC: obsOf(g) },
-    }),
-  );
-  return [summary, ...sections];
-}
-
-/** A river's daily mean flow, as a series for the year comparison (a value per day, the same at every hour). */
-const dailyFlow = (d: StationData): Series | null => (d.gauge && d.river?.daily[d.gauge.id]) || null;
-
 
 function wavesFrom(hist: WaveFrame | undefined, live: WaveFrame | undefined): Waves | null {
   const col = (k: "hs_m" | "hmax_m" | "tp_s") => Hourly.merge(Hourly.fromArray(hist?.t0, hist?.[k]), Hourly.fromArray(live?.t0, live?.[k]));
@@ -374,7 +264,12 @@ async function ensureVar(k: VarKey, live: Live, stations: StationData[]): Promis
   }
   if (k === "rivers") {
     const [rl, rh] = await Promise.all([getJson<RiverLive>(`${DATA}/rivers.json`), getJson<RiverHistory>(`${DATA}/${WATER_VARS.rivers.file}`)]);
-    RIVER_SECTIONS = riverSections(rl, rh);
+    RIVER_SECTIONS = riverSections(rl, rh, {
+      at: [41.5, -72.6],
+      note: (n, area) =>
+        `${n} USGS stream gauges draining ${Math.round(area).toLocaleString("en-US")} square miles, about three quarters of it the Connecticut River above Thompsonville. ` +
+        `On Long Island most fresh water reaches the Sound as groundwater, which stream gauges do not measure, so the north shore is under-represented here.`,
+    });
     $("about-sources").insertAdjacentHTML(
       "beforeend",
       ` Rivers: <a href="https://waterdata.usgs.gov/">USGS</a> stream gauges (${rh.meta.gauges.map((g) => `${g.name}, ${g.usgs_id}`).join("; ")}). ` +
@@ -1290,56 +1185,6 @@ try {
   /* private mode: buoys */
 }
 
-/** The Rivers view's overview: each gauge's flow, where it sits for the date, and river turbidity. */
-function riverTable(): string {
-  const d = RIVER_SECTIONS[0];
-  if (!d?.river) return `<p class="note">River data could not load.</p>`;
-  const r = d.river;
-  let total = 0;
-  let medians = 0;
-  let complete = true;
-  const rows = r.gauges.map((g) => {
-    const flowAt = AT != null ? riverFlow(r, g.id, AT) : NaN;
-    const o =
-      AT == null
-        ? r.last[g.id]
-        : Number.isFinite(flowAt)
-          ? { time: new Date(AT * 1000).toISOString(), flow_cfs: flowAt, turb_fnu: g.turbidity ? (Number.isFinite(r.turb?.at(AT) ?? NaN) ? r.turb!.at(AT) : null) : null }
-          : null;
-    if (!o || o.flow_cfs == null) {
-      if (!g.discontinued) complete = false; // a discontinued gauge is left out of the total, and the total says so
-      const why = g.discontinued && (AT == null || AT * 1000 > Date.parse(g.discontinued))
-        ? `discontinued ${new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" }).format(new Date(g.discontinued))}`
-        : AT != null ? (atFuture() ? "no forecast" : "no reading") : "no recent reading";
-      return `<tr data-gauge="${g.id}"><th scope="row"><a href="#${g.id}"><i class="dot offline"></i>${g.river}</a></th><td class="offline" title="${g.status_note ?? ""}"><b>--</b><small>${why}</small></td><td class="na">&middot;</td><td class="na"><small>${g.turbidity ? "--" : "no sensor"}</small></td></tr>`;
-    }
-    const t = Date.parse(o.time) / 1000;
-    const state = AT != null ? "asof" : obsState({ time: o.time } as LastObs);
-    const cls = riverClass(r, g.id, t, o.flow_cfs);
-    const med = pct(r, g.id, "p50", t);
-    total += o.flow_cfs;
-    medians += Number.isFinite(med) ? med : NaN;
-    const spark = r.flow[g.id] ? sparklineOf(r.flow[g.id]!, P.depth.SFC, "cfs", 0) : "";
-    const turb = !g.turbidity
-      ? `<td class="na" title="This gauge has no turbidity sensor"><small>no sensor</small></td>`
-      : o.turb_fnu != null
-        ? `<td title="River turbidity at ${g.name.split(/ (?:at|near) /).pop()}, ${ago(o.time)}"><b>${o.turb_fnu.toFixed(1)}<small class="g"> FNU</small></b></td>`
-        : `<td class="offline"><b>--</b><small>no recent reading</small></td>`;
-    return `<tr data-gauge="${g.id}"><th scope="row" title="${g.name} (USGS ${g.usgs_id})"><a href="#${g.id}"><i class="dot ${state}"></i>${g.river}</a></th>
-      <td class="${state}" title="${cfs(o.flow_cfs)} cfs, ${ago(o.time)}">${spark}<b>${cfs(o.flow_cfs)}<small class="g"> cfs</small></b><small>${AT != null ? "observed" : ago(o.time).replace(" ago", "")}</small></td>
-      <td class="river-class ${cls.replace(/ /g, "-")}" title="Median for the date ${cfs(med)} cfs"><b>${cls || "--"}</b><small>median ${cfs(med)}</small></td>${turb}</tr>`;
-  });
-  const off = r.gauges.filter((g) => g.discontinued).length;
-  const share =
-    (complete && Number.isFinite(medians) && medians > 0 ? `${Math.round((100 * total) / medians)}% of the summed medians for the date` : "") +
-    (off ? `; the ${off === 1 ? "discontinued gauge is" : `${off} discontinued gauges are`} left out` : "");
-  return `<table class="status-grid" id="status-panel">
-    <caption>${AT != null ? `River flow at ${atLabel(AT)}` : "Latest river flow"}, largest basin first: cubic feet per second, against normal for the date</caption>
-    <thead><tr><th></th><th scope="col">Flow</th><th scope="col">For the date</th><th scope="col">Turbidity</th></tr></thead>
-    <tbody>${rows.join("")}<tr class="total"><th scope="row">All ${r.gauges.length - off}</th><td>${complete ? `<b>${cfs(total)}<small class="g"> cfs</small></b>` : "--"}</td><td colspan="2"><small>${share}</small></td></tr></tbody>
-  </table>
-  <p class="status-key">USGS classes: normal is the 25th to 75th percentile of daily flow for the date; much below and much above are under the 10th and over the 90th. Values are provisional. Point at a river to see its watershed on the map.</p>`;
-}
 
 /** The Turbidity view's overview: each buoy's latest reading and its check, then the river input. */
 function turbTable(): string {
@@ -1383,7 +1228,7 @@ function statusGrid(stations: StationData[]): void {
     return;
   }
   if (VK === "rivers") {
-    $("status").innerHTML = riverTable() + outlookHtml(STATIONS);
+    $("status").innerHTML = riverTable(RIVER_SECTIONS[0]) + outlookHtml(STATIONS);
     return;
   }
   if (VK === "tides") {
@@ -1530,7 +1375,7 @@ async function showAt(t: number | null): Promise<void> {
   void syncZones();
   if (EMBED) return;
   try {
-    (await import("./map")).updatePins([...STATIONS.map(stationPin), ...(VK === "rivers" ? gaugePins() : [])]);
+    (await import("./map")).updatePins([...STATIONS.map(stationPin), ...(VK === "rivers" ? gaugePins(RIVER_SECTIONS) : [])]);
   } catch {
     /* map not loaded */
   }
@@ -1649,39 +1494,9 @@ function readouts(d: StationData): void {
       .join("");
     return;
   }
-  if (d.kind === "river") {
-    const r = d.river!;
-    const g = d.gauge!;
-    const o = r.last[g.id];
-    const t = o ? Date.parse(o.time) / 1000 : NaN;
-    const items = [
-      o?.flow_cfs != null
-        ? `<div class="readout"><div class="num">${cfs(o.flow_cfs)}<small>cfs</small></div><span class="lab">Flow</span><span class="sub ${obsState({ time: o.time } as LastObs)}">${ago(o.time)}</span></div>`
-        : `<div class="readout"><div class="num">--</div><span class="lab">Flow</span><span class="sub offline">no recent reading</span></div>`,
-      o?.flow_cfs != null
-        ? `<div class="readout"><div class="num">${pctText(percentileOf(r, g.id, t, o.flow_cfs))}</div><span class="lab">Percentile for the date</span><span class="sub">${riverClass(r, g.id, t, o.flow_cfs)} &middot; median ${cfs(pct(r, g.id, "p50", t))} cfs</span></div>`
-        : "",
-      g.turbidity && o?.turb_fnu != null
-        ? `<div class="readout"><div class="num">${o.turb_fnu.toFixed(1)}<small>FNU</small></div><span class="lab">Turbidity</span><span class="sub">${ago(o.time)}</span></div>`
-        : "",
-    ];
-    $(`${d.meta.id}-readouts`).innerHTML = items.join("");
-    return;
-  }
-  if (d.kind === "rivers") {
-    const r = d.river!;
-    const conn = r.last.CONN;
-    const t = conn ? Date.parse(conn.time) / 1000 : NaN;
-    const total = r.gauges.filter((g) => !g.discontinued).reduce((a, g) => a + (r.last[g.id]?.flow_cfs ?? NaN), 0);
-    $(`${d.meta.id}-readouts`).innerHTML = [
-      `<div class="readout"><div class="num">${cfs(total)}<small>cfs</small></div><span class="lab">All ${r.gauges.filter((g) => !g.discontinued).length} live gauges</span><span class="sub">the sum of the latest readings</span></div>`,
-      conn?.flow_cfs != null
-        ? `<div class="readout"><div class="num">${cfs(conn.flow_cfs)}<small>cfs</small></div><span class="lab">Connecticut River</span><span class="sub">${riverClass(r, "CONN", t, conn.flow_cfs)} for the date &middot; ${ago(conn.time)}</span></div>`
-        : "",
-      conn?.turb_fnu != null
-        ? `<div class="readout"><div class="num">${conn.turb_fnu.toFixed(1)}<small>FNU</small></div><span class="lab">Connecticut turbidity</span><span class="sub">at Thompsonville &middot; ${ago(conn.time)}</span></div>`
-        : "",
-    ].join("");
+  const river = riverReadoutsHtml(d);
+  if (river != null) {
+    $(`${d.meta.id}-readouts`).innerHTML = river;
     return;
   }
   $(`${d.meta.id}-readouts`).innerHTML =
@@ -2160,29 +1975,13 @@ function keepPlace(render: () => void): void {
 }
 
 /** Gauge pins for the Rivers view's map. */
-function gaugePins(): Pin[] {
-  return RIVER_SECTIONS.filter((d) => d.kind === "river").map((d) => {
-    const g = d.gauge!;
-    if (AT != null) {
-      const f = riverFlow(d.river!, g.id, AT);
-      const label = Number.isFinite(f) ? `${cfs(f)} cfs, ${riverClass(d.river!, g.id, AT, f)}; observed ${atLabel(AT)}` : `no ${atFuture() ? "forecast" : "reading"} at ${atLabel(AT)}`;
-      const last = d.river!.last[g.id];
-      const base = last ? obsState({ time: last.time } as LastObs) : "offline";
-      return { id: g.id, name: g.name, lat: g.lat, lon: g.lon, state: Number.isFinite(f) ? base : "offline", label };
-    }
-    const o = d.river!.last[g.id];
-    const t = o ? Date.parse(o.time) / 1000 : NaN;
-    const label = o?.flow_cfs != null ? `${cfs(o.flow_cfs)} cfs, ${riverClass(d.river!, g.id, t, o.flow_cfs)}; ${ago(o.time)}` : g.discontinued ? "gauge discontinued" : "no recent reading";
-    return { id: g.id, name: g.name, lat: g.lat, lon: g.lon, state: o ? obsState({ time: o.time } as LastObs) : "offline", label };
-  });
-}
 
 /** The map follows the view: basins and gauges in Rivers, the Sound otherwise; and the view's surface field. */
 async function syncMap(): Promise<void> {
   if (EMBED) return; // an embed draws no map
   syncSchematic();
   try {
-    (await import("./map")).setRiverMode(VK === "rivers", VK === "rivers" ? gaugePins() : []);
+    (await import("./map")).setRiverMode(VK === "rivers", VK === "rivers" ? gaugePins(RIVER_SECTIONS) : []);
   } catch {
     /* map not loaded */
   }
@@ -2459,27 +2258,6 @@ function fieldControls(): import("./fields").FieldControls {
 }
 
 /** Pointing at a river in the table (mouse or keyboard) highlights its basin on the map (the map does not move). */
-function wireRiverHover(): void {
-  const box = $("status");
-  let pending = 0;
-  let current: string | null = null;
-  const focus = (id: string | null) => {
-    if (id === current) return;
-    current = id;
-    window.clearTimeout(pending);
-    pending = window.setTimeout(async () => {
-      try {
-        (await import("./map")).focusBasin(id);
-      } catch {
-        /* map not loaded */
-      }
-    }, 120);
-  };
-  const row = (e: Event) => (e.target as HTMLElement).closest<HTMLElement>("tr[data-gauge]")?.dataset.gauge ?? null;
-  box.addEventListener("pointerover", (e) => VK === "rivers" && row(e) && focus(row(e)));
-  box.addEventListener("focusin", (e) => VK === "rivers" && row(e) && focus(row(e)));
-  box.addEventListener("pointerleave", () => VK === "rivers" && focus(null));
-}
 
 /** A phone drop-down: the button opens its panel under the bar; a choice, a tap elsewhere or Esc closes it.
  * Opening one closes any other. Returns the setter, for closing after a choice. */

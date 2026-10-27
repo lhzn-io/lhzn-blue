@@ -18,6 +18,7 @@ import {
 import { mountAdvisories } from "../advisory";
 import { ago, escHtml, fmtDate, signed } from "./format";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./cursor";
+import { holdRoom } from "./room";
 import { DEPTH_LABEL, isWater, obsState, overallState, type StationData, stationState, type VarKey, WATER_VARS } from "./station-data";
 import { stationPin, stationTables } from "./cells";
 import { configureModels } from "./models";
@@ -942,28 +943,37 @@ function turbTable(): string {
   <p class="status-key">Point observations at 1 m. The check flags a day as likely sensor fouling when its quietest readings sit above 5 NTU; flagged readings are kept and drawn faintly. See the note below the table.</p>`;
 }
 
-function statusGrid(all: StationData[]): void {
+/** The status column at the cursor's time, for the view on screen. */
+function statusHtml(all: StationData[]): string {
   const stations = all.filter(onStation);
-  if (VK === "turbidity") {
-    $("status").innerHTML = turbTable() + PARTS.shoreTable() + outlookHtml(STATIONS);
-    return;
-  }
-  if (VK === "rivers") {
-    $("status").innerHTML = riverTable(A.RIVER_SECTIONS[0]) + outlookHtml(STATIONS);
-    return;
-  }
-  if (VK === "tides") {
-    if (!TIDES) void loadTides();
-    $("status").innerHTML = tidesTable(stations) + highestAheadHtml(stations, CFG.defaults.tideStation);
-    markOutlookRow();
-    return;
-  }
-  if (!stations.some((d) => d.kind === "shore")) SG = "buoy";
+  if (VK === "turbidity") return turbTable() + PARTS.shoreTable() + outlookHtml(STATIONS);
+  if (VK === "rivers") return riverTable(A.RIVER_SECTIONS[0]) + outlookHtml(STATIONS);
+  if (VK === "tides") return tidesTable(stations) + highestAheadHtml(stations, CFG.defaults.tideStation);
   const group = STATION_ID ? (stations[0]?.kind === "shore" ? "shore" : "buoy") : SG;
   // An airport is in neither table: its page leads with the outlook. The shore gauges' own table is the overview's.
   const table = STATION_ID && stations[0]?.kind === "airport" ? "" : stationTables(stations, group);
-  $("status").innerHTML = `${table}${stationPhoto()}${isWater(VK) && !STATION_ID ? PARTS.shoreTable() : ""}${outlookHtml(all)}${windAcrossHtml(all, CFG.called)}`;
-  markOutlookRow();
+  return `${table}${stationPhoto()}${isWater(VK) && !STATION_ID ? PARTS.shoreTable() : ""}${outlookHtml(all)}${windAcrossHtml(all, CFG.called)}`;
+}
+
+/** The times the room in the status column is surveyed at: now, then across the time bar's reach (90 days back, 72
+ * hours ahead), closer together near now. */
+function roomTimes(): (number | null)[] {
+  const now = Math.round(Date.now() / 3.6e6);
+  const hours = [1, 2];
+  for (let h = 3; h <= 72; h += 3) hours.push(h, -h);
+  for (let h = 84; h <= 336; h += 12) hours.push(-h);
+  for (let h = 384; h <= 90 * 24; h += 48) hours.push(-h);
+  return [null, AT, ...hours.map((h) => (now + h) * 3600)];
+}
+
+/** Draw the status column; `timeOnly` when only the time moved (the room it holds stays as surveyed). */
+function statusGrid(all: StationData[], timeOnly = false): void {
+  if (VK === "tides" && !TIDES) void loadTides();
+  if (!all.filter(onStation).some((d) => d.kind === "shore")) SG = "buoy";
+  const box = $("status");
+  box.innerHTML = statusHtml(all);
+  if (VK !== "turbidity" && VK !== "rivers") markOutlookRow();
+  if (!EMBED) holdRoom(box, `${VK}|${STATION_ID}|${SG}|${box.clientWidth}`, !timeOnly, () => statusHtml(all), roomTimes);
 }
 
 /** Tab clicks and arrow keys on the overview table (wired once; the table itself is redrawn often). */
@@ -1095,7 +1105,7 @@ async function showAt(t: number | null): Promise<void> {
   const rowsBox = document.getElementById("sound-rows-box");
   if (rowsBox && VK === "tides") rowsBox.innerHTML = departureRowsSvg(STATIONS);
   if (VK === "tides") for (const d of STATIONS.filter((s) => s.kind === "shore")) { const [a, b] = FIGS.hilo.window(d); drawLadder(d, a, b); }
-  if (STATIONS.length) statusGrid(STATIONS);
+  if (STATIONS.length) statusGrid(STATIONS, true);
   void syncZones();
   if (EMBED) return;
   try {
@@ -2105,8 +2115,17 @@ function showViews(views: VarKey[] | null): void {
 /** On a station's page, our photo of it (where we have one) under its row in the table, with when it was taken and the
  * credit. */
 function stationPhoto(): string {
-  const ph = STATION_ID ? CFG.photos?.[STATION_ID] : undefined;
-  const d = ph && STATIONS.find((s) => s.meta.id === STATION_ID);
+  const d = STATION_ID ? STATIONS.find((s) => s.meta.id === STATION_ID) : undefined;
+  const ph = d && CFG.photos?.[d.meta.id];
+  if (d?.kind === "buoy" && !ph) {
+    // An ask for one: a message to the waterway's address, with what the credit needs.
+    const mail = `mailto:${CFG.collect.mailTo}?subject=${encodeURIComponent(`Photo: ${d.meta.name}`)}&body=${encodeURIComponent(`A photo of the ${d.meta.name} buoy, attached.
+
+Taken (month and year): 
+Credit as: 
+`)}`;
+    return `<figure class="station-photo none"><div class="photo-none"><span>No photo of this buoy yet</span><a href="${escHtml(mail)}">Send us a photo</a></div></figure>`;
+  }
   if (!ph || !d) return "";
   return `<figure class="station-photo"><img src="${ph.src}" alt="${escHtml(ph.alt)}" decoding="async"><figcaption>${escHtml(d.meta.name)}, ${escHtml(ph.when)}. Photo: Long Horizon Observatory.</figcaption></figure>`;
 }

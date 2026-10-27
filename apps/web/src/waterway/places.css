@@ -20,5 +20,9 @@
   .status:has(> .station-photo) { align-self: stretch; display: flex; flex-direction: column; }
   .status > .station-photo { flex: 1 1 0; min-height: 200px; display: flex; flex-direction: column; }
   .status > .station-photo img { flex: 0 1 auto; min-height: 0; width: auto; align-self: flex-start; object-fit: contain; }
+  .status > .station-photo .photo-none { flex: 1 1 0; min-height: 0; align-self: flex-start; }
 }
+/* A buoy we have no photo of yet: an empty frame in the photo's place. */
+.station-photo .photo-none { display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; aspect-ratio: 3 / 4; max-width: 100%; border: 1px dashed var(--rule); font-size: 12px; color: var(--faint); }
+.station-photo .photo-none a { color: var(--accent); }
 .station-photo figcaption { margin-top: 6px; font-size: 12px; line-height: 1.4; color: var(--dim); }

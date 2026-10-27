@@ -12,11 +12,19 @@ function localData(stationPages: string[]): Plugin {
     name: "local-data",
     configureServer(server) {
       // A waterway's station pages (<base><station>/) are its own page, as the Worker serves them; a path with a page
-      // of its own (the Sound's forecast, tides and models) stays that page.
-      server.middlewares.use((req, _res, next) => {
+      // of its own (the Sound's forecast, tides and models) stays that page. A page's address without its trailing
+      // slash is redirected to it, as in production.
+      const hasPage = (path: string) => existsSync(resolve(import.meta.dirname, `.${path}`, "index.html"));
+      const stationBase = (path: string) =>
+        !hasPage(path) && stationPages.find((b) => path.startsWith(b) && /^[a-z0-9-]{2,20}\/$/.test(path.slice(b.length)));
+      server.middlewares.use((req, res, next) => {
         const [path, query] = (req.url ?? "").split("?");
-        const own = existsSync(resolve(import.meta.dirname, `.${path}`, "index.html"));
-        const base = !own && stationPages.find((b) => path.startsWith(b) && /^[a-z0-9-]{2,20}\/$/.test(path.slice(b.length)));
+        if (!path.endsWith("/") && (hasPage(`${path}/`) || stationBase(`${path}/`))) {
+          res.writeHead(301, { location: `${path}/${query ? `?${query}` : ""}` });
+          res.end();
+          return;
+        }
+        const base = stationBase(path);
         if (base) req.url = base + (query ? `?${query}` : "");
         next();
       });

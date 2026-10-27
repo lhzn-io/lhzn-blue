@@ -8,6 +8,8 @@ export const LONG_ISLAND_SOUND: StationDataWaterway = {
   name: "Long Island Sound",
   data: "/data/v1",
   called: "the Sound",
+  operator: "LISICOS",
+  oxygenAuthority: "Long Island Sound Partnership",
   forecastPage: "/long-island-sound/forecast/",
   zones: ["ANZ335", "ANZ331", "ANZ332"],
   // An embed opens on Western Sound; the outlook on Execution Rocks until a reader picks another row; the tides view

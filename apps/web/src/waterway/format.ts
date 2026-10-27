@@ -49,3 +49,7 @@ export function fmtEt(iso: string): string {
   const d = new Date(iso);
   return etKey.format(d) === etKey.format(new Date()) ? etClock.format(d) : etDayClock.format(d);
 }
+
+/** Text for HTML: the three characters that would read as markup. */
+export const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+export const sqmi = (n: number) => `${n.toLocaleString("en-US")} square miles`;

@@ -42,6 +42,8 @@ export interface StationDataWaterway {
   name: string;
   data: string; // where its files are served
   called: string; // the waterway as a sentence names it ("the Sound")
+  operator: string; // who runs its buoys, as their links and notes name them ("LISICOS")
+  oxygenAuthority: string; // whose hypoxia levels the oxygen shading follows
   forecastPage: string; // the forecast verification page the forecasts link to
   zones: string[]; // the NWS marine zones on its map
   /** The stations a page opens on: an embed's, the outlook's, and the tide gauge the tides view falls back to. */

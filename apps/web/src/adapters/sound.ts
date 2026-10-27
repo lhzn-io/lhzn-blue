@@ -8,7 +8,7 @@ import asosRegistry from "../../../../stations/asos.json";
 import {
   Daily, getJson, HOUR, Hourly, fToC,
   type Encoded, type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetHistory, type MetWindow,
-  type RiverHistory, type RiverLive, type ShoreFrame, type ShoreMetaStation, type TideEvent, type TurbFrame, type TurbHistory, type VarHistory,
+  type RiverHistory, type RiverLive, type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type TurbFrame, type TurbHistory, type VarHistory,
   type WaveFrame, type WaveHistory, type WaveLive, type WaveObs,
 } from "../series";
 import { fmtDate, hoursOld } from "../waterway/format";
@@ -323,3 +323,67 @@ export function airportStations(a: AsosFile): StationData[] {
 export const SHORE: ShoreMetaStation[] = shoreRegistry.stations
   .map((s) => ({ ...s, note: (s as { note?: string }).note ?? null, record_start: `${s.record_start_year}-01-01T00:00:00Z` }))
   .sort((a, b) => a.lon - b.lon);
+
+/** A buoy's page at its operator (the registry's info link). */
+export const infoUrl = (id: string): string | undefined =>
+  (registry.stations as { id: string; info_url?: string }[]).find((s) => s.id === id)?.info_url;
+
+/** The shore stations' sources, for the page's notes once their data loads. */
+function shoreSources(qc: string): string {
+  const names = SHORE.map((s) => `${s.name} (${s.coops_id}, water temperature from ${s.record_start?.slice(0, 4)})`).join(", ");
+  return ` Shore stations: <a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a> water level stations at ${names}. ` +
+      `Their water temperature history is the reading at the top of each hour; the recent window, air temperature, wind, pressure and ` +
+      `water level are hourly means of 6-minute readings, and tides are NOAA predictions. Water levels are preliminary until NOAA verifies them. ${qc}`;
+}
+
+/** The stations that join after the buoys, loading alongside them so they never hold the buoys up: NOAA's shore
+ * stations, the USGS tidal gauges and the coastal airports; the shore stations' history (the larger file) last.
+ * Started before the buoys load. */
+export function startExtras() {
+  return {
+    shoreLive: getJson<ShoreLive>(`${DATA}/shore.json`).catch(() => null),
+    shoreHist: getJson<ShoreHistory>(`${DATA}/shore-history.json`).catch(() => null),
+    usgsLive: getJson<UsgsTidal>(`${DATA}/usgs-tidal.json`).catch(() => null),
+    asosLive: getJson<AsosFile>(`${DATA}/asos.json`).catch(() => null),
+  };
+}
+
+/** Join them to the stations as each file arrives: the shore stations, then the USGS gauges among them (all of them
+ * west to east after the buoys), then the airports (weather only). `changed` redraws the sections (and the table, when
+ * asked); the shore history replaces the shore stations' records when it lands, after this resolves. */
+export async function joinExtras(
+  stations: StationData[],
+  x: ReturnType<typeof startExtras>,
+  on: { changed(table: boolean): void; sources(html: string): void; usgs(u: UsgsTidal | null): void; history(): void },
+): Promise<void> {
+  const sl = await x.shoreLive;
+  if (sl) {
+    stations.push(...SHORE.map((st) => shoreStation(st, sl.stations[st.id], undefined)));
+    on.changed(true);
+    on.sources(shoreSources(sl.qc));
+  }
+  const ul = await x.usgsLive;
+  on.usgs(ul);
+  if (ul) {
+    const added = usgsShoreStations(ul);
+    if (added.length) {
+      const rest = stations.filter((d) => d.kind !== "shore");
+      const shore = [...stations.filter((d) => d.kind === "shore"), ...added].sort((a, b) => a.meta.lon - b.meta.lon);
+      stations.splice(0, stations.length, ...rest, ...shore);
+      on.changed(true);
+    }
+  }
+  const al = await x.asosLive;
+  if (al) {
+    stations.push(...airportStations(al));
+    on.changed(false);
+  }
+  void x.shoreHist.then((sh) => {
+    if (!sh || !sl) return;
+    for (const st of SHORE) {
+      const i = stations.findIndex((d) => d.meta.id === st.id);
+      if (i >= 0) stations[i] = shoreStation(st, sl.stations[st.id], sh.series[st.id]);
+    }
+    on.history();
+  });
+}

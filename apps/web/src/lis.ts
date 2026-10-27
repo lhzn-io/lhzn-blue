@@ -4,25 +4,23 @@ import "./site.css";
 import "./away-links";
 
 import promptTemplate from "../../../configs/prompts/visitor_prompt.txt?raw";
-import registry from "../../../stations/stations.json";
 import { renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
 import { wireHints } from "./hints";
 import { chainButton, navigateTo, revealLinked, wireLinks } from "./links";
 import { compass, windGlyphs } from "./wind-dir";
-import { BUOY_SENSORS } from "./methods";
 import { comfortTableHtml } from "./comfort-thresholds";
 import { smoothByAge } from "./trends";
 import type { FieldData, FieldKind, RasterHistory } from "./fields";
 import { wireSuggest } from "./suggest";
 import {
-  COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, getJson, grid, oxygenStatus, yearLines, type LastObs,
-  type Live, type Meta, type MetaSeries, type ShoreHistory, type ShoreLive,
+  COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, getJson, grid, yearLines, type LastObs,
+  type Live, type Meta, type MetaSeries,
 } from "./series";
 import { mountAdvisories } from "./advisory";
-import { ago, fmtDate, hourOf, hoursOld, signed } from "./waterway/format";
+import { ago, escHtml, fmtDate, signed } from "./waterway/format";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./waterway/cursor";
-import { DELAYED_HOURS, DEPTH_LABEL, isWater, obsState, OFFLINE_HOURS, overallState, type StationData, stationState, unitName, type VarKey, WATER_VARS } from "./waterway/station-data";
-import { atCell, stationPin, stationTables } from "./waterway/cells";
+import { DEPTH_LABEL, isWater, obsState, overallState, type StationData, stationState, type VarKey, WATER_VARS } from "./waterway/station-data";
+import { stationPin, stationTables } from "./waterway/cells";
 import { configureModels } from "./waterway/models";
 import { type Built, type Fig, legendHtml, openZoom, redrawZoom, visibleYears, wireLegend, wireZoom } from "./waterway/figures";
 import { stationReadouts } from "./waterway/readouts";
@@ -45,8 +43,9 @@ import { BOAT, wireBoat } from "./waterway/boat";
 import { wireLocate } from "./waterway/locate";
 import { embedMode } from "./waterway/embed";
 import { wireCollect } from "./waterway/prompt";
-import { airportStations, type AsosFile, ensureVar, lastSeen, lastWave, load, panelsOf, RIVER_SECTIONS, SHORE, shoreStation, TURB_SECTION, useVar, usgsShoreStations, type UsgsTidal, WAVE_LIVE, WAVE_META, wavesOf, wavesText } from "./adapters/sound";
+import { ensureVar, infoUrl, joinExtras, lastSeen, lastWave, load, panelsOf, RIVER_SECTIONS, startExtras, TURB_SECTION, useVar, WAVE_LIVE, WAVE_META, wavesOf, wavesText } from "./adapters/sound";
 import { LONG_ISLAND_SOUND as LIS } from "./waterways/long-island-sound";
+import { gaugeAboutHtml, setUsgsWq, stationAboutHtml, usgsWqHtml } from "./waterways/sound-page";
 import { currentSpeed, setUnit, waveUnit, WIND_UNITS, windVal, WU } from "./waterway/units";
 
 const DATA = LIS.data;
@@ -227,7 +226,7 @@ function emptyNote(d: StationData): string {
   const p = panelsOf(d.meta.id);
   const t = lastSeen(d);
   const last = Number.isFinite(t) ? `Last reading: ${fmtDate.format(new Date(t * 1000))}. ` : "";
-  const panel = p.water_quality ? ` or the <a href="${p.water_quality}">LISICOS water quality panel</a>` : "";
+  const panel = p.water_quality ? ` or the <a href="${p.water_quality}">${LIS.operator} water quality panel</a>` : "";
   return `No published data in this window. ${last}See Full record${panel}.`;
 }
 
@@ -267,7 +266,7 @@ function varOpts(levels = true): Partial<ChartOptions> & { unit: string } {
   };
 }
 
-const OXYGEN_NOTE = `shading: under ${DO_LEVELS.anoxic} mg/L anoxic, under ${DO_LEVELS.hypoxic} hypoxic (Long Island Sound Partnership), under ${DO_LEVELS.growth} below EPA's growth criterion`;
+const OXYGEN_NOTE = `shading: under ${DO_LEVELS.anoxic} mg/L anoxic, under ${DO_LEVELS.hypoxic} hypoxic (${LIS.oxygenAuthority}), under ${DO_LEVELS.growth} below EPA's growth criterion`;
 
 /** The whole record as one timeline, each year's stretch in that year's color. */
 /** Anything with a start and a value at a time: an hourly series, or a river's daily flow. */
@@ -717,14 +716,14 @@ const FIGS: Record<Kind, Fig> = {
     in: (k) => k === "rivers" || k === "turbidity",
     depthTabs: false,
     seasonal: false,
-    // In a Connecticut River section, and in the Turbidity view as the river input.
+    // In the section of the gauge with a turbidity sensor, and in the Turbidity view as the river input.
     available: (d) => (d.kind === "turbidity" || (d.kind === "river" && !!d.gauge?.turbidity)) && !!d.river?.turb && Number.isFinite(d.river.turb.lastValid()),
     window: RIGHT,
     maxSpan: 100 * DAY,
     start: (d) => d.river?.turb?.t0 ?? d.now,
     build: (d, _id, x0, x1) => {
       const xs = grid(x0, x1);
-      const label = d.kind === "turbidity" ? "Connecticut River at Thompsonville" : "Turbidity";
+      const label = d.kind === "turbidity" ? (d.river?.gauges.find((g) => g.turbidity)?.name ?? "River input") : "Turbidity";
       const lines: Line[] = [{ ys: xs.map((t) => d.river?.turb?.at(t) ?? NaN), color: P.line, width: 1.5, label }];
       return {
         opts: { xs, lines, unit: " FNU", hoverDigits: 1, zero: true, empty: "No turbidity readings in this window." },
@@ -872,10 +871,6 @@ function markOutlookRow(): void {
   });
   syncSchematic();
 }
-const TIDES_PAGE = "/long-island-sound/tides/"; // "Reading the tides": unlinked until it returns
-void TIDES_PAGE;
-const WATER_PAGE = "/long-island-sound/tides/"; // "Reading the tides": unlinked until it returns
-void WATER_PAGE;
 
 /* ---------- Overview: map and status grid ---------- */
 
@@ -919,11 +914,14 @@ function turbTable(): string {
       <td><b>${share != null ? Math.round(share * 100) + "%" : "--"}</b><small>of hours flagged</small></td></tr>`;
   });
   const r = d.river;
+  // The river input: the gauge with a turbidity sensor, named as it is ("Connecticut River at Thompsonville").
+  const tg = r?.gauges.find((g) => g.turbidity);
+  const at = tg?.name.split(/ (?:at|near) /).pop() ?? "";
   const connAt = AT != null ? r?.turb?.at(AT) ?? NaN : NaN;
-  const conn = AT == null ? r?.last.CONN : Number.isFinite(connAt) ? { time: new Date(AT * 1000).toISOString(), turb_fnu: connAt, flow_cfs: null } : null;
+  const conn = AT == null ? (r && tg ? r.last[tg.id] : undefined) : Number.isFinite(connAt) ? { time: new Date(AT * 1000).toISOString(), turb_fnu: connAt, flow_cfs: null } : null;
   const river = conn?.turb_fnu != null
-    ? `<tr class="total"><th scope="row">Connecticut River</th><td title="USGS, Thompsonville, ${ago(conn.time)}"><b>${conn.turb_fnu.toFixed(1)}<small class="g"> FNU</small></b><small>${AT != null ? "observed" : ago(conn.time).replace(" ago", "")}</small></td><td colspan="2"><small>the river input at Thompsonville; a serviced USGS sensor</small></td></tr>`
-    : `<tr class="total"><th scope="row">Connecticut River</th><td class="offline"><b>--</b><small>${AT != null ? (atFuture() ? "no forecast" : "no reading") : "no current reading"}</small></td><td colspan="2"><small>the river input at Thompsonville; a serviced USGS sensor</small></td></tr>`;
+    ? `<tr class="total"><th scope="row">${tg?.river} River</th><td title="USGS, ${at}, ${ago(conn.time)}"><b>${conn.turb_fnu.toFixed(1)}<small class="g"> FNU</small></b><small>${AT != null ? "observed" : ago(conn.time).replace(" ago", "")}</small></td><td colspan="2"><small>the river input at ${at}; a serviced USGS sensor</small></td></tr>`
+    : `<tr class="total"><th scope="row">${tg?.river} River</th><td class="offline"><b>--</b><small>${AT != null ? (atFuture() ? "no forecast" : "no reading") : "no current reading"}</small></td><td colspan="2"><small>the river input at ${at}; a serviced USGS sensor</small></td></tr>`;
   return `<table class="status-grid" id="status-panel">
     <caption>${AT != null ? `Turbidity at ${atLabel(AT)}` : "Latest turbidity"}, buoys west to east, then the river input</caption>
     <thead><tr><th></th><th scope="col">Turbidity</th><th scope="col">Sensor check</th><th scope="col">Last 30 days</th></tr></thead>
@@ -1156,12 +1154,12 @@ function sectionHtml(d: StationData): string {
     <section class="station" id="${id}" aria-labelledby="${id}-title">
       <div class="station-head">
         <h2 id="${id}-title"><i class="dot ${overallState(d)}"></i>${st.name}</h2><button class="fig-info head-info" type="button" data-about="station" aria-label="About ${st.name}" title="About ${aboutNoun(d)}">i</button>
-        <span class="sid">${d.kind === "turbidity" ? "LISICOS buoys, optical sensors at 1 m" : d.kind === "rivers" ? "USGS stream gauges" : d.kind === "river" ? `USGS ${d.gauge!.usgs_id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W` : `${id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W`}</span>
+        <span class="sid">${d.kind === "turbidity" ? `${LIS.operator} buoys, optical sensors at 1 m` : d.kind === "rivers" ? "USGS stream gauges" : d.kind === "river" ? `USGS ${d.gauge!.usgs_id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W` : `${id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W`}</span>
         <span class="rec">${recordLine(d, rec)}</span>
       </div>
-      <p class="station-links"><span>${d.kind === "turbidity" ? "Buoys:" : d.kind === "rivers" || d.kind === "river" ? "At USGS:" : d.kind === "shore" ? (d.meta.operator === "USGS" ? "At USGS:" : "At NOAA:") : d.kind === "airport" ? "At IEM:" : "At LISICOS:"}</span>${[
+      <p class="station-links"><span>${d.kind === "turbidity" ? "Buoys:" : d.kind === "rivers" || d.kind === "river" ? "At USGS:" : d.kind === "shore" ? (d.meta.operator === "USGS" ? "At USGS:" : "At NOAA:") : d.kind === "airport" ? "At IEM:" : `At ${LIS.operator}:`}</span>${[
         ...(d.kind === "rivers" ? (d.river?.gauges ?? []).map((g) => `<a href="#${g.id}">${g.river}</a>`) : []),
-        ...(d.kind === "turbidity" ? (d.turb?.buoys ?? []).map((b) => `<a href="${(registry.stations as { id: string; info_url?: string }[]).find((s) => s.id === b.id)?.info_url ?? "#"}">${b.name}</a>`) : []),
+        ...(d.kind === "turbidity" ? (d.turb?.buoys ?? []).map((b) => `<a href="${infoUrl(b.id) ?? "#"}">${b.name}</a>`) : []),
         st.info_url ? `<a href="${st.info_url}">${d.kind === "river" ? "Gauge page" : d.kind === "shore" || d.kind === "airport" ? "Station page" : "About this buoy"}</a>` : "",
         panelsOf(id).weather ? `<a href="${panelsOf(id).weather}">Weather panel</a>` : "",
         panelsOf(id).water_quality ? `<a href="${panelsOf(id).water_quality}">Water quality panel</a>` : "",
@@ -1179,7 +1177,7 @@ function sectionHtml(d: StationData): string {
 function embedHtml(d: StationData | undefined): string {
   if (!d) return `<p class="embed-credit">No station ${escHtml(EMBED_STATION)} on this page.</p>`;
   const view = EMBED === "next48" ? "wind" : "temp";
-  const link = `https://longhorizon.blue/long-island-sound/?view=${view}#${d.meta.id}-${EMBED}`;
+  const link = `https://longhorizon.blue/${LIS.id}/?view=${view}#${d.meta.id}-${EMBED}`;
   return sectionHtml(d) +
     `<p class="embed-credit"><a href="${link}" target="_blank" rel="noopener">${escHtml(d.meta.name)} on longhorizon.blue</a> &middot; live, updated hourly &middot; provisional, not for navigation</p>`;
 }
@@ -1244,9 +1242,7 @@ function drawInline(d: StationData, key: Kind): void {
 
 
 const isRiver = (d: StationData) => d.kind === "rivers" || d.kind === "river";
-const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const sqmi = (n: number) => `${n.toLocaleString("en-US")} square miles`;
-const PROVISIONAL = "Values are provisional until USGS approves them.";
+
 
 const aboutNoun = (d: StationData) =>
   d.kind === "rivers" ? "these gauges" : d.kind === "river" ? "this gauge" : d.kind === "turbidity" ? "these sensors" : d.kind === "buoy" ? "this buoy" : "this station";
@@ -1265,77 +1261,7 @@ function statusLines(d: StationData): string[] {
   ].filter(Boolean);
 }
 
-/** A buoy, shore station or the turbidity section's About: what it is, its record and every note, as labelled rows. */
-function stationAboutHtml(d: StationData): string {
-  const st = d.meta;
-  const row = (label: string, html: string) => `<dt>${label}</dt><dd>${html}</dd>`;
-  const links = [
-    st.info_url ? `<a href="${st.info_url}">${d.kind === "buoy" ? "about this buoy" : "station page"}</a>` : "",
-    panelsOf(st.id).weather ? `<a href="${panelsOf(st.id).weather}">weather panel</a>` : "",
-    panelsOf(st.id).water_quality ? `<a href="${panelsOf(st.id).water_quality}">water quality panel</a>` : "",
-    panelsOf(st.id).waves ? `<a href="${panelsOf(st.id).waves}">wave panel</a>` : "",
-  ].filter(Boolean);
-  let rows = "";
-  if (d.kind !== "turbidity") {
-    rows += row(d.kind === "buoy" ? "Buoy" : "Station", `${escHtml(st.name)} (${st.id}), ${escHtml(st.operator)}; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W${links.length ? ` (${links.join(", ")})` : ""}.`);
-  }
-  const startOf = (s: MetaSeries) => (VK === "temp" ? s.record_start : s.vars?.[VK]?.record_start);
-  const record = recordLine(d, st.series.map((s) => `${s.label.toLowerCase()} from ${startOf(s)?.slice(0, 4) ?? "--"}`).join(", "));
-  rows += row("Record", `${record.replace(/^Record: (.)/, (_, c: string) => c.toUpperCase())}.`); // the row is already labelled
-  if (st.note) rows += row("Notes", st.note); // our own text (it may carry a link)
-  if (d.kind === "shore" && isWater(VK) && VK !== "temp") rows += row("Measures", `Water temperature only; ${V().label.toLowerCase()} on this page comes from the buoys.`);
-  const status = [
-    !d.live && st.outage_note ? st.outage_note : "",
-    isQuiet(d)
-      ? `No reading since ${fmtDate.format(new Date(lastSeen(d) * 1000))}, so there is no line for this year and the recent charts are empty. ` +
-        `The year charts show this time of year in the years we hold; Full record shows everything we have kept.` +
-        (d.kind === "buoy" ? " For recent conditions, see the LISICOS panels (images on their site)." : "")
-      : "",
-  ].filter(Boolean);
-  if (status.length) rows += row("Status", status.join(" "));
-  if (d.kind === "buoy" && wavesOf(st.id)) rows += row("Waves", escHtml(wavesText(st.id).replace(/^Waves: /, "")).replace(/^./, (c) => c.toUpperCase()));
-  const s = d.kind === "buoy" ? BUOY_SENSORS[st.id] : undefined;
-  if (s) {
-    const parts = [["Topside", s.topside], ["Surface", s.surface], ["Mid-depth", s.mid], ["Bottom", s.bottom]].filter(([, v]) => v);
-    rows += row(
-      "Sensors",
-      `${escHtml(s.platform)}, as LISICOS lists its 2019 configuration (<a href="/references/#lisicos">reference</a>).` +
-        `<ul class="about-sensors">${parts.map(([l, v]) => `<li><b>${l}:</b> ${escHtml(v!)}</li>`).join("")}</ul>`,
-    );
-  }
-  return `<dl class="about-list">${rows}</dl><p class="about-foot">Times are stored in UTC and labelled in New York time. All data are provisional and may be revised.</p>`;
-}
 
-/** A river section's About: the gauge (or, for All rivers, every gauge) from rivers.json, as labelled rows. */
-function gaugeAboutHtml(d: StationData): string {
-  const row = (label: string, html: string) => `<dt>${label}</dt><dd>${html}</dd>`;
-  const gauges = d.river?.gauges ?? [];
-  let rows: string;
-  if (d.kind === "rivers") {
-    const area = gauges.reduce((a, g) => a + g.drainage_sqmi, 0);
-    const conn = gauges.find((g) => g.id === "CONN");
-    rows =
-      row("Gauges", `${gauges.length} USGS stream gauges, largest basin first:<ul class="about-sensors">${gauges
-        .map((g) => `<li><a href="#${g.id}">${escHtml(g.river)}</a>: ${sqmi(g.drainage_sqmi)}${g.discontinued ? " (no flow published since " + escHtml(fmtDate.format(new Date(`${g.discontinued}T12:00:00Z`))) + ")" : ""}</li>`)
-        .join("")}</ul>`) +
-      row("Drains", `${sqmi(Math.round(area))} in all${conn ? `, about ${Math.round((100 * conn.drainage_sqmi) / area / 5) * 5}% of it the Connecticut River above Thompsonville` : ""}. The Naugatuck joins the Housatonic below the Stevenson gauge, so the two add without double counting.`) +
-      row("Not measured", "On Long Island most fresh water reaches the Sound as groundwater, which stream gauges do not measure, so the north shore is under-represented here.") +
-      row("Caveats", PROVISIONAL);
-  } else {
-    const g = d.gauge!;
-    const note = g.status_note ?? "";
-    rows =
-      row("Gauge", `${escHtml(g.name)}, USGS ${g.usgs_id} (<a href="https://waterdata.usgs.gov/monitoring-location/USGS-${g.usgs_id}/">gauge page</a>)`) +
-      row("Drains", sqmi(g.drainage_sqmi)) +
-      row("Reaches the Sound", `At ${escHtml(g.mouth)}.`) +
-      row("Record", g.discontinued
-        ? `Daily mean flow from ${g.record_start ? g.record_start.slice(0, 4) : "1990"} to ${fmtDate.format(new Date(`${g.discontinued}T12:00:00Z`))}.`
-        : `Daily mean flow from ${g.record_start ? g.record_start.slice(0, 4) : "1990"}; recent flow hourly, from 15-minute readings.`) +
-      (note ? row(g.discontinued ? "Status" : "Notes", escHtml(note.replace(PROVISIONAL, "").trim())) : "") +
-      row("Caveats", PROVISIONAL);
-  }
-  return `<dl class="about-list">${rows}</dl><p class="about-foot">Times are stored in UTC and labelled in New York time. All data are provisional and may be revised.</p>`;
-}
 
 
 
@@ -1360,16 +1286,6 @@ function about(meta: Meta): void {
   $("about-sources").innerHTML = `Sources: ${src}`;
 }
 
-/** Shore station sources, added to the notes once their data loads. */
-function aboutShore(qc: string): void {
-  const names = SHORE.map((s) => `${s.name} (${s.coops_id}, water temperature from ${s.record_start?.slice(0, 4)})`).join(", ");
-  $("about-sources").insertAdjacentHTML(
-    "beforeend",
-    ` Shore stations: <a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a> water level stations at ${names}. ` +
-      `Their water temperature history is the reading at the top of each hour; the recent window, air temperature, wind, pressure and ` +
-      `water level are hourly means of 6-minute readings, and tides are NOAA predictions. Water levels are preliminary until NOAA verifies them. ${qc}`,
-  );
-}
 
 /* ---------- Main ---------- */
 
@@ -1805,54 +1721,6 @@ function wireTheme(redraw: () => void): void {
 }
 
 /** The USGS tidal gauges (usgs-tidal.json): level in ft above MLLW, water quality, our fitted predictions. */
-/* ---------- USGS water quality at the shore (a separate source from the buoys) ---------- */
-let USGS_WQ: UsgsTidal | null = null;
-const USGS_VAR: Partial<Record<VarKey, { key: "temperature_c" | "salinity" | "oxygen_mg_l" | "turbidity_fnu"; unit: string; digits: number; f?: (v: number) => number }>> = {
-  temp: { key: "temperature_c", unit: "&deg;F", digits: 1, f: (c) => (c * 9) / 5 + 32 },
-  salinity: { key: "salinity", unit: "", digits: 1 },
-  oxygen: { key: "oxygen_mg_l", unit: "", digits: 1 },
-  turbidity: { key: "turbidity_fnu", unit: " FNU", digits: 1 },
-};
-// What each gauge's water is (so its numbers are read for what they are).
-const USGS_SITE_NOTE: Record<string, string> = {
-  WHOB: "West Harbor, Oyster Bay: a harbor off the western Sound",
-  NORW: "the Norwalk River at the Maritime Aquarium: a river mouth, fresher and more turbid than the open Sound",
-  FLAX: "Flax Pond: a tidal salt-marsh pond behind a narrow inlet, warmer and cooler than the Sound by turns",
-  OLDL: "the Connecticut River at Old Lyme: the river's estuary, nearly fresh at most tides",
-};
-
-/** The USGS shore gauges' water quality for the view's variable, west to east: value, age, 7-day line. */
-function usgsWqHtml(): string {
-  const spec = USGS_VAR[VK];
-  if (!USGS_WQ || !spec) return "";
-  const rows = Object.entries(USGS_WQ.stations)
-    .filter(([, g]) => g.series[spec.key]?.length)
-    .sort(([, a], [, b]) => a.lon - b.lon)
-    .map(([id, g]) => {
-      const vals = g.series[spec.key]!.map((v) => (v == null ? NaN : spec.f ? spec.f(v) : v));
-      const h = new Hourly(Date.parse(g.series.t0!) / 1000, Float64Array.from(vals));
-      const last = g.last[spec.key];
-      const site = `${USGS_SITE_NOTE[id] ?? g.name}. USGS ${g.usgs_id}, provisional data`;
-      const name = `<th scope="row"><a href="https://waterdata.usgs.gov/monitoring-location/USGS-${g.usgs_id}/" title="${site}"><i class="dot shore ${last && hoursOld(last.time) < DELAYED_HOURS ? "live" : last && hoursOld(last.time) < OFFLINE_HOURS ? "delayed" : "offline"}"></i>${g.short}</a></th>`;
-      const spark = sparklineOf(h, P.line, spec.unit.replace(/&deg;/, "°").trim() || unitName(VK), spec.digits);
-      let cell: string;
-      if (AT != null) {
-        const v = h.at(hourOf(AT));
-        cell = atCell(v, `${v.toFixed(spec.digits)}${spec.unit}`, `${g.short}: ${v.toFixed(spec.digits)}${spec.unit}`, spark);
-      } else if (!last || hoursOld(last.time) >= OFFLINE_HOURS) {
-        cell = `<td class="offline"><b>--</b><small>no recent reading</small></td>`;
-      } else {
-        const v = spec.f ? spec.f(last.value) : last.value;
-        const low = VK === "oxygen" && v < DO_LEVELS.hypoxic;
-        cell = `<td class="${hoursOld(last.time) < DELAYED_HOURS ? "live" : "delayed"}${low ? " low" : ""}" title="${g.short}: ${v.toFixed(spec.digits)}${spec.unit}, ${ago(last.time)}; ${site}">${spark}<b>${v.toFixed(spec.digits)}${spec.unit}</b><small>${low ? oxygenStatus(v) + " &middot; " : ""}${ago(last.time).replace(" ago", "")}</small></td>`;
-      }
-      return `<tr>${name}${cell}</tr>`;
-    });
-  if (!rows.length) return "";
-  const what = VK === "turbidity" ? "turbidity (FNU, a different scale from the buoys' NTU)" : `${V().label.toLowerCase()} (${VK === "temp" ? "&deg;F" : unitName(VK)})`;
-  return `<table class="status-grid usgs-wq"><caption>Shore gauges &middot; USGS, west to east: ${what}${AT != null ? ` at ${atLabel(AT)}` : ", latest"}</caption><tbody>${rows.join("")}</tbody></table>
-    <p class="status-key">A separate source from the buoys: USGS water-quality sondes in harbors, a pond and river mouths, near the surface; provisional. Hover a name for what its water is.</p>`;
-}
 
 
 /** A variable's sources, as the adapter loads it, join the notes under About. */
@@ -1874,11 +1742,7 @@ configureModels({
 
 async function main(): Promise<void> {
   P = PALETTES[currentTheme()];
-  // Shore data loads alongside the buoys but never holds them up; its history (the larger file) last.
-  const shoreLive = getJson<ShoreLive>(`${DATA}/shore.json`).catch(() => null);
-  const shoreHist = getJson<ShoreHistory>(`${DATA}/shore-history.json`).catch(() => null);
-  const usgsLive = getJson<UsgsTidal>(`${DATA}/usgs-tidal.json`).catch(() => null);
-  const asosLive = getJson<AsosFile>(`${DATA}/asos.json`).catch(() => null);
+  const extras = startExtras(); // the stations that join after the buoys, loading alongside them
   try {
     const { meta, live, stations } = await load();
     const byId = (id: string) => [...stations, ...RIVER_SECTIONS, ...(TURB_SECTION ? [TURB_SECTION] : [])].find((d) => d.meta.id === id)!;
@@ -1923,42 +1787,17 @@ async function main(): Promise<void> {
     STATIONS = stations;
     statusGrid(stations);
     wireStatusTabs(stations);
-    // Shore stations join once their live file arrives; the map waits for them so every pin is placed once.
-    const sl = await shoreLive;
-    if (sl) {
-      stations.push(...SHORE.map((st) => shoreStation(st, sl.stations[st.id], undefined)));
-      renderSections();
-      statusGrid(stations);
-      aboutShore(sl.qc);
-    }
-    // The USGS tidal gauges join the shore stations, all of them west to east after the buoys.
-    const ul = await usgsLive;
-    USGS_WQ = ul;
-    if (ul) {
-      const added = usgsShoreStations(ul);
-      if (added.length) {
-        const rest = stations.filter((d) => d.kind !== "shore");
-        const shore = [...stations.filter((d) => d.kind === "shore"), ...added].sort((a, b) => a.meta.lon - b.meta.lon);
-        stations.splice(0, stations.length, ...rest, ...shore);
+    // The stations that join after the buoys, as their files arrive; the map waits for them so every pin is placed once.
+    await joinExtras(stations, extras, {
+      changed: (table) => {
         renderSections();
-        statusGrid(stations);
-      }
-    }
-    // The coastal airports (weather only) after the shore stations.
-    const al = await asosLive;
-    if (al) {
-      stations.push(...airportStations(al));
-      renderSections();
-    }
-    if (!EMBED) void overviewMap(stations); // an embed draws no map
-    void shoreHist.then((sh) => {
-      if (!sh || !sl) return;
-      for (const st of SHORE) {
-        const i = stations.findIndex((d) => d.meta.id === st.id);
-        if (i >= 0) stations[i] = shoreStation(st, sl.stations[st.id], sh.series[st.id]);
-      }
-      keepPlace(renderSections);
+        if (table) statusGrid(stations);
+      },
+      sources: addSources,
+      usgs: setUsgsWq,
+      history: () => keepPlace(renderSections),
     });
+    if (!EMBED) void overviewMap(stations); // an embed draws no map
     wireWater(live, stations, () => {
       ($("zoom") as HTMLDialogElement).close();
       keepPlace(() => {
@@ -2016,7 +1855,7 @@ async function main(): Promise<void> {
     wireAbout({
       station: (d) => ({
         title: d.kind === "rivers" ? "The river gauges" : d.kind === "turbidity" ? "Buoy turbidity sensors" : d.meta.name,
-        html: isRiver(d) ? gaugeAboutHtml(d) : stationAboutHtml(d),
+        html: isRiver(d) ? gaugeAboutHtml(d) : stationAboutHtml(d, { recordLine, isQuiet }),
       }),
       // A plot on a station can be linked to: the page as it stands, scrolled to that plot.
       link: (key, d) => (d && key in FIGS ? linkUrl(`${d.meta.id}-${key}`) : ""),

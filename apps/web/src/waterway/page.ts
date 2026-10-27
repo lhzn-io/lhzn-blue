@@ -958,7 +958,7 @@ function statusGrid(all: StationData[]): void {
   if (STATION_ID) SG = stations[0]?.kind === "shore" ? "shore" : "buoy";
   // An airport is in neither table: its page leads with the outlook. The shore gauges' own table is the overview's.
   const table = STATION_ID && stations[0]?.kind === "airport" ? "" : stationTables(stations, SG);
-  $("status").innerHTML = `${table}${isWater(VK) && !STATION_ID ? PARTS.shoreTable() : ""}${outlookHtml(all)}${windAcrossHtml(all, CFG.called)}`;
+  $("status").innerHTML = `${table}${stationPhoto()}${isWater(VK) && !STATION_ID ? PARTS.shoreTable() : ""}${outlookHtml(all)}${windAcrossHtml(all, CFG.called)}`;
   markOutlookRow();
 }
 
@@ -1182,7 +1182,6 @@ function sectionHtml(d: StationData): string {
         .filter(Boolean)
         .join("")}</p>
       ${notes.length ? `<p class="station-note">${notes.join(" ")}</p>` : ""}
-      ${id === STATION_ID && CFG.photos?.[id] ? photoHtml(st.name, CFG.photos[id]) : ""}
       <div class="band" id="${id}-readouts"></div>
       <div class="figs">${kinds.map(fig).join("")}</div>
     </section>`;
@@ -2028,9 +2027,13 @@ function markStationPage(): void {
   document.title = `${d.meta.name} | ${CFG.name} (alpha) | longhorizon.blue`;
 }
 
-/** Our photo of a station, with when it was taken and the credit. */
-function photoHtml(name: string, ph: { src: string; alt: string; when: string }): string {
-  return `<figure class="station-photo"><img src="${ph.src}" alt="${escHtml(ph.alt)}" loading="lazy" decoding="async"><figcaption>${escHtml(name)}, ${escHtml(ph.when)}. Photo: Long Horizon Observatory.</figcaption></figure>`;
+/** On a station's page, our photo of it (where we have one) under its row in the table, with when it was taken and the
+ * credit. */
+function stationPhoto(): string {
+  const ph = STATION_ID ? CFG.photos?.[STATION_ID] : undefined;
+  const d = ph && STATIONS.find((s) => s.meta.id === STATION_ID);
+  if (!ph || !d) return "";
+  return `<figure class="station-photo"><img src="${ph.src}" alt="${escHtml(ph.alt)}" decoding="async"><figcaption>${escHtml(d.meta.name)}, ${escHtml(ph.when)}. Photo: Long Horizon Observatory.</figcaption></figure>`;
 }
 
 /** What a waterway brings to the page besides its config: its data adapter, the prompt template, each station's About,

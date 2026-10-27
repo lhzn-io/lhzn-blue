@@ -24,6 +24,9 @@ import {
   type WaveHistory, type MetHistory, type WaveLive, type WaveObs, type YearLine, Daily, type RiverHistory, type RiverLive, type TurbHistory, type TurbFrame,
 } from "./series";
 import { alertsNow, mountAdvisories, WIND_STRIP_HASH } from "./advisory";
+import { ago, cToF, f1, fmtDate, fmtUtc, hoursOld, signed, span } from "./waterway/format";
+import { AT, atFuture, atLabel, setAt, sparklineOf } from "./waterway/cursor";
+import { currentSpeed, setUnit, waveFmt, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./waterway/units";
 
 const DATA = "/data/v1";
 const $ = (id: string) => document.getElementById(id)!;
@@ -97,7 +100,6 @@ const DEPTHS = ["SFC", "MID", "BTM"] as const;
 const DEPTH_LABEL: Record<string, string> = { SFC: "Surface", MID: "Mid", BTM: "Bottom" };
 const DELAYED_HOURS = 3; // older than this: delayed
 const OFFLINE_HOURS = 24; // older than this: offline
-const fmtUtc = (iso: string) => iso.slice(0, 16).replace("T", " ") + " UTC";
 const etClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 const etDayClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const etKey = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
@@ -106,29 +108,6 @@ function fmtEt(iso: string): string {
   const d = new Date(iso);
   return etKey.format(d) === etKey.format(new Date()) ? etClock.format(d) : etDayClock.format(d);
 }
-/** A short span between two times: "12m", "3h 5m", "4d". */
-function span(fromMs: number, toMs: number): string {
-  const min = Math.max(0, Math.round((toMs - fromMs) / 60000));
-  if (min < 60) return `${min}m`;
-  const h = Math.floor(min / 60);
-  if (h < 48) return min % 60 ? `${h}h ${min % 60}m` : `${h}h`;
-  return `${Math.round(h / 24)}d`;
-}
-const fmtDate = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "short", day: "numeric" });
-
-function ago(iso: string | number): string {
-  const t = typeof iso === "number" ? iso * 1000 : Date.parse(iso);
-  const min = Math.max(0, Math.round((Date.now() - t) / 60000));
-  if (min < 60) return `${min}m ago`;
-  const h = Math.floor(min / 60);
-  if (h < 48) return `${h}h ${min % 60}m ago`;
-  const days = Math.round(h / 24);
-  return days < 120 ? `${days}d ago` : `since ${fmtDate.format(new Date(t))}`;
-}
-const hoursOld = (iso: string) => (Date.now() - Date.parse(iso)) / 3.6e6;
-const f1 = (v: number) => (Number.isFinite(v) ? v.toFixed(1) : "--");
-const signed = (v: number, d = 1) => (Number.isFinite(v) ? `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(d)}` : "--");
-const cToF = (c: number) => (c * 9) / 5 + 32;
 
 type State = "live" | "delayed" | "offline";
 
@@ -445,27 +424,6 @@ function metOf(w: MetWindow | undefined): Met | null {
 }
 
 
-/** Speed units for wind and currents: buoy data arrives in knots; the reader picks how it is shown (remembered per browser). */
-const WIND_UNITS = {
-  kt: { factor: 1, label: "kt", name: "knots", digits: 0 },
-  mph: { factor: 1.150779, label: "mph", name: "miles per hour", digits: 0 },
-  ms: { factor: 0.514444, label: "m/s", name: "metres per second", digits: 1 },
-} as const;
-type WindUnit = keyof typeof WIND_UNITS;
-let WU: WindUnit = "kt";
-try {
-  const saved = localStorage.getItem("lhzn-blue-wind-unit");
-  if (saved && saved in WIND_UNITS) WU = saved as WindUnit;
-} catch {
-  /* private mode: knots */
-}
-const windVal = (kt: number) => kt * WIND_UNITS[WU].factor;
-/** The current speed unit for the map's currents (stored in cm/s): 1 cm/s is 0.0194384 kt. */
-const currentSpeed = () => ({ label: WIND_UNITS[WU].label, perCms: 0.0194384 * WIND_UNITS[WU].factor, digits: 1 });
-const waveUnit = () => (WU === "ms" ? { label: "m", factor: 1, digits: 2 } : { label: "ft", factor: 3.28084, digits: 1 });
-const waveFmt = (m: number | null | undefined) => (m == null || !Number.isFinite(m) ? "--" : (m * waveUnit().factor).toFixed(waveUnit().digits));
-const windFmt = (kt: number | null | undefined) =>
-  kt == null || !Number.isFinite(kt) ? "--" : windVal(kt).toFixed(WIND_UNITS[WU].digits);
 
 /** A variable's views for one station: history overlaid with the live window, then the derived series. */
 function viewOf(st: MetaStation, hist: Record<string, Encoded>, live: Record<string, Encoded> | undefined): VarView {
@@ -3012,17 +2970,9 @@ function sparkline(d: StationData, depth: string, color: string): string {
   return h ? sparklineOf(h, color, unitName(VK), V().digits) : "";
 }
 
-/** The time the overview table and the map pins show: null for now (the latest readings), else the timeline
- * cursor (epoch seconds). Values at a past time are observations from the hourly record; there are no station
- * forecasts yet, so a time after the latest reading shows "--". */
-let AT: number | null = null;
+/** The overview table and the map pins show the page's time (waterway/cursor.ts): values at a past time are
+ * observations from the hourly record; a time after the latest reading shows the forecast where there is one. */
 let STATIONS: StationData[] = [];
-const atFuture = () => AT != null && AT * 1000 > Date.now();
-const fmtAtWhen = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" });
-function atLabel(t: number): string {
-  const ms = t * 1000;
-  return `${fmtAtWhen.format(new Date(ms)).replace(",", "")}, ${ms < Date.now() ? `${span(ms, Date.now())} ago` : `in ${span(Date.now(), ms)}`}`;
-}
 /** A table cell at the cursor's time: the observed value where the record covers it, "--" otherwise. */
 function atCell(v: number, shown: string, title: string, spark = "", extra = ""): string {
   if (!Number.isFinite(v)) return `<td class="offline">${spark}<b>--</b><small>${atFuture() ? "no forecast" : "no reading"}</small></td>`;
@@ -3037,34 +2987,6 @@ function valueAt(d: StationData, k: VarKey, depth: string, t: number): number {
 }
 /** A pin's water value: the view's variable with its unit. */
 const pinValue = (k: VarKey, v: number) => (k === "temp" ? `${f1(v)}&deg;F` : k === "salinity" ? `salinity ${v.toFixed(2)}` : `oxygen ${v.toFixed(1)} mg/L`);
-
-function sparklineOf(h: Hourly, color: string, unit: string, digits = 1): string {
-  const end = h.lastValid();
-  const xs = grid(end - 7 * DAY, end, 170);
-  const ys = xs.map((t) => h.at(t));
-  const ok = ys.filter((v) => Number.isFinite(v));
-  if (ok.length < 2) return "";
-  const lo = Math.min(...ok);
-  const hi = Math.max(...ok);
-  const W = 64;
-  const H = 16;
-  let path = "";
-  let pen = false;
-  ys.forEach((v, i) => {
-    if (!Number.isFinite(v)) {
-      pen = false;
-      return;
-    }
-    const x = (i / (xs.length - 1)) * W;
-    const y = H - 1 - ((v - lo) / Math.max(0.2, hi - lo)) * (H - 2);
-    path += `${pen ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
-    pen = true;
-  });
-  const title = `last 7 days: ${lo.toFixed(digits)} to ${hi.toFixed(digits)} ${unit} (scaled to this range)`;
-  const mx = AT != null && AT >= xs[0] && AT <= xs[xs.length - 1] ? ((AT - xs[0]) / (xs[xs.length - 1] - xs[0])) * W : NaN;
-  const tick = Number.isFinite(mx) ? `<line x1="${mx.toFixed(1)}" x2="${mx.toFixed(1)}" y1="0" y2="${H}" stroke="currentColor" stroke-width="1" opacity="0.55"/>` : "";
-  return `<svg class="spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${title}"><title>${title}</title><path d="${path}" fill="none" stroke="${color}" stroke-width="1.3" stroke-linejoin="round"/>${tick}</svg>`;
-}
 
 /** A reading transcribed from the LISICOS panel image (while their server is down): tagged in the cell and noted in
  * its tooltip and readout. LISICOS's observation, read by us; provisional until the server's own record returns. */
@@ -3615,7 +3537,7 @@ function openWindStrip(): void {
 
 /** The overview table and the map pins at the cursor's time (or the latest readings at now). */
 async function showAt(t: number | null): Promise<void> {
-  AT = t;
+  setAt(t);
   const rowsBox = document.getElementById("sound-rows-box");
   if (rowsBox && VK === "tides") rowsBox.innerHTML = soundRowsSvg(STATIONS);
   if (VK === "tides") for (const d of STATIONS.filter((s) => s.kind === "shore")) { const [a, b] = FIGS.hilo.window(d); drawLadder(d, a, b); }
@@ -4672,12 +4594,7 @@ function wireUnits(redraw: () => void): void {
   mark();
   buttons.forEach((b) =>
     b.addEventListener("click", () => {
-      WU = b.dataset.unit as WindUnit;
-      try {
-        localStorage.setItem("lhzn-blue-wind-unit", WU);
-      } catch {
-        /* private mode: the choice lasts for this page only */
-      }
+      setUnit(b.dataset.unit);
       mark();
       redraw();
       void syncField(); // the currents key follows the unit

@@ -22,6 +22,8 @@ import { PISCATAQUA_REGION as CFG, type Theme } from "./waterways/piscataqua-reg
 import { at, sec, series, type Frame } from "./waterway/frames";
 import { stationState, Stations, type Station } from "./waterway/stations";
 import { measuringShore, regionStations, type RegionRegistry } from "./adapters/region";
+import { AT, setAt } from "./waterway/cursor";
+import { currentSpeed, setUnit, WIND_UNITS, windFmt, WU } from "./waterway/units";
 
 const DATA = CFG.data;
 const TZ = "America/New_York";
@@ -70,29 +72,19 @@ interface RiverHist {
 
 // ---------- Units (the site's saved choice) ----------
 
-const UNITS = {
-  kt: { perCms: 0.0194384, perKt: 1, label: "kt", digits: 1 },
-  mph: { perCms: 0.0223694, perKt: 1.150779, label: "mph", digits: 1 },
-  ms: { perCms: 0.01, perKt: 0.514444, label: "m/s", digits: 2 },
-} as const;
-type Unit = keyof typeof UNITS;
-let U: Unit = "kt";
-try {
-  const saved = localStorage.getItem("lhzn-blue-wind-unit");
-  if (saved && saved in UNITS) U = saved as Unit;
-} catch {
-  /* private mode: knots */
-}
-const UL = () => UNITS[U].label;
-const cur = (cms: number, digits: number = UNITS[U].digits) => `${(cms * UNITS[U].perCms).toFixed(digits)} ${UL()}`;
-const wind = (kt: number) => `${(kt * UNITS[U].perKt).toFixed(U === "ms" ? 1 : 0)} ${UL()}`;
+// waterway/units.ts holds the choice; currents are written a digit finer than wind (two in m/s).
+const UL = () => WIND_UNITS[WU].label;
+const perKt = () => WIND_UNITS[WU].factor;
+const perCms = () => currentSpeed().perCms;
+const curDigits = () => (WU === "ms" ? 2 : 1);
+const cur = (cms: number, digits: number = curDigits()) => `${(cms * perCms()).toFixed(digits)} ${UL()}`;
+const wind = (kt: number) => `${windFmt(kt)} ${UL()}`;
 
 // ---------- State ----------
 
 let L: Live = { generated_at: "" };
 let H: RiverHist = {};
-let T: number | null = null; // the time bar's time (null: now)
-const tNow = () => T ?? now();
+const tNow = () => AT ?? now(); // the time bar's time (waterway/cursor.ts; null: now)
 type Layer = FieldKind | "none";
 const LINK = new URLSearchParams(location.search);
 
@@ -223,7 +215,7 @@ function wireNotice(): void {
 
 const f1 = (v: number | null, d = 1) => (v == null ? "--" : v.toFixed(d));
 function lastAt<F extends Frame>(f: F | undefined, col: string, live: number | null | undefined): number | null {
-  return T == null ? (live ?? at(f, col, now() - HOUR)) : at(f, col, T);
+  return AT == null ? (live ?? at(f, col, now() - HOUR)) : at(f, col, AT);
 }
 
 /** A station's value at the time bar's time (its newest reading at now). */
@@ -255,7 +247,7 @@ function statusHtml(): string {
   if (theme === "currents") statusCurrents(row, group);
   if (theme === "rivers") statusRivers(row, group);
   if (theme === "weather") statusWeather(row, group);
-  const when = T == null ? "latest readings" : `at ${fmtTime.format(new Date(T * 1000))}`;
+  const when = AT == null ? "latest readings" : `at ${fmtTime.format(new Date(AT * 1000))}`;
   return `<table class="status-grid rg-grid"><caption>${THEMES.find((x) => x.key === theme)!.label}, ${when}</caption><tbody>${rows.join("")}</tbody></table>`;
 }
 
@@ -415,7 +407,7 @@ function riversHtml(html: string[]): void {
 function buoyCtx(): BuoyCtx {
   return {
     buoys: BUOYS.filter((b) => want(b.id)), live: L.buoys, hist: H.buoys, now: now(),
-    wind: { label: UL(), perKt: UNITS[U].perKt, digits: U === "ms" ? 1 : 0 },
+    wind: { label: UL(), perKt: perKt(), digits: WIND_UNITS[WU].digits },
     colors: { measured: MEASURED(), second: SECOND(), dim: cssVar("--dim"), asOf: cssVar("--rg-time") },
   };
 }
@@ -457,7 +449,7 @@ function wireBuoyViews(): void {
     document.querySelectorAll<HTMLButtonElement>("[data-bview]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
     document.querySelector(".rg-buoys")!.innerHTML = buoyCardsHtml(buoyCtx(), bview);
     drawBuoyFigures(buoyCtx(), bview);
-    markAsOf(T);
+    markAsOf(AT);
     writeLink();
   });
 }
@@ -485,7 +477,7 @@ function drawCharts(): void {
     draw(m.id, {
       xs, unit: ` ${UL()}`, ...MARKS(), empty: "No readings this week.",
       lines: [
-        { ys: series(d, "spd_cms", xs, UNITS[U].perCms), color: MEASURED(), width: 1.6, label: "Speed", fmt: (v) => `${v.toFixed(UNITS[U].digits)} ${UL()}` },
+        { ys: series(d, "spd_cms", xs, perCms()), color: MEASURED(), width: 1.6, label: "Speed", fmt: (v) => `${v.toFixed(curDigits())} ${UL()}` },
         { ys: dirs, color: MEASURED(), label: "Toward", hidden: true, fmt: (v) => `${compass(v)} (${Math.round(v)}°)` },
       ],
     });
@@ -495,7 +487,7 @@ function drawCharts(): void {
     xs: pxs, unit: ` ${UL()}`, zero: true, ...MARKS(true), empty: "No predictions.",
     lines: PREDS.map((p, i) => {
       const d = L.current_predictions?.[p.id];
-      return { ys: pxs.map((t) => { const v = d ? at({ t0: d.t0, step: d.step, v: d.v }, "v", t) : null; return v == null ? NaN : v * UNITS[U].perCms; }), color: [PREDICTED(), MODEL()][i % 2], width: 1.4, label: p.name, fmt: (v: number) => `${Math.abs(v).toFixed(UNITS[U].digits)} ${UL()} ${v >= 0 ? "flood" : "ebb"}` };
+      return { ys: pxs.map((t) => { const v = d ? at({ t0: d.t0, step: d.step, v: d.v }, "v", t) : null; return v == null ? NaN : v * perCms(); }), color: [PREDICTED(), MODEL()][i % 2], width: 1.4, label: p.name, fmt: (v: number) => `${Math.abs(v).toFixed(curDigits())} ${UL()} ${v >= 0 ? "flood" : "ebb"}` };
     }),
   });
   // Rivers: 90 days of daily means against the percentiles for each date.
@@ -522,12 +514,12 @@ function drawCharts(): void {
       xs, unit: ` ${UL()}`, ...MARKS(), empty: "No reports this week.",
       glyphs: windGlyphs(xs[0], xs[xs.length - 1], (t) => ({ from: at(d, "dir_deg", t) ?? NaN, kt: at(d, "wind_kt", t) ?? NaN, color: MEASURED() })),
       lines: [
-        { ys: series(d, "gust_kt", xs, UNITS[U].perKt), color: SECOND(), width: 1, dots: true, label: "Gust", fmt: (v) => `${v.toFixed(0)} ${UL()}` },
-        { ys: series(d, "wind_kt", xs, UNITS[U].perKt), color: MEASURED(), width: 1.6, label: "Wind", fmt: (v) => `${v.toFixed(U === "ms" ? 1 : 0)} ${UL()}` },
+        { ys: series(d, "gust_kt", xs, perKt()), color: SECOND(), width: 1, dots: true, label: "Gust", fmt: (v) => `${v.toFixed(0)} ${UL()}` },
+        { ys: series(d, "wind_kt", xs, perKt()), color: MEASURED(), width: 1.6, label: "Wind", fmt: (v) => `${v.toFixed(WIND_UNITS[WU].digits)} ${UL()}` },
       ],
     });
   }
-  markAsOf(T);
+  markAsOf(AT);
 }
 
 // ---------- The map: pins and the surface fields ----------
@@ -607,7 +599,7 @@ function controls(): FieldControls {
       document.querySelector(".overview")?.classList.toggle("map-wide", w);
       void syncField();
     },
-    speed: { label: UL(), perCms: UNITS[U].perCms, digits: UNITS[U].digits },
+    speed: { label: UL(), perCms: perCms(), digits: curDigits() },
   };
 }
 
@@ -651,7 +643,7 @@ async function drawMap(): Promise<void> {
   tl.mountTimeline($("map-foot"));
   TL = tl;
   tl.onAsOf((t) => {
-    T = t;
+    setAt(t);
     chart.markAsOf(t);
     drawStatus();
     writeLink();
@@ -693,16 +685,11 @@ function writeLink(): void {
 
 function wireUnits(): void {
   const buttons = document.querySelectorAll<HTMLButtonElement>("[data-unit]");
-  const mark = () => buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.unit === U)));
+  const mark = () => buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.unit === WU)));
   mark();
   buttons.forEach((b) =>
     b.addEventListener("click", () => {
-      U = (b.dataset.unit as Unit) in UNITS ? (b.dataset.unit as Unit) : "kt";
-      try {
-        localStorage.setItem("lhzn-blue-wind-unit", U);
-      } catch {
-        /* private mode */
-      }
+      setUnit(b.dataset.unit);
       mark();
       redraw();
       void syncField();

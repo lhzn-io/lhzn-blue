@@ -51,8 +51,10 @@ SECRETS="CLOUDFLARE_API_TOKEN=${CF_TOKEN_SECRET}:latest"
 # Per job: timeout and memory. `fields` reads the model mesh and satellite grids, so it gets the most memory;
 # `snapshot` holds one dataset's whole record at a time. The Piscataqua Region's jobs (region.py) run on their own:
 # `region-live` hourly, `region-daily` (rivers' record, currents and SST) and `region-wind` (HRRR) every 3 hours.
-declare -A TIMEOUT=([live]=20m [latest]=5m [history]=30m [fields]=30m [snapshot]=45m [forecast]=30m [panels]=8m
-  [region-live]=15m [region-daily]=30m [region-wind]=15m)
+# The two daily jobs that read CoastWatch get an hour: a server that stops answering is skipped after one short
+# question (coastwatch_guard.py), and the hour is the backstop.
+declare -A TIMEOUT=([live]=20m [latest]=5m [history]=30m [fields]=60m [snapshot]=45m [forecast]=30m [panels]=8m
+  [region-live]=15m [region-daily]=60m [region-wind]=15m)
 declare -A MEMORY=([live]=512Mi [latest]=512Mi [history]=1Gi [fields]=2Gi [snapshot]=1Gi [forecast]=2Gi [panels]=1Gi
   [region-live]=1Gi [region-daily]=2Gi [region-wind]=2Gi)
 for mode in live latest history fields snapshot forecast panels region-live region-daily region-wind; do

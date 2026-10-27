@@ -37,7 +37,7 @@ from datetime import date, datetime, time, timedelta, timezone
 import numpy as np
 import pandas as pd
 
-from . import outages
+from . import coastwatch_guard, outages
 from .build import SCHEMA, Store, iso, now_utc
 
 log = logging.getLogger(__name__)
@@ -99,7 +99,14 @@ def raster(name: str, end: datetime | None = None, water: dict | None = None, bb
 
     quantity, days, coast, scale = RASTERS[name]
     end = end or now_utc()
-    ds = cut_to_water(coastwatch.composite(coastwatch.QUANTITIES[quantity], bbox, end, days), water)
+    ids = coastwatch.QUANTITIES[quantity]
+    coastwatch_guard.require(ids)  # a server already found down this run is not asked again
+    try:
+        composite = coastwatch.composite(ids, bbox, end, days)
+    except Exception as exc:
+        coastwatch_guard.failed(ids, exc)
+        raise
+    ds = cut_to_water(composite, water)
     ds = coastwatch.mask_coast(ds, coast)  # the coastal band, measured from the mesh's coastline
     lat, lon = ds["lat"].values, ds["lon"].values
     value, age = ds["value"].values, ds["age_days"].values
@@ -222,7 +229,13 @@ def history(name: str, existing: bytes | None, end: datetime | None = None, wate
         except Exception:
             log.warning("history %s unreadable; rebuilding", name)
     todo = [d for d in days if d.isoformat() not in kept]
-    ds = coastwatch.composite_series(coastwatch.QUANTITIES[quantity], bbox, [_frame_end(d, end) for d in todo], window)
+    ids = coastwatch.QUANTITIES[quantity]
+    coastwatch_guard.require(ids)
+    try:
+        ds = coastwatch.composite_series(ids, bbox, [_frame_end(d, end) for d in todo], window)
+    except Exception as exc:
+        coastwatch_guard.failed(ids, exc)
+        raise
     ds = coastwatch.mask_coast(cut_to_water(ds, water), coast)
     grid = _grid(ds)
     if old_grid is not None and old_grid != grid and len(todo) < len(days):

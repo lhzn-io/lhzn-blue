@@ -1,4 +1,5 @@
 /** Times and numbers as the waterway pages write them (New York time). */
+import { HOUR, type Hourly, type TideEvent } from "../series";
 
 export const fmtUtc = (iso: string) => iso.slice(0, 16).replace("T", " ") + " UTC";
 export const fmtDate = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "short", day: "numeric" });
@@ -25,3 +26,17 @@ export const hoursOld = (iso: string) => (Date.now() - Date.parse(iso)) / 3.6e6;
 export const f1 = (v: number) => (Number.isFinite(v) ? v.toFixed(1) : "--");
 export const signed = (v: number, d = 1) => (Number.isFinite(v) ? `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(d)}` : "--");
 export const cToF = (c: number) => (c * 9) / 5 + 32;
+
+export const fmtClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+export const feet = (v: number) => (Math.abs(v) < 0.05 ? "0.0" : `${v < 0 ? "−" : ""}${Math.abs(v).toFixed(1)}`);
+export const tideText = (e: TideEvent) => `${e.type === "H" ? "high" : "low"} ${fmtClock.format(new Date(e.t)).toLowerCase()}, ${feet(e.ft)} ft`;
+export const lastValue = (h: Hourly | null) => {
+  const t = h ? h.lastValid() : NaN;
+  return h && Number.isFinite(t) ? h.at(t) : NaN;
+};
+export const signedFt = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
+export const fmtRun = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" });
+export const noComma = (f: Intl.DateTimeFormat) => ({ format: (d: Date) => f.format(d).replace(",", "") });
+export const fmtWhen = noComma(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" }));
+export const fmtWhenMin = noComma(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" }));
+export const hourOf = (t: number) => Math.floor(t / HOUR) * HOUR;

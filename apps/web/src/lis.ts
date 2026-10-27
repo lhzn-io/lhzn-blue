@@ -19,13 +19,15 @@ import type { FieldData, FieldKind, RasterHistory } from "./fields";
 import { wireSuggest } from "./suggest";
 import {
   COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, oxygenStatus, stratStatus, yearLines,
-  type Encoded, type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetObs, type MetWindow,
+  type Encoded, type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetWindow,
   type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type VarHistory, type WaveFrame,
   type WaveHistory, type MetHistory, type WaveLive, type WaveObs, type YearLine, Daily, type RiverHistory, type RiverLive, type TurbHistory, type TurbFrame,
 } from "./series";
 import { alertsNow, mountAdvisories, WIND_STRIP_HASH } from "./advisory";
-import { ago, cToF, f1, fmtDate, fmtUtc, hoursOld, signed, span } from "./waterway/format";
+import { ago, cToF, f1, feet, fmtDate, fmtRun, fmtUtc, fmtWhen, fmtWhenMin, hourOf, hoursOld, lastValue, signed, signedFt, span, tideText } from "./waterway/format";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./waterway/cursor";
+import { DELAYED_HOURS, DEPTH_LABEL, DEPTHS, type FcStats, type FcValue, type Gauge, isWater, type Met, nextTide, obsState, OFFLINE_HOURS, overallState, type RiverData, type StationData, stationState, type TurbData, unitName, type VarKey, type VarView, WATER_VARS, type Waves } from "./waterway/station-data";
+import { atCell, configureCells, levelCell, predictedLevel, runText, stationPin, stationTables, valueAt } from "./waterway/cells";
 import { currentSpeed, setUnit, waveFmt, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./waterway/units";
 
 const DATA = "/data/v1";
@@ -96,10 +98,6 @@ let P: Palette = PALETTES.dark;
 function currentTheme(): Theme {
   return document.documentElement.dataset.theme === "light" ? "light" : "dark";
 }
-const DEPTHS = ["SFC", "MID", "BTM"] as const;
-const DEPTH_LABEL: Record<string, string> = { SFC: "Surface", MID: "Mid", BTM: "Bottom" };
-const DELAYED_HOURS = 3; // older than this: delayed
-const OFFLINE_HOURS = 24; // older than this: offline
 const etClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 const etDayClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const etKey = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
@@ -109,35 +107,7 @@ function fmtEt(iso: string): string {
   return etKey.format(d) === etKey.format(new Date()) ? etClock.format(d) : etDayClock.format(d);
 }
 
-type State = "live" | "delayed" | "offline";
 
-/**
- * Water variables. The reader picks one for the whole page (status grid and the year, change, water
- * column and surface-minus-bottom charts); temperature is the default. Salinity and oxygen histories
- * load on first use, so the first view costs the same two requests as before.
- */
-type VarKey = "temp" | "salinity" | "oxygen" | "turbidity" | "wind" | "rivers" | "tides";
-interface WaterVar {
-  label: string;
-  unit: string; // appended to values on axes and in tooltips
-  digits: number;
-  file: string;
-  obs: (o: LastObs) => number | null; // the latest raw reading, in this variable's units
-}
-const WATER_VARS: Record<VarKey, WaterVar> = {
-  temp: { label: "Water temperature", unit: "°F", digits: 1, file: "history.json", obs: (o) => (o.temperature_c == null ? null : cToF(o.temperature_c)) },
-  salinity: { label: "Salinity", unit: "", digits: 2, file: "history-salinity.json", obs: (o) => o.salinity },
-  oxygen: { label: "Dissolved oxygen", unit: " mg/L", digits: 1, file: "history-oxygen.json", obs: (o) => o.oxygen_mg_l },
-  // Not a water variable: the view of weather and waves at the stations (see FIGS and statusGrid).
-  wind: { label: "Wind and waves", unit: "", digits: 1, file: "history-waves.json", obs: () => null },
-  // Turbidity: the buoys' point observations with their reliability, and the river input (see turbTable). The
-  // home of the turbidity field to come: a surface map from satellite, then a modelled field.
-  turbidity: { label: "Turbidity", unit: " NTU", digits: 1, file: "history-turbidity.json", obs: () => null },
-  // The rivers into the Sound (see RIVER_FIGS, riverTable): not a buoy variable either.
-  rivers: { label: "Rivers", unit: " cfs", digits: 0, file: "rivers-history.json", obs: () => null },
-  tides: { label: "Tides", unit: " ft", digits: 2, file: "shore-tides.json", obs: () => null },
-};
-const isWater = (k: VarKey) => k === "temp" || k === "salinity" || k === "oxygen";
 let VK: VarKey = "wind"; // a first visit opens on Wind & waves (the comfort map); a link or a remembered view wins
 /** What a link asked for: ?view=oxygen&layer=sst&t=-30d#WLIS-col (see linkUrl). */
 const LINK = new URLSearchParams(location.search);
@@ -163,54 +133,9 @@ if (EMBED) {
   else if (th === "light") document.documentElement.dataset.theme = "light";
 }
 const V = () => WATER_VARS[VK];
-/** Axis label for the variable: salinity has no unit (practical salinity scale), so it is named instead. */
-const unitName = (k: VarKey) => (k === "temp" ? "°F" : k === "salinity" ? "practical salinity" : "mg/L");
 
-/** One variable's series for a station, per depth, with its derived views. */
-interface VarView {
-  hourly: Record<string, Hourly | null>;
-  m36: Record<string, Hourly | null>;
-  chg: Record<string, Hourly | null>;
-  delta: Hourly | null; // surface minus bottom, hourly
-  delta36: Hourly | null;
-}
 
-interface StationData {
-  kind: "buoy" | "shore" | "airport" | "rivers" | "river" | "turbidity"; // rivers: the all-rivers summary; river: one gauge; airport: coastal ASOS weather
-  meta: MetaStation;
-  depths: string[]; // depths this station has, top to bottom
-  // The selected variable's views (see useVar); `temp` always holds temperature, for stratification and air.
-  hourly: Record<string, Hourly | null>;
-  m36: Record<string, Hourly | null>;
-  chg: Record<string, Hourly | null>;
-  delta: Hourly | null; // surface minus bottom, hourly
-  delta36: Hourly | null;
-  temp: VarView;
-  views: Partial<Record<VarKey, VarView>>;
-  obs: Record<string, LastObs | null>; // latest reading per depth (live, or the last one we hold)
-  live: boolean; // any series still published by the server
-  now: number; // the current hour: year comparisons are always about this time of year
-  anchor: number; // end of the recent timelines: now for live stations, the last reading otherwise
-  met: Met | null; // weather at the station, recent window only
-  metLong?: { wind: Hourly | null; air: Hourly | null; pressure: Hourly | null }; // daily history under the window, for the %iles
-  level: Hourly | null; // shore stations: water level, feet above MLLW
-  tides: TideEvent[]; // shore stations: predicted highs and lows
-  levelNow: { time: string; ft: number } | null;
-  waves: Waves | null; // buoys with a wave sensor: the live window, then the full record once loaded
-  river?: RiverData; // the rivers sections
-  gauge?: Gauge; // a river section's gauge
-  turb?: TurbData; // the buoy turbidity section
-}
 
-/** Buoy turbidity: hourly median and fouling flag per buoy, the latest reading, and the recent share flagged. */
-interface TurbData {
-  buoys: { id: string; name: string }[];
-  ntu: Record<string, Hourly | null>;
-  suspect: Record<string, Hourly | null>;
-  last: Record<string, { time: string; turb_ntu: number | null } | null>;
-  share30: Record<string, number | null>;
-  qc: string;
-}
 
 function turbSection(stations: StationData[], live: Live, hist: TurbHistory | null): StationData | null {
   const lt = live.turbidity ?? {};
@@ -263,15 +188,6 @@ function turbSection(stations: StationData[], live: Live, hist: TurbHistory | nu
 
 /* ---------- Rivers ---------- */
 
-type Gauge = RiverHistory["meta"]["gauges"][number];
-interface RiverData {
-  gauges: Gauge[]; // largest gauged basin first
-  flow: Record<string, Hourly | null>; // cfs, hourly, last 100 days
-  daily: Record<string, Daily | null>; // cfs, daily means from 1990
-  normals: RiverHistory["normals"];
-  turb: Hourly | null; // Connecticut at Thompsonville, FNU
-  last: Record<string, { time: string; flow_cfs: number | null; turb_fnu: number | null } | null>;
-}
 
 /** Index of a time's Eastern calendar date in a leap year (0 to 365), for the day-of-year percentiles. */
 const etMonthDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric" });
@@ -383,12 +299,6 @@ function riverSections(rl: RiverLive, rh: RiverHistory): StationData[] {
 /** A river's daily mean flow, as a series for the year comparison (a value per day, the same at every hour). */
 const dailyFlow = (d: StationData): Series | null => (d.gauge && d.river?.daily[d.gauge.id]) || null;
 
-/** Hourly waves: heights in metres, periods in seconds. */
-interface Waves {
-  hs: Hourly | null;
-  hmax: Hourly | null;
-  tp: Hourly | null;
-}
 
 function wavesFrom(hist: WaveFrame | undefined, live: WaveFrame | undefined): Waves | null {
   const col = (k: "hs_m" | "hmax_m" | "tp_s") => Hourly.merge(Hourly.fromArray(hist?.t0, hist?.[k]), Hourly.fromArray(live?.t0, live?.[k]));
@@ -400,14 +310,6 @@ function wavesFrom(hist: WaveFrame | undefined, live: WaveFrame | undefined): Wa
 let WAVE_LIVE: Record<string, WaveLive> = {};
 let WAVE_META: WaveHistory["meta"] = {};
 
-interface Met {
-  wind: Hourly | null; // knots
-  gust: Hourly | null; // knots, hourly peak
-  dir: Hourly | null; // degrees the wind blows from
-  air: Hourly | null; // F
-  pressure: Hourly | null; // mbar
-  last: MetObs | null;
-}
 
 /* ---------- Load ---------- */
 
@@ -570,33 +472,10 @@ function shoreStation(st: ShoreMetaStation, frame: ShoreFrame | undefined, hist:
 }
 
 /** The next predicted high or low after now. */
-const nextTide = (d: StationData): TideEvent | undefined => d.tides.find((e) => Date.parse(e.t) > Date.now());
-const fmtClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 /** Feet to one decimal, with a true minus sign and no "-0.0". */
-const feet = (v: number) => (Math.abs(v) < 0.05 ? "0.0" : `${v < 0 ? "−" : ""}${Math.abs(v).toFixed(1)}`);
-const tideText = (e: TideEvent) => `${e.type === "H" ? "high" : "low"} ${fmtClock.format(new Date(e.t)).toLowerCase()}, ${feet(e.ft)} ft`;
 
 /* ---------- State and derived values ---------- */
 
-function obsState(o: LastObs | null): State {
-  if (!o) return "offline";
-  const h = hoursOld(o.time);
-  return h > OFFLINE_HOURS ? "offline" : h > DELAYED_HOURS ? "delayed" : "live";
-}
-
-/** The whole buoy for the map and status dots: "partial" when its water sensors are offline but its
- * weather sensors still report (as at Central Sound). */
-function overallState(d: StationData): State | "partial" {
-  const water = stationState(d);
-  const weather = d.met?.last ? obsState({ time: d.met.last.time } as LastObs) : "offline";
-  return water === "offline" && weather !== "offline" ? "partial" : water;
-}
-
-function stationState(d: StationData): State {
-  if (d.kind === "airport") return d.met?.last ? obsState({ time: d.met.last.time } as LastObs) : "offline";
-  const states = d.depths.map((dep) => obsState(d.obs[dep]));
-  return states.includes("live") ? "live" : states.includes("delayed") ? "delayed" : "offline";
-}
 
 /** Years drawn: this year whenever it has data, earlier years only with enough coverage. Years with no
  * data at all in the window (for example during an outage) are neither drawn nor listed. */
@@ -1542,11 +1421,6 @@ function departure(d: StationData): Hourly | null {
   }
   return DEPARTURE.get(d.meta.id) ?? null;
 }
-const lastValue = (h: Hourly | null) => {
-  const t = h ? h.lastValid() : NaN;
-  return h && Number.isFinite(t) ? h.at(t) : NaN;
-};
-const signedFt = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
 
 /** The departure plot: observed minus predicted, above the prediction in amber, below in willow. */
 function departureBuilt(d: StationData, x0: number, x1: number): Built {
@@ -1829,9 +1703,7 @@ function tidesTable(stations: StationData[]): string {
  * forecasts at the buoys. Loaded when a reader first looks ahead or opens Wind and waves. Values are raw HRRR,
  * never blended with observations: a time before now shows only what was measured. */
 interface FcRun { issue: number; leads: number[]; u: (number | null)[]; v: (number | null)[]; gust: (number | null)[]; t2m: (number | null)[]; mslp: (number | null)[] }
-interface FcStats { mae: number | null; air_mae: number | null; pressure_mae: number | null }
 interface Verification { leads: number[]; by_lead: Record<string, { all: FcStats; buoys: Record<string, FcStats> }> }
-interface FcValue { spd: number; dir: number; gust: number; air: number; pres: number; lead: number; issue: number; err: number; airErr: number }
 let FCST: { runs: Record<string, FcRun[]>; ver: Verification | null; generated: number } | null = null;
 let fcstLoading: Promise<void> | null = null;
 let fcstRedraw: () => void = () => undefined;
@@ -1843,7 +1715,6 @@ function requestFcstRedraw(): void {
   fcstPending = window.setTimeout(() => fcstRedraw(), 60);
 }
 const MS_KT = 1.943844;
-const fmtRun = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" });
 
 function loadForecast(): Promise<void> {
   fcstLoading ??= Promise.all([
@@ -2161,10 +2032,6 @@ function soundWindHtml(stations: StationData[]): string {
   </section>`;
 }
 
-/** A table cell holding a forecast: marked as HRRR, with its typical error, never as a measurement. */
-function fcCell(f: FcValue, shown: string, title: string, errText: string): string {
-  return `<td class="fcst" title="${title}. HRRR forecast from the ${fmtRun.format(new Date(f.issue * 1000))} run, ${f.lead} h ahead; typically within ${errText} at this lead (verified at the buoys)."><b>${shown}</b><small>HRRR ${errText}</small></td>`;
-}
 
 /** The forecast's vintage over some hours at a station: the HRRR run behind each stretch, in order (the hourly runs
  * reach 18 h, the 00, 06, 12 and 18 UTC runs 48 h, so a 48 h forecast is usually two runs). "" before the runs load. */
@@ -2234,7 +2101,6 @@ function nwpsSeries(id: string, xs: number[]): number[] {
   });
 }
 
-const hourOf = (t: number) => Math.floor(t / HOUR) * HOUR;
 
 /* ---------- NWS marine advisories (M14) ----------
  * Warnings and advisories NWS New York issued for each station's forecast zone, from the IEM VTEC archive. Before
@@ -2298,9 +2164,6 @@ function hrrrStandIn(d: StationData, t: number): FcValue | null {
   return forecastAt(d.meta.id, hourOf(t));
 }
 
-function runText(issue: number, lead: number): string {
-  return `${fmtRun.format(new Date(issue * 1000))} run, ${lead} h ahead`;
-}
 
 const SOUND_ZONES = ["ANZ335", "ANZ331", "ANZ332"];
 
@@ -2346,17 +2209,6 @@ async function syncZones(): Promise<void> {
   }
 }
 
-/** A fault cell with the model's value under it: the fault first ("--", why), then the model, marked as such. */
-function standInCell(fault: string, faultTitle: string, model: string, modelTitle: string, cls = ""): string {
-  return `<td class="offline standin${cls ? ` ${cls}` : ""}" title="${faultTitle}"><b>--</b><small>${fault}</small><small class="model" title="${modelTitle}. A model value, not a measurement; the buoy's own sensor is out.">${model}</small></td>`;
-}
-
-function windModelCell(d: StationData, t: number, fault: string, faultTitle: string): string | null {
-  const f = hrrrStandIn(d, t);
-  if (!f) return null;
-  const u = WIND_UNITS[WU].label;
-  return standInCell(fault, faultTitle, `model ${compass(f.dir)} ${windFmt(f.spd)} ${u}`, `HRRR at the buoy: wind ${windFmt(f.spd)} ${u} from ${compass(f.dir)}, gusts ${windFmt(f.gust)} ${u}; ${runText(f.issue, f.lead)}, typically within ${windFmt(f.err)} ${u}`);
-}
 
 const FORECAST_PAGE = "/long-island-sound/forecast/";
 /** The verification tag: HRRR's typical miss at the buoys for this hour's lead at a station (the first in the table), linked to the page. */
@@ -2370,9 +2222,6 @@ function verTag(t?: number, id?: string): string {
 /* ---------- Outlook: the next 48 hours at one station ---------- */
 
 // "Sat 1 PM": the weekday and the hour, without Intl's comma.
-const noComma = (f: Intl.DateTimeFormat) => ({ format: (d: Date) => f.format(d).replace(",", "") });
-const fmtWhen = noComma(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" }));
-const fmtWhenMin = noComma(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" }));
 const fmtHourET = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" });
 /** "Sat 1p", "Fri 3:34a": short times for the outlook's text column. */
 const shortWhen = (ms: number, minutes = false) =>
@@ -2960,235 +2809,12 @@ void WATER_PAGE;
 
 /* ---------- Overview: map and status grid ---------- */
 
-/**
- * The last 7 days of hourly temperature as a tiny line, scaled to its own week's range: the vertical
- * exaggeration makes a 1-degree swing visible. The range is in the tooltip, so the shape is never read
- * as an absolute value.
- */
-function sparkline(d: StationData, depth: string, color: string): string {
-  const h = d.hourly[depth];
-  return h ? sparklineOf(h, color, unitName(VK), V().digits) : "";
-}
 
 /** The overview table and the map pins show the page's time (waterway/cursor.ts): values at a past time are
  * observations from the hourly record; a time after the latest reading shows the forecast where there is one. */
 let STATIONS: StationData[] = [];
-/** A table cell at the cursor's time: the observed value where the record covers it, "--" otherwise. */
-function atCell(v: number, shown: string, title: string, spark = "", extra = ""): string {
-  if (!Number.isFinite(v)) return `<td class="offline">${spark}<b>--</b><small>${atFuture() ? "no forecast" : "no reading"}</small></td>`;
-  return `<td class="asof" title="${title}, observed ${atLabel(AT!)}">${spark}<b>${shown}</b><small>${extra || "observed"}</small></td>`;
-}
-/** A station's observed value of a variable at a depth and time (temperature in &deg;F): the hourly record where it
- * covers the time, NaN otherwise (no station forecasts before M8). The table, the pins and both prompts read values
- * at the cursor through this, so they agree. A variable not yet loaded (its view never opened) gives NaN. */
-function valueAt(d: StationData, k: VarKey, depth: string, t: number): number {
-  const h = k === VK ? d.hourly : (k === "temp" ? d.temp : d.views[k])?.hourly;
-  return h?.[depth]?.at(t) ?? NaN;
-}
-/** A pin's water value: the view's variable with its unit. */
-const pinValue = (k: VarKey, v: number) => (k === "temp" ? `${f1(v)}&deg;F` : k === "salinity" ? `salinity ${v.toFixed(2)}` : `oxygen ${v.toFixed(1)} mg/L`);
 
-/** A reading transcribed from the LISICOS panel image (while their server is down): tagged in the cell and noted in
- * its tooltip and readout. LISICOS's observation, read by us; provisional until the server's own record returns. */
-const PANEL_NOTE = "transcribed from the LISICOS station panel image while their data server is down; provisional";
-const panelTag = (o?: { source?: string } | null) => (o?.source === "panel" ? " &middot; panel" : "");
-const panelTitle = (o?: { source?: string } | null) => (o?.source === "panel" ? `; ${PANEL_NOTE}` : "");
 
-function cellHtml(d: StationData, depth: string): string {
-  if (d.kind === "shore" && VK !== "temp") return `<td class="na" title="Not measured at this station">&middot;</td>`;
-  if (!d.depths.includes(depth)) return `<td class="na" title="No ${DEPTH_LABEL[depth].toLowerCase()} sensor published">&middot;</td>`;
-  if (AT != null) {
-    const v = valueAt(d, VK, depth, AT);
-    return atCell(v, v.toFixed(V().digits) + (VK === "temp" ? "&deg;" : ""), `${DEPTH_LABEL[depth]}: ${v.toFixed(V().digits)} ${unitName(VK)}`, sparkline(d, depth, P.now));
-  }
-  const o = d.obs[depth];
-  const state = obsState(o);
-  const value = o ? V().obs(o) : null;
-  if (!o || value == null) return `<td class="offline">--</td>`;
-  if (state === "offline") {
-    // An old reading is not a current condition: show the outage, not the value.
-    const since = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", year: "numeric" }).format(new Date(o.time));
-    return `<td class="offline" title="${DEPTH_LABEL[depth]}: last reading ${fmtUtc(o.time)}"><b>--</b><small>since ${since}</small></td>`;
-  }
-  const shown = value.toFixed(V().digits) + (VK === "temp" ? "&deg;" : "");
-  // Oxygen under the hypoxia level is marked in the cell, not only by color.
-  const low = VK === "oxygen" && value < DO_LEVELS.hypoxic;
-  const status = VK === "oxygen" ? `, ${oxygenStatus(value)}` : "";
-  return `<td class="${state}${low ? " low" : ""}" title="${DEPTH_LABEL[depth]}: ${value.toFixed(V().digits)} ${unitName(VK)}${status}, ${ago(o.time)}${panelTitle(o)}">${sparkline(d, depth, state === "live" ? P.now : P.delayed)}<b>${shown}</b><small>${low ? oxygenStatus(value) + " &middot; " : ""}${ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
-}
-
-/** Latest buoy wind: mean and gust in the chosen unit, a downwind arrow with the compass point it comes
- * from, and air temperature, with a 7-day wind sparkline. */
-function windCell(d: StationData): string {
-  if (AT != null && atFuture()) {
-    const f = forecastAt(d.meta.id, AT);
-    if (f) {
-      const u = WIND_UNITS[WU].label;
-      return fcCell(f, `${windArrow(f.dir)}${compass(f.dir)} ${windFmt(f.spd)}<small class="g">${u}</small>`, `Wind ${windFmt(f.spd)} ${u} from ${compass(f.dir)}, gusts ${windFmt(f.gust)} ${u}`, `&plusmn;${windFmt(f.err)} ${u}`);
-    }
-  }
-  if (AT != null) {
-    const m = d.met;
-    const atV = m?.wind?.at(AT) ?? NaN;
-    if (!Number.isFinite(atV)) {
-      const mc = windModelCell(d, AT, "no reading", `No wind reading at ${atLabel(AT)}`);
-      if (mc) return mc;
-    }
-    if (!m?.wind) return `<td class="na">&middot;</td>`;
-    const v = m.wind.at(AT);
-    const dir = m.dir?.at(AT) ?? NaN;
-    const gust = m.gust?.at(AT) ?? NaN;
-    const u = WIND_UNITS[WU].label;
-    const from = Number.isFinite(dir) ? compass(dir) : "";
-    return atCell(v, `${Number.isFinite(dir) ? windArrow(dir) : ""}${from} ${windFmt(v)}<small class="g">${u}</small>`, `Wind ${windFmt(v)} ${u} from ${from || "--"}, gusts ${windFmt(gust)} ${u}`, sparklineOf(m.wind, P.line, "kt"), `gusts ${windFmt(gust)}`);
-  }
-  const o = d.met?.last;
-  const nowState = o && o.wind_kt != null ? obsState({ time: o.time } as LastObs) : "offline";
-  if (nowState === "offline") {
-    const mc = windModelCell(d, Date.now() / 1000, "no recent wind", o ? `No wind reading since ${fmtDate.format(new Date(o.time))}` : "No wind reading");
-    if (mc) return mc;
-  }
-  if (!o || o.wind_kt == null) return `<td class="na">&middot;</td>`;
-  const state = obsState({ time: o.time } as LastObs);
-  if (state === "offline") return `<td class="offline"><b>--</b><small>no recent wind</small></td>`;
-  const u = WIND_UNITS[WU].label;
-  const dir = o.dir_deg != null ? compass(o.dir_deg) : "";
-  const title = `Wind ${windFmt(o.wind_kt)} ${u}, gusts ${windFmt(o.gust_kt)} ${u}, from ${dir || "--"}; air ${f1(o.air_f ?? NaN)} F; ${ago(o.time)}${panelTitle(o)}`;
-  const spark = d.met?.wind ? sparklineOf(d.met.wind, P.line, "kt") : "";
-  return `<td class="${state} wind" title="${title}">${spark}<b>${o.dir_deg != null ? windArrow(o.dir_deg) : ""}${dir} ${windFmt(o.wind_kt)}<small class="g">${u}</small></b><small>gusts ${windFmt(o.gust_kt)} &middot; ${ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
-}
-
-/** Waves: the latest significant height and period where published, the outage with its last reading where
- * not, and "no sensor" where the buoy has none. */
-function wavesCell(d: StationData): string {
-  const w = wavesOf(d.meta.id);
-  if (!w) return `<td class="na">&middot;</td>`;
-  const panel = panelsOf(d.meta.id).waves;
-  if (!w.sensor) return `<td class="na" title="${wavesText(d.meta.id)}"><small>no sensor</small></td>`;
-  if (!NWPS) void loadNwps();
-  const waveModel = (t: number, fault: string, faultTitle: string): string | null => {
-    const m = nwpsAt(d.meta.id, hourOf(t));
-    if (!m) return null;
-    const u = waveUnit().label;
-    return standInCell(fault, faultTitle, `model ${waveFmt(m.hs)} ${u}${Number.isFinite(m.tp) ? ` &middot; ${m.tp.toFixed(0)} s` : ""}`,
-      `NWS nearshore wave model (NWPS) at the buoy: significant height ${waveFmt(m.hs)} ${u}${Number.isFinite(m.tp) ? `, period ${m.tp.toFixed(1)} s` : ""}${Number.isFinite(m.dir) ? ` from ${compass(m.dir)}` : ""}; ${runText(m.issue, m.lead)}, forced by NWS forecast winds`, "waves");
-  };
-  if (AT != null) {
-    const v = d.waves?.hs?.at(AT) ?? NaN;
-    if (!Number.isFinite(v) && !atFuture()) {
-      const mc = waveModel(AT, "no reading", `No wave reading at ${atLabel(AT)}`);
-      if (mc) return mc;
-    }
-    return atCell(v, `${waveFmt(v)}<small class="g"> ${waveUnit().label}</small>`, `Significant wave height ${waveFmt(v)} ${waveUnit().label}`);
-  }
-  const last = lastWave(d.meta.id);
-  const state = last ? obsState({ time: last.time } as LastObs) : "offline";
-  if ((WAVE_LIVE[d.meta.id]?.published || last?.source === "panel") && last && state !== "offline") {
-    const spark = d.waves?.hs ? sparklineOf(d.waves.hs, P.line, "m significant height", 2) : "";
-    return `<td class="${state}" title="Significant wave height ${waveFmt(last.hs_m)} ${waveUnit().label}, highest ${waveFmt(last.hmax_m)}, period ${last.tp_s ?? "--"} s; ${ago(last.time)}${panelTitle(last)}">${spark}<b>${waveFmt(last.hs_m)}<small class="g"> ${waveUnit().label}</small></b><small>${last.tp_s != null ? last.tp_s.toFixed(0) + " s &middot; " : ""}${ago(last.time).replace(" ago", "")}${panelTag(last)}</small></td>`;
-  }
-  const mc = waveModel(Date.now() / 1000, wavesText(d.meta.id, true).replace("offline, last reading", "out since"), wavesText(d.meta.id));
-  if (mc) return mc;
-  const inner = `<b>--</b><small>${wavesText(d.meta.id, true)}</small>`;
-  return `<td class="offline waves" title="${wavesText(d.meta.id)}">${panel ? `<a href="${panel}">${inner}</a>` : inner}</td>`;
-}
-
-/** Air temperature at the station, and pressure with its change over the last 3 hours (the forecaster's tendency). */
-function airCell(d: StationData): string {
-  if (AT != null && atFuture()) {
-    const f = forecastAt(d.meta.id, AT);
-    if (f && Number.isFinite(f.air)) return fcCell(f, `${Math.round(f.air)}&deg;`, `Air ${f1(f.air)} F`, `&plusmn;${f.airErr.toFixed(0)}&deg;`);
-  }
-  if (AT != null) {
-    if (!Number.isFinite(d.met?.air?.at(AT) ?? NaN)) {
-      const f = hrrrStandIn(d, AT);
-      if (f && Number.isFinite(f.air)) return standInCell("no reading", `No air temperature at ${atLabel(AT)}`, `model ${Math.round(f.air)}&deg;`, `HRRR at the buoy: air ${f1(f.air)} F; ${runText(f.issue, f.lead)}, typically within ${f.airErr.toFixed(0)} F`);
-    }
-    if (!d.met?.air) return `<td class="na">&middot;</td>`;
-    const v = d.met.air.at(AT);
-    return atCell(v, `${Math.round(v)}&deg;`, `Air ${f1(v)} F`);
-  }
-  const o = d.met?.last;
-  if (!o || o.air_f == null || obsState({ time: o.time } as LastObs) === "offline") {
-    const f = hrrrStandIn(d, Date.now() / 1000);
-    if (f && Number.isFinite(f.air)) return standInCell("offline", "No recent air temperature", `model ${Math.round(f.air)}&deg;`, `HRRR at the buoy: air ${f1(f.air)} F; ${runText(f.issue, f.lead)}, typically within ${f.airErr.toFixed(0)} F`);
-  }
-  if (!o || o.air_f == null) return `<td class="na">&middot;</td>`;
-  const state = obsState({ time: o.time } as LastObs);
-  if (state === "offline") return `<td class="offline"><b>--</b></td>`;
-  return `<td class="${state}" title="Air ${f1(o.air_f)} F, ${ago(o.time)}${panelTitle(o)}"><b>${Math.round(o.air_f)}&deg;</b><small>${ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
-}
-
-function pressureCell(d: StationData): string {
-  const o = d.met?.last;
-  const p = d.met?.pressure;
-  if (AT != null && atFuture()) {
-    const f = forecastAt(d.meta.id, AT);
-    if (f && Number.isFinite(f.pres)) {
-      const back = forecastAt(d.meta.id, AT - 3 * HOUR);
-      const tend = back && back.issue === f.issue && Number.isFinite(back.pres) ? `${signed(f.pres - back.pres)} in 3h, ` : "";
-      return fcCell(f, `${f.pres.toFixed(0)}<small class="g"> mb</small>`, `Pressure ${f.pres.toFixed(1)} mbar`, `${tend}&plusmn;${(typicalError(d.meta.id, f.lead, "pressure_mae")).toFixed(0)}`);
-    }
-  }
-  if (AT != null) {
-    if (!Number.isFinite(p?.at(AT) ?? NaN)) {
-      const f = hrrrStandIn(d, AT);
-      if (f && Number.isFinite(f.pres)) return standInCell("no reading", `No pressure at ${atLabel(AT)}`, `model ${f.pres.toFixed(0)} mb`, `HRRR at the buoy: pressure ${f.pres.toFixed(1)} mbar; ${runText(f.issue, f.lead)}`);
-    }
-    if (!p) return `<td class="na">&middot;</td>`;
-    const v = p.at(AT);
-    const tend = p.at(AT) - p.at(AT - 3 * HOUR);
-    return atCell(v, `${v.toFixed(0)}<small class="g"> mb</small>`, `Pressure ${v.toFixed(1)} mbar`, "", Number.isFinite(tend) ? `${signed(tend)} in 3h` : "");
-  }
-  if (!o || o.pressure_mb == null || obsState({ time: o.time } as LastObs) === "offline") {
-    const f = hrrrStandIn(d, Date.now() / 1000);
-    if (f && Number.isFinite(f.pres)) return standInCell("offline", "No recent pressure", `model ${f.pres.toFixed(0)} mb`, `HRRR at the buoy: pressure ${f.pres.toFixed(1)} mbar; ${runText(f.issue, f.lead)}`);
-  }
-  if (!o || o.pressure_mb == null) return `<td class="na">&middot;</td>`;
-  const state = obsState({ time: o.time } as LastObs);
-  if (state === "offline") return `<td class="offline"><b>--</b></td>`;
-  const end = p ? p.lastValid() : NaN;
-  const trend = p && Number.isFinite(end) ? p.at(end) - p.at(end - 3 * HOUR) : NaN;
-  const tend = Number.isFinite(trend) ? `${signed(trend)} in 3h` : "";
-  return `<td class="${state}" title="Pressure ${o.pressure_mb.toFixed(1)} mbar${tend ? `, ${tend}` : ""}; ${ago(o.time)}${panelTitle(o)}"><b>${o.pressure_mb.toFixed(0)}<small class="g"> mb</small></b><small>${tend || ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
-}
-
-/** NOAA's predicted water level at a time (ft above MLLW), linear between its hourly values; NaN outside them. */
-function predictedLevel(d: StationData, t: number): number {
-  const p = TIDES?.[d.meta.id]?.pred;
-  if (!p) return NaN;
-  const k = (t - Date.parse(p.t0) / 1000) / p.step, i = Math.floor(k);
-  const a = p.ft[i], b = p.ft[i + 1];
-  return a == null || b == null ? NaN : a + (b - a) * (k - i);
-}
-
-/** Shore station cells: the latest water level with a 7-day line (the tides), and the next predicted tide. */
-function levelCell(d: StationData): string {
-  if (AT != null) {
-    if (!d.level) return `<td class="na">&middot;</td>`;
-    const v = d.level.at(AT);
-    const dep = departure(d);
-    const spark = dep ? sparklineOf(dep, P.line, "ft against the prediction", 1) : "";
-    const p = predictedLevel(d, AT);
-    if (!Number.isFinite(v) && Number.isFinite(p))
-      return `<td class="fcst" title="Water level ${feet(p)} ft above MLLW, NOAA's prediction">${spark}<b>${feet(p)}<small class="g"> ft</small></b><small>predicted</small></td>`;
-    return atCell(v, `${feet(v)}<small class="g"> ft</small>`, `Water level ${feet(v)} ft above MLLW (preliminary)`, spark);
-  }
-  const lv = d.levelNow;
-  if (!lv) return `<td class="na">&middot;</td>`;
-  const state = obsState({ time: lv.time } as LastObs);
-  if (state === "offline") return `<td class="offline"><b>--</b><small>no recent level</small></td>`;
-  const dep = departure(d);
-  const spark = dep ? sparklineOf(dep, P.line, "ft against the prediction", 1) : "";
-  return `<td class="${state}" title="Water level ${feet(lv.ft)} ft above MLLW (preliminary), ${ago(lv.time)}">${spark}<b>${feet(lv.ft)}<small class="g"> ft</small></b><small>${ago(lv.time).replace(" ago", "")}</small></td>`;
-}
-
-function tideCell(d: StationData): string {
-  // At the cursor's time: the next predicted tide after it (predictions reach a few days ahead).
-  const e = AT != null ? d.tides.find((x) => Date.parse(x.t) > AT! * 1000) : nextTide(d);
-  if (!e) return `<td class="na">&middot;</td>`;
-  return `<td class="tide" title="Next predicted ${tideText(e)} above MLLW"><b>${e.type === "H" ? "High" : "Low"}</b><small>${fmtClock.format(new Date(e.t)).toLowerCase()} &middot; ${feet(e.ft)} ft</small></td>`;
-}
 
 /** Which table the overview shows: buoys or shore stations (remembered in this browser only). */
 type Group = StationData["kind"];
@@ -3301,38 +2927,8 @@ function statusGrid(stations: StationData[]): void {
     markOutlookRow();
     return;
   }
-  const buoys = stations.filter((d) => d.kind === "buoy");
-  const shore = stations.filter((d) => d.kind === "shore");
-  if (!shore.length) SG = "buoy";
-  const name = (d: StationData) => `<th scope="row"><a href="#${d.meta.id}"><i class="dot${d.kind === "shore" ? " shore" : ""} ${overallState(d)}"></i>${d.meta.name}</a></th>`;
-  const wind = `wind (${WIND_UNITS[WU].label})`;
-  const what = `${V().label.toLowerCase()} (${VK === "temp" ? "&deg;F" : unitName(VK)})`;
-  // Each view has its own columns: water views show the water; Wind and waves shows the weather and the sea.
-  const head = (cols: string[]) => `<thead><tr><th></th>${cols.map((c) => `<th scope="col">${c}</th>`).join("")}</tr></thead>`;
-  const open = (g: Group) => `<table class="status-grid" id="status-panel" role="tabpanel" aria-labelledby="stab-${g}">`;
-  const air = "air (&deg;F), pressure (mbar)";
-  const table =
-    SG === "buoy"
-      ? isWater(VK)
-        ? `${open("buoy")}<caption>${AT != null ? `${V().label} at ${atLabel(AT)}, west to east (${VK === "temp" ? "&deg;F" : unitName(VK)})` : `Latest readings, west to east: ${what}`}</caption>${head(DEPTHS.map((d) => DEPTH_LABEL[d]))}
-      <tbody>${buoys.map((d) => `<tr>${name(d)}${DEPTHS.map((dep) => cellHtml(d, dep)).join("")}</tr>`).join("")}</tbody></table>`
-        : `${open("buoy")}<caption>${AT != null ? `${atFuture() ? "Forecast" : "Weather and waves"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and waves (${waveUnit().label})${AT != null && atFuture() ? ` &middot; HRRR, raw${(() => { const f = stations.length ? forecastAt(stations[0].meta.id, hourOf(AT!)) : null; return f ? `, the ${fmtRun.format(new Date(f.issue * 1000))} run` : ""; })()} &middot; ${verTag(AT!, stations[0]?.meta.id)}` : ""}</caption>${head(["Wind", "Air", "Pressure", "Waves"])}
-      <tbody>${buoys.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${wavesCell(d)}</tr>`).join("")}</tbody></table>`
-      : isWater(VK)
-        ? `${open("shore")}<caption>${AT != null ? `Water at ${atLabel(AT)}` : "Latest readings"}, west to east: ${VK === "temp" ? "water temperature (&deg;F)" : `water temperature only (no ${V().label.toLowerCase()} sensors)`} and water level</caption>${head(["Water", "Level", "Next tide"])}
-      <tbody>${shore.map((d) => `<tr>${name(d)}${cellHtml(d, "SFC")}${levelCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`
-        : `${open("shore")}<caption>${AT != null ? `${atFuture() ? "Forecast" : "Weather"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and the next tide${AT != null && atFuture() ? ` &middot; HRRR, raw${(() => { const f = stations.length ? forecastAt(stations[0].meta.id, hourOf(AT!)) : null; return f ? `, the ${fmtRun.format(new Date(f.issue * 1000))} run` : ""; })()} &middot; ${verTag(AT!, stations[0]?.meta.id)}` : ""}</caption>${head(["Wind", "Air", "Pressure", "Next tide"])}
-      <tbody>${shore.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`;
-  const tab = (g: Group, label: string, n: number) =>
-    `<button type="button" role="tab" class="stab" id="stab-${g}" data-group="${g}" aria-selected="${SG === g}" aria-controls="status-panel" tabindex="${SG === g ? 0 : -1}">${label}<small>${n}</small></button>`;
-  const key =
-    SG === "buoy"
-      ? `<i class="dot live"></i>under ${DELAYED_HOURS}h old <i class="dot delayed"></i>under ${OFFLINE_HOURS}h <i class="dot partial"></i>weather only <i class="dot offline"></i>offline`
-      : `<i class="dot shore live"></i>under ${DELAYED_HOURS}h old <i class="dot shore delayed"></i>under ${OFFLINE_HOURS}h <i class="dot shore offline"></i>offline &middot; levels in feet above mean lower low water, preliminary; tides are NOAA predictions`;
-  $("status").innerHTML = `
-    ${shore.length ? `<div class="status-tabs" role="tablist" aria-label="Stations">${tab("buoy", "Buoys", buoys.length)}${tab("shore", "Shore stations", shore.length)}</div>` : ""}
-    ${table}
-    <p class="status-key">${key} &middot; lines: last 7 days, each stretched to its own range</p>${isWater(VK) ? usgsWqHtml() : ""}${outlookHtml(stations)}${soundWindHtml(stations)}`;
+  if (!stations.some((d) => d.kind === "shore")) SG = "buoy";
+  $("status").innerHTML = `${stationTables(stations, SG)}${isWater(VK) ? usgsWqHtml() : ""}${outlookHtml(stations)}${soundWindHtml(stations)}`;
   markOutlookRow();
 }
 
@@ -3452,82 +3048,6 @@ async function wireTimeline(box: HTMLElement): Promise<void> {
   void syncPhase(tl.position().scale === "hours");
 }
 
-/** A station's map pin: its latest readings, or its observations at the timeline cursor's time. */
-function stationPin(d: StationData): Pin {
-  if (d.kind === "airport") return airportPin(d);
-  const dep = d.depths.includes("SFC") ? "SFC" : d.depths[0];
-  const kind = d.kind === "shore" ? ("shore" as const) : ("buoy" as const);
-  const base = { id: d.meta.id, name: d.meta.name, lat: d.meta.lat, lon: d.meta.lon, kind };
-  const k: VarKey = d.kind === "shore" || !isWater(VK) ? "temp" : VK;
-  if (VK === "tides" && d.kind === "shore") {
-    if (AT == null) {
-      const lv = d.levelNow;
-      const dep = lastValue(departure(d));
-      const hi = d.tides.find((e) => e.type === "H" && Date.parse(e.t) > Date.now());
-      const label = [
-        lv ? `Water ${feet(lv.ft)} ft, ${ago(lv.time)}` : "no recent level",
-        Number.isFinite(dep) ? `${signedFt(dep)} ft against the prediction` : "",
-        hi ? `next high ${hi.ft.toFixed(1)} ft ${fmtWhenMin.format(new Date(hi.t))}` : "",
-      ].filter(Boolean).join("<br>");
-      return { ...base, state: overallState(d), label, bar: dep };
-    }
-    const h = Math.floor(AT / HOUR) * HOUR;
-    const dep = departure(d)?.at(h) ?? NaN;
-    const lv = d.level?.at(h) ?? NaN;
-    const label = Number.isFinite(lv)
-      ? `Water ${feet(lv)} ft, ${Number.isFinite(dep) ? `${signedFt(dep)} ft against the prediction` : ""}<br>observed ${atLabel(AT)}`
-      : `predicted ${feet(predictedHour(d.meta.id, h))} ft<br>${atLabel(AT)}`;
-    return { ...base, state: overallState(d), label, bar: dep };
-  }
-  if (AT != null && atFuture()) {
-    const f = forecastAt(d.meta.id, AT);
-    if (f) {
-      const u = WIND_UNITS[WU].label;
-      const label = `Forecast: wind ${windArrow(f.dir, f.spd < LIGHT_KT)}${compass(f.dir)} ${windFmt(f.spd)} ${u}, gusts ${windFmt(f.gust)}${Number.isFinite(f.air) ? `<br>air ${Math.round(f.air)}&deg;F` : ""}<br>HRRR, ${f.lead} h ahead, typically &plusmn;${windFmt(f.err)} ${u}<br>${atLabel(AT)}`;
-      return { ...base, state: overallState(d), label };
-    }
-  }
-  if (AT != null) {
-    const water = valueAt(d, k, dep, AT);
-    const wind = d.met?.wind?.at(AT) ?? NaN;
-    const dir = d.met?.dir?.at(AT) ?? NaN;
-    const parts = [
-      Number.isFinite(water) ? `${d.kind === "shore" ? "Water" : DEPTH_LABEL[dep]} ${pinValue(k, water)}` : "",
-      Number.isFinite(wind) ? `wind ${Number.isFinite(dir) ? windArrow(dir, wind < LIGHT_KT) + compass(dir) + " " : ""}${windFmt(wind)} ${WIND_UNITS[WU].label}` : "",
-    ].filter(Boolean);
-    // A buoy without its own wind at that hour: the model under the fault, marked as such.
-    const f = !Number.isFinite(wind) ? hrrrStandIn(d, AT) : null;
-    const model = f ? `<i>Model, not measured: wind ${compass(f.dir)} ${windFmt(f.spd)} ${WIND_UNITS[WU].label} (HRRR)</i>` : "";
-    const label = parts.length
-      ? `${parts.join("<br>")}<br>observed ${atLabel(AT)}${model ? `<br>${model}` : ""}`
-      : `no ${atFuture() ? "forecast" : "reading"} at ${atLabel(AT)}${model ? `<br>${model}` : ""}`;
-    return { ...base, state: parts.length ? overallState(d) : "offline", label };
-  }
-  const o = d.obs[dep];
-  const lv = o ? WATER_VARS[k].obs(o) : null;
-  const state = overallState(d);
-  const w = d.met?.last;
-  const wind = w && w.wind_kt != null ? `wind ${w.dir_deg != null ? windArrow(w.dir_deg, w.wind_kt < LIGHT_KT) + compass(w.dir_deg) + " " : ""}${windFmt(w.wind_kt)} ${WIND_UNITS[WU].label}, ${ago(w.time)}` : "";
-  const reading =
-    state === "partial"
-      ? `Weather live: ${wind}<br>Water quality offline${o ? ` since ${fmtDate.format(new Date(o.time))}` : ""}`
-      : o && lv != null
-        ? `${DEPTH_LABEL[dep]} ${pinValue(k, lv)}, ${ago(o.time)}${wind ? `<br>${wind}` : ""}`
-        : "no reading";
-  const waves = wavesText(d.meta.id, true);
-  let label = waves ? `${reading}<br>Waves: ${waves}` : reading.replace(/^Surface /, d.kind === "shore" ? "Water " : "Surface ");
-  if (d.kind === "buoy" && (!w || obsState({ time: w.time } as LastObs) === "offline")) {
-    const f = hrrrStandIn(d, Date.now() / 1000);
-    const m = nwpsAt(d.meta.id, hourOf(Date.now() / 1000));
-    const model = [
-      f ? `wind ${compass(f.dir)} ${windFmt(f.spd)} ${WIND_UNITS[WU].label} (HRRR)` : "",
-      m && wavesOf(d.meta.id)?.sensor ? `waves ${waveFmt(m.hs)} ${waveUnit().label} (NWPS)` : "",
-    ].filter(Boolean);
-    if (model.length) label += `<br><i>Model, not measured: ${model.join(", ")}</i>`;
-  }
-  const tide = d.kind === "shore" && nextTide(d) ? `<br>Next ${tideText(nextTide(d)!)}` : "";
-  return { ...base, state, label: label + tide };
-}
 
 /** The masthead advisory's click on this page: switch to the Wind view, as its tab does, without scrolling (the
  * banner stays in sight; the advisories run along "Wind across the Sound" under the table). */
@@ -5260,27 +4780,6 @@ function airportStations(a: AsosFile): StationData[] {
   return out;
 }
 
-/** An airport's pin: its wind (measured, or HRRR ahead of now), in any view. */
-function airportPin(d: StationData): Pin {
-  const base = { id: d.meta.id, name: d.meta.name, lat: d.meta.lat, lon: d.meta.lon, kind: "shore" as const };
-  const u = WIND_UNITS[WU].label;
-  if (AT != null && atFuture()) {
-    const f = forecastAt(d.meta.id, AT);
-    if (f) return { ...base, state: overallState(d), label: `Forecast: wind ${windArrow(f.dir, f.spd < LIGHT_KT)}${compass(f.dir)} ${windFmt(f.spd)} ${u}, gusts ${windFmt(f.gust)}<br>HRRR, ${f.lead} h ahead<br>${atLabel(AT)}` };
-  }
-  if (AT != null) {
-    const wind = d.met?.wind?.at(AT) ?? NaN;
-    const dir = d.met?.dir?.at(AT) ?? NaN;
-    return Number.isFinite(wind)
-      ? { ...base, state: overallState(d), label: `Airport wind ${Number.isFinite(dir) ? windArrow(dir, wind < LIGHT_KT) + compass(dir) + " " : ""}${windFmt(wind)} ${u}<br>observed ${atLabel(AT)}` }
-      : { ...base, state: "offline", label: `no reading at ${atLabel(AT)}` };
-  }
-  const w = d.met?.last;
-  const label = w && w.wind_kt != null
-    ? `Airport wind ${w.dir_deg != null ? windArrow(w.dir_deg, w.wind_kt < LIGHT_KT) + compass(w.dir_deg) + " " : ""}${windFmt(w.wind_kt)} ${u}${w.gust_kt != null ? `, gusts ${windFmt(w.gust_kt)}` : ""}, ${ago(w.time)}${w.air_f != null ? `<br>air ${Math.round(w.air_f)}&deg;F` : ""}`
-    : "no recent report";
-  return { ...base, state: overallState(d), label };
-}
 
 /* ---------- USGS water quality at the shore (a separate source from the buoys) ---------- */
 let USGS_WQ: UsgsTidal | null = null;
@@ -5335,6 +4834,28 @@ function usgsWqHtml(): string {
 const SHORE: ShoreMetaStation[] = shoreRegistry.stations
   .map((s) => ({ ...s, note: (s as { note?: string }).note ?? null, record_start: `${s.record_start_year}-01-01T00:00:00Z` }))
   .sort((a, b) => a.lon - b.lon);
+
+/** The cells and pins (waterway/cells.ts) read the page's view, colours and models through these. */
+configureCells({
+  view: () => VK,
+  palette: () => P,
+  forecastAt,
+  typicalError,
+  standIn: hrrrStandIn,
+  loadWaves: () => {
+    if (!NWPS) void loadNwps();
+  },
+  wavesAt: nwpsAt,
+  waveSensor: wavesOf,
+  wavePanel: (id) => panelsOf(id).waves,
+  wavesText,
+  lastWave,
+  wavesPublished: (id) => !!WAVE_LIVE[id]?.published,
+  tidePred: (id) => TIDES?.[id]?.pred,
+  departure,
+  predictedHour,
+  verTag,
+});
 
 async function main(): Promise<void> {
   P = PALETTES[currentTheme()];

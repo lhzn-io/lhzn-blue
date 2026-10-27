@@ -9,6 +9,7 @@ import { waveFmt, waveUnit, WIND_UNITS, windFmt, WU } from "./units";
 import { nextTide, obsState, stationState, type StationData } from "./station-data";
 import { runText } from "./cells";
 import { M } from "./models";
+import { departure, TIDES } from "./tides";
 import { standIn } from "./forecast";
 import { loadNwps, NWPS, nwpsAt } from "./nwps";
 
@@ -143,15 +144,15 @@ function levelReadout(d: StationData): string {
 function tidesReadouts(d: StationData): string[] {
   const lv = d.levelNow;
   const state = lv ? obsState({ time: lv.time } as LastObs) : "offline";
-  const dep = lastValue(M.departure(d));
+  const dep = lastValue(departure(d));
   const out: string[] = [];
   out.push(Number.isFinite(dep) && state !== "offline"
     ? readoutHtml(`${signedFt(dep)}<small>ft</small>`, "Departure from prediction", "dep", `observed minus ${d.meta.operator === "USGS" ? "our fitted prediction" : "NOAA's prediction"}${lv ? ` &middot; ${ago(lv.time)}` : ""}`, state,
-        contextLine(M.departure(d), "departure", (v) => `${v.toFixed(1)} ft`))
+        contextLine(departure(d), "departure", (v) => `${v.toFixed(1)} ft`))
     : readoutHtml("--", "Departure from prediction", "dep", "no current reading", "offline"));
   out.push(readoutHtml(`${lv ? lv.ft.toFixed(1) : "--"}<small>ft</small>`, "Water level", "tide", `above MLLW${lv ? ` &middot; ${ago(lv.time)}` : ""}`, state));
   const hi = d.tides.find((e) => e.type === "H" && Date.parse(e.t) > Date.now());
-  const minor = M.floodMinor(d.meta.id);
+  const minor = (TIDES?.[d.meta.id]?.flood_ft?.nws_minor ?? null);
   if (hi && minor != null) {
     const reach = hi.ft + (Number.isFinite(dep) ? dep : 0);
     out.push(readoutHtml(`${(minor - reach).toFixed(1)}<small>ft</small>`, "Below minor flood", "hilo",

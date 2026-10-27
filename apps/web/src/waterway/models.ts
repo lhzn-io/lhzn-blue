@@ -1,8 +1,8 @@
 /** What a waterway page supplies to the engine's cells, readouts and figures: its view and colours, and what is still
- * its own at a station (wave sensors, the tide predictions). Set once, before the first table; read `M` live. Each
+ * its own at a station (its wave sensors). Set once, before the first table; read `M` live. Each
  * model moves into the engine in a later stage, and this shrinks with it. */
-import type { Hourly, WaveObs } from "../series";
-import type { StationData, VarKey } from "./station-data";
+import type { WaveObs } from "../series";
+import type { VarKey } from "./station-data";
 
 export interface PageModels {
   view(): VarKey;
@@ -12,10 +12,6 @@ export interface PageModels {
   wavesText(id: string, short?: boolean): string;
   lastWave(id: string): WaveObs | null;
   wavesPublished(id: string): boolean;
-  tidePred(id: string): { t0: string; step: number; ft: (number | null)[] } | undefined;
-  departure(d: StationData): Hourly | null; // observed minus predicted water level, hourly
-  predictedHour(id: string, t: number): number;
-  floodMinor(id: string): number | null; // NWS minor flood level at a shore station, ft above MLLW
 }
 
 export let M: PageModels;

@@ -10,6 +10,7 @@ import { FORECAST_PAGE } from "./data";
 import { FCST, forecastAt, hrrrAsOf, loadForecast, runSpread } from "./forecast";
 import { loadNwps, NWPS, nwpsAsOf, nwpsAt } from "./nwps";
 import { M } from "./models";
+import { TIDES } from "./tides";
 
 // "Sat 1 PM": the weekday and the hour, without Intl's comma.
 const fmtHourET = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" });
@@ -68,7 +69,7 @@ function olSpark(ts: number[], ys: number[], t0: number, mark: "max" | "min"): s
 /** The tide on the same axis: NOAA's predicted water level as a curve (it shows the unequal highs of the day), with
  * a tick at each high, amber where the high comes within 1 ft of the NWS minor flood level. */
 function olTides(g: StationData | undefined, t0: number): string {
-  const p = g ? M.tidePred(g.meta.id) : undefined;
+  const p = g ? TIDES?.[g.meta.id]?.pred : undefined;
   if (!g || !p) return `<span class="ol-spark"></span>`;
   const p0 = Date.parse(p.t0) / 1000;
   const ts: number[] = [];
@@ -92,7 +93,7 @@ function olTides(g: StationData | undefined, t0: number): string {
     path += `${pen ? "L" : "M"}${olX(t, t0).toFixed(1)},${y(ys[i]).toFixed(1)}`;
     pen = true;
   });
-  const minor = M.floodMinor(g.meta.id);
+  const minor = (TIDES?.[g.meta.id]?.flood_ft?.nws_minor ?? null);
   const ticks = g.tides
     .filter((e) => e.type === "H" && Date.parse(e.t) / 1000 > t0 && Date.parse(e.t) / 1000 <= t0 + 48 * HOUR)
     .map((e) => {

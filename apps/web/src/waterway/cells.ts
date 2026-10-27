@@ -13,6 +13,7 @@ import {
   type FcValue, type StationData, type VarKey,
 } from "./station-data";
 import { M } from "./models";
+import { departure, predictedHour, TIDES } from "./tides";
 import { forecastAt, standIn, typicalError, verTag } from "./forecast";
 import { loadNwps, NWPS, nwpsAt } from "./nwps";
 
@@ -233,7 +234,7 @@ export function pressureCell(d: StationData): string {
 
 /** NOAA's predicted water level at a time (ft above MLLW), linear between its hourly values; NaN outside them. */
 export function predictedLevel(d: StationData, t: number): number {
-  const p = M.tidePred(d.meta.id);
+  const p = TIDES?.[d.meta.id]?.pred;
   if (!p) return NaN;
   const k = (t - Date.parse(p.t0) / 1000) / p.step, i = Math.floor(k);
   const a = p.ft[i], b = p.ft[i + 1];
@@ -245,7 +246,7 @@ export function levelCell(d: StationData): string {
   if (AT != null) {
     if (!d.level) return `<td class="na">&middot;</td>`;
     const v = d.level.at(AT);
-    const dep = M.departure(d);
+    const dep = departure(d);
     const spark = dep ? sparklineOf(dep, M.palette().line, "ft against the prediction", 1) : "";
     const p = predictedLevel(d, AT);
     if (!Number.isFinite(v) && Number.isFinite(p))
@@ -256,7 +257,7 @@ export function levelCell(d: StationData): string {
   if (!lv) return `<td class="na">&middot;</td>`;
   const state = obsState({ time: lv.time } as LastObs);
   if (state === "offline") return `<td class="offline"><b>--</b><small>no recent level</small></td>`;
-  const dep = M.departure(d);
+  const dep = departure(d);
   const spark = dep ? sparklineOf(dep, M.palette().line, "ft against the prediction", 1) : "";
   return `<td class="${state}" title="Water level ${feet(lv.ft)} ft above MLLW (preliminary), ${ago(lv.time)}">${spark}<b>${feet(lv.ft)}<small class="g"> ft</small></b><small>${ago(lv.time).replace(" ago", "")}</small></td>`;
 }
@@ -278,7 +279,7 @@ export function stationPin(d: StationData): Pin {
   if (M.view() === "tides" && d.kind === "shore") {
     if (AT == null) {
       const lv = d.levelNow;
-      const dep = lastValue(M.departure(d));
+      const dep = lastValue(departure(d));
       const hi = d.tides.find((e) => e.type === "H" && Date.parse(e.t) > Date.now());
       const label = [
         lv ? `Water ${feet(lv.ft)} ft, ${ago(lv.time)}` : "no recent level",
@@ -288,11 +289,11 @@ export function stationPin(d: StationData): Pin {
       return { ...base, state: overallState(d), label, bar: dep };
     }
     const h = Math.floor(AT / HOUR) * HOUR;
-    const dep = M.departure(d)?.at(h) ?? NaN;
+    const dep = departure(d)?.at(h) ?? NaN;
     const lv = d.level?.at(h) ?? NaN;
     const label = Number.isFinite(lv)
       ? `Water ${feet(lv)} ft, ${Number.isFinite(dep) ? `${signedFt(dep)} ft against the prediction` : ""}<br>observed ${atLabel(AT)}`
-      : `predicted ${feet(M.predictedHour(d.meta.id, h))} ft<br>${atLabel(AT)}`;
+      : `predicted ${feet(predictedHour(d.meta.id, h))} ft<br>${atLabel(AT)}`;
     return { ...base, state: overallState(d), label, bar: dep };
   }
   if (AT != null && atFuture()) {

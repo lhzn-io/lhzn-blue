@@ -2,6 +2,16 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://longhorizon.blue/</loc></url>
   <url><loc>https://longhorizon.blue/long-island-sound/</loc><changefreq>hourly</changefreq></url>
+  <url><loc>https://longhorizon.blue/long-island-sound/wlis/</loc><changefreq>hourly</changefreq></url>
+  <url><loc>https://longhorizon.blue/long-island-sound/exrx/</loc><changefreq>hourly</changefreq></url>
+  <url><loc>https://longhorizon.blue/long-island-sound/artg/</loc><changefreq>hourly</changefreq></url>
+  <url><loc>https://longhorizon.blue/long-island-sound/clis/</loc><changefreq>hourly</changefreq></url>
+  <url><loc>https://longhorizon.blue/long-island-sound/kptn/</loc><changefreq>hourly</changefreq></url>
+  <url><loc>https://longhorizon.blue/long-island-sound/brpt/</loc><changefreq>hourly</changefreq></url>
+  <url><loc>https://longhorizon.blue/long-island-sound/nwhv/</loc><changefreq>hourly</changefreq></url>
+  <url><loc>https://longhorizon.blue/long-island-sound/nlon/</loc><changefreq>hourly</changefreq></url>
+  <url><loc>https://longhorizon.blue/long-island-sound/kbdr/</loc><changefreq>hourly</changefreq></url>
+  <url><loc>https://longhorizon.blue/long-island-sound/khvn/</loc><changefreq>hourly</changefreq></url>
   <url><loc>https://longhorizon.blue/long-island-sound/forecast/</loc><changefreq>daily</changefreq></url>
   <url><loc>https://longhorizon.blue/long-island-sound/models/</loc><changefreq>hourly</changefreq></url>
   <url><loc>https://longhorizon.blue/about/</loc></url>

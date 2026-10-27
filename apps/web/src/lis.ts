@@ -1,5 +1,5 @@
-/** The Long Island Sound page (/long-island-sound/): the engine's waterway page (waterway/page.ts), mounted with the
- * Sound's config, its data adapter and its own parts. */
+/** The Long Island Sound page (/long-island-sound/, and a page per station at /long-island-sound/<station>/): the
+ * engine's waterway page (waterway/page.ts), mounted with the Sound's config, its data adapter and its own parts. */
 import "./site.css";
 import "./away-links";
 
@@ -18,4 +18,4 @@ mountWaterwayPage(LONG_ISLAND_SOUND, {
   shoreTable: usgsWqHtml,
   shoreData: (u) => setUsgsWq(u as adapter.UsgsTidal | null),
   diagram: { configure: configureSchematic, sync: syncSchematic },
-});
+}, { stationPages: { base: "/long-island-sound/" } });

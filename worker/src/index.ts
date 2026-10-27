@@ -7,8 +7,17 @@
  * goes to people reading the page.
  */
 
+import buoys from "../../stations/stations.json";
+import shore from "../../stations/shore.json";
+import airports from "../../stations/asos.json";
+
 interface KV {
   get(key: string, options: { type: "stream"; cacheTtl?: number }): Promise<ReadableStream | null>;
+}
+
+declare class HTMLRewriter {
+  on(selector: string, handlers: { element(el: { setAttribute(name: string, value: string): void }): void }): HTMLRewriter;
+  transform(res: Response): Response;
 }
 
 interface RateLimit {
@@ -106,20 +115,33 @@ async function data(req: Request, env: Env, path: string): Promise<Response> {
 }
 
 // Waterway pages with a page per station: /<waterway>/<station>/ is the waterway's own page, which reads the station
-// from the path (so a station's address can be shared and Back works without page code).
-const WATERWAYS = new Set(["piscataqua-region"]);
-const STATION_PATH = /^\/([a-z0-9-]+)\/([a-z0-9-]{2,20})\/?$/;
+// from the path (so a station's address can be shared and Back works without page code). The Sound has pages of its
+// own at that depth (forecast, tides, models), so its station paths are its stations; elsewhere the page sends an
+// unknown station back to the overview.
+const ids = (...files: { stations: { id: string }[] }[]) => new Set(files.flatMap((f) => f.stations.map((s) => s.id.toLowerCase())));
+const WATERWAYS: Record<string, Set<string> | null> = {
+  "long-island-sound": ids(buoys, shore, airports),
+  "piscataqua-region": null,
+};
+const STATION_PATH = /^\/([a-z0-9-]+)\/([a-z0-9-]{2,20})\/?$/i;
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname.startsWith("/data/")) return data(req, env, url.pathname);
     const m = STATION_PATH.exec(url.pathname);
-    if (m && WATERWAYS.has(m[1])) {
-      if (!url.pathname.endsWith("/")) return Response.redirect(`${url.origin}${url.pathname}/${url.search}`, 301);
+    const stations = m && Object.hasOwn(WATERWAYS, m[1]) ? WATERWAYS[m[1]] : undefined;
+    if (m && stations !== undefined && (!stations || stations.has(m[2].toLowerCase()))) {
+      // One address per station: lower case, with the trailing slash.
+      const path = `/${m[1]}/${m[2].toLowerCase()}/`;
+      if (url.pathname !== path) return Response.redirect(`${url.origin}${path}${url.search}`, 301);
       const page = new URL(url);
       page.pathname = `/${m[1]}/`;
-      return env.ASSETS.fetch(new Request(page, req));
+      const res = await env.ASSETS.fetch(new Request(page, req));
+      // The station's own address as the canonical one (the page's says the waterway's).
+      return new HTMLRewriter()
+        .on('link[rel="canonical"]', { element: (el) => el.setAttribute("href", `https://longhorizon.blue${path}`) })
+        .transform(res);
     }
     return env.ASSETS.fetch(req);
   },

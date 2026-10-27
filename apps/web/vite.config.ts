@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { defineConfig, loadEnv, type Plugin } from "vite";
@@ -10,10 +11,12 @@ function localData(stationPages: string[]): Plugin {
   return {
     name: "local-data",
     configureServer(server) {
-      // A waterway's station pages (<base><station>/) are its own page, as the Worker serves them.
+      // A waterway's station pages (<base><station>/) are its own page, as the Worker serves them; a path with a page
+      // of its own (the Sound's forecast, tides and models) stays that page.
       server.middlewares.use((req, _res, next) => {
         const [path, query] = (req.url ?? "").split("?");
-        const base = stationPages.find((b) => path.startsWith(b) && /^[a-z0-9-]{2,20}\/$/.test(path.slice(b.length)));
+        const own = existsSync(resolve(import.meta.dirname, `.${path}`, "index.html"));
+        const base = !own && stationPages.find((b) => path.startsWith(b) && /^[a-z0-9-]{2,20}\/$/.test(path.slice(b.length)));
         if (base) req.url = base + (query ? `?${query}` : "");
         next();
       });
@@ -31,11 +34,11 @@ function localData(stationPages: string[]): Plugin {
 }
 
 // Pages: the landing page, one page per waterway, the about page, the terms and the references. Station pages are served
-// under /piscataqua-region/; more bases for local work come from LHZN_STATION_PAGES (comma-separated) in a git-ignored
-// .env.local.
+// under /long-island-sound/ and /piscataqua-region/; more bases for local work come from LHZN_STATION_PAGES
+// (comma-separated) in a git-ignored .env.local.
 export default defineConfig(({ mode }) => ({
   base: "/",
-  plugins: [localData(["/piscataqua-region/", ...(loadEnv(mode, import.meta.dirname, "").LHZN_STATION_PAGES ?? "").split(",").map((s) => s.trim()).filter(Boolean)])],
+  plugins: [localData(["/long-island-sound/", "/piscataqua-region/", ...(loadEnv(mode, import.meta.dirname, "").LHZN_STATION_PAGES ?? "").split(",").map((s) => s.trim()).filter(Boolean)])],
   server: { fs: { allow: [REPO] } },
   build: {
     target: "es2022",

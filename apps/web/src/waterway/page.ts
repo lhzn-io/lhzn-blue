@@ -58,7 +58,7 @@ const onStation = (d: StationData) => !STATION_ID || d.meta.id === STATION_ID;
 /** Move to a station's page (or the overview, null) within the page; null until the page has loaded. */
 let goToPlace: ((id: string | null, push: boolean) => Promise<void>) | null = null;
 /** The masthead and title as the page has them, for the way back to the overview. */
-let MAST: { top: string; bottom: string; title: string } | null = null;
+let MAST: { top: string; bottom: string; title: string; canonical: string } | null = null;
 
 let DATA = "";
 const $ = (id: string) => document.getElementById(id)!;
@@ -1856,6 +1856,14 @@ async function main(): Promise<void> {
       void syncMap();
       void import("../map").then((m) => m.focusOn(d ? { lon: d.meta.lon, lat: d.meta.lat } : null, true));
     };
+    // A link from before station pages (#EXRX, or ?view=wind#EXRX-wind, on the overview) opens that station's page,
+    // keeping a plot's anchor so the page still scrolls to it.
+    const old = PAGES && !STATION_ID && !EMBED ? decodeURIComponent(location.hash.slice(1)) : "";
+    const oldId = old.split("-")[0];
+    if (oldId && hasPage(oldId)) {
+      await goToPlace(oldId, false);
+      if (STATION_ID === oldId) history.replaceState(null, "", `${placeUrl(oldId)}${old === oldId ? "" : `#${old}`}`);
+    }
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && mapWide && !document.querySelector("dialog[open]")) {
         mapWide = false;
@@ -2053,16 +2061,18 @@ function wirePlaces(): void {
   }, true);
 }
 
-/** A station's page names it: the waterway above, the station in the wordmark and the title. An unknown station goes
- * back to the overview. */
+/** A station's page names it: the waterway above, the station in the wordmark and the title, and its own address as
+ * the canonical one. An unknown station goes back to the overview. */
 function markStationPage(): void {
   const top = document.querySelector(".wm-top");
   const bottom = document.querySelector(".wm-bottom");
-  MAST ??= { top: top?.textContent ?? "", bottom: bottom?.textContent ?? "", title: document.title };
+  const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  MAST ??= { top: top?.textContent ?? "", bottom: bottom?.textContent ?? "", title: document.title, canonical: canonical?.href ?? "" };
   if (!STATION_ID) {
     if (top) top.textContent = MAST.top;
     if (bottom) bottom.textContent = MAST.bottom;
     document.title = MAST.title;
+    if (canonical) canonical.href = MAST.canonical;
     return;
   }
   const d = STATIONS.find((s) => s.meta.id === STATION_ID);
@@ -2073,6 +2083,7 @@ function markStationPage(): void {
   if (top) top.textContent = CFG.name.toUpperCase();
   if (bottom) bottom.textContent = d.meta.name.toUpperCase();
   document.title = `${d.meta.name} | ${CFG.name} (alpha) | longhorizon.blue`;
+  if (canonical && MAST.canonical) canonical.href = new URL(`${d.meta.id.toLowerCase()}/`, MAST.canonical).href;
 }
 
 /** The station an address is for (null on the overview). */

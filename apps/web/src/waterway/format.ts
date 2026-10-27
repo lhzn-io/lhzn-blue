@@ -40,3 +40,12 @@ export const noComma = (f: Intl.DateTimeFormat) => ({ format: (d: Date) => f.for
 export const fmtWhen = noComma(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" }));
 export const fmtWhenMin = noComma(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" }));
 export const hourOf = (t: number) => Math.floor(t / HOUR) * HOUR;
+
+export const etClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+export const etDayClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+export const etKey = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+/** New York time, short: "2:20 PM" today, "Oct 8, 3:15 AM" otherwise. */
+export function fmtEt(iso: string): string {
+  const d = new Date(iso);
+  return etKey.format(d) === etKey.format(new Date()) ? etClock.format(d) : etDayClock.format(d);
+}

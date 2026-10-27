@@ -2,7 +2,7 @@
  * builder for the chart), its legend, and the zoom view any figure opens into (wheel or pinch to zoom, drag to pan,
  * the full record a click away). The page keeps its registry of figures and hands the zoom view a host. */
 import { highlight, renderLines, type ChartOptions } from "../chart";
-import { DAY, type Hourly } from "../series";
+import { COVERAGE_MIN, DAY, type Hourly, type YearLine } from "../series";
 import type { StationData, VarKey } from "./station-data";
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -255,4 +255,12 @@ export function wireZoom(host: ZoomHost): void {
 /** Redraw the zoom view if it is open (after data or units change). */
 export function redrawZoom(): void {
   if (zoom) drawZoom();
+}
+
+/** Years drawn: this year whenever it has data, earlier years only with enough coverage. Years with no
+ * data at all in the window (for example during an outage) are neither drawn nor listed. */
+export function visibleYears(lines: YearLine[]): { shown: YearLine[]; hidden: YearLine[] } {
+  const shown = lines.filter((l) => (l.offset === 0 ? l.coverage > 0 : l.coverage >= COVERAGE_MIN));
+  const hidden = lines.filter((l) => l.offset > 0 && l.coverage > 0 && l.coverage < COVERAGE_MIN);
+  return { shown, hidden };
 }

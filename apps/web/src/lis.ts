@@ -11,9 +11,8 @@ import { renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
 import { wireHints } from "./hints";
 import { chainButton, navigateTo, revealLinked, wireLinks } from "./links";
 import { compass, windGlyphs } from "./wind-dir";
-import { BUOY_SENSORS, METHODS, REF_LABELS } from "./methods";
-import { BOATS, boatIcon, boatLabel, boatPickerHtml, comfortTableHtml } from "./comfort-thresholds";
-import { mountCollect } from "./collect";
+import { BUOY_SENSORS } from "./methods";
+import { comfortTableHtml } from "./comfort-thresholds";
 import { smoothByAge } from "./trends";
 import type { FieldData, FieldKind, RasterHistory } from "./fields";
 import { wireSuggest } from "./suggest";
@@ -21,16 +20,16 @@ import {
   COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, oxygenStatus, yearLines,
   type Encoded, type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetWindow,
   type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type VarHistory, type WaveFrame,
-  type WaveHistory, type MetHistory, type WaveLive, type WaveObs, type YearLine, Daily, type RiverHistory, type RiverLive, type TurbHistory, type TurbFrame,
+  type WaveHistory, type MetHistory, type WaveLive, type WaveObs, Daily, type RiverHistory, type RiverLive, type TurbHistory, type TurbFrame,
 } from "./series";
 import { mountAdvisories } from "./advisory";
-import { ago, cToF, f1, fmtDate, fmtUtc, hourOf, hoursOld, signed, span, tideText } from "./waterway/format";
+import { ago, fmtDate, hourOf, hoursOld, signed } from "./waterway/format";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./waterway/cursor";
-import { DELAYED_HOURS, DEPTH_LABEL, DEPTHS, isWater, type Met, nextTide, obsState, OFFLINE_HOURS, overallState, type StationData, stationState, type TurbData, unitName, type VarKey, type VarView, WATER_VARS, type Waves } from "./waterway/station-data";
-import { atCell, stationPin, stationTables, valueAt } from "./waterway/cells";
+import { DELAYED_HOURS, DEPTH_LABEL, DEPTHS, isWater, type Met, obsState, OFFLINE_HOURS, overallState, type StationData, stationState, type TurbData, unitName, type VarKey, type VarView, WATER_VARS, type Waves } from "./waterway/station-data";
+import { atCell, stationPin, stationTables } from "./waterway/cells";
 import { configureModels } from "./waterway/models";
-import { type Built, type Fig, legendHtml, openZoom, redrawZoom, wireLegend, wireZoom } from "./waterway/figures";
-import { stationReadouts, stratNow } from "./waterway/readouts";
+import { type Built, type Fig, legendHtml, openZoom, redrawZoom, visibleYears, wireLegend, wireZoom } from "./waterway/figures";
+import { stationReadouts } from "./waterway/readouts";
 import { openAbout, wireAbout } from "./waterway/about";
 import { configureData, onModelData } from "./waterway/data";
 import { FCST, forecastAt, HRRR_HIST_LABEL, hrrrAsOf, hrrrHist, loadForecast, mountVintage } from "./waterway/forecast";
@@ -44,7 +43,13 @@ import { departureBuilt, departureRowsSvg, drawLadder, highestAheadHtml, hiloBui
 import { configureSchematic, syncSchematic } from "./waterways/sound-schematic";
 import { cfs, dailyFlow, ordinal, pct, percentileOf, riverFlow, riverSections } from "./waterway/rivers";
 import { gaugePins, riverReadoutsHtml, riverTable, wireRiverHover } from "./waterway/rivers-view";
-import { currentSpeed, setUnit, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./waterway/units";
+import { dropDown, wireMore } from "./waterway/phone-bar";
+import { updatedStrip, wireOutageIcon } from "./waterway/freshness";
+import { BOAT, wireBoat } from "./waterway/boat";
+import { wireLocate } from "./waterway/locate";
+import { embedMode } from "./waterway/embed";
+import { wireCollect } from "./waterway/prompt";
+import { currentSpeed, setUnit, waveUnit, WIND_UNITS, windVal, WU } from "./waterway/units";
 
 const DATA = "/data/v1";
 const $ = (id: string) => document.getElementById(id)!;
@@ -114,14 +119,6 @@ let P: Palette = PALETTES.dark;
 function currentTheme(): Theme {
   return document.documentElement.dataset.theme === "light" ? "light" : "dark";
 }
-const etClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
-const etDayClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-const etKey = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
-/** New York time, short: "2:20 PM" today, "Oct 8, 3:15 AM" otherwise. */
-function fmtEt(iso: string): string {
-  const d = new Date(iso);
-  return etKey.format(d) === etKey.format(new Date()) ? etClock.format(d) : etDayClock.format(d);
-}
 
 
 let VK: VarKey = "wind"; // a first visit opens on Wind & waves (the comfort map); a link or a remembered view wins
@@ -133,21 +130,8 @@ try {
 } catch {
   /* private mode: Wind & waves */
 }
-/** Embed mode (?embed=next48&station=WLIS, optionally &theme=dark or light): one station's one figure, live, for
- * another site to frame; the rest of the page is hidden and the map is not drawn. */
-const EMBED = (["next48", "yoy"] as const).find((k) => k === LINK.get("embed")) ?? null;
-const EMBED_STATION = (LINK.get("station") ?? "WLIS").toUpperCase();
-if (EMBED) {
-  VK = EMBED === "next48" ? "wind" : "temp";
-  document.body.classList.add("embed");
-  // The framing page sizes the iframe to the figure: {lhznEmbed: {height}} whenever the content's height changes.
-  new ResizeObserver(() => {
-    if (window.parent !== window) window.parent.postMessage({ lhznEmbed: { fig: EMBED, station: EMBED_STATION, height: document.querySelector("main")?.scrollHeight ?? document.body.scrollHeight } }, "*");
-  }).observe(document.body);
-  const th = LINK.get("theme");
-  if (th === "dark") delete document.documentElement.dataset.theme;
-  else if (th === "light") document.documentElement.dataset.theme = "light";
-}
+const { fig: EMBED, station: EMBED_STATION } = embedMode(LINK, "WLIS");
+if (EMBED) VK = EMBED === "next48" ? "wind" : "temp";
 const V = () => WATER_VARS[VK];
 
 
@@ -387,13 +371,6 @@ function shoreStation(st: ShoreMetaStation, frame: ShoreFrame | undefined, hist:
 /* ---------- State and derived values ---------- */
 
 
-/** Years drawn: this year whenever it has data, earlier years only with enough coverage. Years with no
- * data at all in the window (for example during an outage) are neither drawn nor listed. */
-function visibleYears(lines: YearLine[]): { shown: YearLine[]; hidden: YearLine[] } {
-  const shown = lines.filter((l) => (l.offset === 0 ? l.coverage > 0 : l.coverage >= COVERAGE_MIN));
-  const hidden = lines.filter((l) => l.offset > 0 && l.coverage > 0 && l.coverage < COVERAGE_MIN);
-  return { shown, hidden };
-}
 
 /** OKLCH to sRGB hex (for the year ramp). */
 function oklch(L: number, C: number, h: number): string {
@@ -1531,101 +1508,7 @@ function drawInline(d: StationData, key: Kind): void {
   if (key === "sb") drawWindStrip(d, x0, x1);
 }
 
-/* ---------- Freshness and notes ---------- */
 
-function updatedStrip(meta: Meta, live: Live): void {
-  const latest = Object.values(live.series)
-    .map((s) => s.last_obs?.time)
-    .filter((t): t is string => !!t)
-    .sort()
-    .pop();
-  const failing = Object.entries(live.datasets)
-    // Only datasets that were working before: a series in a known outage is explained in its own section.
-    .filter(([, s]) => s.last_error && s.last_ok && s.last_error.slice(0, 20) > s.last_ok)
-    .map(([k]) => k);
-  // The server itself down (the jobs could not connect at all): one plain note instead of a list of datasets, dated
-  // from the last fetch that worked. Only while the newest attempt failed, and only after 12 hours without a good fetch,
-  // so a passing hiccup does not raise the notice (a shorter gap shows in the strip as a failed fetch).
-  const lastOk = Object.values(live.datasets)
-    .map((s) => s.last_ok)
-    .filter((t): t is string => !!t)
-    .sort()
-    .pop();
-  const unreachable = Object.values(live.datasets).some((s) => s.last_error?.includes("ServerUnreachable") && (!s.last_ok || s.last_error.slice(0, 20) > s.last_ok));
-  const down = unreachable && (!lastOk || Date.parse(live.generated_at) - Date.parse(lastOk) > 12 * 3600e3);
-  const outage = $("outage");
-  const since = (t: string) =>
-    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(t));
-  // What UConn reported about the outage (by email, Oct 16, 2026); shown only while the server is unreachable.
-  const OPERATOR_NOTE = "UConn reports its data server is being upgraded, expected back by mid-November 2026; the Western Sound buoy has a hardware fault awaiting ship time (as of Oct 16).";
-  // While the server is down, the newest readings may be transcribed from LISICOS's panel images.
-  const transcribed = Object.values(live.series ?? {}).some((s) => s.last_obs?.source === "panel") ||
-    Object.values(live.met ?? {}).some((m) => m.last_obs?.source === "panel");
-  if (down) {
-    outage.textContent = `Buoy data unavailable from the server since ${lastOk ? since(lastOk) : "the last update"}.${transcribed ? " Readings since then are transcribed from the LISICOS station panels (provisional)." : ""} ${OPERATOR_NOTE}`;
-    // On phones the note is an icon in the masthead that opens it (styled in site.css).
-    $("outage-dialog-text").textContent = outage.textContent;
-    $("outage-pop").textContent = outage.textContent;
-    $("outage-icon").hidden = false;
-    outage.hidden = false;
-  }
-  const draw = () => {
-    // How stale the buoys were when the data was fetched, as a delta, rather than a second timestamp.
-    const fetched = Date.parse(live.generated_at);
-    const parts = [
-      `<b>Updated</b>${fmtEt(live.generated_at)} <span class="ago">(${span(fetched, Date.now())} ago)</span>`,
-      latest ? `buoys ${span(Date.parse(latest), fetched)} behind` : "no recent buoy reading",
-    ];
-    if (down) parts.push(`<span class="warn">buoy data unavailable since ${lastOk ? since(lastOk) : "the last update"}</span>`);
-    else if (failing.length) parts.push(`<span class="warn">fetch failed: ${failing.join(", ")}</span>`);
-    $("updated").innerHTML = parts.join(`<span class="sep">&middot;</span>`);
-    // The bar: a dot and the age; the buoys' lag only past its usual hour or two; the exact times in the hint.
-    const fresh = $("fresh");
-    const age = Date.now() - fetched;
-    const lag = latest ? fetched - Date.parse(latest) : Infinity;
-    const lagging = lag > 2 * 3600_000;
-    const state = age > 24 * 3600_000 ? "offline" : failing.length || lagging || age > 3 * 3600_000 ? "delayed" : "live";
-    const note = down ? "buoys unavailable" : failing.length ? "fetch failed" : !latest ? "no recent buoy reading" : lagging ? `buoys ${span(Date.parse(latest), fetched)} behind` : "";
-    fresh.innerHTML = `<i class="dot ${state}"></i>${span(fetched, Date.now())}<span class="fresh-long">&nbsp;ago</span>${note ? `<span class="lag">${note}</span>` : ""}`;
-    fresh.title =
-      `Fetched ${fmtEt(live.generated_at)}` + (latest ? ` · latest buoy reading ${fmtEt(latest)}` : "") + ` · history rebuilt ${fmtEt(meta.generated_at)} (New York time)`;
-    fresh.setAttribute("aria-label", `Data fetched ${span(fetched, Date.now())} ago${note ? `, ${note}` : ""}`);
-    $("updated").title =
-      `Fetched ${fmtEt(live.generated_at)}` +
-      (latest ? `; latest buoy reading ${fmtEt(latest)}` : "") +
-      `; history rebuilt ${fmtEt(meta.generated_at)} (New York time)` +
-      (down ? "; buoy data unavailable" : failing.length ? `; the last fetch failed for ${failing.join(", ")}, so those show the last good values` : "") +
-      ".";
-  };
-  draw();
-  window.setInterval(draw, 60_000);
-  dropDown($("fresh"), $("updated"));
-}
-
-/** The phone menu: About (the drawer), Collect (the tray, which shows the "+" marks), units and the theme. While
- * plots are collected the menu button carries their count, so the tray stays one tap away. */
-function wireMore(): void {
-  const btn = $("more-menu");
-  const setOpen = dropDown(btn, $("more-pop"));
-  $("more-pop").addEventListener("click", (e) => {
-    const what = (e.target as HTMLElement).closest<HTMLElement>("[data-more]")?.dataset.more;
-    if (!what) return;
-    setOpen(false);
-    if (what === "theme") $("theme-toggle").click();
-    else if (what === "collect") window.setTimeout(() => $("collect-open").click());
-    else if (what === "locate") return; // its own handler (wireLocate)
-    // "About" is a link to /about/; "Forecast verification" a link too.
-  });
-  const count = $("collect-count");
-  const show = () => {
-    const n = count.textContent?.trim() ?? "";
-    if (n) btn.dataset.count = n;
-    else delete btn.dataset.count;
-    $("more-pop").querySelector(".more-count")!.textContent = n ? ` (${n})` : "";
-  };
-  new MutationObserver(show).observe(count, { childList: true, characterData: true, subtree: true });
-  show();
-}
 
 const isRiver = (d: StationData) => d.kind === "rivers" || d.kind === "river";
 const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1754,156 +1637,6 @@ function aboutShore(qc: string): void {
       `water level are hourly means of 6-minute readings, and tides are NOAA predictions. Water levels are preliminary until NOAA verifies them. ${qc}`,
   );
 }
-
-/* ---------- Bring your own AI ---------- */
-
-/** The prompt's line for the timeline cursor: the observations the table and the pins show at that time. */
-function atPromptLine(d: StationData, t: number): string {
-  const when = `${fmtUtc(new Date(t * 1000).toISOString())} (${atLabel(t)})`;
-  const parts = d.meta.series
-    .map((s) => {
-      const vals = (["temp", "salinity", "oxygen"] as VarKey[])
-        .map((k) => [k, valueAt(d, k, s.depth, t)] as const)
-        .filter(([, v]) => Number.isFinite(v))
-        .map(([k, v]) => (k === "temp" ? `${f1(v)} F` : k === "salinity" ? `salinity ${v.toFixed(2)}` : `dissolved oxygen ${v.toFixed(2)} mg/L`));
-      return vals.length ? `${s.label.toLowerCase()} ${vals.join(", ")}` : "";
-    })
-    .filter(Boolean);
-  const wind = d.met?.wind?.at(t) ?? NaN;
-  const dir = d.met?.dir?.at(t) ?? NaN;
-  if (Number.isFinite(wind)) parts.push(`wind ${f1(wind)} kt${Number.isFinite(dir) ? ` from ${compass(dir)}` : ""}`);
-  const none = `no observations at that time${t * 1000 > Date.now() ? " (no station forecasts are available)" : ""}`;
-  return `  At the page's timeline cursor, ${when}: ${parts.length ? `observed ${parts.join("; ")}` : none}.`;
-}
-
-function promptData(stations: StationData[]): string {
-  const out: string[] = [];
-  for (const d of stations) {
-    const st = d.meta;
-    const xs = grid(d.now - 96 * DAY, d.now + 14 * DAY, Infinity);
-    out.push(`Station ${st.id}, ${st.name} (${st.operator}), ${st.lat.toFixed(2)} N, ${Math.abs(st.lon).toFixed(2)} W.${st.note ? " " + st.note : ""}${!d.live && st.outage_note ? " " + st.outage_note : ""}`);
-    if (AT != null) out.push(atPromptLine(d, AT));
-    for (const s of st.series) {
-      const o = d.obs[s.depth];
-      const m = d.temp.m36[s.depth];
-      out.push(`  ${s.label} (sensor depth ${s.depth_m.join(" and ")} m; hourly record from ${s.record_start?.slice(0, 10) ?? "unknown"}${s.live ? "" : "; not published on the server now"}):`);
-      if (o && o.temperature_c != null) {
-        const extra = [
-          o.salinity != null ? `salinity ${o.salinity.toFixed(2)}` : "",
-          o.oxygen_mg_l != null ? `dissolved oxygen ${o.oxygen_mg_l.toFixed(2)} mg/L (${oxygenStatus(o.oxygen_mg_l)})` : "",
-        ].filter(Boolean);
-        out.push(`    ${s.live ? "latest" : "last"} observation ${fmtUtc(o.time)} (${ago(o.time)}): ${f1(cToF(o.temperature_c))} F (${o.temperature_c.toFixed(2)} C)${extra.length ? "; " + extra.join("; ") : ""}.`);
-      } else out.push(`    no recent observation.`);
-      if (!m) continue;
-      // Anchor to the latest hour with a 36h mean (the server runs about an hour behind the clock). With no
-      // recent data (an outage), anchor the comparison to now: "this time of year in the years we hold".
-      const tLast = m.lastValid();
-      const recent = xs.indexOf(tLast) >= 0;
-      const iAt = recent ? xs.indexOf(tLast) : xs.indexOf(d.now);
-      const { shown, hidden } = visibleYears(yearLines(m, xs, d.now));
-      if (recent) {
-        const cur = m.at(tLast);
-        const chg = d.temp.chg[s.depth]?.at(tLast) ?? NaN;
-        out.push(`    36h mean as of ${fmtUtc(new Date(tLast * 1000).toISOString())}: ${f1(cur)} F (${f1(fToC(cur))} C); 7-day change: ${signed(chg)} F.`);
-      } else {
-        out.push(`    no data in the last 96 days (last 36h mean ${fmtUtc(new Date(tLast * 1000).toISOString())}); comparisons below are for this date and hour in earlier years.`);
-      }
-      const past = shown.filter((l) => l.offset > 0 && Number.isFinite(l.values[iAt])).map((l) => `${l.year} ${f1(l.values[iAt])} F`);
-      if (past.length) out.push(`    36h mean at the same date and hour in earlier years: ${past.join("; ")}.`);
-      if (hidden.length) out.push(`    years left out of the comparison because under ${COVERAGE_MIN * 100}% of the 110-day window has data: ${hidden.map((l) => l.year).join(", ")}.`);
-    }
-    if (d.temp.delta) {
-      const sb = stratNow(d);
-      out.push(`  Surface minus bottom, mean of the last 24 hours with data: ${signed(sb.deltaC, 2)} C, ${sb.status}.`);
-    }
-    const w = d.met?.last;
-    if (w && w.wind_kt != null) {
-      const dir = w.dir_deg != null ? `from ${compass(w.dir_deg)} (${Math.round(w.dir_deg)} degrees)` : "direction unknown";
-      out.push(
-        `  Weather at the ${d.kind === "buoy" ? "buoy" : "station"}, ${fmtUtc(w.time)} (${ago(w.time)}): wind ${f1(w.wind_kt)} kt ${dir}, gusts ${f1(w.gust_kt ?? NaN)} kt` +
-          (WU === "kt" ? "; " : ` (wind ${windFmt(w.wind_kt)} ${WIND_UNITS[WU].label}, gusts ${windFmt(w.gust_kt)} ${WIND_UNITS[WU].label}); `) +
-          `air ${f1(w.air_f ?? NaN)} F; pressure ${w.pressure_mb != null ? w.pressure_mb.toFixed(1) : "--"} mbar.`,
-      );
-    }
-    if (wavesOf(st.id)) out.push(`  ${wavesText(st.id)}`);
-    if (d.kind === "shore") {
-      const e = nextTide(d);
-      if (d.levelNow) out.push(`  Water level ${d.levelNow.ft.toFixed(2)} ft above MLLW at ${fmtUtc(d.levelNow.time)} (preliminary).`);
-      if (e) out.push(`  Next predicted tide: ${tideText(e)} above MLLW (${fmtUtc(e.t)}).`);
-    }
-  }
-  return out.join("\n");
-}
-
-function buildPrompt(meta: Meta, live: Live, stations: StationData[]): string {
-  const fill: Record<string, string> = {
-    waterway: meta.waterway.name,
-    page_url: location.origin + location.pathname,
-    generated_at: live.generated_at.slice(0, 16).replace("T", " "),
-    strat_mixed: String(STRAT.mixed),
-    strat_stratified: String(STRAT.stratified),
-    qc: meta.qc,
-    data: promptData(stations),
-    question: "[Write your question here, for example: how does this fall compare with recent years, and is the water column still stratified?]",
-  };
-  return promptTemplate.replace(/\{\{(\w+)\}\}/g, (_, k: string) => fill[k] ?? "");
-}
-
-/** Plain text of a method entry for the prompt: citations become the references' short labels. */
-function methodText(key: string): string {
-  const m = METHODS[key];
-  if (!m) return "";
-  const plain = (t?: string) => (t ?? "").replace(/\[\[([a-z0-9_]+)\]\]/g, (_, k: string) => `(${REF_LABELS[k] ?? k})`).replace(/\{variable\}/g, isWater(VK) ? V().label.toLowerCase() : "the reading").replace(/\{station\}/g, "the station");
-  return [`- ${m.title}${m.shows ? `: ${plain(m.shows)}` : ""}`, m.method ? `  Method: ${plain(m.method)}` : "", m.caveats ? `  Caveats: ${plain(m.caveats)}` : ""].filter(Boolean).join("\n");
-}
-
-/** The prompt for the collected items: the data of their stations (all stations when nothing is collected), the
- * methods of the collected plots, the readouts and the map as shown, and the visitor's question. */
-function collectPrompt(meta: Meta, live: Live, stations: StationData[], ids: string[], question: string): string {
-  const scoped = ids.length ? stations.filter((d) => ids.some((id) => id.startsWith(`${d.meta.id}-`))) : stations;
-  let text = buildPrompt(meta, live, scoped.length ? scoped : stations);
-  const extra: string[] = [];
-  const keys = [...new Set(ids.map((id) => id.split("-").slice(1).join("-")).filter((k) => k in FIGS))];
-  if (keys.length) extra.push(`Methods for the collected plots:\n${keys.map(methodText).join("\n")}`);
-  const rows = ids.filter((id) => id.endsWith("-readouts")).map((id) => {
-    const el = document.getElementById(id);
-    const station = stations.find((d) => `${d.meta.id}-readouts` === id)?.meta.name ?? id;
-    const lines = el ? [...el.querySelectorAll<HTMLElement>(".readout")].map((r) => `  ${r.innerText.replace(/\s*\n\s*/g, "; ")}`) : [];
-    return `Readouts at ${station}, as shown (the latest readings${AT != null ? ", not the timeline cursor's time" : ""}; value; label; trend and %ile against the same dates in earlier years; depth and age):\n${lines.join("\n")}`;
-  });
-  if (rows.length) extra.push(rows.join("\n"));
-  if (ids.includes("map")) {
-    const key = document.querySelector<HTMLElement>(".field-panel")?.innerText.replace(/\s*\n\s*/g, " ") ?? "";
-    const when = document.querySelector<HTMLElement>(".tl-label")?.textContent ?? "now";
-    extra.push(`Map as shown: layer ${fieldPick === "none" ? "none (stations only)" : `${fieldPick} (${key})`}, time ${when}.${fieldPick !== "none" ? `\n${methodText(`map-${fieldPick}`)}` : ""}`);
-  }
-  if (extra.length) text = text.replace("\nQuestion:", `\n${extra.join("\n\n")}\n\nQuestion:`);
-  return text.replace(/Question: [\s\S]*$/, `Question: ${question || "[Write your question here]"}`);
-}
-
-function wireCollect(meta: Meta, live: Live, stations: StationData[]): void {
-  mountCollect({
-    elementFor: (id) =>
-      id === "map"
-        ? document.querySelector<HTMLElement>(".map-col")
-        : id.endsWith("-readouts")
-          ? document.getElementById(id)
-          : (document.getElementById(id)?.closest<HTMLElement>("figure") ?? null),
-    prompt: (ids, question) => collectPrompt(meta, live, stations, ids, question),
-    titleFor: (id, stored) => {
-      if (id !== "map") return stored;
-      const layer = fieldPick === "none" ? "stations" : (FIELD_CHOICES.find((c) => c.kind === fieldPick)?.label ?? fieldPick);
-      const when = document.querySelector<HTMLElement>(".tl-label")?.textContent ?? "now";
-      return `Map: ${layer} \u00b7 ${when}`;
-    },
-    linkFor: (id) => (id === "map" ? linkUrl() : id.endsWith("-readouts") ? linkUrl(id.replace(/-readouts$/, "")) : linkUrl(id)),
-    header: () => `${meta.waterway.name} \u00b7 longhorizon.blue \u00b7 ${fmtEt(new Date().toISOString())} New York time`,
-    credit: "Long Horizon Observatory \u00b7 longhorizon.blue \u00b7 CC BY-NC 4.0 \u00b7 data: LISICOS (UConn), NOAA, USGS, NASA; map \u00a9 OpenStreetMap contributors",
-    mailTo: "long-island-sound@longhorizon.blue",
-    pageName: meta.waterway.name,
-  });
-}
-
 
 /* ---------- Main ---------- */
 
@@ -2259,36 +1992,6 @@ function fieldControls(): import("./fields").FieldControls {
 
 /** Pointing at a river in the table (mouse or keyboard) highlights its basin on the map (the map does not move). */
 
-/** A phone drop-down: the button opens its panel under the bar; a choice, a tap elsewhere or Esc closes it.
- * Opening one closes any other. Returns the setter, for closing after a choice. */
-const drops: ((open: boolean) => void)[] = [];
-function dropDown(btn: HTMLElement, panel: HTMLElement): (open: boolean) => void {
-  const setOpen = (open: boolean) => {
-    if (open) drops.forEach((close) => close !== setOpen && close(false));
-    panel.classList.toggle("open", open);
-    btn.setAttribute("aria-expanded", String(open));
-    // A narrow panel opens under its own button, kept on the screen; a full-width one (the freshness line) as styled.
-    if (open && panel.offsetWidth < window.innerWidth * 0.8) {
-      const bar = btn.offsetParent as HTMLElement | null;
-      const room = (bar?.clientWidth ?? window.innerWidth) - panel.offsetWidth - 8;
-      panel.style.left = `${Math.max(8, Math.min(btn.offsetLeft, room))}px`;
-      panel.style.right = "auto";
-    }
-  };
-  drops.push(setOpen);
-  btn.addEventListener("click", () => setOpen(!panel.classList.contains("open")));
-  document.addEventListener("click", (e) => {
-    const t = e.target as HTMLElement;
-    if (panel.classList.contains("open") && !btn.contains(t) && !panel.contains(t)) setOpen(false);
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && panel.classList.contains("open")) {
-      setOpen(false);
-      btn.focus();
-    }
-  });
-  return setOpen;
-}
 
 /** The Water switch (temperature, salinity, oxygen): temperature by default; remembered in this browser only.
  * A variable's history loads on first use; the button dims while it loads and the page keeps working. */
@@ -2331,127 +2034,8 @@ function wireWater(live: Live, stations: StationData[], rebuild: () => void): vo
   );
 }
 
-/** The Light/Dark toggle: light by default; the choice is remembered in this browser only. */
-/** The phone's outage icon: opens the note in a dialog. */
-function wireOutageIcon(): void {
-  const dialog = $("outage-dialog") as HTMLDialogElement;
-  // With a mouse the note shows on hover or focus (site.css); a tap on a touch screen opens it in the dialog.
-  $("outage-icon").addEventListener("click", () => {
-    if (!matchMedia("(hover: hover)").matches) dialog.showModal();
-  });
-  $("outage-dialog-close").addEventListener("click", () => dialog.close());
-  dialog.addEventListener("click", (e) => {
-    if (e.target === dialog) dialog.close(); // a click on the backdrop
-  });
-}
 
-/** The boat class for the comfort index (the menu's Boat setting): paddle craft, small boat (5 to 8 m, the default),
- * large boat (8 to 15 m); kept in this browser. */
-let BOAT: import("./fields").Boat = (() => {
-  try {
-    const b = localStorage.getItem("lhzn-blue-boat");
-    // Earlier saved choices (paddle craft, small boat, large boat) map to the nearest class.
-    const old: Record<string, import("./fields").Boat> = { paddle: "kayak", small: "console", large: "big" };
-    return b === "kayak" || b === "skiff" || b === "console" || b === "big" ? b : old[b ?? ""] ?? "console";
-  } catch {
-    return "console";
-  }
-})();
-/** The boat picker in the menu and in the comfort charts: one listener for every picker on the page. */
-function wireBoat(): void {
-  const slot = document.querySelector("[data-boat-slot]");
-  if (slot) slot.insertAdjacentHTML("beforeend", boatPickerHtml(BOAT));
-  // Up front, in the byline: the chosen boat's icon (its name and length as the tooltip); a click opens the picker.
-  const mast = document.querySelector<HTMLElement>("[data-boat-mast]");
-  const chip = () => `${BOATS[BOAT].name} \u00b7 ${Math.round(BOATS[BOAT].loa * 3.28084)} ft`;
-  const spoken = () => `Boat for the comfort index: ${boatLabel(BOAT)}`;
-  if (mast) {
-    mast.innerHTML = `<button type="button" class="boat-now" aria-haspopup="true" aria-expanded="false" title="${chip()}" aria-label="${spoken()}">${boatIcon(BOAT, 12)}</button>` +
-      `<span class="boat-pop" hidden>${boatPickerHtml(BOAT)}</span>`;
-  }
-  const now = mast?.querySelector<HTMLButtonElement>(".boat-now");
-  const pop = mast?.querySelector<HTMLElement>(".boat-pop");
-  const openPop = (open: boolean) => {
-    if (!pop || !now) return;
-    pop.hidden = !open;
-    now.setAttribute("aria-expanded", String(open));
-  };
-  now?.addEventListener("click", () => openPop(!!pop?.hidden));
-  document.addEventListener("click", (e) => {
-    if (pop && !pop.hidden && !(e.target as Element).closest?.("[data-boat-mast]")) openPop(false);
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && pop && !pop.hidden) {
-      openPop(false);
-      now?.focus();
-    }
-  });
-  document.addEventListener("click", (e) => {
-    const b = (e.target as Element).closest?.("button[data-boat]") as HTMLButtonElement | null;
-    if (!b) return;
-    e.stopPropagation(); // the menu stays open
-    BOAT = b.dataset.boat as typeof BOAT;
-    try {
-      localStorage.setItem("lhzn-blue-boat", BOAT);
-    } catch {
-      /* private mode: for this visit */
-    }
-    document.querySelectorAll<HTMLButtonElement>("button[data-boat]").forEach((x) => x.setAttribute("aria-checked", String(x.dataset.boat === BOAT)));
-    if (now) {
-      now.innerHTML = boatIcon(BOAT, 12);
-      now.title = chip();
-      now.setAttribute("aria-label", spoken());
-    }
-    if (b.closest("[data-boat-mast]")) openPop(false);
-    // The comfort charts, if open, redraw for the new boat.
-    const chart = document.querySelector("#about-dialog-body .comfort-chart");
-    if (chart) chart.outerHTML = comfortTableHtml(BOAT, WU === "ms");
-    void syncField();
-  });
-}
 
-/** "Use my location": off by default. Only when the reader turns it on does the browser ask for the location, once per
- * visit; the map then opens on their part of the Sound. The location is used in this browser only and never sent. */
-function wireLocate(): void {
-  const btn = document.querySelector<HTMLButtonElement>('[data-more="locate"]');
-  if (!btn || !("geolocation" in navigator)) {
-    btn?.remove();
-    return;
-  }
-  let on = false;
-  try {
-    on = localStorage.getItem("lhzn-blue-locate") === "1";
-  } catch {
-    /* private mode: off */
-  }
-  const label = (note = "") => {
-    btn.textContent = `Use my location: ${on ? "on" : "off"}${note}`;
-    btn.setAttribute("aria-pressed", String(on));
-  };
-  const locate = () =>
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const near = await (await import("./map")).focusOn({ lon: pos.coords.longitude, lat: pos.coords.latitude });
-        label(near ? "" : " (not near the Sound)");
-      },
-      () => label(" (not available)"),
-      { maximumAge: 10 * 60_000, timeout: 10_000, enableHighAccuracy: false },
-    );
-  label();
-  if (on) locate();
-  btn.addEventListener("click", async () => {
-    on = !on;
-    try {
-      if (on) localStorage.setItem("lhzn-blue-locate", "1");
-      else localStorage.removeItem("lhzn-blue-locate");
-    } catch {
-      /* private mode: for this visit only */
-    }
-    label();
-    if (on) locate();
-    else void (await import("./map")).focusOn(null);
-  });
-}
 
 function wireTheme(redraw: () => void): void {
   const btn = $("theme-toggle");
@@ -2778,9 +2362,22 @@ async function main(): Promise<void> {
       const m = /^([+-]?\d+)([hd])$/.exec((new URLSearchParams(location.search).get("t") ?? "").replace(/^ /, "+"));
       timelineModule?.setOffset(m ? Number(m[1]) * (m[2] === "d" ? 24 : 1) : 0);
     });
-    updatedStrip(meta, live);
+    updatedStrip(meta, live, {
+      // What UConn reported about the outage (by email, Oct 16, 2026); shown only while the server is unreachable.
+      operator: "UConn reports its data server is being upgraded, expected back by mid-November 2026; the Western Sound buoy has a hardware fault awaiting ship time (as of Oct 16).",
+      transcribed: "Readings since then are transcribed from the LISICOS station panels (provisional).",
+    });
     about(meta);
-    wireCollect(meta, live, stations);
+    wireCollect(meta, live, stations, {
+      template: promptTemplate,
+      variable: () => (isWater(VK) ? V().label.toLowerCase() : "the reading"),
+      isFig: (k) => k in FIGS,
+      layer: () => fieldPick,
+      layerLabel: () => FIELD_CHOICES.find((c) => c.kind === fieldPick)?.label ?? fieldPick,
+      link: linkUrl,
+      credit: "Long Horizon Observatory \u00b7 longhorizon.blue \u00b7 CC BY-NC 4.0 \u00b7 data: LISICOS (UConn), NOAA, USGS, NASA; map \u00a9 OpenStreetMap contributors",
+      mailTo: "long-island-sound@longhorizon.blue",
+    });
     const redraw = () => {
       drawAll();
       statusGrid(stations);
@@ -2806,8 +2403,8 @@ async function main(): Promise<void> {
     }
     wireTheme(redraw);
     wireOutageIcon();
-    wireLocate();
-    wireBoat();
+    wireLocate("the Sound");
+    wireBoat(() => void syncField());
     wireUnits(redraw);
     wireMore();
     // Keep "now" and the ages current on a page left open, and refit axis labels on resize.

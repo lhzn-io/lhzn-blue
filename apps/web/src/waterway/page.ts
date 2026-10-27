@@ -2,6 +2,7 @@
  * station with its readouts and figures for the selected view, the zoom view, the About dialogs, Collect and the AI
  * prompt. Everything particular to a waterway comes in through mountWaterwayPage: its config (waterways/<id>.ts), its
  * data adapter (adapters/<id>.ts) and its own parts (each station's About, its shore table, its tides diagram). */
+import "./places.css";
 import { renderLines, YELLOW, type ChartOptions, type Line } from "../chart";
 import { wireHints } from "../hints";
 import { chainButton, navigateTo, revealLinked, wireLinks } from "../links";
@@ -49,6 +50,11 @@ let PARTS: PageParts;
 /** Its data adapter. The Sound's is the only one so far, so its shape is the interface; a second adapter makes it one. */
 type Adapter = typeof import("../adapters/sound");
 let A: Adapter;
+/** Station pages (<base><station>/), when the page is mounted with them; the station this page is for (null on the
+ * overview). */
+let PAGES: { base: string } | null = null;
+let STATION_ID: string | null = null;
+const onStation = (d: StationData) => !STATION_ID || d.meta.id === STATION_ID;
 
 let DATA = "";
 const $ = (id: string) => document.getElementById(id)!;
@@ -932,7 +938,8 @@ function turbTable(): string {
   <p class="status-key">Point observations at 1 m. The check flags a day as likely sensor fouling when its quietest readings sit above 5 NTU; flagged readings are kept and drawn faintly. See the note below the table.</p>`;
 }
 
-function statusGrid(stations: StationData[]): void {
+function statusGrid(all: StationData[]): void {
+  const stations = all.filter(onStation);
   if (VK === "turbidity") {
     $("status").innerHTML = turbTable() + PARTS.shoreTable() + outlookHtml(STATIONS);
     return;
@@ -948,7 +955,10 @@ function statusGrid(stations: StationData[]): void {
     return;
   }
   if (!stations.some((d) => d.kind === "shore")) SG = "buoy";
-  $("status").innerHTML = `${stationTables(stations, SG)}${isWater(VK) ? PARTS.shoreTable() : ""}${outlookHtml(stations)}${windAcrossHtml(stations, CFG.called)}`;
+  if (STATION_ID) SG = stations[0]?.kind === "shore" ? "shore" : "buoy";
+  // An airport is in neither table: its page leads with the outlook. The shore gauges' own table is the overview's.
+  const table = STATION_ID && stations[0]?.kind === "airport" ? "" : stationTables(stations, SG);
+  $("status").innerHTML = `${table}${isWater(VK) && !STATION_ID ? PARTS.shoreTable() : ""}${outlookHtml(all)}${windAcrossHtml(all, CFG.called)}`;
   markOutlookRow();
 }
 
@@ -1099,9 +1109,11 @@ async function overviewMap(stations: StationData[]): Promise<void> {
     drawMap(
       box,
       stations.map(stationPin),
-      (id) => navigateTo(id),
+      (id) => (PAGES && id !== STATION_ID && hasPage(id) ? location.assign(placeUrl(id)) : navigateTo(id)),
       currentTheme(),
     );
+    const here = STATIONS.find((d) => d.meta.id === STATION_ID);
+    if (here) void (await import("../map")).focusOn({ lon: here.meta.lon, lat: here.meta.lat });
     void syncMap();
   } catch {
     box.innerHTML = `<p class="note">The map could not load.</p>`;
@@ -1170,6 +1182,7 @@ function sectionHtml(d: StationData): string {
         .filter(Boolean)
         .join("")}</p>
       ${notes.length ? `<p class="station-note">${notes.join(" ")}</p>` : ""}
+      ${id === STATION_ID && CFG.photos?.[id] ? photoHtml(st.name, CFG.photos[id]) : ""}
       <div class="band" id="${id}-readouts"></div>
       <div class="figs">${kinds.map(fig).join("")}</div>
     </section>`;
@@ -1735,11 +1748,23 @@ async function main(): Promise<void> {
   const extras = A.startExtras(); // the stations that join after the buoys, loading alongside them
   try {
     const { meta, live, stations } = await A.load();
+    STATIONS = stations;
+    // A station's page: only its views (the first is its default), and the outlook on it.
+    if (STATION_ID) {
+      const kind = stations.find((d) => d.meta.id === STATION_ID)?.kind ?? (A.SHORE.some((s) => s.id === STATION_ID) ? "shore" : "airport");
+      const views = CFG.stationPages?.views[kind] ?? [];
+      if (!views.includes(VK)) {
+        VK = views[0] ?? VK;
+        if (!LINK.get("layer")) fieldPick = VIEW_LAYERS[VK].def;
+      }
+      document.querySelectorAll<HTMLButtonElement>(".var-switch [data-var]").forEach((b) => (b.hidden = !views.includes(b.dataset.var as VarKey)));
+      OUTLOOK.pin = STATION_ID;
+    }
     const byId = (id: string) => [...stations, ...A.RIVER_SECTIONS, ...(A.TURB_SECTION ? [A.TURB_SECTION] : [])].find((d) => d.meta.id === id)!;
     // A remembered salinity or oxygen choice loads its history first; if that fails, show temperature.
     if (VK !== "temp") await A.ensureVar(VK, live, stations, addSources).catch(() => (VK = "temp"));
     /** The stations on screen: the rivers section in the Rivers view, the buoys and shore stations otherwise. */
-    const shown = () => (EMBED ? stations.filter((d) => d.meta.id === EMBED_STATION) : VK === "rivers" ? A.RIVER_SECTIONS : VK === "turbidity" ? (A.TURB_SECTION ? [A.TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore") : stations.filter((d) => d.kind !== "airport" || VK === "wind"));
+    const shown = () => (EMBED ? stations.filter((d) => d.meta.id === EMBED_STATION) : VK === "rivers" ? A.RIVER_SECTIONS : VK === "turbidity" ? (A.TURB_SECTION ? [A.TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore") : stations.filter((d) => d.kind !== "airport" || VK === "wind")).filter(onStation);
     const drawAll = () => {
       for (const d of shown()) {
         readouts(d);
@@ -1755,7 +1780,8 @@ async function main(): Promise<void> {
         const grouped = stations.some((d) => d.kind === "shore");
         return list.length ? (grouped ? `<h2 class="station-group">${title}</h2>` : "") + list.map(sectionHtml).join("") : "";
       };
-      $("stations").innerHTML = EMBED
+      if (STATION_ID) $("stations").innerHTML = shown().map(sectionHtml).join("");
+      else $("stations").innerHTML = EMBED
         ? embedHtml(stations.find((d) => d.meta.id === EMBED_STATION))
         : VK === "tides"
           ? `<h2 class="station-group">${CFG.groups.shore}</h2>${stations.filter((d) => d.kind === "shore").map(sectionHtml).join("")}`
@@ -1772,6 +1798,7 @@ async function main(): Promise<void> {
           if (legend) wireLegend(legend, $(`${d.meta.id}-${k}`));
         }
       }
+      drawPlaces();
     };
     renderSections();
     STATIONS = stations;
@@ -1787,6 +1814,7 @@ async function main(): Promise<void> {
       usgs: (u) => PARTS.shoreData(u),
       history: () => keepPlace(renderSections),
     });
+    markStationPage();
     if (!EMBED) void overviewMap(stations); // an embed draws no map
     wireWater(live, stations, () => {
       ($("zoom") as HTMLDialogElement).close();
@@ -1925,6 +1953,86 @@ async function main(): Promise<void> {
   }
 }
 
+/* ---------- Station pages ---------- */
+
+/** A station has a page where its kind has views there. */
+const hasPage = (id: string) => {
+  const d = STATIONS.find((s) => s.meta.id === id);
+  return !!d && !!CFG.stationPages?.views[d.kind]?.length;
+};
+
+/** A station's page (or the overview, for null), keeping the page's time and view. */
+const placeUrl = (id: string | null) => `${PAGES!.base}${id ? `${id.toLowerCase()}/` : ""}${location.search}`;
+
+/** The places row: Overview, the stations shown as their own links, and a menu of the rest, in groups; the current one
+ * marked. Drawn as stations join. */
+function drawPlaces(): void {
+  const box = document.getElementById("places");
+  const sp = CFG.stationPages;
+  if (!box || !PAGES || !sp) return;
+  const here = (id: string | null) => (id === STATION_ID ? ' aria-current="page"' : "");
+  const link = (id: string | null, label: string) => `<a class="tab place" href="${placeUrl(id)}" data-place="${id ?? ""}"${here(id)}>${escHtml(label)}</a>`;
+  const withPage = STATIONS.filter((d) => sp.views[d.kind]?.length);
+  const groups = sp.menu
+    .map((g) => ({ title: g.title, list: withPage.filter((d) => g.kinds.includes(d.kind)) }))
+    .filter((g) => g.list.length);
+  const current = groups.flatMap((g) => g.list).find((d) => d.meta.id === STATION_ID);
+  const menu = groups.length
+    ? `<details class="place-menu"><summary class="tab${current ? " current" : ""}">${escHtml(current?.meta.name ?? "Stations")}</summary><div class="place-pop">${groups
+        .map((g) => `<p class="place-group">${escHtml(g.title)}</p>${g.list.map((d) => `<a href="${placeUrl(d.meta.id)}" data-place="${d.meta.id}"${here(d.meta.id)}>${escHtml(d.meta.name)}</a>`).join("")}`)
+        .join("")}</div></details>`
+    : "";
+  box.innerHTML = link(null, "Overview") + withPage.filter((d) => sp.chips.includes(d.kind)).map((d) => link(d.meta.id, d.meta.name)).join("") + menu;
+}
+
+/** Place links carry the page's time and view at the moment they are followed; the menu closes on a click outside it
+ * or Escape; a station's name in the table opens its page. */
+function wirePlaces(): void {
+  document.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    const a = t.closest<HTMLAnchorElement>("a[data-place]");
+    if (a) a.href = placeUrl(a.dataset.place || null);
+    const menu = document.querySelector<HTMLDetailsElement>(".place-menu");
+    if (menu?.open && !menu.contains(t)) menu.open = false;
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    const menu = document.querySelector<HTMLDetailsElement>(".place-menu");
+    if (e.key === "Escape" && menu?.open) {
+      menu.open = false;
+      menu.querySelector("summary")?.focus();
+    }
+  });
+  document.getElementById("status")?.addEventListener("click", (e) => {
+    const a = (e.target as HTMLElement).closest<HTMLAnchorElement>('th a[href^="#"]');
+    const id = a?.getAttribute("href")?.slice(1);
+    if (!a || !id || id === STATION_ID || !hasPage(id)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    location.assign(placeUrl(id));
+  }, true);
+}
+
+/** A station's page names it: the waterway above, the station in the wordmark and the title. An unknown station goes
+ * back to the overview. */
+function markStationPage(): void {
+  if (!STATION_ID) return;
+  const d = STATIONS.find((s) => s.meta.id === STATION_ID);
+  if (!d || !hasPage(d.meta.id)) {
+    location.replace(placeUrl(null));
+    return;
+  }
+  const top = document.querySelector(".wm-top");
+  const bottom = document.querySelector(".wm-bottom");
+  if (top) top.textContent = CFG.name.toUpperCase();
+  if (bottom) bottom.textContent = d.meta.name.toUpperCase();
+  document.title = `${d.meta.name} | ${CFG.name} (alpha) | longhorizon.blue`;
+}
+
+/** Our photo of a station, with when it was taken and the credit. */
+function photoHtml(name: string, ph: { src: string; alt: string; when: string }): string {
+  return `<figure class="station-photo"><img src="${ph.src}" alt="${escHtml(ph.alt)}" loading="lazy" decoding="async"><figcaption>${escHtml(name)}, ${escHtml(ph.when)}. Photo: Long Horizon Observatory.</figcaption></figure>`;
+}
+
 /** What a waterway brings to the page besides its config: its data adapter, the prompt template, each station's About,
  * the shore table under the overview (if it has one), and a diagram for the tides view (if it has one). */
 export interface PageParts {
@@ -1938,10 +2046,13 @@ export interface PageParts {
 }
 
 /** Mount the page for a waterway: its config and its parts, then the page as it loads. */
-export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts): void {
+export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts, opts: { stationPages?: { base: string } } = {}): void {
   CFG = config;
   PARTS = parts;
   A = parts.adapter;
+  PAGES = opts.stationPages ?? null;
+  if (PAGES && location.pathname.startsWith(PAGES.base)) STATION_ID = location.pathname.slice(PAGES.base.length).split("/")[0].toUpperCase() || null;
+  if (PAGES) wirePlaces();
   DATA = CFG.data;
   ({ fig: EMBED, station: EMBED_STATION } = embedMode(LINK, CFG.defaults.embedStation));
   if (EMBED) VK = EMBED === "next48" ? "wind" : "temp";

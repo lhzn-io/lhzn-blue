@@ -48,4 +48,29 @@ export const LONG_ISLAND_SOUND: StationDataWaterway = {
     credit: "Long Horizon Observatory \u00b7 longhorizon.blue \u00b7 CC BY-NC 4.0 \u00b7 data: LISICOS (UConn), NOAA, USGS, NASA; map \u00a9 OpenStreetMap contributors",
     mailTo: "long-island-sound@longhorizon.blue",
   },
+  stationPages: {
+    views: { buoy: ["temp", "salinity", "oxygen", "wind"], shore: ["tides", "temp", "wind"], airport: ["wind"] },
+    chips: ["buoy"],
+    menu: [
+      { title: "Shore stations", kinds: ["shore"] },
+      { title: "Coastal airports", kinds: ["airport"] },
+    ],
+  },
+  photos: {
+    EXRX: {
+      src: "/photos/long-island-sound/exrx.jpg",
+      alt: "The Execution Rocks buoy, a yellow LISICOS buoy with two weather sensors on its mast, the Manhattan skyline on the horizon",
+      when: "April 2025",
+    },
+    ARTG: {
+      src: "/photos/long-island-sound/artg.jpg",
+      alt: "The ARTG buoy, a yellow LISICOS buoy numbered 2, with the shore low on the horizon",
+      when: "June 2026",
+    },
+    WLIS: {
+      src: "/photos/long-island-sound/wlis.jpg",
+      alt: "The Western Sound buoy, a yellow LISICOS buoy numbered 1, with two gulls on its deck and hills behind",
+      when: "September 2026",
+    },
+  },
 };

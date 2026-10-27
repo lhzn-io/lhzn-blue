@@ -3,6 +3,7 @@
  * (apps/web/src/waterways/<id>.ts), so the page code holds no place names, station ids or prose of its own. */
 import type { FieldControls, FieldKind } from "../fields";
 import type { StationKind } from "./stations";
+import type { VarKey } from "./station-data";
 
 export type Box = [[number, number], [number, number]];
 export type Layer = FieldKind | "none";
@@ -56,4 +57,10 @@ export interface StationDataWaterway {
   /** The outage note's words: the operator's, and what the readings since then are. */
   outage: { operator: string; transcribed: string };
   collect: { credit: string; mailTo: string };
+  /** Station pages, where the page is mounted with them: the views each kind of station has there (the first is its
+   * default; a kind not listed has no page), the kinds shown as their own links after Overview, and the menu for the
+   * rest, in groups. */
+  stationPages?: { views: Partial<Record<string, VarKey[]>>; chips: string[]; menu: { title: string; kinds: string[] }[] };
+  /** Our own photos of its stations, by id: the image (under public/), what it shows, and when it was taken. */
+  photos?: Record<string, { src: string; alt: string; when: string }>;
 }

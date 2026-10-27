@@ -1,19 +1,20 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 
 const REPO = resolve(import.meta.dirname, "../..");
 
 // In development, serve /data/v1/* from the jobs' local output (`lhzn-blue-jobs ... --out out`).
 // In production the Worker proxies /data/v1/* from the public data bucket.
-function localData(): Plugin {
+function localData(stationPages: string[]): Plugin {
   return {
     name: "local-data",
     configureServer(server) {
-      // A waterway's station pages (/<waterway>/<station>/) are its own page, as the Worker serves them.
+      // A waterway's station pages (<base><station>/) are its own page, as the Worker serves them.
       server.middlewares.use((req, _res, next) => {
-        const m = /^\/(piscataqua-region)\/([a-z0-9-]{2,20})\/(\?.*)?$/.exec(req.url ?? "");
-        if (m) req.url = `/${m[1]}/${m[3] ?? ""}`;
+        const [path, query] = (req.url ?? "").split("?");
+        const base = stationPages.find((b) => path.startsWith(b) && /^[a-z0-9-]{2,20}\/$/.test(path.slice(b.length)));
+        if (base) req.url = base + (query ? `?${query}` : "");
         next();
       });
       server.middlewares.use("/data/", async (req, res, next) => {
@@ -29,10 +30,12 @@ function localData(): Plugin {
   };
 }
 
-// Pages: the landing page, one page per waterway, the about page, the terms and the references.
-export default defineConfig({
+// Pages: the landing page, one page per waterway, the about page, the terms and the references. Station pages are served
+// under /piscataqua-region/; more bases for local work come from LHZN_STATION_PAGES (comma-separated) in a git-ignored
+// .env.local.
+export default defineConfig(({ mode }) => ({
   base: "/",
-  plugins: [localData()],
+  plugins: [localData(["/piscataqua-region/", ...(loadEnv(mode, import.meta.dirname, "").LHZN_STATION_PAGES ?? "").split(",").map((s) => s.trim()).filter(Boolean)])],
   server: { fs: { allow: [REPO] } },
   build: {
     target: "es2022",
@@ -52,4 +55,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

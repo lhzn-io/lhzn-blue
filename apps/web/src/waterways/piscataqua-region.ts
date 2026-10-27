@@ -26,6 +26,16 @@ export const PISCATAQUA_REGION: WaterwayConfig<Theme> = {
     { kind: "wind", label: "Wind (HRRR)" },
     { kind: "sst", label: "Sea surface temperature" },
   ],
+  stationThemes: { buoy: ["water", "weather"], shore: ["tides"], level: ["tides"], meter: ["currents"], gauge: ["rivers"], airport: ["weather"] },
+  nav: {
+    chips: ["buoy"],
+    menu: [
+      { title: "Tide and water level", kinds: ["shore", "level"] },
+      { title: "Currents", kinds: ["meter"] },
+      { title: "Rivers", kinds: ["gauge"] },
+      { title: "Weather", kinds: ["airport"] },
+    ],
+  },
   storage: { view: "lhzn-blue-region-view", bview: "lhzn-blue-region-bview" },
   staleHours: { default: 3, gauge: 6, buoy: 4 },
   cadence: "observations hourly, model fields daily (currents, SST) and every three hours (wind).",

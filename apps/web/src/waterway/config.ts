@@ -2,6 +2,7 @@
  * (today the Piscataqua Region; the Long Island Sound to follow) reads everything particular to it from one of these
  * (apps/web/src/waterways/<id>.ts), so the page code holds no place names, station ids or prose of its own. */
 import type { FieldControls, FieldKind } from "../fields";
+import type { StationKind } from "./stations";
 
 export type Box = [[number, number], [number, number]];
 export type Layer = FieldKind | "none";
@@ -15,6 +16,11 @@ export interface WaterwayConfig<Theme extends string = string> {
   themes: { key: Theme; label: string; layer: Layer }[];
   /** The map's layer menu. */
   layers: FieldControls["choices"];
+  /** Station pages (/<id>/<station>/): the views each kind of station has there (the first is its default); a kind
+   * not listed has no page of its own. */
+  stationThemes: Partial<Record<StationKind, Theme[]>>;
+  /** The navigation row: kinds shown as their own chips after Overview, and the menu for the rest, in groups. */
+  nav: { chips: StationKind[]; menu: { title: string; kinds: StationKind[] }[] };
   /** Browser storage keys for the remembered view (and the buoys' variable, where the page has one). */
   storage: { view: string; bview?: string };
   /** Hours since the last reading before a station counts as delayed, by kind (default for the rest). */

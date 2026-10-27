@@ -10,6 +10,12 @@ function localData(): Plugin {
   return {
     name: "local-data",
     configureServer(server) {
+      // A waterway's station pages (/<waterway>/<station>/) are its own page, as the Worker serves them.
+      server.middlewares.use((req, _res, next) => {
+        const m = /^\/(piscataqua-region)\/([a-z0-9-]{2,20})\/(\?.*)?$/.exec(req.url ?? "");
+        if (m) req.url = `/${m[1]}/${m[3] ?? ""}`;
+        next();
+      });
       server.middlewares.use("/data/", async (req, res, next) => {
         try {
           const body = await readFile(resolve(REPO, "out", (req.url ?? "").replace(/^\/+/, "").split("?")[0]));

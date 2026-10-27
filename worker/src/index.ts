@@ -105,10 +105,22 @@ async function data(req: Request, env: Env, path: string): Promise<Response> {
   });
 }
 
+// Waterway pages with a page per station: /<waterway>/<station>/ is the waterway's own page, which reads the station
+// from the path (so a station's address can be shared and Back works without page code).
+const WATERWAYS = new Set(["piscataqua-region"]);
+const STATION_PATH = /^\/([a-z0-9-]+)\/([a-z0-9-]{2,20})\/?$/;
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname.startsWith("/data/")) return data(req, env, url.pathname);
+    const m = STATION_PATH.exec(url.pathname);
+    if (m && WATERWAYS.has(m[1])) {
+      if (!url.pathname.endsWith("/")) return Response.redirect(`${url.origin}${url.pathname}/${url.search}`, 301);
+      const page = new URL(url);
+      page.pathname = `/${m[1]}/`;
+      return env.ASSETS.fetch(new Request(page, req));
+    }
     return env.ASSETS.fetch(req);
   },
 };

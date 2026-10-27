@@ -95,9 +95,42 @@ let T: number | null = null; // the time bar's time (null: now)
 const tNow = () => T ?? now();
 type Layer = FieldKind | "none";
 const LINK = new URLSearchParams(location.search);
-/* The page's views (the config's themes), as the Sound page's view switch: one chip sets the map layer, the status
-   table and the station sections together. */
-const THEMES = CFG.themes;
+
+const reg = registry as typeof registry & { levels: { id: string; name: string; place: string; operator: string; lat: number; lon: number; datum: string }[] };
+const SHORE = reg.shore.stations;
+const LEVELS = reg.levels;
+const BUOYS = reg.buoys;
+const METERS = reg.currents.meters;
+const PREDS = reg.currents.predictions;
+const GAUGES = reg.rivers.gauges;
+const AIRPORTS = reg.asos.stations;
+/** The stations as one model (rebuilt when the live file loads), and the waterway's reference tide gauge (the first
+ * shore station that measures, not only predicts). */
+let S: Stations = regionStations(reg as unknown as RegionRegistry, {}, CFG);
+const refShore = (): Station | undefined => measuringShore(S)[0];
+
+// ---------- Overview or one station (/<waterway>/<station>/) ----------
+
+/** The views a station has on its own page; none for a kind without a page (the prediction points, a shore station
+ * that only predicts). */
+function themesOf(s: Station): Theme[] {
+  if (s.kind === "shore" && !measuringShore(S).includes(s)) return [];
+  return CFG.stationThemes[s.kind] ?? [];
+}
+const hasPage = (s: Station) => themesOf(s).length > 0;
+/** The station the address names, or null on the overview. */
+const STATION: Station | null = (() => {
+  const seg = location.pathname.split("/").filter(Boolean)[1]?.toUpperCase();
+  const s = seg ? S.byId(seg) : undefined;
+  return s && hasPage(s) ? s : null;
+})();
+/** Whether a card or row for these stations belongs on this page: everything on the overview, only the station's own
+ * on its page. */
+const want = (...ids: string[]) => !STATION || ids.includes(STATION.id);
+
+/* The page's views, as the Sound page's view switch: one chip sets the map layer, the status table and the station
+   sections together. On a station's page, only the views it has. */
+const THEMES = STATION ? CFG.themes.filter((t) => themesOf(STATION).includes(t.key)) : CFG.themes;
 const WATER_VIEWS = BUOY_VIEWS.filter(([k]) => k !== "weather"); // the buoys' weather is under Weather
 let theme: Theme = THEMES[0].key;
 let bview: BuoyView = "temp";
@@ -112,18 +145,53 @@ try {
 const themeLayer = () => THEMES.find((x) => x.key === theme)!.layer;
 let layer: Layer = themeLayer();
 
-const reg = registry as typeof registry & { levels: { id: string; name: string; place: string; operator: string; lat: number; lon: number; datum: string }[] };
-const SHORE = reg.shore.stations;
-const LEVELS = reg.levels;
-const BUOYS = reg.buoys;
-const METERS = reg.currents.meters;
-const PREDS = reg.currents.predictions;
-const GAUGES = reg.rivers.gauges;
-const AIRPORTS = reg.asos.stations;
-/** The stations as one model (rebuilt when the live file loads), and the waterway's reference tide gauge (the first
- * shore station that measures, not only predicts). */
-let S: Stations = regionStations(reg as unknown as RegionRegistry, {}, CFG);
-const refShore = (): Station | undefined => measuringShore(S)[0];
+/** A station's page, or the overview (null), keeping the time and, where the page has it, the view. */
+function placeUrl(s: Station | null): string {
+  const q = new URLSearchParams();
+  const views = s ? themesOf(s) : CFG.themes.map((t) => t.key);
+  if (views.includes(theme) && theme !== views[0]) q.set("view", theme);
+  if (theme === "water" && bview !== "temp" && views.includes("water")) q.set("var", bview);
+  const off = TL?.position().offset ?? 0;
+  if (off) q.set("h", String(off));
+  const qs = q.toString();
+  return `/${CFG.id}/${s ? `${s.id.toLowerCase()}/` : ""}${qs ? `?${qs}` : ""}`;
+}
+
+/** The first navigation row: Overview, the chip kinds (the buoys) by name, and a menu of every other station with a
+ * page, in the config's groups. Links, so each place is its own address and Back works as anywhere. */
+function drawPlaces(): void {
+  const here = (s: Station | null) => (s?.id ?? null) === (STATION?.id ?? null);
+  const link = (s: Station | null, label: string, cls = "") =>
+    `<a${cls ? ` class="${cls}"` : ""} href="${placeUrl(s)}" data-place="${s?.id ?? ""}"${here(s) ? ' aria-current="page"' : ""}>${esc(label)}</a>`;
+  const chips = CFG.nav.chips.flatMap((k) => S.ofKind(k).filter(hasPage)).map((s) => link(s, s.name, "rg-btn rg-place"));
+  const groups = CFG.nav.menu
+    .map((g) => ({ g, items: g.kinds.flatMap((k) => S.ofKind(k)).filter(hasPage) }))
+    .filter((x) => x.items.length)
+    .map(({ g, items }) => `<li class="rg-menu-group">${esc(g.title)}</li>${items.map((s) => `<li>${link(s, s.name)}</li>`).join("")}`)
+    .join("");
+  const inMenu = STATION && !CFG.nav.chips.includes(STATION.kind);
+  $("places").innerHTML =
+    `<span class="rg-seg">${link(null, "Overview", "rg-btn rg-place")}${chips.join("")}</span>` +
+    `<details class="rg-menu"><summary class="rg-btn${inMenu ? " rg-current" : ""}">${inMenu ? esc(STATION!.name) : "Stations"}</summary><ul>${groups}</ul></details>`;
+}
+
+/** The navigation links carry the time and view as they are at the click, not as they were when drawn. */
+function wirePlaces(): void {
+  document.addEventListener("click", (e) => {
+    const a = (e.target as HTMLElement).closest<HTMLAnchorElement>("a[data-place]");
+    if (a) a.href = placeUrl(a.dataset.place ? S.byId(a.dataset.place) ?? null : null);
+    // The Stations menu closes on a click outside it.
+    const menu = document.querySelector<HTMLDetailsElement>(".rg-menu");
+    if (menu?.open && !menu.contains(e.target as Node)) menu.open = false;
+  });
+  document.addEventListener("keydown", (e) => {
+    const menu = document.querySelector<HTMLDetailsElement>(".rg-menu");
+    if (e.key === "Escape" && menu?.open) {
+      menu.open = false;
+      menu.querySelector("summary")?.focus();
+    }
+  });
+}
 
 // ---------- Freshness ----------
 
@@ -163,9 +231,17 @@ const val = (s: Station | undefined, col: string) => (s ? lastAt(s.frame, col, s
 
 function statusHtml(): string {
   const rows: string[] = [];
-  const row = (s: Station, cells: string) =>
-    rows.push(`<tr class="st-${stationState(s)}" data-go="${s.id}"><th scope="row"><a href="#st-${s.id}">${esc(s.label)}</a></th>${cells}</tr>`);
-  const group = (title: string) => rows.push(`<tr class="rg-group"><th colspan="3">${title}</th></tr>`);
+  // A group's heading is written only once one of its rows is (a station's page shows that station's row alone).
+  let pending: string | null = null;
+  // On the overview a station with a page links to it; otherwise (and on a station's page) to its card here.
+  const row = (s: Station, cells: string) => {
+    if (!want(s.id)) return;
+    if (pending) rows.push(`<tr class="rg-group"><th colspan="3">${pending}</th></tr>`);
+    pending = null;
+    const href = !STATION && hasPage(s) ? placeUrl(s) : `#st-${s.id}`;
+    rows.push(`<tr class="st-${stationState(s)}" data-go="${s.id}"><th scope="row"><a href="${href}" data-place="${href.startsWith("#") ? "" : s.id}">${esc(s.label)}</a></th>${cells}</tr>`);
+  };
+  const group = (title: string) => (pending = title);
   const ref = refShore();
   if (theme === "water") {
     group("Buoys");
@@ -284,7 +360,7 @@ function renderStations(): void {
   if (theme === "rivers") riversHtml(html);
   if (theme === "weather") {
     html.push(`<section class="fc-sec" aria-labelledby="sec-air"><h2 class="fc-h" id="sec-air">Weather</h2><div class="rg-cards">`);
-    for (const a of AIRPORTS) html.push(card(a.id, a.name, `${esc(a.note)} ${CFG.text.airport}`, plot(a.id, `Wind at ${a.name}`) + legend([[MEASURED(), `wind, ${UL()}`], [SECOND(), `gust, ${UL()}`]])));
+    for (const a of AIRPORTS.filter((a) => want(a.id))) html.push(card(a.id, a.name, `${esc(a.note)} ${CFG.text.airport}`, plot(a.id, `Wind at ${a.name}`) + legend([[MEASURED(), `wind, ${UL()}`], [SECOND(), `gust, ${UL()}`]])));
     html.push(buoyCardsHtml(buoyCtx(), "weather"));
     html.push(`</div></section>`);
   }
@@ -295,38 +371,40 @@ function renderStations(): void {
 function tidesHtml(html: string[]): void {
   html.push(`<section class="fc-sec" aria-labelledby="sec-tide"><h2 class="fc-h" id="sec-tide">Tide and water level</h2><div class="rg-cards">`);
   const ref = refShore();
-  if (ref) {
+  if (ref && want(ref.id)) {
     const next = (((ref.frame as ShoreSt | undefined)?.tides) ?? []).filter((e) => sec(e.t) > now()).slice(0, 4);
     html.push(card(ref.id, ref.name, `${CFG.text[ref.id] ?? ""} Next: ${next.map((e) => `${e.type === "H" ? "high" : "low"} ${fmtShort.format(new Date(sec(e.t) * 1000))} (${e.ft.toFixed(1)} ft)`).join(", ") || "no predictions"}.`,
       plot(ref.id, `Water level at ${ref.name}`) + legend([[MEASURED(), "observed, ft above MLLW"]])));
   }
-  html.push(card("LV-MLLW", CFG.text["LV-MLLW:title"], CFG.text["LV-MLLW"],
+  const mllw = LEVELS.filter((g) => g.datum === "MLLW").map((g) => g.id);
+  const navd = LEVELS.filter((g) => g.datum !== "MLLW").map((g) => g.id);
+  if (want(...mllw)) html.push(card("LV-MLLW", CFG.text["LV-MLLW:title"], CFG.text["LV-MLLW"],
     plot("LV-MLLW", "Water level at the estuary's tide gauges") + legend(LEVELS.filter((g) => g.datum === "MLLW").map((g, i) => [[MEASURED(), SECOND(), THIRD()][i % 3], g.name]))));
-  html.push(card("LV-NAVD", CFG.text["LV-NAVD:title"], CFG.text["LV-NAVD"],
+  if (want(...navd)) html.push(card("LV-NAVD", CFG.text["LV-NAVD:title"], CFG.text["LV-NAVD"],
     plot("LV-NAVD", "Water level at the NAVD88 gauges") + legend(LEVELS.filter((g) => g.datum !== "MLLW").map((g, i) => [[MEASURED(), SECOND(), THIRD()][i % 3], g.name]))));
   const preds = SHORE.filter((s) => !measuringShore(S).some((m) => m.id === s.id));
   const rowsHtml = preds.map((s) => {
     const ev = (L.shore?.stations[s.id]?.tides ?? []).filter((e) => sec(e.t) > now()).slice(0, 2);
     return `<tr><th scope="row">${esc(s.name)}</th>${ev.map((e) => `<td>${e.type === "H" ? "High" : "Low"} ${fmtShort.format(new Date(sec(e.t) * 1000))}<br><small>${e.ft.toFixed(1)} ft</small></td>`).join("")}</tr>`;
   }).join("");
-  html.push(card("TIDES", "Tide predictions", "NOAA CO-OPS, ft above MLLW.", `<table class="rg-tides"><tbody>${rowsHtml}</tbody></table>`));
+  if (!STATION) html.push(card("TIDES", "Tide predictions", "NOAA CO-OPS, ft above MLLW.", `<table class="rg-tides"><tbody>${rowsHtml}</tbody></table>`));
   html.push(`</div></section>`);
 }
 
 function currentsHtml(html: string[]): void {
   html.push(`<section class="fc-sec" aria-labelledby="sec-cur"><h2 class="fc-h" id="sec-cur">Currents</h2><div class="rg-cards">`);
-  for (const m of METERS) {
+  for (const m of METERS.filter((m) => want(m.id))) {
     html.push(card(m.id, `${m.name}`, `${esc(m.place)}. ${CFG.text.meter}`,
       plot(m.id, `Measured current at ${m.name}`) + legend([[MEASURED(), `speed, ${UL()}`]])));
   }
-  html.push(card("PRED", "Predicted tidal current", `NOAA predictions at ${PREDS.map((p) => p.name).join(" and ")}, ${UL()}, flood positive.`,
+  if (!STATION || STATION.kind === "meter") html.push(card("PRED", "Predicted tidal current", `NOAA predictions at ${PREDS.map((p) => p.name).join(" and ")}, ${UL()}, flood positive.`,
     plot("PRED", "Predicted tidal current") + legend(PREDS.map((p, i) => [[PREDICTED(), MODEL()][i % 2], p.name]))));
   html.push(`</div></section>`);
 }
 
 function riversHtml(html: string[]): void {
   html.push(`<section class="fc-sec" aria-labelledby="sec-riv"><h2 class="fc-h" id="sec-riv">Rivers</h2><p class="prose fc-say">Daily mean flow for the last 90 days against the gauge's record for each date: the band spans its middle half (25th to 75th percentile), the lighter band 10th to 90th.</p><div class="rg-cards rg-cards-3">`);
-  for (const g of GAUGES) {
+  for (const g of GAUGES.filter((g) => want(g.id))) {
     const d = L.rivers?.gauges[g.id];
     html.push(card(g.id, `${g.river} River`, `${esc(g.name)}, USGS ${g.usgs_id}; ${g.drainage_sqmi} sq mi to ${esc(g.mouth)}. ${d?.last_obs ? `Latest ${d.last_obs.flow_cfs} cfs, ${ago(sec(d.last_obs.time))}.` : ""}`, plot(g.id, `Flow of the ${g.river} River`)));
   }
@@ -336,7 +414,7 @@ function riversHtml(html: string[]): void {
 /** What the buoy views draw with: the page's data, units and colours. */
 function buoyCtx(): BuoyCtx {
   return {
-    buoys: BUOYS, live: L.buoys, hist: H.buoys, now: now(),
+    buoys: BUOYS.filter((b) => want(b.id)), live: L.buoys, hist: H.buoys, now: now(),
     wind: { label: UL(), perKt: UNITS[U].perKt, digits: U === "ms" ? 1 : 0 },
     colors: { measured: MEASURED(), second: SECOND(), dim: cssVar("--dim"), asOf: cssVar("--rg-time") },
   };
@@ -560,7 +638,15 @@ async function syncField(): Promise<void> {
 async function drawMap(): Promise<void> {
   const map = await import("./map");
   map.configureMap({ home: HOME, near: NEAR });
-  map.drawMap($("map"), pins(), (id) => navigateTo(`st-${id}`), light() ? "light" : "dark");
+  // A pin opens its station's page (a new address, so Back returns); the page's own station, or one without a page,
+  // scrolls to its card here.
+  const select = (id: string) => {
+    const s = S.byId(id);
+    if (s && hasPage(s) && s.id !== STATION?.id) location.assign(placeUrl(s));
+    else navigateTo(`st-${id}`);
+  };
+  map.drawMap($("map"), pins(), select, light() ? "light" : "dark");
+  if (STATION) void map.focusOn({ lon: STATION.lon, lat: STATION.lat });
   const [tl, chart] = await Promise.all([import("./timeline"), import("./chart")]);
   tl.mountTimeline($("map-foot"));
   TL = tl;
@@ -584,7 +670,7 @@ let TL: typeof import("./timeline") | null = null;
  * card "st-SEAV", a plot "pl-GBB-temp-yoy"). */
 function linkUrl(anchor?: string): string {
   const q: string[] = [];
-  if (theme !== "water") q.push(`view=${theme}`);
+  if (theme !== THEMES[0].key) q.push(`view=${theme}`);
   if (theme === "water" && bview !== "temp") q.push(`var=${bview}`);
   if (layer !== themeLayer()) q.push(`layer=${layer}`);
   const off = TL?.position().offset ?? 0;
@@ -669,6 +755,14 @@ async function main(): Promise<void> {
   wireUnits();
   wireTheme();
   wireNotice();
+  if (STATION) {
+    // A station's page: its name leads, the waterway above it.
+    document.querySelector(".fc-eyebrow")!.textContent = CFG.name;
+    document.querySelector(".fc-title")!.textContent = STATION.name;
+    document.title = `${STATION.name} | ${CFG.name} | longhorizon.blue`;
+  }
+  drawPlaces();
+  wirePlaces();
   wireThemes();
   wireBuoyViews();
   drawMethod();
@@ -696,6 +790,11 @@ async function main(): Promise<void> {
   // the status table goes to its station. A linked anchor is revealed once the sections draw.
   wireLinks(linkUrl, (e) => {
     const go = (e.target as HTMLElement).closest<HTMLElement>("tr[data-go]")?.dataset.go;
+    const s = go ? S.byId(go) : undefined;
+    if (s && !STATION && hasPage(s)) {
+      location.assign(placeUrl(s)); // the overview's row opens the station's page
+      return null;
+    }
     return go ? `st-${go}` : null;
   });
   window.setTimeout(() => revealLinked(), 300);
@@ -706,7 +805,7 @@ async function main(): Promise<void> {
   // variable reloads the page as linked.
   window.addEventListener("popstate", () => {
     const p = new URLSearchParams(location.search);
-    if ((p.get("view") ?? "water") !== theme || (theme === "water" && (p.get("var") ?? "temp") !== bview)) {
+    if ((p.get("view") ?? THEMES[0].key) !== theme || (theme === "water" && (p.get("var") ?? "temp") !== bview)) {
       location.reload();
       return;
     }

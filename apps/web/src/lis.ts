@@ -7,18 +7,19 @@ import promptTemplate from "../../../configs/prompts/visitor_prompt.txt?raw";
 import registry from "../../../stations/stations.json";
 import shoreRegistry from "../../../stations/shore.json";
 import asosRegistry from "../../../stations/asos.json";
-import { emphasise, highlight, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
+import { emphasise, renderLines, YELLOW, type ChartOptions, type Line } from "./chart";
 import { wireHints } from "./hints";
 import { chainButton, navigateTo, revealLinked, wireLinks } from "./links";
-import { ARROW_PATH, compass, LIGHT_KT, measuredOr, windArrow, windGlyphs, type WindAt } from "./wind-dir";import { BUOY_SENSORS, METHODS, methodHtml, REF_LABELS } from "./methods";
+import { ARROW_PATH, compass, LIGHT_KT, measuredOr, windArrow, windGlyphs, type WindAt } from "./wind-dir";
+import { BUOY_SENSORS, METHODS, REF_LABELS } from "./methods";
 import { BOATS, boatIcon, boatLabel, boatPickerHtml, comfortTableHtml } from "./comfort-thresholds";
 import { mountCollect } from "./collect";
-import { percentileText, SEASONS, seasonalPercentile, smoothByAge, trend, trendText, TRENDS, veerText } from "./trends";
+import { smoothByAge } from "./trends";
 import type { Pin } from "./map";
 import type { FieldData, FieldKind, RasterHistory } from "./fields";
 import { wireSuggest } from "./suggest";
 import {
-  COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, oxygenStatus, stratStatus, yearLines,
+  COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, fToC, getJson, grid, oxygenStatus, yearLines,
   type Encoded, type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetWindow,
   type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type VarHistory, type WaveFrame,
   type WaveHistory, type MetHistory, type WaveLive, type WaveObs, type YearLine, Daily, type RiverHistory, type RiverLive, type TurbHistory, type TurbFrame,
@@ -27,7 +28,11 @@ import { alertsNow, mountAdvisories, WIND_STRIP_HASH } from "./advisory";
 import { ago, cToF, f1, feet, fmtDate, fmtRun, fmtUtc, fmtWhen, fmtWhenMin, hourOf, hoursOld, lastValue, signed, signedFt, span, tideText } from "./waterway/format";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./waterway/cursor";
 import { DELAYED_HOURS, DEPTH_LABEL, DEPTHS, type FcStats, type FcValue, type Gauge, isWater, type Met, nextTide, obsState, OFFLINE_HOURS, overallState, type RiverData, type StationData, stationState, type TurbData, unitName, type VarKey, type VarView, WATER_VARS, type Waves } from "./waterway/station-data";
-import { atCell, configureCells, levelCell, predictedLevel, runText, stationPin, stationTables, valueAt } from "./waterway/cells";
+import { atCell, levelCell, predictedLevel, stationPin, stationTables, valueAt } from "./waterway/cells";
+import { configureModels } from "./waterway/models";
+import { type Built, type Fig, legendHtml, openZoom, redrawZoom, wireLegend, wireZoom } from "./waterway/figures";
+import { stationReadouts, stratNow } from "./waterway/readouts";
+import { openAbout, wireAbout } from "./waterway/about";
 import { currentSpeed, setUnit, waveFmt, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./waterway/units";
 
 const DATA = "/data/v1";
@@ -528,12 +533,6 @@ function yearStyle(offset: number, maxOffset: number): Pick<Line, "color" | "wid
 }
 
 /** Stratification is a temperature measure, whichever variable is shown. */
-function stratNow(d: StationData): { deltaC: number; status: string } {
-  const delta = d.temp.delta;
-  const end = delta ? delta.lastValid() : NaN;
-  const deltaC = delta && Number.isFinite(end) ? (delta.mean(end - 23 * HOUR, end) * 5) / 9 : NaN;
-  return { deltaC, status: stratStatus(deltaC) };
-}
 
 /* ---------- Figures: one builder per view, used inline and in the zoom view ---------- */
 
@@ -547,36 +546,9 @@ type Kind = "yoy" | "chg" | "col" | "sb" | "next48" | "hilo" | "dep" | "wind" | 
 const LEFT = (d: StationData): [number, number] => [d.now - 96 * DAY, d.now + 14 * DAY];
 const RIGHT = (d: StationData): [number, number] => [d.now - 60 * DAY, d.now];
 
-interface Built {
-  opts: ChartOptions;
-  legend: [string, string, number][];
-  note?: string;
-}
 
-interface Fig {
-  title: string;
-  sub: string;
-  varies: boolean; // follows the selected water variable
-  in: (k: VarKey) => boolean; // the views that show this figure
-  wide?: boolean; // spans both columns
-  label?: (d: StationData) => string; // a title that depends on where the figure sits
-  depthTabs: boolean;
-  seasonal: boolean; // compares years on the same dates (anchored at now); otherwise a recent timeline
-  available: (d: StationData) => boolean;
-  window: (d: StationData) => [number, number];
-  maxSpan: number; // widest zoom in the normal view
-  start?: (d: StationData) => number; // earliest data for this figure, if not the water record
-  build: (d: StationData, depth: string, x0: number, x1: number, full: boolean) => Built;
-}
 
-const recordStart = (d: StationData) => {
-  const t = Math.min(...Object.values(d.hourly).filter((h): h is Hourly => !!h).map((h) => h.t0));
-  return Number.isFinite(t) ? t : d.now - 2 * DAY;
-};
 
-/** Every chart of a view shares one time axis across stations (now), so an outage shows as an empty
- * stretch rather than a chart that quietly ends early. */
-const endOf = (d: StationData, _f: Fig) => d.now;
 
 /** LISICOS panels (images on the operator's site) for a station: the only recent view of series the
  * data server does not publish. */
@@ -643,15 +615,7 @@ function emptyNote(d: StationData): string {
   return `No published data in this window. ${last}See Full record${panel}.`;
 }
 
-function limits(d: StationData, f: Fig, full: boolean): { min: number; max: number; maxSpan: number } {
-  const end = endOf(d, f);
-  const min = Math.min(f.start?.(d) ?? recordStart(d), end - 2 * DAY);
-  return full
-    ? { min, max: end + 2 * DAY, maxSpan: Infinity }
-    : { min: Math.min(min, f.window(d)[0]), max: Math.max(end + (f.seasonal ? 60 : 2) * DAY, f.window(d)[1]), maxSpan: f.maxSpan };
-}
 
-const fullRange = (d: StationData, f: Fig): [number, number] => [f.start?.(d) ?? recordStart(d), endOf(d, f) + DAY];
 
 /** Our holdings for one series: hours with data, share of the span, and where the history comes from. */
 function coverageNote(d: StationData, depth: string): string {
@@ -1341,33 +1305,7 @@ function drawWindStrip(d: StationData, x0: number, x1: number): void {
   renderLines(strip, { ...b.opts, lines: b.opts.lines.filter((l) => l.label.startsWith("Wind, smoothed")), empty: "No wind readings in this window." });
 }
 
-function legendHtml(b: Built): string {
-  return (
-    b.legend
-      .map(([label, color, op]) => `<button type="button" class="lg" data-label="${label}"><i style="background:${color};opacity:${op}"></i>${label}</button>`)
-      .join("") + (b.note ? `<span class="off">${b.note}</span>` : "")
-  );
-}
 
-/** Hovering, focusing or tapping a legend entry highlights its line(s) in the plot. */
-function wireLegend(legend: HTMLElement, plot: HTMLElement): void {
-  let pinned: string | null = null;
-  const set = (label: string | null) => highlight(plot, label);
-  legend.addEventListener("pointerover", (e) => {
-    const b = (e.target as HTMLElement).closest<HTMLElement>(".lg");
-    if (b && pinned === null) set(b.dataset.label!);
-  });
-  legend.addEventListener("pointerout", () => {
-    if (pinned === null) set(null);
-  });
-  legend.addEventListener("click", (e) => {
-    const b = (e.target as HTMLElement).closest<HTMLElement>(".lg");
-    if (!b) return;
-    pinned = pinned === b.dataset.label ? null : b.dataset.label!;
-    legend.querySelectorAll(".lg").forEach((x) => x.classList.toggle("pinned", (x as HTMLElement).dataset.label === pinned));
-    set(pinned);
-  });
-}
 
 /* ---------- Tides: NOAA predictions, datums and flood levels at the shore stations ---------- */
 
@@ -3226,171 +3164,6 @@ function readouts(d: StationData): void {
   $(`${d.meta.id}-readouts`).classList.add("readouts-row");
 }
 
-/** One readout: the big figure, its label (which opens the plot's explanation) and a line of small print. */
-function readoutHtml(num: string, label: string, about: string, sub: string, state = "", context = ""): string {
-  return `<div class="readout"><div class="num">${num}</div><span class="lab"><button type="button" class="ro-about" data-about="${about}" title="About: ${label}">${label}</button></span>${context ? `<span class="trend">${context}</span>` : ""}<span class="sub${state ? ` ${state}` : ""}">${sub}</span></div>`;
-}
-
-/** Direction over the quantity's window, then the seasonal %ile (from `season.long` when the series has a longer
- * record than its recent window): "↗ +0.6°F in 24h · 74th %ile". */
-function contextLine(s: Hourly | null | undefined, trendKey: string, fmt: (v: number) => string, season?: { key: string; what?: string; long?: Hourly | null }): string {
-  const spec = TRENDS[trendKey];
-  const parts = [trendText(trend(s, spec), spec, fmt)];
-  if (season) parts.push(percentileText(seasonalPercentile(season.long ?? s, SEASONS[season.key]), season.what));
-  return parts.filter(Boolean).join(" &middot; ");
-}
-
-/** The change in the view's water variable, in display units. */
-const waterDelta = (v: number) => (VK === "temp" ? `${v.toFixed(1)}&deg;F` : VK === "salinity" ? v.toFixed(2) : `${v.toFixed(1)} mg/L`);
-
-/** A reading at one depth, or why there is none. */
-function depthReadout(d: StationData, depth: string, value: (o: LastObs) => number | null | undefined, fmt: (v: number) => string, labelFor: (depthLabel: string) => string, about: string, extra?: (o: LastObs, v: number) => string, context?: string): string {
-  const o = d.obs[depth];
-  const depthLabel = d.meta.series.find((s) => s.depth === depth)?.label ?? depth;
-  const label = labelFor(depthLabel);
-  const v = o ? value(o) : null;
-  if (!o || v == null || !Number.isFinite(v)) return readoutHtml("--", label, about, "no recent reading");
-  const state = obsState(o);
-  // An old reading is not a current condition: keep it out of the big figure.
-  if (state === "offline") return readoutHtml("--", label, about, `no current reading &middot; last ${fmt(v).replace(/<[^>]+>/g, " ")}, ${fmtDate.format(new Date(o.time))}`, "offline");
-  return readoutHtml(fmt(v), label, about, `${o.depth_m ?? "--"} m &middot; ${extra ? extra(o, v) + " &middot; " : ""}${ago(o.time)}${o.source === "panel" ? " &middot; transcribed from the LISICOS panel" : ""}`, state, context);
-}
-
-/** Direction and %ile of the view's water variable at one depth, from its 36h mean. */
-const waterContext = (d: StationData, depth: string) => contextLine(d.m36[depth], VK, waterDelta, { key: "water" });
-
-/** Surface minus bottom of the view's variable, as its latest 36h mean. */
-function deltaReadout(d: StationData, fmt: (v: number) => string): string {
-  const offline = stationState(d) === "offline";
-  if (VK === "temp") {
-    const sb = stratNow(d);
-    if (!Number.isFinite(sb.deltaC)) return readoutHtml("--", "Surface minus bottom", "sb", "no recent reading");
-    return offline
-      ? readoutHtml("--", "Surface minus bottom", "sb", `no current reading &middot; last ${signed(sb.deltaC, 2)}&deg;C, ${sb.status}`, "offline")
-      : readoutHtml(`${signed(sb.deltaC, 2)}&deg;C`, "Surface minus bottom", "sb", `${sb.status} (alpha definition) &middot; 24h mean`, "", stratContext(d));
-  }
-  const s = d.delta36;
-  const end = s ? s.lastValid() : NaN;
-  if (!s || !Number.isFinite(end)) return readoutHtml("--", "Surface minus bottom", "sb", "no recent reading");
-  const v = s.at(end);
-  return offline
-    ? readoutHtml("--", "Surface minus bottom", "sb", `no current reading &middot; last ${fmt(v)}`, "offline")
-    : readoutHtml(fmt(v), "Surface minus bottom", "sb", "36h mean", "", contextLine(s, VK, waterDelta));
-}
-
-/** Stratifying or mixing: the size of the last day's mean surface-bottom temperature difference against the day
- * before's (sizes of the means, so hours flipping sign around zero do not read as layering). */
-function stratContext(d: StationData): string {
-  const s = d.temp.delta;
-  const end = s ? s.lastValid() : NaN;
-  if (!s || !Number.isFinite(end)) return "";
-  const spec = TRENDS.stratification;
-  const w = spec.window * HOUR;
-  const now = Math.abs(s.mean(end - w + HOUR, end));
-  const before = Math.abs(s.mean(end - 2 * w + HOUR, end - w));
-  if (!Number.isFinite(now) || !Number.isFinite(before)) return "";
-  const delta = now - before;
-  const t = { dir: (Math.abs(delta) < spec.dead ? 0 : delta > 0 ? 1 : -1) as 1 | -1 | 0, delta };
-  return trendText(t, spec, (v) => `${((v * 5) / 9).toFixed(2)}&deg;C`);
-}
-
-const fmtTempF = (c: number) => `${f1(cToF(c))}&deg;F<small>${c.toFixed(1)}&deg;C</small>`;
-const fmtSal = (v: number) => v.toFixed(2);
-const fmtDo = (v: number) => `${v.toFixed(1)}<small>mg/L</small>`;
-
-/** Wind, waves, pressure and air at the station (the Wind and waves view). */
-function weatherReadouts(d: StationData): string[] {
-  const out: string[] = [];
-  const o = d.met?.last;
-  const state = o ? obsState({ time: o.time } as LastObs) : "offline";
-  const u = WIND_UNITS[WU].label;
-  if (o?.wind_kt != null && state !== "offline") {
-    const dir = o.dir_deg != null ? `from ${compass(o.dir_deg)}` : "";
-    out.push(readoutHtml(`${o.dir_deg != null ? windArrow(o.dir_deg, o.wind_kt < LIGHT_KT) : ""}${windFmt(o.wind_kt)}<small>${u}</small>`, "Wind", "wind", `${dir}${dir ? " &middot; " : ""}gusts ${windFmt(o.gust_kt)} ${u} &middot; ${ago(o.time)}${o.source === "panel" ? " &middot; transcribed from the LISICOS panel" : ""}`, state,
-      [contextLine(d.met?.wind, "wind", (v) => `${windFmt(v)} ${u}`), veerText(d.met?.dir, d.met?.wind), percentileText(seasonalPercentile(d.metLong?.wind ?? d.met?.wind, SEASONS.wind), "last 3 days")]
-        .filter(Boolean)
-        .join(" &middot; ")));
-  } else {
-    out.push(readoutHtml("--", "Wind", "wind", "no recent reading", "offline"));
-    const f = hrrrStandIn(d, Date.now() / 1000);
-    if (f) out.push(readoutHtml(`<span class="model-num">${windFmt(f.spd)}</span><small>${u}</small>`, "Wind, model", "model", `HRRR at the buoy, from ${compass(f.dir)}, gusts ${windFmt(f.gust)} ${u} &middot; ${runText(f.issue, f.lead)} &middot; not a measurement`, "model"));
-  }
-  if (d.kind === "buoy" && wavesOf(d.meta.id)?.sensor) {
-    const w = lastWave(d.meta.id);
-    const live = (WAVE_LIVE[d.meta.id]?.published || w?.source === "panel") && w && obsState({ time: w.time } as LastObs) !== "offline";
-    out.push(
-      live
-        ? readoutHtml(`${waveFmt(w!.hs_m)}<small>${waveUnit().label}</small>`, "Waves", "waves", `${w!.tp_s != null ? `${w!.tp_s.toFixed(0)} s period &middot; ` : ""}${ago(w!.time)}${w!.source === "panel" ? " &middot; transcribed from the LISICOS panel" : ""}`, "",
-            contextLine(d.waves?.hs, "waves", (v) => `${waveFmt(v)} ${waveUnit().label}`, { key: "waves", what: "last 3 days" }))
-        : readoutHtml("--", "Waves", "waves", wavesText(d.meta.id, true), "offline"),
-    );
-    if (!live) {
-      if (!NWPS) void loadNwps();
-      const m = nwpsAt(d.meta.id, hourOf(Date.now() / 1000));
-      if (m) out.push(readoutHtml(`<span class="model-num">${waveFmt(m.hs)}</span><small>${waveUnit().label}</small>`, "Waves, model", "model", `NWS wave model (NWPS) at the buoy${Number.isFinite(m.tp) ? `, ${m.tp.toFixed(0)} s period` : ""} &middot; ${runText(m.issue, m.lead)} &middot; not a measurement`, "model"));
-    }
-  }
-  if (o?.pressure_mb != null && state !== "offline") {
-    const ctx = contextLine(d.met?.pressure, "pressure", (v) => `${v.toFixed(1)} mb`, { key: "pressure", what: "last day", long: d.metLong?.pressure });
-    out.push(readoutHtml(`${o.pressure_mb.toFixed(0)}<small>mb</small>`, "Pressure", "pressure", ago(o.time), state, ctx));
-  }
-  if (o?.air_f != null && state !== "offline")
-    out.push(readoutHtml(`${f1(o.air_f)}&deg;F`, "Air", "air", ago(o.time), state, contextLine(d.met?.air, "air", (v) => `${v.toFixed(0)}&deg;F`, { key: "air", what: "last day", long: d.metLong?.air })));
-  return out;
-}
-
-function levelReadout(d: StationData): string {
-  const e = nextTide(d);
-  const lv = d.levelNow;
-  return readoutHtml(`${lv ? lv.ft.toFixed(1) : "--"}<small>ft</small>`, "Water level", "tide", `above MLLW${lv ? ` &middot; ${ago(lv.time)}` : ""}${e ? ` &middot; next ${tideText(e)}` : ""}`);
-}
-
-/** The Tides view's readouts for a shore station: what is unusual first (the water against NOAA's prediction), then
- * the level, then the margin to minor flooding at the next high if the departure held. */
-function tidesReadouts(d: StationData): string[] {
-  const lv = d.levelNow;
-  const state = lv ? obsState({ time: lv.time } as LastObs) : "offline";
-  const dep = lastValue(departure(d));
-  const out: string[] = [];
-  out.push(Number.isFinite(dep) && state !== "offline"
-    ? readoutHtml(`${signedFt(dep)}<small>ft</small>`, "Departure from prediction", "dep", `observed minus ${d.meta.operator === "USGS" ? "our fitted prediction" : "NOAA's prediction"}${lv ? ` &middot; ${ago(lv.time)}` : ""}`, state,
-        contextLine(departure(d), "departure", (v) => `${v.toFixed(1)} ft`))
-    : readoutHtml("--", "Departure from prediction", "dep", "no current reading", "offline"));
-  out.push(readoutHtml(`${lv ? lv.ft.toFixed(1) : "--"}<small>ft</small>`, "Water level", "tide", `above MLLW${lv ? ` &middot; ${ago(lv.time)}` : ""}`, state));
-  const hi = d.tides.find((e) => e.type === "H" && Date.parse(e.t) > Date.now());
-  const minor = TIDES?.[d.meta.id]?.flood_ft?.nws_minor ?? null;
-  if (hi && minor != null) {
-    const reach = hi.ft + (Number.isFinite(dep) ? dep : 0);
-    out.push(readoutHtml(`${(minor - reach).toFixed(1)}<small>ft</small>`, "Below minor flood", "hilo",
-      `next high ${hi.ft.toFixed(1)} ft predicted, ${fmtWhenMin.format(new Date(hi.t))}${Number.isFinite(dep) ? `, ${signedFt(dep)} ft departure` : ""} &middot; NWS minor ${minor.toFixed(1)} ft`));
-  }
-  return out;
-}
-
-/** The readouts at the top of a buoy or shore station section follow the view, mirroring the plots below them.
- * Mid-depth stays out: the water-column plot carries it. */
-function stationReadouts(d: StationData): string[] {
-  const depths = d.depths.filter((dep) => dep !== "MID");
-  if (d.kind === "airport") return weatherReadouts(d);
-  if (d.kind === "shore") {
-    if (VK === "wind") return [...weatherReadouts(d), levelReadout(d)];
-    if (VK === "tides") return tidesReadouts(d);
-    return [depthReadout(d, d.depths[0], (o) => o.temperature_c, fmtTempF, () => "Water temperature", "col", undefined, d.kind === "shore" ? contextLine(d.m36[d.depths[0]] ?? d.temp.m36[d.depths[0]], "temp", (v) => `${v.toFixed(1)}&deg;F`, { key: "water" }) : undefined), levelReadout(d)];
-  }
-  if (VK === "wind") return weatherReadouts(d);
-  if (VK === "salinity") {
-    const items = depths.map((dep) => depthReadout(d, dep, (o) => o.salinity, fmtSal, (l) => `${l} salinity`, "col", undefined, waterContext(d, dep)));
-    return d.delta ? [...items, deltaReadout(d, (v) => signed(v, 2))] : items;
-  }
-  if (VK === "oxygen") {
-    const bottomFirst = [...depths].reverse();
-    const items = bottomFirst.map((dep) => depthReadout(d, dep, (o) => o.oxygen_mg_l, fmtDo, (l) => `${l} dissolved oxygen`, "col", (_o, v) => oxygenStatus(v), waterContext(d, dep)));
-    return d.delta ? [...items, deltaReadout(d, (v) => `${signed(v, 1)}<small>mg/L</small>`)] : items;
-  }
-  const items = depths.map((dep) => depthReadout(d, dep, (o) => o.temperature_c, fmtTempF, (l) => l, "col", undefined, waterContext(d, dep)));
-  return d.temp.delta ? [...items, deltaReadout(d, () => "")] : items;
-}
-
 const activeDepth = (d: StationData, key: Kind): string =>
   document.querySelector<HTMLButtonElement>(`#${d.meta.id} .tab[data-fig="${key}"][aria-pressed="true"]`)?.dataset.depth ?? d.depths[0];
 
@@ -3510,171 +3283,6 @@ function drawInline(d: StationData, key: Kind): void {
   if (key === "sb") drawWindStrip(d, x0, x1);
 }
 
-/* ---------- Zoom view: wheel or pinch to zoom, drag to pan, tooltips throughout ---------- */
-
-interface ZoomState {
-  d: StationData;
-  key: Kind;
-  depth: string;
-  x0: number;
-  x1: number;
-  full: boolean; // the whole record as a timeline, instead of the default view
-}
-
-let zoom: ZoomState | null = null;
-let zoomFrame = 0;
-
-function drawZoom(): void {
-  if (!zoom) return;
-  const b = FIGS[zoom.key].build(zoom.d, zoom.depth, zoom.x0, zoom.x1, zoom.full);
-  renderLines($("zoom-plot"), b.opts);
-  $("zoom-legend").innerHTML = legendHtml(b);
-  if (zoom.key === "next48") mountVintage(zoom.d, $("zoom-plot"), zoom.x0, zoom.x1);
-  else if (zoom.key === "waves") mountNwpsVintage(zoom.d, $("zoom-plot"), zoom.x0, zoom.x1);
-  else $("zoom-plot").querySelector(".vintage")?.remove();
-}
-
-/** Switch between the default view and the full record, and label the toggle for the other one. */
-function setFull(full: boolean): void {
-  if (!zoom) return;
-  const f = FIGS[zoom.key];
-  zoom.full = full;
-  const [a, b] = full ? fullRange(zoom.d, f) : f.window(zoom.d);
-  zoom.x0 = a;
-  zoom.x1 = b;
-  const toggle = $("zoom-full");
-  toggle.textContent = full ? (f.seasonal ? "Same dates by year" : "Recent") : "Full record";
-  toggle.setAttribute("aria-pressed", String(full));
-  const whole = f.seasonal ? "everything we hold, each year in its color; gaps are periods with no data" : "everything we hold; gaps are periods with no data";
-  $("zoom-sub").textContent = full ? whole : `${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}`;
-  requestZoomDraw();
-}
-
-function requestZoomDraw(): void {
-  cancelAnimationFrame(zoomFrame);
-  zoomFrame = requestAnimationFrame(drawZoom);
-}
-
-/** Clamp the range to the figure's limits, keeping the span. */
-function setRange(x0: number, x1: number): void {
-  if (!zoom) return;
-  const lim = limits(zoom.d, FIGS[zoom.key], zoom.full);
-  const span = Math.max(0, Math.min(Math.max(x1 - x0, 2 * DAY), lim.maxSpan, lim.max - lim.min));
-  let a = x1 - x0 !== span ? (x0 + x1) / 2 - span / 2 : x0;
-  a = Math.max(lim.min, Math.min(a, lim.max - span));
-  zoom.x0 = a;
-  zoom.x1 = a + span;
-  requestZoomDraw();
-}
-
-function zoomBy(factor: number, center?: number): void {
-  if (!zoom) return;
-  const c = center ?? (zoom.x0 + zoom.x1) / 2;
-  setRange(c - (c - zoom.x0) * factor, c + (zoom.x1 - c) * factor);
-}
-
-function openZoom(d: StationData, key: Kind, full = false): void {
-  const f = FIGS[key];
-  const [x0, x1] = f.window(d);
-  zoom = { d, key, depth: activeDepth(d, key), x0, x1, full: false };
-  $("zoom-title").textContent = `${figName(f)} · ${d.meta.name}`;
-  $("zoom-tabs").innerHTML = f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, "zoom", zoom.depth) : "";
-  ($("zoom") as HTMLDialogElement).showModal();
-  setFull(full); // draws after layout, so the axis labels fit the dialog's width
-}
-
-function wireZoom(): void {
-  const dialog = $("zoom") as HTMLDialogElement;
-  const plot = $("zoom-plot");
-  plot.dataset.zoom = "1";
-  new ResizeObserver(() => requestZoomDraw()).observe(plot);
-  wireLegend($("zoom-legend"), plot);
-  const svg = plot.querySelector("svg")!;
-  const span = () => (zoom ? zoom.x1 - zoom.x0 : 1);
-  const timeAt = (clientX: number) => {
-    const box = svg.getBoundingClientRect();
-    return zoom!.x0 + ((clientX - box.left) / Math.max(1, box.width)) * span();
-  };
-
-  $("zoom-close").addEventListener("click", () => dialog.close());
-  dialog.addEventListener("click", (e) => {
-    if (e.target === dialog) dialog.close(); // click on the backdrop
-  });
-  dialog.addEventListener("close", () => (zoom = null));
-  $("zoom-in").addEventListener("click", () => zoomBy(1 / 1.6));
-  $("zoom-out").addEventListener("click", () => zoomBy(1.6));
-  $("zoom-reset").addEventListener("click", () => {
-    if (!zoom) return;
-    const f = FIGS[zoom.key];
-    const [a, b] = zoom.full ? fullRange(zoom.d, f) : f.window(zoom.d);
-    setRange(a, b);
-  });
-  $("zoom-full").addEventListener("click", () => setFull(!zoom?.full));
-  $("zoom-tabs").addEventListener("click", (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".tab");
-    if (!btn || !zoom) return;
-    zoom.depth = btn.dataset.depth!;
-    $("zoom-tabs").querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
-    requestZoomDraw();
-  });
-  dialog.addEventListener("keydown", (e) => {
-    if (!zoom) return;
-    if (e.key === "+" || e.key === "=") zoomBy(1 / 1.6);
-    else if (e.key === "-") zoomBy(1.6);
-    else if (e.key === "ArrowLeft") setRange(zoom.x0 - span() * 0.2, zoom.x1 - span() * 0.2);
-    else if (e.key === "ArrowRight") setRange(zoom.x0 + span() * 0.2, zoom.x1 + span() * 0.2);
-  });
-
-  svg.addEventListener(
-    "wheel",
-    (e) => {
-      if (!zoom) return;
-      e.preventDefault();
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-        const dt = (e.deltaX / svg.getBoundingClientRect().width) * span();
-        setRange(zoom.x0 + dt, zoom.x1 + dt);
-      } else zoomBy(Math.exp(e.deltaY * 0.0015), timeAt(e.clientX));
-    },
-    { passive: false },
-  );
-
-  // Pointer drag pans; two pointers pinch-zoom around their midpoint.
-  const pointers = new Map<number, number>();
-  let start: { x0: number; x1: number; pts: [number, number][] } | null = null;
-  const snapshot = () => {
-    start = zoom ? { x0: zoom.x0, x1: zoom.x1, pts: [...pointers.entries()] } : null;
-  };
-  svg.addEventListener("pointerdown", (e) => {
-    svg.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId, e.clientX);
-    snapshot();
-  });
-  svg.addEventListener("pointermove", (e) => {
-    if (!zoom || !start || !pointers.has(e.pointerId)) return;
-    pointers.set(e.pointerId, e.clientX);
-    const width = svg.getBoundingClientRect().width;
-    const s0 = start.x1 - start.x0;
-    if (pointers.size === 1 && start.pts.length === 1) {
-      const dt = ((start.pts[0][1] - e.clientX) / width) * s0;
-      setRange(start.x0 + dt, start.x1 + dt);
-    } else if (pointers.size === 2 && start.pts.length === 2) {
-      const [a, b] = start.pts.map(([, x]) => x);
-      const [c, d] = [...pointers.values()];
-      const factor = Math.max(8, Math.abs(b - a)) / Math.max(8, Math.abs(d - c));
-      const box = svg.getBoundingClientRect();
-      const mid = start.x0 + (((a + b) / 2 - box.left) / width) * s0;
-      setRange(mid - (mid - start.x0) * factor, mid + (start.x1 - mid) * factor);
-    }
-  });
-  const end = (e: PointerEvent) => {
-    pointers.delete(e.pointerId);
-    snapshot();
-  };
-  svg.addEventListener("pointerup", end);
-  svg.addEventListener("pointercancel", end);
-  svg.addEventListener("dblclick", () => $("zoom-reset").click());
-}
-
 /* ---------- Freshness and notes ---------- */
 
 function updatedStrip(meta: Meta, live: Live): void {
@@ -3771,9 +3379,6 @@ function wireMore(): void {
   show();
 }
 
-/** The About dialog: one entry from methods.ts, for a plot, a readout or a map layer. */
-let aboutLink = "";
-
 const isRiver = (d: StationData) => d.kind === "rivers" || d.kind === "river";
 const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const sqmi = (n: number) => `${n.toLocaleString("en-US")} square miles`;
@@ -3868,60 +3473,7 @@ function gaugeAboutHtml(d: StationData): string {
   return `<dl class="about-list">${rows}</dl><p class="about-foot">Times are stored in UTC and labelled in New York time. All data are provisional and may be revised.</p>`;
 }
 
-function openAbout(key: string, d: StationData | null): void {
-  if (key === "station" && d) {
-    const dialog = $("about-dialog") as HTMLDialogElement;
-    aboutLink = "";
-    ($("about-link") as HTMLButtonElement).hidden = true;
-    $("about-dialog-title").textContent = d.kind === "rivers" ? "The river gauges" : d.kind === "turbidity" ? "Buoy turbidity sensors" : d.meta.name;
-    $("about-dialog-body").innerHTML = isRiver(d) ? gaugeAboutHtml(d) : stationAboutHtml(d);
-    if (!dialog.open) dialog.showModal();
-    return;
-  }
-  const m = METHODS[key];
-  if (!m) return;
-  const dialog = $("about-dialog") as HTMLDialogElement;
-  // A plot on a station can be linked to: the page as it stands, scrolled to that plot.
-  const plotId = d && key in FIGS ? `${d.meta.id}-${key}` : "";
-  aboutLink = plotId ? linkUrl(plotId) : "";
-  const linkBtn = $("about-link") as HTMLButtonElement;
-  linkBtn.hidden = !aboutLink;
-  linkBtn.textContent = "Copy link";
-  $("about-dialog-title").textContent = d && !key.startsWith("map-") ? `${m.title}: ${d.meta.name}` : m.title;
-  $("about-dialog-body").innerHTML = methodHtml(key, {
-    variable: isWater(VK) ? V().label.toLowerCase() : "the reading",
-    varKey: VK,
-    station: d?.meta.name ?? "the station",
-    stationId: d?.meta.id ?? "",
-    kind: d?.kind ?? "",
-  });
-  // The comfort index's thresholds, as a table with the reader's boat marked.
-  if (key === "comfort") $("about-dialog-body").querySelector(".about-list")?.insertAdjacentHTML("afterend", comfortTableHtml(BOAT, WU === "ms"));
-  if (!dialog.open) dialog.showModal();
-}
 
-function wireAbout(): void {
-  const dialog = $("about-dialog") as HTMLDialogElement;
-  $("about-close").addEventListener("click", () => dialog.close());
-  // A link to a section of this page (the river list in the gauges' About) closes the dialog on the way.
-  $("about-dialog-body").addEventListener("click", (e) => {
-    if ((e.target as HTMLElement).closest('a[href^="#"]')) dialog.close();
-  });
-  $("about-link").addEventListener("click", async () => {
-    const btn = $("about-link") as HTMLButtonElement;
-    try {
-      await navigator.clipboard.writeText(aboutLink);
-      btn.textContent = "Copied";
-    } catch {
-      window.prompt("Copy this link:", aboutLink); // clipboard refused: show it to copy by hand
-    }
-  });
-  dialog.addEventListener("click", (e) => {
-    if (e.target === dialog) dialog.close(); // a click on the backdrop
-  });
-  // The map key's (i) (fields.ts) asks for its layer's entry.
-  document.addEventListener("lhzn-about", (e) => openAbout((e as CustomEvent<{ key: string }>).detail.key, null));
-}
 
 function about(meta: Meta): void {
   $("about-method").innerHTML =
@@ -4835,8 +4387,8 @@ const SHORE: ShoreMetaStation[] = shoreRegistry.stations
   .map((s) => ({ ...s, note: (s as { note?: string }).note ?? null, record_start: `${s.record_start_year}-01-01T00:00:00Z` }))
   .sort((a, b) => a.lon - b.lon);
 
-/** The cells and pins (waterway/cells.ts) read the page's view, colours and models through these. */
-configureCells({
+/** The engine's cells, readouts and figures (waterway/) read the page's view, colours and models through these. */
+configureModels({
   view: () => VK,
   palette: () => P,
   forecastAt,
@@ -4855,6 +4407,7 @@ configureCells({
   departure,
   predictedHour,
   verTag,
+  floodMinor: (id) => TIDES?.[id]?.flood_ft?.nws_minor ?? null,
 });
 
 async function main(): Promise<void> {
@@ -4876,7 +4429,7 @@ async function main(): Promise<void> {
         readouts(d);
         (Object.keys(FIGS) as Kind[]).forEach((k) => drawInline(d, k));
       }
-      if (zoom) drawZoom();
+      redrawZoom();
     };
     /** Station sections for the selected variable (captions and record lines name it), buoys then shore. */
     const renderSections = () => {
@@ -4984,10 +4537,39 @@ async function main(): Promise<void> {
         return;
       }
       const opener = target.closest<HTMLElement>(".expand, .plot");
-      if (opener?.dataset.station) openZoom(byId(opener.dataset.station), opener.dataset.fig as Kind, opener.dataset.full === "1");
+      if (opener?.dataset.station) openZoom(byId(opener.dataset.station), opener.dataset.fig!, opener.dataset.full === "1");
     });
-    wireZoom();
-    wireAbout();
+    wireZoom({
+      fig: (k) => FIGS[k as Kind],
+      name: figName,
+      varLabel: () => V().label,
+      depth: (d, k) => activeDepth(d, k as Kind),
+      depthTabs: depthTabsHtml,
+      afterDraw: (plot, d, k, x0, x1) => {
+        if (k === "next48") mountVintage(d, plot, x0, x1);
+        else if (k === "waves") mountNwpsVintage(d, plot, x0, x1);
+        else plot.querySelector(".vintage")?.remove();
+      },
+    });
+    wireAbout({
+      station: (d) => ({
+        title: d.kind === "rivers" ? "The river gauges" : d.kind === "turbidity" ? "Buoy turbidity sensors" : d.meta.name,
+        html: isRiver(d) ? gaugeAboutHtml(d) : stationAboutHtml(d),
+      }),
+      // A plot on a station can be linked to: the page as it stands, scrolled to that plot.
+      link: (key, d) => (d && key in FIGS ? linkUrl(`${d.meta.id}-${key}`) : ""),
+      method: (d) => ({
+        variable: isWater(VK) ? V().label.toLowerCase() : "the reading",
+        varKey: VK,
+        station: d?.meta.name ?? "the station",
+        stationId: d?.meta.id ?? "",
+        kind: d?.kind ?? "",
+      }),
+      // The comfort index's thresholds, as a table with the reader's boat marked.
+      extend: (key, body) => {
+        if (key === "comfort") body.querySelector(".about-list")?.insertAdjacentHTML("afterend", comfortTableHtml(BOAT, WU === "ms"));
+      },
+    });
     window.setTimeout(() => revealLinked(), 300); // after the sections draw
     wireLinks(linkUrl, statusRowAnchor);
     // Back and Forward between the page's own entries (a jump from the wind strip, a station link): the browser

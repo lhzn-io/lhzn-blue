@@ -1,6 +1,6 @@
 # Roadmap
 
-What `longhorizon.blue` builds next, in rough order. Last revised 2026-10-23.
+What `longhorizon.blue` builds next, in rough order. Last revised 2026-10-27.
 
 ## Principles
 
@@ -42,12 +42,15 @@ Long Island Sound page:
       transcribed record from the LISICOS station panels while the data server is down, and model stand-ins labelled
       as such
 - [x] Phone layout, and an embed mode for one live figure
+- [x] A page per station: each buoy, shore station and coastal airport with only the views it has, our own photos of
+      three of the buoys, and earlier links to a station or one of its plots opening its page
+- [x] Every waterway page built from one configurable page, so each feature below is built once for all of them
 
 ## Next
 
-1. **Global models at longer leads.** ECMWF and GFS wind at the buoys, scored the same way as HRRR.
-2. **Tidal currents beside the model.** NOAA tidal current predictions at The Race, Plum Gut and Hell Gate shown
+1. **Tidal currents beside the model.** NOAA tidal current predictions at The Race, Plum Gut and Hell Gate shown
    with the NECOFS surface currents, and the two compared at each station.
+2. **Global models at longer leads.** ECMWF and GFS wind at the buoys, scored the same way as HRRR.
 3. **Compact currents file.** The currents in the binary frame format the satellite history uses, about a third of
    today's size.
 4. **Design notes.** The palette and the plot grammar documented, with their licence.
@@ -64,7 +67,9 @@ Long Island Sound page:
 5. **Quality control.** A flat-line test for every series, the IOOS QARTOD tests through `ioos_qc`, and the
    operators' own flags where they publish them.
 6. **The eastern Sound.** The Race and Block Island Sound, from any further public buoy, NDBC or NERACOOS data.
-7. **Documented data access.** A remote MCP server and documented data files that return the same numbers the page
+7. **The tides diagram for any waterway.** The schematic in the Sound's tides view, drawn from a waterway's own
+   outline and gauges.
+8. **Documented data access.** A remote MCP server and documented data files that return the same numbers the page
    shows. The current data files serve this site's pages only.
 
 ## Later

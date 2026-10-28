@@ -33,6 +33,7 @@ import { OUTLOOK, outlookHtml } from "./outlook";
 import { NEXT48 } from "./next48";
 import { ADV, ADV_WIND, advisoriesFor, loadAdvisories, zoneOf, zonesInForce } from "./advisories";
 import { hideWsTip, showWsTip, windAcrossHtml, WS_BACK, wsPoint } from "./wind-strip";
+import { windRoseHtml } from "./wind-rose";
 import { DEPARTURE, loadTides, onTides, TIDES } from "./tides";
 import { departureBuilt, departureRowsSvg, drawLadder, highestAheadHtml, hiloBuilt, tidesTable } from "./tides-view";
 import { cfs, dailyFlow, ordinal, pct, percentileOf, riverFlow } from "./rivers";
@@ -953,8 +954,8 @@ function statusHtml(all: StationData[], survey = false): string {
   const group = STATION_ID ? (stations[0]?.kind === "shore" ? "shore" : "buoy") : SG;
   // An airport is in neither table: its page leads with the outlook. The shore gauges' own table is the overview's.
   const table = STATION_ID && stations[0]?.kind === "airport" ? "" : stationTables(stations, group);
-  // The wind across the whole waterway is the overview's: a station's page keeps to the station.
-  const across = STATION_ID || survey ? "" : windAcrossHtml(all, CFG.called);
+  // The wind across the whole waterway is the overview's: a station's page keeps to the station, with its wind roses.
+  const across = STATION_ID ? windRoseHtml(stations[0], VK) : survey ? "" : windAcrossHtml(all, CFG.called);
   return `${table}${stationPhoto()}${isWater(VK) && !STATION_ID ? PARTS.shoreTable() : ""}${outlookHtml(all)}${across}`;
 }
 

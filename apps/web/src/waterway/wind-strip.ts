@@ -80,7 +80,7 @@ export function showWsTip(svg: SVGSVGElement, e: MouseEvent, d: StationData, t: 
   tip.style.top = `${e.clientY - box.top + 14}px`;
 }
 
-function windColour(kt: number): string {
+export function windColour(kt: number): string {
   const st = WS_STOPS[currentTheme()];
   const v = Math.max(0, Math.min(kt, st[st.length - 1][0]));
   let i = 1;

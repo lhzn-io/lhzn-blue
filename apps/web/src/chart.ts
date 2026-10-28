@@ -11,8 +11,20 @@ export const YELLOW = "#decf03";
 const TZ = "America/New_York";
 const DAY = 86400;
 
-/** A theme token from site.css (charts follow the light and dark themes). */
-export const cssVar = (name: string): string => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+/** A theme token from site.css (charts follow the light and dark themes), read once per theme: the theme is the root's
+ * data-theme, the only thing that changes the tokens. */
+const TOKENS = new Map<string, string>();
+let tokensTheme: string | undefined;
+export const cssVar = (name: string): string => {
+  const theme = document.documentElement.dataset.theme ?? "";
+  if (theme !== tokensTheme) {
+    TOKENS.clear();
+    tokensTheme = theme;
+  }
+  let v = TOKENS.get(name);
+  if (v === undefined) TOKENS.set(name, (v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()));
+  return v;
+};
 
 export function el<K extends keyof SVGElementTagNameMap>(name: K, attrs: Record<string, string | number>): SVGElementTagNameMap[K] {
   const node = document.createElementNS(SVG, name);

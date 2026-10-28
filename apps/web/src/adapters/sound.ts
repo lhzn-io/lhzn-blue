@@ -66,6 +66,33 @@ export function useVar(d: StationData, k: VarKey): void {
   Object.assign(d, { hourly: v.hourly, m36: v.m36, chg: v.chg, delta: v.delta, delta36: v.delta36 });
 }
 
+/** Files asked for ahead of need (the files of the view a page opens on, at the start of its load), each taken once by
+ * the loader that uses it. */
+const AHEAD = new Map<string, Promise<unknown>>();
+function take<T>(url: string): Promise<T> {
+  const p = AHEAD.get(url) as Promise<T> | undefined;
+  AHEAD.delete(url);
+  return p ?? getJson<T>(url);
+}
+
+/** Start a view's files loading before the page asks for the view (alongside the buoys' own files). */
+export function prefetchVar(k: VarKey): void {
+  if (loaded.has(k)) return;
+  const files =
+    k === "wind" ? [WATER_VARS.wind.file, "history-met.json"]
+    : k === "rivers" ? ["rivers.json", WATER_VARS.rivers.file]
+    : k === "turbidity" ? ["rivers.json", WATER_VARS.rivers.file, WATER_VARS.turbidity.file]
+    : k === "salinity" || k === "oxygen" ? [WATER_VARS[k].file]
+    : [];
+  for (const f of files) {
+    const url = `${DATA}/${f}`;
+    if (AHEAD.has(url)) continue;
+    const p = getJson(url);
+    p.catch(() => undefined); // its loader sees the failure
+    AHEAD.set(url, p);
+  }
+}
+
 /** Load a variable's history (once) and build its views for every station; its sources go to the page's notes. */
 const loaded = new Set<VarKey>(["temp"]);
 export async function ensureVar(k: VarKey, live: Live, stations: StationData[], sources: (html: string) => void): Promise<void> {
@@ -76,7 +103,7 @@ export async function ensureVar(k: VarKey, live: Live, stations: StationData[], 
     return;
   }
   if (k === "rivers") {
-    const [rl, rh] = await Promise.all([getJson<RiverLive>(`${DATA}/rivers.json`), getJson<RiverHistory>(`${DATA}/${WATER_VARS.rivers.file}`)]);
+    const [rl, rh] = await Promise.all([take<RiverLive>(`${DATA}/rivers.json`), take<RiverHistory>(`${DATA}/${WATER_VARS.rivers.file}`)]);
     RIVER_SECTIONS = riverSections(rl, rh, LIS.rivers);
     sources(` Rivers: <a href="https://waterdata.usgs.gov/">USGS</a> stream gauges (${rh.meta.gauges.map((g) => `${g.name}, ${g.usgs_id}`).join("; ")}). ` +
         `Recent flow is hourly means of 15-minute readings; earlier flow is daily means; the ranges for each date are percentiles of daily mean ` +
@@ -87,7 +114,7 @@ export async function ensureVar(k: VarKey, live: Live, stations: StationData[], 
   }
   if (k === "turbidity") {
     await ensureVar("rivers", live, stations, sources).catch(() => undefined); // the river input; the buoys show without it
-    const th = await getJson<TurbHistory>(`${DATA}/${WATER_VARS.turbidity.file}`).catch(() => null); // the live 100 days still show
+    const th = await take<TurbHistory>(`${DATA}/${WATER_VARS.turbidity.file}`).catch(() => null); // the live 100 days still show
     TURB_SECTION = turbSection(stations, live, th);
     if (TURB_SECTION) TURB_SECTION.river = RIVER_SECTIONS[0]?.river;
     if (th) sources(` ${th.qc}`);
@@ -96,8 +123,8 @@ export async function ensureVar(k: VarKey, live: Live, stations: StationData[], 
   }
   if (k === "wind") {
     const [hist, met] = await Promise.all([
-      getJson<WaveHistory>(`${DATA}/${WATER_VARS.wind.file}`),
-      getJson<MetHistory>(`${DATA}/history-met.json`).catch(() => null), // the %iles wait for it; the rest shows without
+      take<WaveHistory>(`${DATA}/${WATER_VARS.wind.file}`),
+      take<MetHistory>(`${DATA}/history-met.json`).catch(() => null), // the %iles wait for it; the rest shows without
     ]);
     WAVE_META = hist.meta;
     for (const d of stations) if (d.kind === "buoy") d.waves = wavesFrom(hist.stations[d.meta.id], live.waves?.[d.meta.id]);
@@ -114,7 +141,7 @@ export async function ensureVar(k: VarKey, live: Live, stations: StationData[], 
     loaded.add(k);
     return;
   }
-  const hist = await getJson<VarHistory>(`${DATA}/${WATER_VARS[k].file}`);
+  const hist = await take<VarHistory>(`${DATA}/${WATER_VARS[k].file}`);
   const liveVar = k === "temp" ? live.series : live[k];
   for (const d of stations) d.views[k] = viewOf(d.meta, hist.series, liveVar);
   loaded.add(k);

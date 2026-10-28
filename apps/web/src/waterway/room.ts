@@ -44,6 +44,12 @@ function apply(box: HTMLElement): void {
   }
 }
 
+/** Run `fn` when the page is idle (within a second in any case), or soon where idle callbacks are missing. */
+function whenIdle(fn: (idle?: IdleDeadline) => void): void {
+  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(fn, { timeout: 1000 });
+  else setTimeout(fn, 0);
+}
+
 /** Draw the column at each time in a hidden copy of the box and keep the tallest of each part, a few milliseconds at a
  * time so the page stays responsive; a newer survey ends this one. */
 function surveyRoom(box: HTMLElement, key: string, render: () => string, times: (number | null)[]): void {
@@ -57,12 +63,12 @@ function surveyRoom(box: HTMLElement, key: string, render: () => string, times: 
   Object.assign(p.style, { position: "absolute", left: "0", top: "0", visibility: "hidden", pointerEvents: "none", width: getComputedStyle(box).width });
   box.parentElement?.append(p);
   let i = 0;
-  const slice = () => {
+  const slice = (idle?: IdleDeadline) => {
     if (probe !== p || held !== key || !box.isConnected) return p.remove();
     const at = AT;
-    const end = performance.now() + 8;
+    const end = performance.now() + Math.min(8, idle?.timeRemaining() ?? 8);
     try {
-      while (i < times.length && performance.now() < end) {
+      while (i < times.length && (performance.now() < end || i === 0)) {
         setAt(times[i++]);
         p.innerHTML = render();
         grow(p);
@@ -71,7 +77,7 @@ function surveyRoom(box: HTMLElement, key: string, render: () => string, times: 
       setAt(at);
     }
     apply(box);
-    if (i < times.length) survey = window.setTimeout(slice, 0);
+    if (i < times.length) whenIdle(slice);
     else {
       p.remove();
       probe = null;
@@ -97,10 +103,11 @@ export function holdRoom(box: HTMLElement, key: string, changed: boolean, render
       apply(box);
     });
   }
+  // The survey waits for the column to settle (data arrives in several parts at load) and then for idle time.
   if (fresh || changed) {
     window.clearTimeout(survey);
-    survey = window.setTimeout(() => {
+    survey = window.setTimeout(() => whenIdle(() => {
       if (held === key && box.isConnected) surveyRoom(box, key, render, times());
-    }, 150);
+    }), 400);
   }
 }

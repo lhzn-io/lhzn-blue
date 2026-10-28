@@ -1272,6 +1272,50 @@ function drawInline(d: StationData, key: Kind): void {
 
 
 
+/* ---------- Plots drawn as they near the screen ---------- */
+
+/** Sections within about a screen of view (their plots draw at once), and the plots waiting in the others: a section's
+ * waiting plots draw as it scrolls near. A page draws a few sections' plots at load rather than every one of them, and
+ * again each time more data arrives. */
+const NEAR = new Set<string>();
+const WAITING = new Map<string, Set<Kind>>();
+let sectionWatch: IntersectionObserver | null = null;
+let sectionOf: (id: string) => StationData | undefined = () => undefined;
+
+function drawWhenNear(d: StationData, key: Kind): void {
+  if (EMBED || !sectionWatch || NEAR.has(d.meta.id)) return drawInline(d, key);
+  let waiting = WAITING.get(d.meta.id);
+  if (!waiting) WAITING.set(d.meta.id, (waiting = new Set()));
+  waiting.add(key);
+}
+
+/** Watch the sections just written into the page (their plots wait until each comes near). */
+function watchSections(byId: (id: string) => StationData | undefined): void {
+  if (typeof IntersectionObserver === "undefined") return;
+  sectionOf = byId;
+  sectionWatch ??= new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        const id = (e.target as HTMLElement).id;
+        if (!e.isIntersecting) {
+          NEAR.delete(id);
+          continue;
+        }
+        NEAR.add(id);
+        const waiting = WAITING.get(id);
+        const d = waiting && sectionOf(id);
+        WAITING.delete(id);
+        if (d) waiting.forEach((k) => drawInline(d, k));
+      }
+    },
+    { rootMargin: "800px 0px" },
+  );
+  sectionWatch.disconnect();
+  NEAR.clear();
+  WAITING.clear();
+  document.querySelectorAll<HTMLElement>("#stations section.station[id]").forEach((s) => sectionWatch!.observe(s));
+}
+
 const isRiver = (d: StationData) => d.kind === "rivers" || d.kind === "river";
 
 
@@ -1522,6 +1566,13 @@ function fieldData(kind: FieldKind): Promise<FieldData> {
   return fieldCache.get(kind)!;
 }
 
+/** The map layer the page opens on, asked for before the map is drawn (alongside the shore and airport files). */
+function prefetchField(): void {
+  if (EMBED) return;
+  if (overlayWat && VIEW_LAYERS[VK].overlay) void fieldData("wat").catch(() => undefined);
+  if (fieldPick !== "none") void fieldData(fieldPick).catch(() => undefined);
+}
+
 /** HRRR wind before hrrr-wind.json (14 days back): fetched only when the time bar goes back past the main file. */
 let windHistoryLoad: Promise<import("../fields").WindHistory> | null = null;
 function windHistoryData(): Promise<import("../fields").WindHistory> {
@@ -1762,6 +1813,9 @@ const addSources = (html: string) => $("about-sources").insertAdjacentHTML("befo
 async function main(): Promise<void> {
   P = PALETTES[currentTheme()];
   const extras = A.startExtras(); // the stations that join after the buoys, loading alongside them
+  // The files the first draw waits for (the view's own, or for Tides the predictions) load alongside the buoys' files.
+  A.prefetchVar(VK);
+  if (VK === "tides") void loadTides();
   try {
     const { meta, live, stations } = await A.load();
     STATIONS = stations;
@@ -1784,7 +1838,7 @@ async function main(): Promise<void> {
     const drawAll = () => {
       for (const d of shown()) {
         readouts(d);
-        (Object.keys(FIGS) as Kind[]).forEach((k) => drawInline(d, k));
+        (Object.keys(FIGS) as Kind[]).forEach((k) => drawWhenNear(d, k));
       }
       redrawZoom();
     };
@@ -1807,6 +1861,7 @@ async function main(): Promise<void> {
             ? `<h2 class="station-group">${CFG.groups.turbidity}</h2>${A.TURB_SECTION ? sectionHtml(A.TURB_SECTION) : ""}`
             : group("buoy", CFG.groups.buoy) + group("shore", CFG.groups.shore) +
               (VK === "wind" ? group("airport", CFG.groups.airport) : "");
+      watchSections((id) => [...stations, ...A.RIVER_SECTIONS, ...(A.TURB_SECTION ? [A.TURB_SECTION] : [])].find((d) => d.meta.id === id));
       drawAll();
       for (const d of shown()) {
         for (const k of Object.keys(FIGS) as Kind[]) {
@@ -1820,6 +1875,11 @@ async function main(): Promise<void> {
     STATIONS = stations;
     statusGrid(stations);
     wireStatusTabs(stations);
+    // Once the page has drawn: the map's code and its layer, and the forecast, while the other stations load (the map
+    // itself waits for them, so every pin is placed once).
+    if (!EMBED) void import("../map").catch(() => undefined);
+    prefetchField();
+    void loadForecast();
     // The stations that join after the buoys, as their files arrive; the map waits for them so every pin is placed once.
     await A.joinExtras(stations, extras, {
       changed: (table) => {

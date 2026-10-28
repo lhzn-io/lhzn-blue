@@ -6,7 +6,7 @@ import { HOUR, oxygenStatus, stratStatus, type Hourly, type LastObs } from "../s
 import { classify, percentileText, SEASONS, seasonalPercentile, trend, trendText, TRENDS, veerText } from "../trends";
 import { ago, cToF, f1, fmtDate, fmtWhenMin, hourOf, lastValue, signed, signedFt, tideText } from "./format";
 import { waveFmt, waveUnit, WIND_UNITS, windFmt, WU } from "./units";
-import { nextTide, obsState, stationState, type FcValue, type StationData } from "./station-data";
+import { nextTide, noWaterSensor, obsState, stationState, type FcValue, type StationData } from "./station-data";
 import { runText } from "./cells";
 import { M } from "./models";
 import { departure, TIDES } from "./tides";
@@ -182,6 +182,7 @@ export function stationReadouts(d: StationData): string[] {
   if (d.kind === "shore") {
     if (M.view() === "wind") return [...weatherReadouts(d), levelReadout(d)];
     if (M.view() === "tides") return tidesReadouts(d);
+    if (noWaterSensor(d)) return [levelReadout(d)];
     return [depthReadout(d, d.depths[0], (o) => o.temperature_c, fmtTempF, () => "Water temperature", "col", undefined, d.kind === "shore" ? contextLine(d.m36[d.depths[0]] ?? d.temp.m36[d.depths[0]], "temp", (v) => `${v.toFixed(1)}&deg;F`, { key: "water" }) : undefined), levelReadout(d)];
   }
   if (M.view() === "wind") return weatherReadouts(d);

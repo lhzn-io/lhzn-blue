@@ -19,7 +19,7 @@ import { mountAdvisories } from "../advisory";
 import { ago, escHtml, fmtDate, signed } from "./format";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./cursor";
 import { holdRoom } from "./room";
-import { DEPTH_LABEL, isWater, obsState, overallState, type StationData, stationState, type VarKey, WATER_VARS } from "./station-data";
+import { DEPTH_LABEL, isWater, noWaterSensor, obsState, overallState, type StationData, stationState, type VarKey, WATER_VARS } from "./station-data";
 import { stationPin, stationTables } from "./cells";
 import { configureModels } from "./models";
 import type { StationDataWaterway } from "./config";
@@ -32,7 +32,7 @@ import { loadNwps, mountNwpsVintage, NWPS, nwpsLabel, nwpsRunAt, nwpsRuns, nwpsS
 import { OUTLOOK, outlookHtml } from "./outlook";
 import { NEXT48 } from "./next48";
 import { ADV, ADV_WIND, advisoriesFor, loadAdvisories, zoneOf, zonesInForce } from "./advisories";
-import { hideWsTip, showWsTip, windAcrossHtml, WS_BACK, wsPoint } from "./wind-strip";
+import { hideWsTip, moveStripCursor, showWsTip, windAcrossHtml, WS_BACK, wsPoint } from "./wind-strip";
 import { windRoseHtml } from "./wind-rose";
 import { DEPARTURE, loadTides, onTides, TIDES } from "./tides";
 import { departureBuilt, departureRowsSvg, drawLadder, highestAheadHtml, hiloBuilt, tidesTable } from "./tides-view";
@@ -842,9 +842,9 @@ const ORDER: Kind[] = ["yoy", "chg", "col", "sb", "next48", "hilo", "dep", "wind
 const figName = (f: Fig) => (f.varies && VK !== "temp" ? `${V().label}: ${f.title.charAt(0).toLowerCase()}${f.title.slice(1)}` : f.title);
 
 /** Whether a station shows a figure: shore stations measure temperature only, so under salinity or oxygen
- * their variable charts are left out rather than drawn empty. */
+ * their variable charts are left out rather than drawn empty, as they are for a gauge with no water sensor. */
 const shows = (d: StationData, k: Kind) =>
-  (!EMBED || k === EMBED) && FIGS[k].in(VK) && FIGS[k].available(d) && !(FIGS[k].varies && d.kind === "shore" && VK !== "temp");
+  (!EMBED || k === EMBED) && FIGS[k].in(VK) && FIGS[k].available(d) && !(FIGS[k].varies && d.kind === "shore" && (VK !== "temp" || noWaterSensor(d)));
 
 /** A thin wind line under surface minus bottom (same time axis), so a blow lines up with the mixing it causes. */
 const hasWind = (d: StationData) => !!d.met?.wind && Number.isFinite(d.met.wind.lastValid());
@@ -971,12 +971,17 @@ function roomTimes(): (number | null)[] {
   return [null, AT, ...hours.map((h) => (now + h) * 3600)];
 }
 
-/** Draw the status column; `timeOnly` when only the time moved (the room it holds stays as surveyed). */
+/** Draw the status column; `timeOnly` when only the time moved (the room it holds stays as surveyed). When only the
+ * time moved, the wind across the waterway is kept as drawn and only its cursor moves: nothing else on it depends on
+ * the page's time, and it is by far the costliest part to draw. */
 function statusGrid(all: StationData[], timeOnly = false): void {
   if (VK === "tides" && !TIDES) void loadTides();
   if (!all.filter(onStation).some((d) => d.kind === "shore")) SG = "buoy";
   const box = $("status");
-  box.innerHTML = statusHtml(all);
+  const strip = timeOnly && !STATION_ID ? box.querySelector<HTMLElement>("section.ws") : null;
+  const keep = strip && moveStripCursor(strip) ? strip : null;
+  box.innerHTML = statusHtml(all, !!keep);
+  if (keep) box.append(keep);
   if (VK !== "turbidity" && VK !== "rivers") markOutlookRow();
   if (!EMBED) holdRoom(box, `${VK}|${STATION_ID}|${SG}|${box.clientWidth}`, !timeOnly, () => statusHtml(all, true), roomTimes);
 }
@@ -1038,7 +1043,8 @@ function wireStatusTabs(stations: StationData[]): void {
   });
   // A click moves the page's time. Two clicks close together in time and place also open that station's wind chart
   // at that hour (the next 48 hours where it reaches, else the wind record). Counted here, not with dblclick: the
-  // first click redraws the strip, so the second lands on a new element and the browser never fires dblclick.
+  // strip can be redrawn between the clicks (in a new hour, or as data arrives), and the second would land on a new
+  // element, where the browser fires no dblclick.
   let last = { at: -Infinity, x: 0, y: 0 };
   box.addEventListener("click", (e) => {
     const p = wsPoint(e);
@@ -1156,6 +1162,7 @@ function recordLine(d: StationData, perDepth: string): string {
     return Number.isFinite(first) ? `Hourly from ${new Date(first * 1000).getUTCFullYear()}` : "Hourly, last 100 days";
   }
   if (d.kind === "river") return `Daily flow from ${d.gauge?.record_start?.slice(0, 4) ?? "--"}; recent flow hourly`;
+  if (isWater(VK) && noWaterSensor(d)) return "Water level only; no water temperature sensor";
   if (isWater(VK)) return `${VK === "temp" ? "Record" : `${V().label} record`}: ${perDepth}`;
   const id = d.meta.id;
   if (!A.wavesOf(id)?.sensor) return "Weather: the last 100 days";
@@ -1816,6 +1823,7 @@ const addSources = (html: string) => $("about-sources").insertAdjacentHTML("befo
 async function main(): Promise<void> {
   P = PALETTES[currentTheme()];
   const extras = A.startExtras(); // the stations that join after the buoys, loading alongside them
+  if (isWater(VK)) A.wantShoreHistory(); // a water view opens with the shore stations' records loading from the start
   // The files the first draw waits for (the view's own, or for Tides the predictions) load alongside the buoys' files.
   A.prefetchVar(VK);
   if (VK === "tides") void loadTides();
@@ -1847,6 +1855,7 @@ async function main(): Promise<void> {
     };
     /** Station sections for the selected variable (captions and record lines name it), buoys then shore. */
     const renderSections = () => {
+      if (isWater(VK)) A.wantShoreHistory(); // the shore stations' water records, for the views that show them
       stations.forEach((d) => A.useVar(d, VK));
       const group = (kind: StationData["kind"], title: string) => {
         const list = stations.filter((d) => d.kind === kind);

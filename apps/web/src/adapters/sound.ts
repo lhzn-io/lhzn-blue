@@ -363,13 +363,19 @@ function shoreSources(qc: string): string {
       `water level are hourly means of 6-minute readings, and tides are NOAA predictions. Water levels are preliminary until NOAA verifies them. ${qc}`;
 }
 
+/** The shore stations' water temperature history (the largest file, about 0.9 MB) is asked for only once a view shows
+ * their water; the page calls this from the water views, and the file then loads once. */
+let wantHist: () => void = () => undefined;
+const histWanted = new Promise<void>((resolve) => (wantHist = resolve));
+export const wantShoreHistory = (): void => wantHist();
+
 /** The stations that join after the buoys, loading alongside them so they never hold the buoys up: NOAA's shore
- * stations, the USGS tidal gauges and the coastal airports; the shore stations' history (the larger file) last.
+ * stations, the USGS tidal gauges and the coastal airports; the shore stations' history last, and only when wanted.
  * Started before the buoys load. */
 export function startExtras() {
   return {
     shoreLive: getJson<ShoreLive>(`${DATA}/shore.json`).catch(() => null),
-    shoreHist: getJson<ShoreHistory>(`${DATA}/shore-history.json`).catch(() => null),
+    shoreHist: histWanted.then(() => getJson<ShoreHistory>(`${DATA}/shore-history.json`)).catch(() => null),
     usgsLive: getJson<UsgsTidal>(`${DATA}/usgs-tidal.json`).catch(() => null),
     asosLive: getJson<AsosFile>(`${DATA}/asos.json`).catch(() => null),
   };

@@ -97,6 +97,33 @@ function windStripSpan(): { t0: number; t1: number } {
   return { t0: now - WS_BACK, t1: now + WS_AHEAD };
 }
 
+/** Move a drawn strip's cursor to the page's time; false when the strip is out of date (drawn in an earlier hour),
+ * so it must be drawn again. */
+export function moveStripCursor(section: HTMLElement): boolean {
+  const { t0, t1 } = windStripSpan();
+  const svg = section.querySelector<SVGSVGElement>("svg.ws-svg");
+  if (!svg || section.dataset.t0 !== String(t0)) return false;
+  let line = svg.querySelector<SVGLineElement>(".hi-cursor");
+  const cur = AT ?? null;
+  if (cur == null || cur < t0 || cur > t1) {
+    line?.remove();
+    return true;
+  }
+  if (!line) {
+    line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("class", "hi-cursor");
+    line.setAttribute("y1", String(WS.top - 2));
+    line.setAttribute("y2", String(svg.viewBox.baseVal.height - WS.bot));
+    const hit = svg.querySelector(".ws-hit"); // under the clickable span, as drawn
+    if (hit) hit.before(line);
+    else svg.append(line);
+  }
+  const x = (WS.L + ((cur - t0) / (t1 - t0)) * (WS.W - WS.L - WS.R)).toFixed(1);
+  line.setAttribute("x1", x);
+  line.setAttribute("x2", x);
+  return true;
+}
+
 /** The strip for a waterway ("the Sound"), in the weather view only. */
 export function windAcrossHtml(stations: StationData[], waterway: string): string {
   if (M.view() !== "wind") return "";
@@ -211,7 +238,7 @@ export function windAcrossHtml(stations: StationData[], waterway: string): strin
   g += `<rect x="${x(r0).toFixed(1)}" y="${top - 2}" width="${(x(r1) - x(r0)).toFixed(1)}" height="${H - top - bot + 2}" class="ws-hit"/>`;
   const sw = (fill: string, extra = "") => `<svg width="10" height="9" class="ws-sw" aria-hidden="true"><rect width="10" height="9" fill="${fill}"${extra}/></svg>`;
   const ramp = `<svg width="64" height="9" class="ws-sw" aria-hidden="true"><defs><linearGradient id="ws-ramp">${WS_STOPS[currentTheme()].map(([k, c]) => `<stop offset="${(k / 35).toFixed(3)}" stop-color="${c}"/>`).join("")}</linearGradient></defs><rect width="64" height="9" fill="url(#ws-ramp)"/></svg>`;
-  return `<section class="ws" id="${WIND_STRIP_HASH.slice(1)}" aria-label="Wind across ${waterway}">
+  return `<section class="ws" id="${WIND_STRIP_HASH.slice(1)}" data-t0="${t0}" aria-label="Wind across ${waterway}">
     <p class="ol-title">Wind across ${waterway} <span class="ol-src">west to east, by NWS zone; two weeks back, 48 h ahead &middot; click to move the time</span></p>
     <svg viewBox="0 0 ${W} ${H}" class="hi-svg ws-svg" role="img" aria-label="Hourly wind at each station, two weeks back to 48 hours ahead, with NWS advisories">${g}</svg>
     <p class="status-key">0 ${ramp} ${fmtU(35)} &middot; arrows point downwind, darker in stronger wind &middot; <svg width="14" height="9" class="ws-sw" aria-hidden="true"><rect width="14" height="9" fill="${windColour(16)}"/><rect x="0.6" y="0.6" width="12.8" height="7.8" class="ws-model ws-model-key"/></svg>model where a buoy is out &middot; past now: HRRR forecast${(() => { const a = hrrrAsOf(rows[0].meta.id, Array.from({ length: 48 }, (_, i) => hourOf(nowS) + (i + 1) * HOUR)); return a ? `, ${a}` : ""; })()} &middot; ${sw("var(--advisory)", ' opacity="0.45"')}small craft ${sw("var(--advisory)")}gale or stronger (NWS)</p>

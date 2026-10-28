@@ -205,7 +205,7 @@ export function pressureCell(d: StationData): string {
     const f = forecastAt(d.meta.id, AT);
     if (f && Number.isFinite(f.pres)) {
       const back = forecastAt(d.meta.id, AT - 3 * HOUR);
-      const tend = back && back.issue === f.issue && Number.isFinite(back.pres) ? `${signed(f.pres - back.pres)} in 3h, ` : "";
+      const tend = back && back.issue === f.issue && Number.isFinite(back.pres) ? `${signed(f.pres - back.pres)} in prior 3h, ` : "";
       return fcCell(f, `${f.pres.toFixed(0)}<small class="g"> mb</small>`, `Pressure ${f.pres.toFixed(1)} mbar`, `${tend}&plusmn;${(typicalError(d.meta.id, f.lead, "pressure_mae")).toFixed(0)}`);
     }
   }
@@ -217,7 +217,7 @@ export function pressureCell(d: StationData): string {
     if (!p) return `<td class="na">&middot;</td>`;
     const v = p.at(AT);
     const tend = p.at(AT) - p.at(AT - 3 * HOUR);
-    return atCell(v, `${v.toFixed(0)}<small class="g"> mb</small>`, `Pressure ${v.toFixed(1)} mbar`, "", Number.isFinite(tend) ? `${signed(tend)} in 3h` : "");
+    return atCell(v, `${v.toFixed(0)}<small class="g"> mb</small>`, `Pressure ${v.toFixed(1)} mbar`, "", Number.isFinite(tend) ? `${signed(tend)} in prior 3h` : "");
   }
   if (!o || o.pressure_mb == null || obsState({ time: o.time } as LastObs) === "offline") {
     const f = standIn(d, Date.now() / 1000);
@@ -228,7 +228,7 @@ export function pressureCell(d: StationData): string {
   if (state === "offline") return `<td class="offline"><b>--</b></td>`;
   const end = p ? p.lastValid() : NaN;
   const trend = p && Number.isFinite(end) ? p.at(end) - p.at(end - 3 * HOUR) : NaN;
-  const tend = Number.isFinite(trend) ? `${signed(trend)} in 3h` : "";
+  const tend = Number.isFinite(trend) ? `${signed(trend)} in prior 3h` : "";
   return `<td class="${state}" title="Pressure ${o.pressure_mb.toFixed(1)} mbar${tend ? `, ${tend}` : ""}; ${ago(o.time)}${panelTitle(o)}"><b>${o.pressure_mb.toFixed(0)}<small class="g"> mb</small></b><small>${tend || ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
 }
 

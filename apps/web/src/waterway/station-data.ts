@@ -141,4 +141,8 @@ export function stationState(d: StationData): State {
   return states.includes("live") ? "live" : states.includes("delayed") ? "delayed" : "offline";
 }
 
+/** A shore gauge with no water temperature sensor at all (Rye reports the level only): it has no series, where a
+ * sensor that is out still has one with gaps. */
+export const noWaterSensor = (d: StationData): boolean => d.kind === "shore" && !d.temp.hourly[d.depths[0]];
+
 export const nextTide = (d: StationData): TideEvent | undefined => d.tides.find((e) => Date.parse(e.t) > Date.now());

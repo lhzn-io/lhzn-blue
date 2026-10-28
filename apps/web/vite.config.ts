@@ -41,12 +41,45 @@ function localData(stationPages: string[]): Plugin {
   };
 }
 
+// In development, a page's stylesheets linked in its <head>, as the build links them: the dev server otherwise adds them
+// from JavaScript once every module has loaded, and a page (slowest on a phone over the LAN) first paints unstyled.
+// The stylesheets are the ones the page's script imports, followed through its local imports. The modules' own
+// imports still add the same rules after, which changes nothing. The build is untouched.
+function devStyles(): Plugin {
+  const SRC = resolve(import.meta.dirname, "src");
+  const cssOf = async (file: string, seen: Set<string>, out: Set<string>): Promise<void> => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const text = await readFile(file, "utf8").catch(() => "");
+    for (const [, spec] of text.matchAll(/^\s*import\s+(?:[^"';]*?\s+from\s+)?["'](\.{1,2}\/[^"']+)["']/gm)) {
+      const path = resolve(file, "..", spec);
+      if (path.endsWith(".css")) out.add(path);
+      else if (spec.endsWith(".ts") || !/\.\w+$/.test(spec)) await cssOf(path.endsWith(".ts") ? path : `${path}.ts`, seen, out);
+    }
+  };
+  return {
+    name: "dev-styles",
+    apply: "serve",
+    async transformIndexHtml(html, ctx) {
+      // The page's script, written from the site's root ("/src/lis.ts") or from the page's own folder ("../../src/...").
+      const src = html.match(/<script type="module" src="([^"]+\.ts)"/)?.[1];
+      if (!src) return html;
+      const entry = src.startsWith("/") ? resolve(import.meta.dirname, `.${src}`) : resolve(ctx.filename, "..", src);
+      const css = new Set<string>();
+      await cssOf(entry, new Set(), css);
+      // "?direct": the stylesheet itself, whatever the request accepts (a bare /src/x.css can be served as a module).
+      const links = [...css].map((p) => `<link rel="stylesheet" href="/src/${p.slice(SRC.length + 1).replace(/\\/g, "/")}?direct" />`).join("\n    ");
+      return html.replace("</head>", `    ${links}\n  </head>`);
+    },
+  };
+}
+
 // Pages: the landing page, one page per waterway, the about page, the terms and the references. Station pages are served
 // under /long-island-sound/ and /piscataqua-region/; more bases for local work come from LHZN_STATION_PAGES
 // (comma-separated) in a git-ignored .env.local.
 export default defineConfig(({ mode }) => ({
   base: "/",
-  plugins: [localData(["/long-island-sound/", "/piscataqua-region/", ...(loadEnv(mode, import.meta.dirname, "").LHZN_STATION_PAGES ?? "").split(",").map((s) => s.trim()).filter(Boolean)])],
+  plugins: [devStyles(), localData(["/long-island-sound/", "/piscataqua-region/", ...(loadEnv(mode, import.meta.dirname, "").LHZN_STATION_PAGES ?? "").split(",").map((s) => s.trim()).filter(Boolean)])],
   server: { fs: { allow: [REPO] } },
   build: {
     target: "es2022",

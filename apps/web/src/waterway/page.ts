@@ -959,12 +959,13 @@ function statusHtml(all: StationData[], survey = false): string {
   return `${table}${stationPhoto()}${isWater(VK) && !STATION_ID ? PARTS.shoreTable() : ""}${outlookHtml(all)}${across}`;
 }
 
-/** The times the room in the status column is surveyed at: now, then across the time bar's reach (90 days back, 72
- * hours ahead), closer together near now. */
+/** The times the room in the status column is surveyed at: now and the page's time, then one of each kind across the
+ * time bar's reach (the forecast near and far, the last day, the last week and month; a fresh column is drawn at these
+ * before it paints), then the whole reach (90 days back, 72 hours ahead), closer together near now. */
 function roomTimes(): (number | null)[] {
   const now = Math.round(Date.now() / 3.6e6);
-  const hours = [1, 2];
-  for (let h = 3; h <= 72; h += 3) hours.push(h, -h);
+  const hours = [3, -24, 48, -3, -7 * 24, -30 * 24, 1, 2];
+  for (let h = 6; h <= 72; h += 3) hours.push(h, -h);
   for (let h = 84; h <= 336; h += 12) hours.push(-h);
   for (let h = 384; h <= 90 * 24; h += 48) hours.push(-h);
   return [null, AT, ...hours.map((h) => (now + h) * 3600)];

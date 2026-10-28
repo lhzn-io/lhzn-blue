@@ -144,7 +144,8 @@ function collectPrompt(meta: Meta, live: Live, stations: StationData[], ids: str
   if (rows.length) extra.push(rows.join("\n"));
   if (ids.includes("map")) {
     const key = document.querySelector<HTMLElement>(".field-panel")?.innerText.replace(/\s*\n\s*/g, " ") ?? "";
-    const when = document.querySelector<HTMLElement>(".tl-label")?.textContent ?? "now";
+    const label = document.querySelector<HTMLElement>(".tl-label");
+    const when = label?.title || label?.textContent || "now"; // the time in full, with its date
     const pick = H.layer();
     extra.push(`Map as shown: layer ${pick === "none" ? "none (stations only)" : `${pick} (${key})`}, time ${when}.${pick !== "none" ? `\n${methodText(`map-${pick}`)}` : ""}`);
   }
@@ -165,7 +166,8 @@ export function wireCollect(meta: Meta, live: Live, stations: StationData[], hos
     titleFor: (id, stored) => {
       if (id !== "map") return stored;
       const layer = H.layer() === "none" ? "stations" : H.layerLabel();
-      const when = document.querySelector<HTMLElement>(".tl-label")?.textContent ?? "now";
+      const label = document.querySelector<HTMLElement>(".tl-label");
+      const when = label?.title || label?.textContent || "now";
       return `Map: ${layer} \u00b7 ${when}`;
     },
     linkFor: (id) => (id === "map" ? H.link() : id.endsWith("-readouts") ? H.link(id.replace(/-readouts$/, "")) : H.link(id)),

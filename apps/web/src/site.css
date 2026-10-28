@@ -130,9 +130,6 @@ a { color: inherit; }
   background: var(--strip-bg); background-color: var(--bg); border-bottom: 1px solid var(--accent-line);
 }
 .topbar .updated { flex: 1 1 auto; min-width: 0; background: none; border-bottom: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.topbar .var-switch { flex: none; align-items: center; margin-right: 14px; }
-.topbar .var-switch .tab { padding: 3px 8px 4px; }
-.topbar .var-switch > span { padding-top: 0; }
 .view-menu { display: none; }
 /* The theme switch: a moon (to dark) or a sun (to light) at the right end of the top bar. */
 .topbar .collect-open { margin-right: 4px; }
@@ -203,18 +200,15 @@ figure.wide { grid-column: 1 / -1; }
 .cur-scale > span { line-height: 5px; } /* centred on the bar */
 .field-info { margin-left: 0; }
 .field-note { flex-basis: 100%; }
-/* The time rows: the label on its own line, then play | track, both tracks the map's full width. Hairlines in the
-   page's greys, no accent; past solid, forecast dotted. The context row directly below spans 90 days back to 72h
-   ahead, with the map's window bracketed. */
+/* The time row across the page (above the map and the table, which it moves alike): the time and its steps on their
+   own line, then play | track. Hairlines in the page's greys, no accent; past solid, forecast dotted. Its place holds
+   a height before it mounts, so the map does not move down when it arrives. */
+.timebar { min-height: 46px; padding: 16px 0 0; }
 .timeline { font: 10px/1.2 var(--mono); color: var(--dim); }
-.map-foot .timeline { margin-right: -32px; } /* the tracks run under the map's "+", which sits on the label's line */
 .tl-row { display: grid; grid-template-columns: 18px minmax(0, 1fr); grid-template-areas: "slot slot" "play track"; column-gap: 10px; row-gap: 2px; align-items: center; }
 .tl-row > .tl-play { grid-area: play; }
 .tl-row > .tl-track { grid-area: track; height: 26px; }
 .tl-row > .tl-slot { grid-area: slot; text-align: left; padding-left: 28px; min-height: 14px; }
-.tl-context { grid-template-areas: "play track"; height: 30px; }
-.tl-context > .tl-ctrack { grid-area: track; }
-.tl-context > .tl-slot { display: none; }
 .tl-play, .tl-now { cursor: pointer; color: var(--dim); background: none; border: 0; padding: 0; }
 .tl-play { display: grid; place-items: center; width: 16px; height: 16px; }
 .tl-play:hover, .tl-now:hover { color: var(--ink); }
@@ -226,7 +220,7 @@ figure.wide { grid-column: 1 / -1; }
 @media (pointer: coarse) { .tl-step { min-width: 46px; min-height: 34px; margin-right: 6px; font-size: 13px; } .tl-row > .tl-slot { padding-left: 0; } }
 .tl-now { margin-left: 8px; font: 10px/1.2 var(--sans); text-decoration: underline; text-underline-offset: 2px; }
 .tl-slot { text-align: right; white-space: nowrap; overflow: hidden; }
-.tl-track, .tl-ctrack { position: relative; height: 100%; }
+.tl-track { position: relative; height: 100%; }
 .tl-track::before, .tl-track::after { content: ""; position: absolute; top: 50%; pointer-events: none; }
 .tl-track::before { left: 0; width: var(--tl-now); border-top: 1px solid var(--dim); }
 .tl-track::after { left: var(--tl-now); right: 0; border-top: 1px dotted var(--faint); }
@@ -236,8 +230,7 @@ figure.wide { grid-column: 1 / -1; }
 .tl-tick.now { height: 13px; margin-top: -6.5px; background: var(--dim); }
 .tl-tick.ahead { opacity: 0.6; }
 .tl-frame { position: absolute; top: 50%; height: 8px; margin-top: -4px; background: var(--ink); opacity: 0.13; pointer-events: none; }
-.tl-needle, .tl-cneedle { position: absolute; top: 50%; width: 2px; height: 14px; margin: -7px 0 0 -1px; background: var(--ink); pointer-events: none; }
-.tl-cneedle { width: 1.5px; height: 11px; margin-top: -5.5px; }
+.tl-needle { position: absolute; top: 50%; width: 2px; height: 14px; margin: -7px 0 0 -1px; background: var(--ink); pointer-events: none; }
 /* A ring to grab at the cursor; it fills while the slider is hovered, dragged or focused. */
 .tl-knob { position: absolute; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; box-sizing: border-box;
   border: 1.5px solid var(--ink); border-radius: 50%; background: var(--bg); pointer-events: none; transition: background 0.12s; }
@@ -247,15 +240,50 @@ figure.wide { grid-column: 1 / -1; }
 .tl-dlabel { position: absolute; bottom: 0; padding-left: 2px; font: 7.5px/1 var(--mono); color: var(--faint); white-space: nowrap; pointer-events: none; }
 .tl-dlabel.ahead { opacity: 0.7; }
 .tl-dlabel .tl-mon { font-weight: 400; color: var(--faint); opacity: 0.75; letter-spacing: 0.02em; }
+/* The moon's principal phases (moon.ts) along the track's top edge, each at its time, clear of the dates: a little
+   darker than the dates; the lit part filled on a dark page, the dark part on a light one. */
+.tl-moon { position: absolute; top: 0; transform: translateX(-50%); line-height: 0; color: var(--dim); pointer-events: none; }
+.tl-moon.ahead { opacity: 0.7; }
+.moon .lit { fill: currentColor; }
+.moon .dark { fill: none; }
+:root[data-theme="light"] .moon .lit { fill: none; }
+:root[data-theme="light"] .moon .dark { fill: currentColor; }
 .tl-range { -webkit-appearance: none; appearance: none; position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; background: none; cursor: pointer; opacity: 0; }
 .tl-range:focus-visible { opacity: 1; outline: 1px dotted var(--dim); outline-offset: -3px; }
-.tl-cline { position: absolute; top: 50%; height: 0; border-top: 1px solid var(--faint); }
-.tl-cline.ahead { border-top-style: dotted; }
-.tl-bracket { position: absolute; top: 50%; height: 16px; margin-top: -8px; background: var(--ink); opacity: 0.07; }
-.tl-mark { position: absolute; bottom: -3px; transform: translateX(-50%); font: 8.5px/1 var(--mono); color: var(--faint); }
-.tl-mark.first { transform: none; }
-.tl-mark.last { transform: translateX(-100%); }
-@media (max-width: 560px) { .tl-row { grid-template-columns: 18px minmax(0, 1fr) 112px; } }
+/* Pinned under the top bar while its place above the map is out of sight (waterway/pin-time.ts): one thin line of
+   play, the slider with its dates and the time; the step buttons and any rows placed with it stay behind. */
+.tl-pin { position: fixed; left: 0; right: 0; z-index: 29; padding: 1px var(--gutter) 2px; background: var(--bg); border-bottom: 1px solid var(--rule); }
+.tl-pin .timeline { margin: 0; }
+.tl-pin .timeline > :not(:first-child), .tl-pin .tl-step { display: none; }
+/* The time's column is a fixed width, set by the longest label ("10 PM −13.7d" and "now"), so the slider keeps its
+   length and place as the label changes. */
+.tl-pin .tl-row { grid-template-columns: 18px minmax(0, 1fr) 19ch; grid-template-areas: "play track slot"; }
+.tl-pin .tl-row > .tl-track { height: 26px; }
+.tl-pin .tl-row > .tl-slot { padding-left: 6px; min-height: 0; text-align: right; }
+/* A linked station or plot lands clear of the pinned bar as well as the top bar. */
+html:has(body > .tl-pin) { scroll-padding-top: 26px; }
+/* Phones: the track from edge to edge, and under it small buttons (play, a step back, a step ahead, now) with the time
+   at the right; pinned, the same two lines a little smaller. Every other date (every third pinned), and
+   room after the first, which carries its month. */
+@media (max-width: 560px) {
+  .timebar { min-height: 0; padding-top: 10px; }
+  .timeline > .tl-row:first-child { grid-template-columns: repeat(4, auto) minmax(0, 1fr); grid-template-areas: "track track track track track" "play back ahead now label"; column-gap: 6px; row-gap: 3px; }
+  .timeline > .tl-row:first-child > .tl-slot { display: contents; }
+  .timeline > .tl-row:first-child > .tl-track { height: 34px; }
+  .timeline .tl-play, .timeline .tl-step, .timeline .tl-now { display: grid; place-items: center; min-width: 23px; height: 18px; min-height: 0; margin: 0; padding: 0 5px;
+    border: 1px solid var(--rule); border-radius: 3px; background: none; color: var(--ink); font: 10px/1 var(--mono); text-decoration: none; }
+  .timeline .tl-step[data-dir="-1"] { grid-area: back; }
+  .timeline .tl-step[data-dir="1"] { grid-area: ahead; }
+  .timeline .tl-now { grid-area: now; }
+  .timeline .tl-label { grid-area: label; justify-self: end; margin: 0; font-size: 12px; color: var(--ink); }
+  .tl-dlabel:nth-of-type(even), .tl-dlabel:nth-of-type(3) { display: none; }
+  .tl-pin { padding: 2px var(--gutter) 4px; }
+  .tl-pin .timeline > .tl-row:first-child > .tl-track { height: 28px; }
+  .tl-pin .timeline .tl-play, .tl-pin .timeline .tl-step, .tl-pin .timeline .tl-now { height: 16px; }
+  .tl-pin .tl-dlabel { display: none; }
+  .tl-pin .tl-dlabel:nth-of-type(3n + 1):not(:nth-of-type(4)) { display: block; }
+  html:has(body > .tl-pin) { scroll-padding-top: 56px; }
+}
 .field-note { margin: 5px 0 0; font-size: 10px; line-height: 1.4; color: var(--dim); }
 .field-note b { font-weight: 600; color: var(--ink); }
 .field-credit { display: block; margin-top: 2px; font-size: 9.5px; color: var(--faint); }
@@ -264,8 +292,6 @@ figure.wide { grid-column: 1 / -1; }
 @media (max-width: 640px) {
   .topbar { flex-wrap: wrap; padding-bottom: 4px; }
   .topbar .updated { flex-basis: 100%; }
-  .topbar .var-switch { margin-left: var(--gutter); }
-  .topbar .var-switch > span { display: none; }
   .topbar .suggest { margin-left: auto; }
   .station, .station-group { scroll-margin-top: 64px; }
 }
@@ -324,7 +350,6 @@ main { padding: 0 var(--gutter) 40px; }
 .status-grid td b { display: block; font-weight: 500; font-size: 13px; }
 .status-grid .spark { display: block; margin: 0 0 3px auto; overflow: visible; }
 .status-grid td.wind b { white-space: nowrap; }
-.status-grid td.wind small.g { display: inline; margin-left: 2px; font-size: 10px; color: var(--dim); }
 .status-grid td small { color: var(--dim); font-size: 9px; }
 .status-grid td.delayed b { color: var(--delayed); }
 .status-grid td.offline b, .status-grid td.offline small { color: var(--faint); }
@@ -841,17 +866,6 @@ body:not(.landing) .stage { padding: 0; border: 0; border-radius: 0; color: var(
   .fresh .fresh-long, .fresh .lag { display: none; }
   .more-menu { order: 3; margin: 0; }
   .station, .station-group { scroll-margin-top: 56px; }
-  /* The views as a drop-down panel under the bar. */
-  .topbar .var-switch {
-    display: none; position: absolute; top: 100%; left: var(--gutter); z-index: 40; flex-direction: column; align-items: stretch; gap: 0;
-    min-width: 190px; margin: 0; padding: 4px 0; background: var(--panel, var(--bg)); border: 1px solid var(--rule); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
-  }
-  .topbar .var-switch.open { display: flex; }
-  .topbar .var-switch .tab {
-    display: flex; align-items: center; justify-content: flex-start; min-height: 42px; padding: 0 18px; cursor: pointer; text-align: left;
-    background: none; border: 0; border-radius: 0; font: 600 10.5px/1 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim);
-  }
-  .topbar .var-switch .tab[aria-pressed="true"] { color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
 
   /* Masthead: the name block only (the units and theme are in the bar). */
   .mast { gap: 12px 16px; }
@@ -877,7 +891,6 @@ body:not(.landing) .stage { padding: 0; border: 0; border-radius: 0; color: var(
   .tl-row > .tl-track { height: 30px; }
   .tl-row > .tl-slot { padding-left: 42px; }
   .tl-play { width: 32px; height: 32px; }
-  .tl-mark { font-size: 9.5px; }
 
   /* Small print. */
   .status-key, .updated .ago, .stage { font-size: 10px; }
@@ -1263,7 +1276,7 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 
 
 /* Embed mode (?embed=...): one figure and its credit line; everything else on the page is hidden. */
-body.embed .topbar, body.embed .mast, body.embed .overview, body.embed .about, body.embed footer.credits,
+body.embed .topbar, body.embed .mast, body.embed .timebar, body.embed .overview, body.embed .about, body.embed footer.credits,
 body.embed .station-head .head-info, body.embed .station-head .sid, body.embed .station-head .rec,
 body.embed .station-links, body.embed .station-note, body.embed .band, body.embed .collect-btn, body.embed .expand { display: none !important; }
 body.embed main { max-width: none; margin: 0; padding: 10px 14px 6px; }
@@ -1285,3 +1298,94 @@ body.embed .embed-credit a { color: inherit; text-underline-offset: 2px; }
   font: 500 0.92em/1.5 var(--mono); color: var(--accent); white-space: nowrap;
 }
 .ver-tag:hover, .ver-tag:focus-visible { color: var(--accent-hi); border-color: var(--accent-hi); }
+
+/* Place and view, chosen in one way at every width. On a wide screen: two lines of words under the masthead, a quiet
+   key before each, the chosen one in ink over a hairline, the rest dimmed; no boxes. Once they scroll away, and always
+   on a phone (html.sel-compact, waterway/page.ts), the top bar names both as two pickers: "Execution Rocks ⌄ · Wind &
+   waves ⌄". */
+.pick-band { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; align-items: baseline; padding: 18px 0 0; }
+.pb-k { font: 600 8.5px/1 var(--sans); letter-spacing: 0.24em; text-transform: uppercase; color: var(--faint); }
+.pick-band .places, .pick-band .var-switch { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 20px; margin: 0; }
+.pick-band .tab, .pick-band .place-menu > summary { padding: 0 0 2px; border: 0; border-bottom: 1px solid transparent; border-radius: 0; background: none;
+  font: 600 10.5px/1.4 var(--sans); letter-spacing: 0.18em; color: var(--dim); }
+.pick-band .tab:hover { color: var(--ink); }
+.pick-band a.place[aria-current="page"], .pick-band .place-menu > summary.current, .pick-band .tab[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.topbar .place-pick { display: none; }
+html.sel-compact .topbar > * { order: 2; }
+html.sel-compact .topbar .place-pick:not([hidden]) { display: inline-flex; order: 0; margin-left: calc(var(--gutter) - 8px); }
+html.sel-compact .topbar .view-menu { display: inline-flex; order: 0; flex: 0 1 auto; min-width: 0; }
+html.sel-compact .topbar .fresh { order: 1; }
+html.sel-compact .view-menu .vm-label { display: none; }
+.topbar .place-pick .vm-current, .topbar .view-menu .vm-current { padding-bottom: 3px; color: var(--ink); border-bottom: 1px solid var(--accent-line);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.place-pick:not([hidden]) ~ .view-menu::before { content: "\00b7"; margin-right: 2px; color: var(--faint); }
+/* The two pickers' lists, under the bar: the views, and the places by kind with the current one marked. */
+.topbar .var-switch, .place-panel {
+  display: none; position: absolute; top: 100%; left: var(--gutter); z-index: 40; flex-direction: column; align-items: stretch; gap: 0;
+  min-width: 220px; max-height: 75vh; overflow-y: auto; margin: 0; padding: 4px 0; background: var(--panel, var(--bg)); border: 1px solid var(--rule);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
+}
+.topbar .var-switch.open, .place-panel.open { display: flex; }
+.topbar .var-switch > span { display: none; }
+.topbar .var-switch .tab {
+  display: flex; align-items: center; justify-content: flex-start; min-height: 42px; padding: 0 18px; cursor: pointer; text-align: left;
+  background: none; border: 0; border-radius: 0; font: 600 10.5px/1 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim);
+}
+.topbar .var-switch .tab[aria-pressed="true"] { color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); }
+.place-panel a { display: block; padding: 9px 18px; font: 14px/1.3 var(--sans); color: var(--ink-soft); text-decoration: none; }
+.place-panel a:hover, .place-panel a:focus-visible { color: var(--ink); background: color-mix(in srgb, var(--accent) 8%, transparent); outline: none; }
+.place-panel a[aria-current="page"] { color: var(--ink); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+.place-panel .place-group { margin: 12px 18px 4px; font: 600 8.5px/1 var(--sans); letter-spacing: 0.24em; text-transform: uppercase; color: var(--faint); }
+
+/* Words a phone leaves out ("over the last", "ago", "(last 3 days)"), and the short forms it uses instead. */
+.narrow-only { display: none; }
+
+/* The status table: each column's unit in its head (the cells hold numbers alone); ahead of now, the forecast's run and
+   typical miss once above the table; the key to the dots and lines behind the (i) in its corner. */
+.status-grid b small.g { display: none; }
+.status-grid thead small.u { display: block; margin-top: 2px; font: 400 9px/1 var(--mono); letter-spacing: 0; text-transform: none; color: var(--faint); }
+.status-grid thead .key-info { vertical-align: middle; }
+#status-key { display: none; }
+#status.key-open #status-key { display: block; }
+.tbl-src { margin: 0 0 6px; font: 10px/1.4 var(--mono); color: var(--dim); }
+/* The outlook: its title and rows; the hint, the runs behind it and the model's run behind its (i). */
+.outlook .ol-hint, .outlook .ol-src, .outlook .ol-more { display: none; }
+#status.ol-open .outlook .ol-src { display: block; margin: 4px 0 0; }
+#status.ol-open .outlook .ol-hint, #status.ol-open .outlook .ol-more { display: inline; }
+.ol-title .ol-info { margin-left: 6px; vertical-align: 1px; }
+
+/* The masthead's phone line: the waterway and the caveat, its (i) opening the rest. */
+.mast-short { display: none; }
+
+@media (max-width: 560px) {
+  .pick-band { display: none; }
+  .narrow-only { display: inline; }
+  .wide-only { display: none; }
+  .topbar .fresh { font-size: 0; }
+  .topbar .place-pick, .topbar .view-menu { gap: 4px; padding: 0 4px; letter-spacing: 0.1em; }
+  .place-pick:not([hidden]) ~ .view-menu::before { margin-right: 0; }
+  /* One line: the waterway's name and "Not for navigation" with its (i); the byline, the data notice, the boat and the
+     caveat in full open under it. */
+  .mast { padding-top: 8px; padding-bottom: 8px; }
+  .mast .mast-id { display: flex; flex-wrap: wrap; align-items: baseline; width: 100%; }
+  .mast .wordmark { display: block; }
+  body:not(.on-station) .mast .wm-top, body.on-station .mast .wm-bottom { display: none; }
+  .mast .wm-top, .mast .wm-bottom { margin: 0; font-size: 11px; letter-spacing: 0.3em; }
+  .mast-short { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 0 auto; padding-left: 12px;
+    font: 600 8.5px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+  .mast-short .fig-info { margin: 0; }
+  .mast .mast-by, .mast .mast-caveat { flex-basis: 100%; }
+  .mast:not(.open) .mast-by, .mast:not(.open) .mast-caveat, .mast:not(.open) .mast-outage { display: none; }
+  /* A station's heading: its name is in the top bar; its code, place, record and links are in its (i). */
+  .station-head .sid, .station-head .rec, .station-links { display: none; }
+  body.on-station .station-head h2 { display: none; }
+  body.on-station .station-head { justify-content: flex-end; margin-bottom: 4px; }
+  /* Readouts two across; a plot's title alone (its subtitle is in its (i)). */
+  .band.readouts-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 12px 14px; }
+  .band.readouts-row .readout .num { font-size: 28px; }
+  .band.readouts-row { position: relative; }
+  .band.readouts-row .band-actions { position: absolute; top: 10px; right: 10px; margin: 0; } /* its (i) in the corner, not a row of its own */
+  .cap-sub { display: none; }
+  /* The table's station names wrap, so a wind cell's arrow and direction keep clear of them. */
+  .status-grid tbody th { white-space: normal; }
+}

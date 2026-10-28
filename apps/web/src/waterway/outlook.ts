@@ -133,10 +133,10 @@ export function outlookHtml(stations: StationData[]): string {
   const airs = fin(air);
   const rows: [string, string, string][] = [
     ["Wind", olSpark(ts, spd.map(windVal), t0, "max"),
-      `${windFmt(pk)} ${u} ${shortWhen(at(spd, pk))} ${compass(pkF.dir)}${spread ? ` <small>runs ${windFmt(spread[0])} to ${windFmt(spread[1])}</small>` : ""}`],
+      `${windFmt(pk)} ${u} ${shortWhen(at(spd, pk))} ${compass(pkF.dir)}${spread ? ` <small class="ol-more">runs ${windFmt(spread[0])}&ndash;${windFmt(spread[1])}</small>` : ""}`],
     ["Gusts", olSpark(ts, gust.map(windVal), t0, "max"), `${windFmt(gk)} ${u} ${shortWhen(at(gust, gk))}`],
     ["Pressure", olSpark(ts, pres, t0, "min"), `${pl.toFixed(0)} mb ${shortWhen(at(pres, pl))}`],
-    ["Air", olSpark(ts, air, t0, "max"), airs.length ? `${Math.round(Math.min(...airs))} to ${Math.round(Math.max(...airs))}&deg;F` : "--"],
+    ["Air", olSpark(ts, air, t0, "max"), airs.length ? `${Math.round(Math.min(...airs))}&ndash;${Math.round(Math.max(...airs))}&deg;F` : "--"],
   ];
   // Waves: the NWS wave model at a buoy (the newest run for each hour), in place of the tide curve; a shore station,
   // which the wave model does not reach, keeps its tide row. The next high tide stays as a line under the rows.
@@ -149,15 +149,16 @@ export function outlookHtml(stations: StationData[]): string {
     const hk = Math.max(...hsOk);
     const pkW = nwpsAt(d.meta.id, ts[hs.indexOf(hk)]);
     rows.push([`Waves <small>model</small>`, olSpark(ts, hs.map((m) => m * wu.factor), t0, "max"),
-      `${waveFmt(hk)} ${wu.label} ${shortWhen(at(hs, hk))}${pkW && Number.isFinite(pkW.tp) ? ` &middot; ${pkW.tp.toFixed(0)} s` : ""} <small>NWPS, ${nwpsAsOf().replace(/^as of the /, "")}</small>`]);
+      `${waveFmt(hk)} ${wu.label} ${shortWhen(at(hs, hk))}${pkW && Number.isFinite(pkW.tp) ? ` &middot; ${pkW.tp.toFixed(0)} s` : ""} <small class="ol-more">NWPS, ${nwpsAsOf().replace(/^as of the /, "")}</small>`]);
   } else {
     rows.push([g && g !== d ? `Tide <small>${g.meta.name}</small>` : "Tide", olTides(g, t0), tideText]);
   }
   const tideLine = hsOk.length >= 6 && hi
-    ? `<p class="status-key ol-tide">Next high tide ${g && g !== d ? `at ${g.meta.name} ` : ""}${hi.ft.toFixed(1)} ft, ${shortWhen(Date.parse(hi.t), true)}</p>`
+    ? `<p class="status-key ol-tide">High tide ${hi.ft.toFixed(1)} ft, ${shortWhen(Date.parse(hi.t), true)}${g && g !== d ? ` &middot; ${g.meta.name}` : ""}</p>`
     : "";
+  // The title and the rows; how to pick a station, the runs behind it and its verification behind the (i).
   return `<section class="outlook" aria-label="The next 48 hours at ${d.meta.name}">
-    <p class="ol-title">Next 48 h &middot; ${d.meta.name} <span class="ol-hint">pick a row above</span><span class="ol-src">NOAA HRRR, raw${(() => { const a = hrrrAsOf(d.meta.id, ts); return a ? `, ${a}` : ""; })()} &middot; <a href="${FORECAST_PAGE}">verified at the buoys</a></span></p>
+    <p class="ol-title">Next 48 h &middot; ${d.meta.name} <button type="button" class="fig-info ol-info" aria-controls="ol-src" title="About this forecast">i</button><span class="ol-hint">pick a row above</span><span class="ol-src" id="ol-src">NOAA HRRR, raw${(() => { const a = hrrrAsOf(d.meta.id, ts); return a ? `, ${a}` : ""; })()} &middot; <a href="${FORECAST_PAGE}">verified at the buoys</a></span></p>
     ${rows.map(([k, sp, txt]) => `<div class="ol-row"><span class="ol-k">${k}</span>${sp}<span class="ol-v">${txt}</span></div>`).join("")}
     ${tideLine}
   </section>`;

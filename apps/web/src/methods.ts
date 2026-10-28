@@ -325,7 +325,7 @@ export const METHODS: Record<string, Method> = {
 METHODS["current-phase"] = {
   title: "Current at a reference point",
   shows:
-    "Under the time bar, the tidal current at one of four points along the Sound: the Race, the central Sound (Branford " +
+    "In the Tides view, under the time bar, the tidal current at one of four points along the Sound: the Race, the central Sound (Branford " +
     "Reef, 5 miles south), Execution Rocks and Throgs Neck. Above the line is flood, below it ebb. The filled band is the " +
     "NECOFS model's surface current (the light band); the fine line is NOAA's tidal current prediction; " +
     "the vertical line is the time bar's hour. The label reads the phase there and the next slack. Each point keeps a " +

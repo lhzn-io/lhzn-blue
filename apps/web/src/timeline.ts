@@ -1,11 +1,13 @@
-/** The page's "as of" time: one cursor for the map's fields and every chart, shown below the map in two rows.
+/** The page's "as of" time: one cursor for the map's fields and every chart, shown across the top of a waterway page,
+ * above the map and the table.
  *
- * The detail row is the map's window: hours (24h back to 72h ahead, for the currents forecast and no layer) or days
- * (the last 90, for the satellite history), with a needle for the time and a shaded band for the span the frame on
- * the map covers (a 7-day composite, a day, a 2h model step). Directly below it, a fixed context row spans the whole
- * horizon the page considers, 90 days back to 72h ahead, on a compressed scale (now at 78%, so the forecast stays
- * readable), with the detail window bracketed on it. Past solid, forecast dotted; no accent colour.
+ * The row is the view's window: hours (a day or two weeks back to 72h ahead, for the forecast and the currents) or
+ * days (the last 90, for the satellite history), with a needle for the time and a shaded band for the span the frame
+ * on the map covers (a 7-day composite, a day, a 2h model step). Its dates are under it, the moon's phases over it.
+ * Past solid, forecast dotted; no accent colour.
  * The cursor is kept as hours from now, so "+5h" stays five hours ahead as the clock moves; 0 is live now. */
+
+import { moonGlyph, moonPhases } from "./moon";
 
 export type ScaleKind = "hours" | "days";
 
@@ -20,8 +22,6 @@ const SCALES: Record<ScaleKind, Scale> = {
   hours: { past: 24, ahead: 72, step: 1, playMs: 450 },
   days: { past: 89 * 24, ahead: 0, step: 24, playMs: 220 },
 };
-const CONTEXT = { past: 90 * 24, ahead: 72 };
-const NOW_AT = 0.78; // where now sits on the context row
 
 let scale: ScaleKind = "hours";
 let offset = 0; // hours from now
@@ -31,7 +31,8 @@ let root: HTMLElement | null = null;
 const listeners = new Set<(t: number | null) => void>();
 const builders = new Set<() => void>(); // rows that share the detail row's scale, redrawn when it changes
 
-const fmtWhen = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" });
+const fmtClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric" });
+const fmtFull = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric" });
 const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
 const fmtHour = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" });
 const fmtDate = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", day: "numeric" });
@@ -60,7 +61,7 @@ export function onBuild(fn: () => void): void {
   if (root) fn();
 }
 
-/** The time rows' element, for a row placed with them (before the context row). */
+/** The time rows' element, for a row placed with them (under the time row). */
 export function timelineRoot(): HTMLElement | null {
   return root;
 }
@@ -111,12 +112,24 @@ export function setFrame(back: number, ahead: number): void {
 const ICON_PLAY = `<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3 1.5v9l7-4.5z" fill="currentColor"/></svg>`;
 const ICON_PAUSE = `<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2.5 1.5h2.5v9H2.5zM7 1.5h2.5v9H7z" fill="currentColor"/></svg>`;
 
+/** The time, short: the clock hour and how far from now, signed ("10 PM −13.7d", "7 PM +5h"); the date is on the
+ * track beneath. On the days scale, the date ("Oct 15 −13d"). */
 function label(): string {
   if (offset === 0) return "now";
   const t = new Date((asOf() ?? 0) * 1000);
-  if (scale === "days") return `${fmtDay.format(t)}, ${Math.round(-offset / 24)}d ago`;
-  const when = fmtWhen.format(t);
-  return offset < 0 ? `${when}, ${-offset}h ago` : `${when}, in ${offset}h`;
+  const sign = offset < 0 ? "−" : "+";
+  if (scale === "days") return `${fmtDay.format(t)} ${sign}${Math.round(Math.abs(offset) / 24)}d`;
+  const h = Math.abs(offset);
+  return `${fmtClock.format(t)} ${sign}${h < 48 ? `${h}h` : `${(h / 24).toFixed(1)}d`}`;
+}
+
+/** The time in full, for screen readers and the label's hover text: "Wed, Oct 15, 10 PM, 13.7 days ago". */
+function fullLabel(): string {
+  if (offset === 0) return "now";
+  const t = new Date((asOf() ?? 0) * 1000);
+  const h = Math.abs(offset);
+  const far = scale === "days" || h >= 48 ? `${(h / 24).toFixed(scale === "days" ? 0 : 1)} days` : `${h} hours`;
+  return `${(scale === "days" ? fmtDay : fmtFull).format(t)}, ${offset < 0 ? `${far} ago` : `in ${far}`}`;
 }
 
 const pct = (f: number) => `${(100 * Math.max(0, Math.min(1, f))).toFixed(3)}%`;
@@ -125,16 +138,16 @@ const dx = (h: number) => {
   const s = SCALES[scale];
   return (h + s.past) / (s.past + s.ahead);
 };
-/** Position on the context row (0..1): compressed, with now at NOW_AT. */
-const cx = (h: number) => (h <= 0 ? NOW_AT * (1 + h / CONTEXT.past) : NOW_AT + (1 - NOW_AT) * (h / CONTEXT.ahead));
 
 function sync(): void {
   if (!root) return;
   const s = SCALES[scale];
   const range = root.querySelector<HTMLInputElement>(".tl-range")!;
   range.value = String(offset);
-  range.setAttribute("aria-valuetext", label());
-  root.querySelector<HTMLElement>(".tl-label")!.textContent = label();
+  range.setAttribute("aria-valuetext", fullLabel());
+  const lab = root.querySelector<HTMLElement>(".tl-label")!;
+  lab.textContent = label();
+  lab.title = fullLabel();
   root.querySelector<HTMLButtonElement>(".tl-now")!.hidden = offset === 0;
   const unit = scale === "days" ? "d" : "h";
   root.querySelectorAll<HTMLButtonElement>(".tl-step").forEach((b) => {
@@ -151,7 +164,6 @@ function sync(): void {
   band.style.width = pct(dx(f1) - dx(f0));
   root.querySelector<HTMLElement>(".tl-needle")!.style.left = pct(dx(offset));
   root.querySelector<HTMLElement>(".tl-knob")!.style.left = pct(dx(offset));
-  root.querySelector<HTMLElement>(".tl-cneedle")!.style.left = pct(cx(offset));
   const play = root.querySelector<HTMLButtonElement>(".tl-play")!;
   play.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
   play.title = playing ? "Pause" : "Play";
@@ -173,7 +185,9 @@ function play(): void {
 
 /** Detail ticks: hours scale every 6h, taller at each local midnight; days scale every week, taller at each month's
  * first day. The forecast's are fainter. Under the ticks, in the track's lower half (no added height), small day
- * labels: weekdays over a few days, day numbers over two weeks (the month on the 1st), months and weeks over 90 days. */
+ * labels: weekdays over a few days, day numbers over two weeks (the month on the 1st), months and weeks over 90 days.
+ * The moon's principal phases along the track's top edge, each at its own time, clear of the dates (so a phone's
+ * thinned dates never seem to carry the wrong day's moon). */
 function detailTicks(): string {
   const s = SCALES[scale];
   const now = Math.round(Date.now() / 3.6e6);
@@ -185,6 +199,10 @@ function detailTicks(): string {
     out.push(`<span class="tl-dlabel${h > 0 ? " ahead" : ""}" style="left:${pct(dx(h))}">${first && !text.includes("tl-mon") ? mon(t) : ""}${text}</span>`);
     first = false;
   };
+  for (const p of moonPhases((now - s.past) * 3600, (now + s.ahead) * 3600)) {
+    const h = p.t / 3600 - now;
+    out.push(`<i class="tl-moon${h > 0 ? " ahead" : ""}" data-phase="${p.phase}" style="left:${pct(dx(h))}">${moonGlyph(p.phase, 7)}</i>`);
+  }
   for (let h = -s.past; h <= s.ahead; h += scale === "days" ? 24 : 1) {
     const t = new Date((now + h) * 3.6e6);
     let kind: string | null;
@@ -219,17 +237,10 @@ function build(): void {
   range.max = String(s.ahead);
   range.step = String(s.step);
   range.setAttribute("aria-label", scale === "days" ? "Days back" : "Hours from now");
-  // The context row: the whole horizon, with the detail window bracketed.
-  const marks: [number, string][] = [[-90 * 24, "90d"], [-60 * 24, "60d"], [-30 * 24, "30d"], [0, "now"], [72, "+72h"]];
-  root!.querySelector<HTMLElement>(".tl-ctrack")!.innerHTML =
-    `<i class="tl-cline" style="left:0;width:${pct(cx(0))}"></i><i class="tl-cline ahead" style="left:${pct(cx(0))};right:0"></i>` +
-    `<i class="tl-bracket" style="left:${pct(cx(-s.past))};width:${pct(cx(s.ahead) - cx(-s.past))}"></i>` +
-    `<i class="tl-tick now" style="left:${pct(cx(0))}"></i><i class="tl-cneedle"></i>` +
-    marks.map(([h, t], i) => `<span class="tl-mark${i === 0 ? " first" : i === marks.length - 1 ? " last" : ""}" style="left:${pct(cx(h))}">${t}</span>`).join("");
   builders.forEach((fn) => fn());
 }
 
-/** The time rows, below the map: play, the detail row with its label in a fixed slot, then the context row. */
+/** The time row: play, the track with its dates, and the time with its steps in a fixed slot. */
 export function mountTimeline(box: HTMLElement): void {
   if (root) return;
   root = document.createElement("div");
@@ -239,8 +250,7 @@ export function mountTimeline(box: HTMLElement): void {
   root.innerHTML = `<div class="tl-row"><button type="button" class="tl-play"></button>
       <div class="tl-track"><span class="tl-ticks" aria-hidden="true"></span><i class="tl-frame" aria-hidden="true"></i><i class="tl-needle" aria-hidden="true"></i><i class="tl-knob" aria-hidden="true"></i>
         <input class="tl-range" type="range" value="0"></div>
-      <span class="tl-slot"><button type="button" class="tl-step" data-dir="-1"></button><button type="button" class="tl-step" data-dir="1"></button><span class="tl-label" aria-live="polite"></span><button type="button" class="tl-now" hidden>now</button></span></div>
-    <div class="tl-row tl-context" aria-hidden="true"><span></span><div class="tl-ctrack"></div><span class="tl-slot"></span></div>`;
+      <span class="tl-slot"><button type="button" class="tl-step" data-dir="-1"></button><button type="button" class="tl-step" data-dir="1"></button><span class="tl-label" aria-live="polite"></span><button type="button" class="tl-now" hidden>now</button></span></div>`;
   box.appendChild(root);
   build();
   const range = root.querySelector<HTMLInputElement>(".tl-range")!;

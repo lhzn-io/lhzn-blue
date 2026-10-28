@@ -32,8 +32,15 @@ export function sparkline(d: StationData, depth: string, color: string): string 
 /** A table cell at the cursor's time: the observed value where the record covers it, "--" otherwise. */
 export function atCell(v: number, shown: string, title: string, spark = "", extra = ""): string {
   if (!Number.isFinite(v)) return `<td class="offline">${spark}<b>--</b><small>${atFuture() ? "no forecast" : "no reading"}</small></td>`;
-  return `<td class="asof" title="${title}, observed ${atLabel(AT!)}">${spark}<b>${shown}</b><small>${extra || "observed"}</small></td>`;
+  return `<td class="asof" title="${title}, observed ${atLabel(AT!)}">${spark}<b>${shown}</b><small>${extra}</small></td>`;
 }
+
+/** A reading's age in a cell, whole minutes then whole hours then days (37m, 5h, 3d); the exact age is in the cell's
+ * hover text. */
+const age = (time: string): string => {
+  const m = (Date.now() - Date.parse(time)) / 60000;
+  return m < 60 ? `${Math.max(0, Math.round(m))}m` : m < 48 * 60 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`;
+};
 
 /** A station's observed value of a variable at a depth and time (temperature in &deg;F): the hourly record where it
  * covers the time, NaN otherwise (no station forecasts before M8). The table, the pins and both prompts read values
@@ -46,15 +53,15 @@ export function valueAt(d: StationData, k: VarKey, depth: string, t: number): nu
 /** A pin's water value: the view's variable with its unit. */
 export const pinValue = (k: VarKey, v: number) => (k === "temp" ? `${f1(v)}&deg;F` : k === "salinity" ? `salinity ${v.toFixed(2)}` : `oxygen ${v.toFixed(1)} mg/L`);
 
-/** A reading transcribed from the LISICOS panel image (while their server is down): tagged in the cell and noted in
- * its tooltip and readout. LISICOS's observation, read by us; provisional until the server's own record returns. */
+/** A reading transcribed from the LISICOS panel image (while their server is down): noted in the cell's tooltip and
+ * the readout's. LISICOS's observation, read by us; provisional until the server's own record returns. */
 export const PANEL_NOTE = "transcribed from the LISICOS station panel image while their data server is down; provisional";
-export const panelTag = (o?: { source?: string } | null) => (o?.source === "panel" ? " &middot; panel" : "");
 export const panelTitle = (o?: { source?: string } | null) => (o?.source === "panel" ? `; ${PANEL_NOTE}` : "");
 
-/** A table cell holding a forecast: marked as HRRR, with its typical error, never as a measurement. */
-export function fcCell(f: FcValue, shown: string, title: string, errText: string): string {
-  return `<td class="fcst" title="${title}. HRRR forecast from the ${fmtRun.format(new Date(f.issue * 1000))} run, ${f.lead} h ahead; typically within ${errText} at this lead (verified at the buoys)."><b>${shown}</b><small>HRRR ${errText}</small></td>`;
+/** A table cell holding a forecast, set in italic, never as a measurement: the run and its typical error at this lead
+ * in the hover text (the table names the run above it), and `extra` (a 3-hour change) under the value. */
+export function fcCell(f: FcValue, shown: string, title: string, errText: string, extra = ""): string {
+  return `<td class="fcst" title="${title}. HRRR forecast from the ${fmtRun.format(new Date(f.issue * 1000))} run, ${f.lead} h ahead; typically within ${errText} at this lead (verified at the buoys)."><b>${shown}</b><small>${extra}</small></td>`;
 }
 
 export function runText(issue: number, lead: number): string {
@@ -93,7 +100,7 @@ export function cellHtml(d: StationData, depth: string): string {
   // Oxygen under the hypoxia level is marked in the cell, not only by color.
   const low = M.view() === "oxygen" && value < DO_LEVELS.hypoxic;
   const status = M.view() === "oxygen" ? `, ${oxygenStatus(value)}` : "";
-  return `<td class="${state}${low ? " low" : ""}" title="${DEPTH_LABEL[depth]}: ${value.toFixed(V().digits)} ${unitName(M.view())}${status}, ${ago(o.time)}${panelTitle(o)}">${sparkline(d, depth, state === "live" ? M.palette().now : M.palette().delayed)}<b>${shown}</b><small>${low ? oxygenStatus(value) + " &middot; " : ""}${ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
+  return `<td class="${state}${low ? " low" : ""}" title="${DEPTH_LABEL[depth]}: ${value.toFixed(V().digits)} ${unitName(M.view())}${status}, ${ago(o.time)}${panelTitle(o)}">${sparkline(d, depth, state === "live" ? M.palette().now : M.palette().delayed)}<b>${shown}</b><small>${low ? oxygenStatus(value) + " &middot; " : ""}${age(o.time)}</small></td>`;
 }
 
 /** Latest buoy wind: mean and gust in the chosen unit, a downwind arrow with the compass point it comes
@@ -119,7 +126,7 @@ export function windCell(d: StationData): string {
     const gust = m.gust?.at(AT) ?? NaN;
     const u = WIND_UNITS[WU].label;
     const from = Number.isFinite(dir) ? compass(dir) : "";
-    return atCell(v, `${Number.isFinite(dir) ? windArrow(dir) : ""}${from} ${windFmt(v)}<small class="g">${u}</small>`, `Wind ${windFmt(v)} ${u} from ${from || "--"}, gusts ${windFmt(gust)} ${u}`, sparklineOf(m.wind, M.palette().line, "kt"), `gusts ${windFmt(gust)}`);
+    return atCell(v, `${Number.isFinite(dir) ? windArrow(dir) : ""}${from} ${windFmt(v)}<small class="g">${u}</small>`, `Wind ${windFmt(v)} ${u} from ${from || "--"}, gusts ${windFmt(gust)} ${u}`, sparklineOf(m.wind, M.palette().line, "kt"), Number.isFinite(gust) ? `G${windFmt(gust)}` : "");
   }
   const o = d.met?.last;
   const nowState = o && o.wind_kt != null ? obsState({ time: o.time } as LastObs) : "offline";
@@ -134,7 +141,7 @@ export function windCell(d: StationData): string {
   const dir = o.dir_deg != null ? compass(o.dir_deg) : "";
   const title = `Wind ${windFmt(o.wind_kt)} ${u}, gusts ${windFmt(o.gust_kt)} ${u}, from ${dir || "--"}; air ${f1(o.air_f ?? NaN)} F; ${ago(o.time)}${panelTitle(o)}`;
   const spark = d.met?.wind ? sparklineOf(d.met.wind, M.palette().line, "kt") : "";
-  return `<td class="${state} wind" title="${title}">${spark}<b>${o.dir_deg != null ? windArrow(o.dir_deg) : ""}${dir} ${windFmt(o.wind_kt)}<small class="g">${u}</small></b><small>gusts ${windFmt(o.gust_kt)} &middot; ${ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
+  return `<td class="${state} wind" title="${title}">${spark}<b>${o.dir_deg != null ? windArrow(o.dir_deg) : ""}${dir} ${windFmt(o.wind_kt)}<small class="g">${u}</small></b><small>${o.gust_kt != null ? `G${windFmt(o.gust_kt)} &middot; ` : ""}${age(o.time)}</small></td>`;
 }
 
 /** Waves: the latest significant height and period where published, the outage with its last reading where
@@ -164,7 +171,7 @@ export function wavesCell(d: StationData): string {
   const state = last ? obsState({ time: last.time } as LastObs) : "offline";
   if ((M.wavesPublished(d.meta.id) || last?.source === "panel") && last && state !== "offline") {
     const spark = d.waves?.hs ? sparklineOf(d.waves.hs, M.palette().line, "m significant height", 2) : "";
-    return `<td class="${state}" title="Significant wave height ${waveFmt(last.hs_m)} ${waveUnit().label}, highest ${waveFmt(last.hmax_m)}, period ${last.tp_s ?? "--"} s; ${ago(last.time)}${panelTitle(last)}">${spark}<b>${waveFmt(last.hs_m)}<small class="g"> ${waveUnit().label}</small></b><small>${last.tp_s != null ? last.tp_s.toFixed(0) + " s &middot; " : ""}${ago(last.time).replace(" ago", "")}${panelTag(last)}</small></td>`;
+    return `<td class="${state}" title="Significant wave height ${waveFmt(last.hs_m)} ${waveUnit().label}, highest ${waveFmt(last.hmax_m)}, period ${last.tp_s ?? "--"} s; ${ago(last.time)}${panelTitle(last)}">${spark}<b>${waveFmt(last.hs_m)}<small class="g"> ${waveUnit().label}</small></b><small>${last.tp_s != null ? last.tp_s.toFixed(0) + " s &middot; " : ""}${age(last.time)}</small></td>`;
   }
   const mc = waveModel(Date.now() / 1000, M.wavesText(d.meta.id, true).replace("offline, last reading", "out since"), M.wavesText(d.meta.id));
   if (mc) return mc;
@@ -195,7 +202,7 @@ export function airCell(d: StationData): string {
   if (!o || o.air_f == null) return `<td class="na">&middot;</td>`;
   const state = obsState({ time: o.time } as LastObs);
   if (state === "offline") return `<td class="offline"><b>--</b></td>`;
-  return `<td class="${state}" title="Air ${f1(o.air_f)} F, ${ago(o.time)}${panelTitle(o)}"><b>${Math.round(o.air_f)}&deg;</b><small>${ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
+  return `<td class="${state}" title="Air ${f1(o.air_f)} F, ${ago(o.time)}${panelTitle(o)}"><b>${Math.round(o.air_f)}&deg;</b><small>${age(o.time)}</small></td>`;
 }
 
 export function pressureCell(d: StationData): string {
@@ -205,8 +212,9 @@ export function pressureCell(d: StationData): string {
     const f = forecastAt(d.meta.id, AT);
     if (f && Number.isFinite(f.pres)) {
       const back = forecastAt(d.meta.id, AT - 3 * HOUR);
-      const tend = back && back.issue === f.issue && Number.isFinite(back.pres) ? `${signed(f.pres - back.pres)} in prior 3h, ` : "";
-      return fcCell(f, `${f.pres.toFixed(0)}<small class="g"> mb</small>`, `Pressure ${f.pres.toFixed(1)} mbar`, `${tend}&plusmn;${(typicalError(d.meta.id, f.lead, "pressure_mae")).toFixed(0)}`);
+      const ch = back && back.issue === f.issue && Number.isFinite(back.pres) ? f.pres - back.pres : NaN;
+      const tend = Number.isFinite(ch) ? `, ${signed(ch)} in the prior 3 h` : "";
+      return fcCell(f, `${f.pres.toFixed(0)}<small class="g"> mb</small>`, `Pressure ${f.pres.toFixed(1)} mbar${tend}`, `&plusmn;${(typicalError(d.meta.id, f.lead, "pressure_mae")).toFixed(0)} mbar`, Number.isFinite(ch) ? `${signed(ch)}/3h` : "");
     }
   }
   if (AT != null) {
@@ -217,7 +225,7 @@ export function pressureCell(d: StationData): string {
     if (!p) return `<td class="na">&middot;</td>`;
     const v = p.at(AT);
     const tend = p.at(AT) - p.at(AT - 3 * HOUR);
-    return atCell(v, `${v.toFixed(0)}<small class="g"> mb</small>`, `Pressure ${v.toFixed(1)} mbar`, "", Number.isFinite(tend) ? `${signed(tend)} in prior 3h` : "");
+    return atCell(v, `${v.toFixed(0)}<small class="g"> mb</small>`, `Pressure ${v.toFixed(1)} mbar${Number.isFinite(tend) ? `, ${signed(tend)} in the prior 3 h` : ""}`, "", Number.isFinite(tend) ? `${signed(tend)}/3h` : "");
   }
   if (!o || o.pressure_mb == null || obsState({ time: o.time } as LastObs) === "offline") {
     const f = standIn(d, Date.now() / 1000);
@@ -228,8 +236,8 @@ export function pressureCell(d: StationData): string {
   if (state === "offline") return `<td class="offline"><b>--</b></td>`;
   const end = p ? p.lastValid() : NaN;
   const trend = p && Number.isFinite(end) ? p.at(end) - p.at(end - 3 * HOUR) : NaN;
-  const tend = Number.isFinite(trend) ? `${signed(trend)} in prior 3h` : "";
-  return `<td class="${state}" title="Pressure ${o.pressure_mb.toFixed(1)} mbar${tend ? `, ${tend}` : ""}; ${ago(o.time)}${panelTitle(o)}"><b>${o.pressure_mb.toFixed(0)}<small class="g"> mb</small></b><small>${tend || ago(o.time).replace(" ago", "")}${panelTag(o)}</small></td>`;
+  const tend = Number.isFinite(trend) ? signed(trend) : "";
+  return `<td class="${state}" title="Pressure ${o.pressure_mb.toFixed(1)} mbar${tend ? `, ${tend} in the prior 3 h` : ""}; ${ago(o.time)}${panelTitle(o)}"><b>${o.pressure_mb.toFixed(0)}<small class="g"> mb</small></b><small>${tend ? `${tend}/3h` : age(o.time)}</small></td>`;
 }
 
 /** NOAA's predicted water level at a time (ft above MLLW), linear between its hourly values; NaN outside them. */
@@ -259,7 +267,7 @@ export function levelCell(d: StationData): string {
   if (state === "offline") return `<td class="offline"><b>--</b><small>no recent level</small></td>`;
   const dep = departure(d);
   const spark = dep ? sparklineOf(dep, M.palette().line, "ft against the prediction", 1) : "";
-  return `<td class="${state}" title="Water level ${feet(lv.ft)} ft above MLLW (preliminary), ${ago(lv.time)}">${spark}<b>${feet(lv.ft)}<small class="g"> ft</small></b><small>${ago(lv.time).replace(" ago", "")}</small></td>`;
+  return `<td class="${state}" title="Water level ${feet(lv.ft)} ft above MLLW (preliminary), ${ago(lv.time)}">${spark}<b>${feet(lv.ft)}<small class="g"> ft</small></b><small>${age(lv.time)}</small></td>`;
 }
 
 export function tideCell(d: StationData): string {
@@ -375,22 +383,31 @@ export function stationTables(stations: StationData[], SG: string): string {
   const shore = stations.filter((d) => d.kind === "shore");
   const name = (d: StationData) => `<th scope="row"><a href="#${d.meta.id}"><i class="dot${d.kind === "shore" ? " shore" : ""} ${overallState(d)}"></i>${d.meta.name}</a></th>`;
   const wind = `wind (${WIND_UNITS[WU].label})`;
-  const what = `${V().label.toLowerCase()} (${M.view() === "temp" ? "&deg;F" : unitName(M.view())})`;
-  // Each view has its own columns: water views show the water; Wind and waves shows the weather and the sea.
-  const head = (cols: string[]) => `<thead><tr><th></th>${cols.map((c) => `<th scope="col">${c}</th>`).join("")}</tr></thead>`;
+  const waterUnit = M.view() === "temp" ? "&deg;F" : unitName(M.view());
+  const what = `${V().label.toLowerCase()} (${waterUnit})`;
+  // Each view has its own columns: water views show the water; Wind and waves shows the weather and the sea. Each head
+  // carries its unit, so the cells hold numbers alone; the caption says it all for screen readers. The first head
+  // cell opens the key to the dots and lines.
+  const head = (cols: [string, string][]) =>
+    `<thead><tr><th><button type="button" class="fig-info key-info" aria-controls="status-key" title="Key to the table">i</button></th>${cols.map(([c, u]) => `<th scope="col">${c}${u ? `<small class="u">${u}</small>` : ""}</th>`).join("")}</tr></thead>`;
   const open = (g: string) => `<table class="status-grid" id="status-panel" role="tabpanel" aria-labelledby="stab-${g}">`;
   const air = "air (&deg;F), pressure (mbar)";
+  const weather: [string, string][] = [["Wind", WIND_UNITS[WU].label], ["Air", "&deg;F"], ["Pressure", "mb"]];
+  // Ahead of now, the run and its typical miss once, above the table, rather than in every cell.
+  const run = AT != null && atFuture() ? (stations.length ? forecastAt(stations[0].meta.id, hourOf(AT)) : null) : null;
+  const source = AT != null && atFuture() ? `<p class="tbl-src">HRRR${run ? `, ${fmtRun.format(new Date(run.issue * 1000))} run` : ""} &middot; ${verTag(AT, stations[0]?.meta.id)}</p>` : "";
+  const caption = (s: string) => `<caption class="sr-only">${s}</caption>`;
   const table =
     SG === "buoy"
       ? isWater(M.view())
-        ? `${open("buoy")}<caption>${AT != null ? `${V().label} at ${atLabel(AT)}, west to east (${M.view() === "temp" ? "&deg;F" : unitName(M.view())})` : `Latest readings, west to east: ${what}`}</caption>${head(DEPTHS.map((d) => DEPTH_LABEL[d]))}
+        ? `${open("buoy")}${caption(AT != null ? `${V().label} at ${atLabel(AT)}, west to east (${waterUnit})` : `Latest readings, west to east: ${what}`)}${head(DEPTHS.map((d) => [DEPTH_LABEL[d], waterUnit]))}
       <tbody>${buoys.map((d) => `<tr>${name(d)}${DEPTHS.map((dep) => cellHtml(d, dep)).join("")}</tr>`).join("")}</tbody></table>`
-        : `${open("buoy")}<caption>${AT != null ? `${atFuture() ? "Forecast" : "Weather and waves"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and waves (${waveUnit().label})${AT != null && atFuture() ? ` &middot; HRRR, raw${(() => { const f = stations.length ? forecastAt(stations[0].meta.id, hourOf(AT!)) : null; return f ? `, the ${fmtRun.format(new Date(f.issue * 1000))} run` : ""; })()} &middot; ${verTag(AT!, stations[0]?.meta.id)}` : ""}</caption>${head(["Wind", "Air", "Pressure", "Waves"])}
+        : `${open("buoy")}${caption(`${AT != null ? `${atFuture() ? "Forecast" : "Weather and waves"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and waves (${waveUnit().label})`)}${head([...weather, ["Waves", waveUnit().label]])}
       <tbody>${buoys.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${wavesCell(d)}</tr>`).join("")}</tbody></table>`
       : isWater(M.view())
-        ? `${open("shore")}<caption>${AT != null ? `Water at ${atLabel(AT)}` : "Latest readings"}, west to east: ${M.view() === "temp" ? "water temperature (&deg;F)" : `water temperature only (no ${V().label.toLowerCase()} sensors)`} and water level</caption>${head(["Water", "Level", "Next tide"])}
+        ? `${open("shore")}${caption(`${AT != null ? `Water at ${atLabel(AT)}` : "Latest readings"}, west to east: ${M.view() === "temp" ? "water temperature (&deg;F)" : `water temperature only (no ${V().label.toLowerCase()} sensors)`} and water level`)}${head([["Water", "&deg;F"], ["Level", "ft"], ["Next tide", ""]])}
       <tbody>${shore.map((d) => `<tr>${name(d)}${cellHtml(d, "SFC")}${levelCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`
-        : `${open("shore")}<caption>${AT != null ? `${atFuture() ? "Forecast" : "Weather"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and the next tide${AT != null && atFuture() ? ` &middot; HRRR, raw${(() => { const f = stations.length ? forecastAt(stations[0].meta.id, hourOf(AT!)) : null; return f ? `, the ${fmtRun.format(new Date(f.issue * 1000))} run` : ""; })()} &middot; ${verTag(AT!, stations[0]?.meta.id)}` : ""}</caption>${head(["Wind", "Air", "Pressure", "Next tide"])}
+        : `${open("shore")}${caption(`${AT != null ? `${atFuture() ? "Forecast" : "Weather"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and the next tide`)}${head([...weather, ["Next tide", ""]])}
       <tbody>${shore.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`;
   const tab = (g: string, label: string, n: number) =>
     `<button type="button" role="tab" class="stab" id="stab-${g}" data-group="${g}" aria-selected="${SG === g}" aria-controls="status-panel" tabindex="${SG === g ? 0 : -1}">${label}<small>${n}</small></button>`;
@@ -400,6 +417,6 @@ export function stationTables(stations: StationData[], SG: string): string {
       : `<i class="dot shore live"></i>under ${DELAYED_HOURS}h old <i class="dot shore delayed"></i>under ${OFFLINE_HOURS}h <i class="dot shore offline"></i>offline &middot; levels in feet above mean lower low water, preliminary; tides are NOAA predictions`;
   return `
     ${shore.length ? `<div class="status-tabs" role="tablist" aria-label="Stations">${tab("buoy", "Buoys", buoys.length)}${tab("shore", "Shore stations", shore.length)}</div>` : ""}
-    ${table}
-    <p class="status-key">${key} &middot; lines: last 7 days, each stretched to its own range</p>`;
+    ${source}${table}
+    <p class="status-key" id="status-key">${key} &middot; lines: last 7 days, each stretched to its own range</p>`;
 }

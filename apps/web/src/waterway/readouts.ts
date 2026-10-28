@@ -20,9 +20,18 @@ export function stratNow(d: StationData): { deltaC: number; status: string } {
   return { deltaC, status: stratStatus(deltaC) };
 }
 
+/** The small print, shorter on a phone: "from NE · gusts 17 kt · 5h ago · transcribed from the LISICOS panel" reads
+ * "NE · gusts 17 kt · 5h"; the words left out stay on wider screens (the panel note is also in the readout's About). */
+const shortSub = (sub: string) =>
+  sub
+    .replace(/^from /, '<span class="wide-only">from </span>')
+    .replace(/ s period/, ' s<span class="wide-only"> period</span>')
+    .replace(/ ago\b/g, '<span class="wide-only"> ago</span>')
+    .replace(/ &middot; transcribed from the LISICOS panel/, '<span class="wide-only"> &middot; transcribed from the LISICOS panel</span>');
+
 /** One readout: the big figure, its label (which opens the plot's explanation) and a line of small print. */
 export function readoutHtml(num: string, label: string, about: string, sub: string, state = "", context = ""): string {
-  return `<div class="readout"><div class="num">${num}</div><span class="lab"><button type="button" class="ro-about" data-about="${about}" title="About: ${label}">${label}</button></span>${context ? `<span class="trend">${context}</span>` : ""}<span class="sub${state ? ` ${state}` : ""}">${sub}</span></div>`;
+  return `<div class="readout"><div class="num">${num}</div><span class="lab"><button type="button" class="ro-about" data-about="${about}" title="About: ${label}">${label}</button></span>${context ? `<span class="trend">${context}</span>` : ""}<span class="sub${state ? ` ${state}` : ""}">${shortSub(sub)}</span></div>`;
 }
 
 /** Direction over the quantity's window, then the seasonal %ile (from `season.long` when the series has a longer

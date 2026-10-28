@@ -148,7 +148,9 @@ export function trendText(t: Trend | null, spec: TrendSpec, fmt: (v: number) => 
   const change = t.dir === 0 ? none : `${t.delta > 0 ? "+" : "\u2212"}${fmt(Math.abs(t.delta))}`;
   const span = `over the ${model ? "next" : "last"} ${spec.window} h`;
   const title = `${model ? `${model} forecast: ` : ""}${words}${t.dir === 0 ? "" : `, ${change.replace(/<[^>]+>/g, "")}`} ${span}`;
-  return `<span class="trend-part${model ? " trend-ahead" : ""}" title="${title}">${model ? `${model} ` : ""}${arrowSvg(rate, t.dir)}<span class="sr-only">${model ? "forecast " : ""}${words}</span> ${change} ${span}</span>`;
+  // On a phone the span reads short ("steady, 3 h", "−5 kt, next 3 h"); the full words stay in the hover text.
+  const shown = `<span class="wide-only"> over the ${model ? "next" : "last"}</span><span class="narrow-only">,${model ? " next" : ""}</span> ${spec.window} h`;
+  return `<span class="trend-part${model ? " trend-ahead" : ""}" title="${title}">${model ? `${model} ` : ""}${arrowSvg(rate, t.dir)}<span class="sr-only">${model ? "forecast " : ""}${words}</span> ${change}${shown}</span>`;
 }
 
 /** Mean direction (degrees) of the wind over [a, b], as a vector mean so 350 and 10 average to 0. */
@@ -186,7 +188,7 @@ export function veerText(dir: Hourly | null | undefined, speed: Hourly | null | 
 /** "74th %ile", "74th %ile (last 3 days)", or "-- %ile" when there are fewer than three earlier years. */
 export function percentileText(p: { pct: number; years: number } | null, what = ""): string {
   if (!p) return `<span class="trend-part" title="Fewer than three earlier years on record">-- %ile</span>`;
-  return `<span class="trend-part">${ordinal(p.pct)} %ile${what ? ` (${what})` : ""}</span>`;
+  return `<span class="trend-part">${ordinal(p.pct)} %ile${what ? `<span class="wide-only"> (${what})</span>` : ""}</span>`;
 }
 
 /** Hourly values smoothed less the more recent they are: hourly for the last two days, then a half-life that

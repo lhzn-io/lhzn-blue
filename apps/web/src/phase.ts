@@ -1,5 +1,5 @@
 /**
- * The tidal current's phase, as a row under the time bar (Wind & waves): at one of four reference points along the
+ * The tidal current's phase, as a row under the time bar (Tides): at one of four reference points along the
  * Sound, NECOFS's surface current along the flood axis as a light band (flood up, ebb down) and NOAA's tidal current
  * prediction as a fine line, with the time bar's cursor through it. A switch picks
  * the point; the label slot reads the phase at the cursor. Data: /data/v1/current-phase.json (the jobs' phase.py).
@@ -150,7 +150,7 @@ function mount(): void {
     `<span class="tl-slot ph-slot"><span class="ph-title">Current at</span> <span class="ph-pick" role="group" aria-label="Reference point"></span>` +
     `<button type="button" class="ph-info" aria-label="About the current strip" title="About the current strip">i</button></span>` +
     `<span class="ph-gap"></span><div class="tl-track ph-track"></div>`;
-  root.insertBefore(row, root.querySelector(".tl-context"));
+  root.appendChild(row);
   foot = document.createElement("p");
   foot.className = "ph-foot";
   root.appendChild(foot);
@@ -170,7 +170,7 @@ function mount(): void {
   onAsOf(() => visible && render());
 }
 
-/** Show the strip (Wind & waves, hours scale) with its data, or hide it; the reader's speed unit for its readout. */
+/** Show the strip (Tides, hours scale) with its data, or hide it; the reader's speed unit for its readout. */
 export function setPhase(data: PhaseFile | null, show: boolean, speed?: { label: string; perKt: number; digits: number }): void {
   if (speed) unit = speed;
   file = data ?? file;

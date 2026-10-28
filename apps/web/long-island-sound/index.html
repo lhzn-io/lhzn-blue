@@ -26,6 +26,8 @@
     <div class="topbar">
       <button class="fresh drop-btn" id="fresh" type="button" aria-expanded="false" aria-controls="updated">loading</button>
       <p class="updated" id="updated" aria-live="polite"><b>Loading</b>reading the latest buoy data</p>
+      <button class="place-pick drop-btn" id="place-pick" type="button" aria-expanded="false" aria-controls="place-panel" hidden><span class="vm-current">Overview</span><span class="vm-caret" aria-hidden="true"></span></button>
+      <div class="place-panel" id="place-panel" aria-label="Places"></div>
       <button class="view-menu drop-btn" id="view-menu" type="button" aria-expanded="false" aria-controls="var-switch"><span class="vm-label">View</span> <span class="vm-current">Temp</span><span class="vm-caret" aria-hidden="true"></span></button>
       <div class="unit-switch var-switch" id="var-switch" role="group" aria-label="View">
         <span aria-hidden="true">View</span>
@@ -80,6 +82,7 @@
           <span class="wm-top">LOCAL WATER CONDITIONS</span>
           <span class="wm-bottom">LONG ISLAND SOUND</span>
         </a>
+        <p class="mast-short">Not for navigation<button type="button" class="fig-info mast-more" aria-expanded="false" title="About this site">i</button></p>
         <p class="mast-by"><a class="lho" href="https://longhorizon.eco/observatory">Long Horizon Observatory</a> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span> <span class="outage-wrap"><button class="outage-icon" id="outage-icon" type="button" hidden aria-describedby="outage-pop" title="Buoy data notice" aria-label="Buoy data notice"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.4v4.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.4" r="0.9" fill="currentColor"/></svg><span>Buoy data</span></button><span class="outage-pop" id="outage-pop" role="tooltip"></span></span><span class="boat-wrap" data-boat-mast></span></p>
         <p class="mast-caveat">Provisional observations and model forecasts. Not for navigation. <a href="/about/#limits">Limitations</a></p>
       </div>
@@ -88,7 +91,21 @@
     </header>
 
     <main>
-      <nav class="places" id="places" aria-label="Stations"></nav>
+      <nav class="pick-band" aria-label="Place and view">
+        <span class="pb-k">Place</span>
+        <div class="places" id="places"></div>
+        <span class="pb-k">View</span>
+        <div class="var-switch pb-views" role="group" aria-label="View">
+          <button class="tab" type="button" data-var="temp" aria-pressed="true">Temp</button>
+          <button class="tab" type="button" data-var="salinity" aria-pressed="false">Salinity</button>
+          <button class="tab" type="button" data-var="oxygen" aria-pressed="false">Oxygen</button>
+          <button class="tab" type="button" data-var="turbidity" aria-pressed="false">Turbidity</button>
+          <button class="tab" type="button" data-var="wind" aria-pressed="false">Wind &amp; waves</button>
+          <button class="tab" type="button" data-var="rivers" aria-pressed="false">Rivers</button>
+          <button class="tab" type="button" data-var="tides" aria-pressed="false">Tides</button>
+        </div>
+      </nav>
+      <div class="timebar" id="timebar"></div>
       <section class="overview" aria-label="Buoys at a glance">
         <div class="map-col">
           <div class="map" id="map" role="region" aria-label="Map of the buoys"></div>

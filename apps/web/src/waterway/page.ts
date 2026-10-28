@@ -19,6 +19,7 @@ import { mountAdvisories } from "../advisory";
 import { ago, escHtml, fmtDate, signed } from "./format";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./cursor";
 import { holdRoom } from "./room";
+import { pinTimeline } from "./pin-time";
 import { DEPTH_LABEL, isWater, noWaterSensor, obsState, overallState, type StationData, stationState, type VarKey, WATER_VARS } from "./station-data";
 import { stationPin, stationTables } from "./cells";
 import { configureModels } from "./models";
@@ -1040,6 +1041,10 @@ function wireStatusTabs(stations: StationData[]): void {
   box.addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>(".stab");
     if (b) pick(b.dataset.group as Group);
+    // The (i) in the table's corner shows or hides the key to its dots and lines (kept open as the table redraws).
+    if ((e.target as HTMLElement).closest(".key-info")) box.classList.toggle("key-open");
+    // The outlook's (i): its source and verification, and how to pick its station.
+    if ((e.target as HTMLElement).closest(".ol-info")) box.classList.toggle("ol-open");
   });
   // A click moves the page's time. Two clicks close together in time and place also open that station's wind chart
   // at that hour (the next 48 hours where it reaches, else the wind record). Counted here, not with dblclick: the
@@ -1072,24 +1077,26 @@ function wireStatusTabs(stations: StationData[]): void {
   });
 }
 
-/** The current-phase strip under the time bar (Wind & waves, hours scale): loaded once, shown or hidden as the view
- * and scale change. */
+/** The current-phase strip under the time bar (Tides, hours scale): loaded once, shown or hidden as the view and
+ * scale change. The other views mark the moon's phases on the time bar's dates instead. */
 let phaseLoad: Promise<import("../phase").PhaseFile | null> | null = null;
 async function syncPhase(hours: boolean): Promise<void> {
-  const show = VK === "wind" && hours;
+  const show = VK === "tides" && hours;
   const ph = await import("../phase");
   if (show) phaseLoad ??= getJson<import("../phase").PhaseFile>(`${DATA}/current-phase.json`).catch(() => null);
   const u = WIND_UNITS[WU];
   ph.setPhase(show ? await phaseLoad : null, show, { label: u.label, perKt: u.factor, digits: 1 });
 }
 
-/** The time bar along the map's foot moves the currents and a rule on every chart (wired once). */
+/** The time bar across the top of the page moves the map, the table and a rule on every chart (wired once). */
 let timelineWired = false;
 async function wireTimeline(box: HTMLElement): Promise<void> {
   if (timelineWired) return;
   timelineWired = true;
   const [tl, chart] = await Promise.all([import("../timeline"), import("../chart")]);
-  tl.mountTimeline(document.getElementById("map-foot") ?? box);
+  tl.mountTimeline(document.getElementById("timebar") ?? document.getElementById("map-foot") ?? box);
+  const root = tl.timelineRoot();
+  if (root && !EMBED) pinTimeline(root); // in reach while the page scrolls
   timelineModule = tl;
   tl.onAsOf((t) => {
     if (t != null && t * 1000 > Date.now()) void loadForecast();
@@ -1181,7 +1188,7 @@ function sectionHtml(d: StationData): string {
     const f = FIGS[key];
     return `
     <figure${f.wide ? ' class="wide"' : ""}>
-      <figcaption><span class="cap-label"><span class="cap-code">${id}</span>: ${f.label?.(d) ?? f.title}</span><span class="cap-sub">${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}</span>${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
+      <figcaption><span class="cap-label">${STATION_ID ? "" : `<span class="cap-code">${id}</span>: `}${f.label?.(d) ?? f.title}</span><span class="cap-sub">${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}</span>${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
         <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
       <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}" title="Click to expand"><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
@@ -2109,17 +2116,64 @@ function drawPlaces(): void {
         .join("")}</div></details>`
     : "";
   box.innerHTML = link(null, "Overview") + withPage.filter((d) => sp.chips.includes(d.kind)).map((d) => link(d.meta.id, d.meta.name)).join("") + menu;
+  // The top bar's picker: the place in words, and the same places as one list under it.
+  const pick = document.getElementById("place-pick");
+  const panel = document.getElementById("place-panel");
+  if (!pick || !panel) return;
+  pick.hidden = false;
+  pick.querySelector(".vm-current")!.textContent = STATION_ID ? (STATIONS.find((d) => d.meta.id === STATION_ID)?.meta.name ?? STATION_ID) : "Overview";
+  const item = (id: string | null, label: string) => `<a href="${placeUrl(id)}" data-place="${id ?? ""}"${here(id)}>${escHtml(label)}</a>`;
+  const chips = withPage.filter((d) => sp.chips.includes(d.kind));
+  panel.innerHTML =
+    item(null, "Overview") +
+    (chips.length ? `<p class="place-group">Buoys</p>${chips.map((d) => item(d.meta.id, d.meta.name)).join("")}` : "") +
+    groups.map((g) => `<p class="place-group">${escHtml(g.title)}</p>${g.list.map((d) => item(d.meta.id, d.meta.name)).join("")}`).join("");
+}
+
+/** Where the place and the view are chosen: the band under the masthead on a wide screen; once it has scrolled away,
+ * and always on a phone, the top bar's two pickers ("Execution Rocks ⌄ · Wind & waves ⌄"). */
+function wireCompact(): void {
+  const band = document.querySelector<HTMLElement>(".pick-band");
+  const bar = document.querySelector<HTMLElement>(".topbar");
+  const phone = window.matchMedia("(max-width: 560px)");
+  let queued = false;
+  const check = () => {
+    queued = false;
+    const away = !!band && band.getBoundingClientRect().bottom <= (bar?.offsetHeight ?? 0);
+    document.documentElement.classList.toggle("sel-compact", phone.matches || away);
+  };
+  const queue = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(check);
+  };
+  window.addEventListener("scroll", queue, { passive: true });
+  window.addEventListener("resize", queue);
+  phone.addEventListener("change", queue);
+  check();
+}
+
+/** On a phone the masthead is one line (the waterway and "Not for navigation"); its (i) opens the rest: the byline,
+ * the data notice and the boat, and the caveat in full. */
+function wireMast(): void {
+  const mast = document.querySelector<HTMLElement>(".mast");
+  const btn = mast?.querySelector<HTMLButtonElement>(".mast-more");
+  btn?.addEventListener("click", () => btn.setAttribute("aria-expanded", String(mast!.classList.toggle("open"))));
 }
 
 /** Place links carry the page's time and view at the moment they are followed; the menu closes on a click outside it
  * or Escape; a station's name in the table opens its page. */
 function wirePlaces(): void {
   const plain = (e: MouseEvent) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+  const pick = document.getElementById("place-pick");
+  const panel = document.getElementById("place-panel");
+  const setPanel = pick && panel ? dropDown(pick, panel) : null;
   document.addEventListener("click", (e) => {
     const t = e.target as HTMLElement;
     const a = t.closest<HTMLAnchorElement>("a[data-place]");
     const menu = document.querySelector<HTMLDetailsElement>(".place-menu");
     if (menu?.open && (!menu.contains(t) || a)) menu.open = false;
+    if (a && panel?.contains(a)) setPanel?.(false);
     if (!a) return;
     a.href = placeUrl(a.dataset.place || null);
     if (plain(e) && goToPlace) {
@@ -2153,6 +2207,7 @@ function markStationPage(): void {
   const bottom = document.querySelector(".wm-bottom");
   const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
   MAST ??= { top: top?.textContent ?? "", bottom: bottom?.textContent ?? "", title: document.title, canonical: canonical?.href ?? "" };
+  document.body.classList.toggle("on-station", !!STATION_ID); // a phone's masthead keeps the waterway's line only
   if (!STATION_ID) {
     if (top) top.textContent = MAST.top;
     if (bottom) bottom.textContent = MAST.bottom;
@@ -2225,6 +2280,8 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   PAGES = opts.stationPages ?? null;
   STATION_ID = placeFromPath();
   if (PAGES) wirePlaces();
+  wireCompact();
+  wireMast();
   DATA = CFG.data;
   ({ fig: EMBED, station: EMBED_STATION } = embedMode(LINK, CFG.defaults.embedStation));
   if (EMBED) VK = EMBED === "next48" ? "wind" : "temp";

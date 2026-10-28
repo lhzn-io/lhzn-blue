@@ -6,7 +6,7 @@ import "./places.css";
 import { renderLines, YELLOW, type ChartOptions, type Line } from "../chart";
 import { wireHints } from "../hints";
 import { chainButton, navigateTo, revealLinked, wireLinks } from "../links";
-import { compass, windGlyphs } from "../wind-dir";
+import { compass, windArrow, windGlyphs } from "../wind-dir";
 import { comfortTableHtml } from "../comfort-thresholds";
 import { smoothByAge } from "../trends";
 import type { FieldData, FieldKind, RasterHistory } from "../fields";
@@ -16,7 +16,7 @@ import {
   type Live, type Meta, type MetaSeries,
 } from "../series";
 import { mountAdvisories } from "../advisory";
-import { ago, escHtml, fmtDate, signed } from "./format";
+import { ago, escHtml, fmtDate, fmtRun, signed } from "./format";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./cursor";
 import { holdRoom } from "./room";
 import { pinTimeline } from "./pin-time";
@@ -28,7 +28,7 @@ import { type Built, type Fig, legendHtml, openZoom, redrawZoom, visibleYears, w
 import { stationReadouts } from "./readouts";
 import { openAbout, wireAbout } from "./about";
 import { configureData, onModelData } from "./data";
-import { FCST, forecastAt, HRRR_HIST_LABEL, hrrrAsOf, hrrrHist, loadForecast, mountVintage } from "./forecast";
+import { chooseRun, chosenRun, FCST, forecastAt, HRRR_HIST_LABEL, hrrrAsOf, hrrrHist, loadForecast, mountVintage, runForecastAt } from "./forecast";
 import { loadNwps, mountNwpsVintage, NWPS, nwpsLabel, nwpsRunAt, nwpsRuns, nwpsSeries } from "./nwps";
 import { OUTLOOK, outlookHtml } from "./outlook";
 import { NEXT48 } from "./next48";
@@ -43,9 +43,9 @@ import { dropDown, wireMore } from "./phone-bar";
 import { updatedStrip, wireOutageIcon } from "./freshness";
 import { BOAT, wireBoat } from "./boat";
 import { wireLocate } from "./locate";
-import { embedMode, type EmbedFig } from "./embed";
+import { embedMode, PLOT_PAGES, type EmbedFig } from "./embed";
 import { wireCollect } from "./prompt";
-import { currentSpeed, setUnit, waveUnit, WIND_UNITS, windVal, WU } from "./units";
+import { currentSpeed, setUnit, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./units";
 
 /** The waterway this page is mounted for (mountWaterwayPage), and its parts. */
 let CFG: StationDataWaterway;
@@ -144,6 +144,8 @@ try {
 }
 let EMBED: EmbedFig | null = null;
 let EMBED_STATION = "";
+/** A plot page (/<waterway>/<station>/<plot>/): the one figure, with the time bar and a reading line (waterway/embed.ts). */
+let PLOT_PAGE = false;
 const V = () => WATER_VARS[VK];
 
 
@@ -1097,12 +1099,14 @@ async function wireTimeline(box: HTMLElement): Promise<void> {
   tl.mountTimeline(document.getElementById("timebar") ?? document.getElementById("map-foot") ?? box);
   const root = tl.timelineRoot();
   if (root && !EMBED) pinTimeline(root); // in reach while the page scrolls
+  if (PLOT_PAGE) tl.showWeekday(true); // a plot page states its time once, here
   timelineModule = tl;
   tl.onAsOf((t) => {
     if (t != null && t * 1000 > Date.now()) void loadForecast();
     syncUrl(true);
     chart.markAsOf(t);
     void showAt(t);
+    if (PLOT_PAGE) plotReading();
     import("../fields").then((f) => f.setFieldTime(t)).catch(() => undefined);
   });
   tl.setHoursBack(VK === "wind" ? WS_BACK / HOUR : 24); // the view's reach first, or a linked time is clamped to a day
@@ -1190,7 +1194,7 @@ function sectionHtml(d: StationData): string {
     <figure${f.wide ? ' class="wide"' : ""}>
       <figcaption><span class="cap-label">${STATION_ID ? "" : `<span class="cap-code">${id}</span>: `}${f.label?.(d) ?? f.title}</span><span class="cap-sub">${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}</span>${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
         <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
-      <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}" title="Click to expand"><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
+      <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}"${PLOT_PAGE ? "" : ' title="Click to expand"'}><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
     </figure>`;
   };
@@ -1220,9 +1224,13 @@ function sectionHtml(d: StationData): string {
     </section>`;
 }
 
-/** An embed's body: the station's section (only its one figure shows) and a credit line back to the site. */
+/** An embed's body: the station's section (only its one figure shows) and a credit line back to the site. A plot
+ * page's: the section, the reading at the page's time, and the way to the station's own page. */
 function embedHtml(d: StationData | undefined): string {
   if (!d) return `<p class="embed-credit">No station ${escHtml(EMBED_STATION)} on this page.</p>`;
+  if (PLOT_PAGE)
+    return `<p class="plot-reading" id="plot-reading" aria-live="polite"></p>` + sectionHtml(d) +
+      `<p class="embed-credit"><a href="${placeUrl(d.meta.id)}">${escHtml(d.meta.name)}: every plot</a> &middot; tap or drag the plot to move the time &middot; provisional, not for navigation</p>`;
   const view = EMBED === "next48" ? "wind" : "temp";
   const link = `https://longhorizon.blue/${CFG.id}/?view=${view}#${d.meta.id}-${EMBED}`;
   return sectionHtml(d) +
@@ -1501,11 +1509,15 @@ let pendingOffset: { hours: number; scale: "hours" | "days" } | null = (() => {
 function linkUrl(plot?: string): string {
   const p = new URLSearchParams();
   p.set("view", VK); // always: a visitor's remembered view would otherwise win
-  if (fieldPick !== "none") p.set("layer", fieldPick);
+  if (fieldPick !== "none" && !EMBED) p.set("layer", fieldPick); // a plot page or an embed has no map
   const ovs = VIEW_LAYERS[VK].overlay ? [overlayWat && "wat", overlayHaz && "dz"].filter(Boolean) : [];
-  if (ovs.length) p.set("ov", ovs.join(","));
+  if (ovs.length && !EMBED) p.set("ov", ovs.join(","));
   const tl = timelineModule?.position();
   if (tl && tl.offset !== 0) p.set("t", tl.scale === "days" ? `${Math.round(tl.offset / 24)}d` : `${tl.offset > 0 ? "+" : ""}${tl.offset}h`);
+  // A plot page or an embed: the run a reader fixed (its UTC hour, "2026102811"), and that it is an embed.
+  const run = EMBED ? chosenRun(EMBED_STATION) : null;
+  if (run != null) p.set("run", new Date(run * 1000).toISOString().slice(0, 13).replace(/\D/g, ""));
+  if (EMBED && LINK.get("embed")) p.set("embed", LINK.get("embed")!);
   const q = p.toString();
   return `${location.origin}${location.pathname}${q ? `?${q}` : ""}${plot ? `#${plot}` : ""}`;
 }
@@ -1859,6 +1871,7 @@ async function main(): Promise<void> {
         (Object.keys(FIGS) as Kind[]).forEach((k) => drawWhenNear(d, k));
       }
       redrawZoom();
+      if (PLOT_PAGE) plotReading();
     };
     /** Station sections for the selected variable (captions and record lines name it), buoys then shore. */
     const renderSections = () => {
@@ -1869,7 +1882,7 @@ async function main(): Promise<void> {
         const grouped = stations.some((d) => d.kind === "shore");
         return list.length ? (grouped ? `<h2 class="station-group">${title}</h2>` : "") + list.map(sectionHtml).join("") : "";
       };
-      if (STATION_ID) $("stations").innerHTML = shown().map(sectionHtml).join("");
+      if (STATION_ID && !EMBED) $("stations").innerHTML = shown().map(sectionHtml).join("");
       else $("stations").innerHTML = EMBED
         ? embedHtml(stations.find((d) => d.meta.id === EMBED_STATION))
         : VK === "tides"
@@ -1880,6 +1893,8 @@ async function main(): Promise<void> {
             ? `<h2 class="station-group">${CFG.groups.turbidity}</h2>${A.TURB_SECTION ? sectionHtml(A.TURB_SECTION) : ""}`
             : group("buoy", CFG.groups.buoy) + group("shore", CFG.groups.shore) +
               (VK === "wind" ? group("airport", CFG.groups.airport) : "");
+      // A plot page's plot sets the page's time on a tap or a drag (chart.ts).
+      if (PLOT_PAGE) document.querySelectorAll<HTMLElement>("#stations .plot").forEach((p) => (p.dataset.timePick = "1"));
       watchSections((id) => [...stations, ...A.RIVER_SECTIONS, ...(A.TURB_SECTION ? [A.TURB_SECTION] : [])].find((d) => d.meta.id === id));
       drawAll();
       for (const d of shown()) {
@@ -1911,6 +1926,7 @@ async function main(): Promise<void> {
     });
     markStationPage();
     if (!EMBED) void overviewMap(stations); // an embed draws no map
+    else if (PLOT_PAGE) void wireTimeline($("timebar")); // a plot page has no map, but the time bar
     wireWater(live, stations, () => {
       ($("zoom") as HTMLDialogElement).close();
       keepPlace(() => {
@@ -1988,7 +2004,14 @@ async function main(): Promise<void> {
         return;
       }
       const opener = target.closest<HTMLElement>(".expand, .plot");
-      if (opener?.dataset.station) openZoom(byId(opener.dataset.station), opener.dataset.fig!, opener.dataset.full === "1");
+      if (!opener?.dataset.station || PLOT_PAGE) return; // a plot page's plot sets the time instead
+      // On a phone, a plot with a page of its own opens it (Back returns); elsewhere, the expanded view.
+      const slug = Object.keys(PLOT_PAGES).find((s) => PLOT_PAGES[s] === opener.dataset.fig);
+      if (slug && PAGES && opener.dataset.full !== "1" && window.matchMedia("(max-width: 560px), (max-height: 500px)").matches) {
+        location.assign(plotUrl(opener.dataset.station, slug));
+        return;
+      }
+      openZoom(byId(opener.dataset.station), opener.dataset.fig!, opener.dataset.full === "1");
     });
     wireZoom({
       fig: (k) => FIGS[k as Kind],
@@ -2096,6 +2119,68 @@ const hasPage = (id: string) => {
 
 /** A station's page (or the overview, for null), keeping the page's time and view. */
 const placeUrl = (id: string | null) => `${PAGES!.base}${id ? `${id.toLowerCase()}/` : ""}${location.search}`;
+/** A station's plot page (/<waterway>/<station>/<plot>/), keeping the page's time and view. */
+const plotUrl = (id: string, slug: string) => `${PAGES!.base}${id.toLowerCase()}/${slug}/${location.search}`;
+
+/** A plot page: the top bar names the plot beside the place; a tap or drag on the plot moves the page's time; the
+ * run slider's choice goes into the address. The reading follows each. */
+function wirePlotPage(): void {
+  document.getElementById("place-panel")?.insertAdjacentHTML("afterend", `<span class="plot-name">${escHtml(EMBED === "next48" ? FIGS.next48.title.replace("hours", "h").replace(/^The n/, "N") : "")}</span>`);
+  document.addEventListener("timepick", (e) => {
+    const t = (e as CustomEvent<number>).detail;
+    timelineModule?.setOffset(Math.round(t / HOUR - Math.round(Date.now() / 1000 / HOUR)));
+  });
+  document.addEventListener("input", (e) => {
+    if (!(e.target as HTMLElement).closest(".vg-range")) return;
+    plotReading();
+    syncUrl(true);
+  });
+}
+
+/** A plot page's reading at the page's time (which the time bar states, with its weekday): what was measured and what
+ * HRRR said, wind, gust and direction, in the reader's unit; HRRR from the run the reader fixed, else the newest run
+ * that reaches the hour. Two slots of fixed width on one line, each always there ("--" where there is no value), so
+ * neither moves as the time does; the full statement of each is its hover text. */
+function plotReading(): void {
+  const el = document.getElementById("plot-reading");
+  const d = STATIONS.find((s) => s.meta.id === EMBED_STATION);
+  if (!el || !d) return;
+  const u = WIND_UNITS[WU].label;
+  // As a mariner says it: the direction, then the wind to its gusts ("NE 6–10"); the unit is the axis's and the
+  // menu's, and in full in the hover text.
+  type W = [number | null | undefined, number | null | undefined, number | null | undefined];
+  const ok = (v: number | null | undefined): v is number => v != null && Number.isFinite(v);
+  const wind = ([dir, spd, gust]: W) =>
+    `${ok(dir) ? `${windArrow(dir)}${compass(dir)} ` : ""}<b>${windFmt(spd ?? NaN)}${ok(gust) && windFmt(gust) !== windFmt(spd ?? NaN) ? `&ndash;${windFmt(gust)}` : ""}</b>`;
+  const words = ([dir, spd, gust]: W) =>
+    `${ok(dir) ? `from ${compass(dir)}, ` : ""}${windFmt(spd ?? NaN)} ${u}${ok(gust) ? `, gusts ${windFmt(gust)} ${u}` : ""}`;
+  // On a phone "Measured" reads "Obs", so each slot fits half the width.
+  const slot = (key: string, body: string, title: string) =>
+    `<span class="pr-slot" title="${title}"><span class="pr-k">${key === "Measured" ? '<span class="wide-only">Measured</span><span class="narrow-only">Obs</span>' : key}</span> ${body}</span>`;
+  const m = d.met;
+  const nowH = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
+  const none = `<span class="pr-none">--</span>`;
+  // Measured: the latest reading at now (with its age), the hour's reading at a past time, nothing ahead.
+  const last: W | null = AT == null && m?.last?.wind_kt != null ? [m.last.dir_deg, m.last.wind_kt, m.last.gust_kt] : null;
+  const atHour: W | null = AT != null && Number.isFinite(m?.wind?.at(AT) ?? NaN) ? [m!.dir?.at(AT), m!.wind!.at(AT), m!.gust?.at(AT)] : null;
+  const measured = last
+    ? slot("Measured", `${wind(last)} <small>${ago(m!.last!.time).replace(" ago", "")}</small>`, `Measured ${ago(m!.last!.time)}: ${words(last)}`)
+    : atHour
+      ? slot("Measured", wind(atHour), `Measured at this hour: ${words(atHour)}`)
+      : slot("Measured", none, (AT ?? nowH) > nowH ? "Ahead of now: not yet measured" : "No reading at this hour");
+  const t = AT ?? nowH;
+  const run = chosenRun(d.meta.id);
+  const fixed = run != null ? runForecastAt(d.meta.id, run, t) : null;
+  const f = fixed ?? forecastAt(d.meta.id, t);
+  // The fixed run may end before the hour (most runs reach 18 h): then the newest run that reaches it, marked "*".
+  const short = run != null && !fixed && f;
+  const runName = (issue: number) => fmtRun.format(new Date(issue * 1000));
+  const forecast = f
+    ? slot("HRRR", `${wind([f.dir, f.spd, f.gust])} <small>${runName(f.issue).replace(/^\w+, /, "")}${short ? "*" : ""}</small>`,
+        `HRRR, the ${runName(f.issue)} run: ${words([f.dir, f.spd, f.gust])}${short ? `; the ${runName(run!)} run you fixed ends before this hour` : ""}`)
+    : slot("HRRR", none, "No HRRR run reaches this hour");
+  el.innerHTML = measured + forecast;
+}
 
 /** The places row: Overview, the stations shown as their own links, and a menu of the rest, in groups; the current one
  * marked. Drawn as stations join. */
@@ -2139,7 +2224,7 @@ function wireCompact(): void {
   let queued = false;
   const check = () => {
     queued = false;
-    const away = !!band && band.getBoundingClientRect().bottom <= (bar?.offsetHeight ?? 0);
+    const away = !!band && (band.offsetParent === null || band.getBoundingClientRect().bottom <= (bar?.offsetHeight ?? 0)); // hidden (a plot page) or scrolled past
     document.documentElement.classList.toggle("sel-compact", phone.matches || away);
   };
   const queue = () => {
@@ -2222,7 +2307,8 @@ function markStationPage(): void {
   }
   if (top) top.textContent = CFG.name.toUpperCase();
   if (bottom) bottom.textContent = d.meta.name.toUpperCase();
-  document.title = `${d.meta.name} | ${CFG.name} (alpha) | longhorizon.blue`;
+  document.title = `${PLOT_PAGE && EMBED ? `${d.meta.name}, ${FIGS[EMBED].title.toLowerCase()}` : d.meta.name} | ${CFG.name} (alpha) | longhorizon.blue`;
+  // A plot page's canonical address is its station's page (one page per station for search engines).
   if (canonical && MAST.canonical) canonical.href = new URL(`${d.meta.id.toLowerCase()}/`, MAST.canonical).href;
 }
 
@@ -2280,11 +2366,18 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   PAGES = opts.stationPages ?? null;
   STATION_ID = placeFromPath();
   if (PAGES) wirePlaces();
-  wireCompact();
   wireMast();
   DATA = CFG.data;
-  ({ fig: EMBED, station: EMBED_STATION } = embedMode(LINK, CFG.defaults.embedStation));
+  // A plot page's address names its plot after the station (/long-island-sound/exrx/next-48h/).
+  const plotSlug = PAGES && STATION_ID ? location.pathname.slice(PAGES.base.length).split("/")[1]?.toLowerCase() : "";
+  const pathFig = plotSlug ? PLOT_PAGES[plotSlug] ?? null : null;
+  ({ fig: EMBED, station: EMBED_STATION, page: PLOT_PAGE } = embedMode(LINK, CFG.defaults.embedStation, pathFig && STATION_ID ? { fig: pathFig, station: STATION_ID } : null));
   if (EMBED) VK = EMBED === "next48" ? "wind" : "temp";
+  // A linked run ("run=2026102811", its UTC hour) stays the plot's run as the time moves.
+  const runLink = /^(\d{4})(\d{2})(\d{2})(\d{2})$/.exec(LINK.get("run") ?? "");
+  if (runLink && EMBED_STATION) chooseRun(EMBED_STATION, Date.UTC(+runLink[1], +runLink[2] - 1, +runLink[3], +runLink[4]) / 1000);
+  if (PLOT_PAGE) wirePlotPage();
+  wireCompact(); // after the plot page is known: it has no band, so its top bar shows the picker from the start
   OXYGEN_NOTE = `shading: under ${DO_LEVELS.anoxic} mg/L anoxic, under ${DO_LEVELS.hypoxic} hypoxic (${CFG.oxygenAuthority}), under ${DO_LEVELS.growth} below EPA's growth criterion`;
   fieldPick = (["sst", "chl", "kd490", "currents", "wind", "waves", "comfort"] as const).find((k) => k === LINK.get("layer")) ?? VIEW_LAYERS[VK].def;
   configureData({ data: DATA, forecastPage: CFG.forecastPage });

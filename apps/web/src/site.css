@@ -1389,3 +1389,51 @@ html.sel-compact .view-menu .vm-label { display: none; }
   /* The table's station names wrap, so a wind cell's arrow and direction keep clear of them. */
   .status-grid tbody th { white-space: normal; }
 }
+
+/* A plot page (/<waterway>/<station>/next-48h/, waterway/embed.ts): the top bar names the place and the plot; then the
+   time bar, the reading at its time, and the plot as tall as the screen allows. A tap or drag on the plot moves the
+   time. Sideways on a phone, the legend goes and the plot takes the height. */
+.plot-name { display: none; }
+body.plot-page .mast, body.plot-page .pick-band, body.plot-page .overview, body.plot-page .about, body.plot-page footer.credits,
+body.plot-page .station-head, body.plot-page .station-links, body.plot-page .station-note, body.plot-page .band,
+body.plot-page .expand, body.plot-page .collect-btn, body.plot-page .topbar .view-menu { display: none !important; }
+body.plot-page .topbar .plot-name { display: inline-flex; align-items: center; gap: 6px; order: 0; flex: none; padding: 0 6px;
+  font: 700 10px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+body.plot-page .topbar .plot-name::before { content: "\00b7"; color: var(--faint); }
+body.plot-page .station { margin: 0; padding: 0; border: 0; }
+body.plot-page .figs { display: block; margin: 0; }
+/* The plot's title is the top bar's; its caption keeps the link and the (i), and on an upright phone a hint to turn it. */
+body.plot-page .cap-label, body.plot-page .cap-sub { display: none; }
+body.plot-page figcaption { justify-content: flex-end; min-height: 0; margin-bottom: 2px; }
+@media (orientation: portrait) and (max-width: 560px) {
+  body.plot-page .fig-actions::before { content: "turn sideways for more"; margin-right: auto; font: italic 11px/1 var(--serif); color: var(--dim); }
+  body.plot-page .fig-actions { flex: 1 1 auto; }
+}
+body.plot-page .plot[data-fig="next48"] { height: max(220px, calc(100svh - 290px)); cursor: crosshair; }
+/* The reading: two slots of equal width on one line, measured then HRRR, each cut short rather than wrapped. */
+.plot-reading { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; min-height: 1.5em; margin: 10px 0 8px;
+  font: 12px/1.5 var(--mono); color: var(--ink); }
+.plot-reading .pr-slot { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plot-reading .pr-k { margin-right: 2px; font: 700 9px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.plot-reading small { color: var(--dim); }
+.plot-reading .pr-none { color: var(--faint); }
+.plot-reading .wind-arrow { margin-right: 2px; }
+@media (max-width: 560px) { .plot-reading { column-gap: 10px; font-size: 11px; } .plot-reading .pr-k { letter-spacing: 0.08em; } }
+body.plot-page .embed-credit { margin: 8px 0 0; font: 11px/1.4 var(--sans); color: var(--dim); }
+body.plot-page .embed-credit a { color: inherit; text-underline-offset: 2px; }
+@media (max-height: 500px) {
+  body.plot-page .timebar { min-height: 0; padding-top: 4px; }
+  /* The time bar on one row: play, the track, then the steps and the time at its right (small buttons, as upright). */
+  body.plot-page .timeline > .tl-row:first-child { grid-template-columns: 18px minmax(0, 1fr) auto; grid-template-areas: "play track slot"; column-gap: 10px; }
+  body.plot-page .timeline > .tl-row:first-child > .tl-slot { padding-left: 4px; min-height: 0; }
+  body.plot-page .timeline .tl-step { min-width: 30px; min-height: 0; height: 22px; margin-right: 4px; padding: 0 6px; font-size: 10px; }
+  body.plot-page .tl-dlabel:nth-of-type(2) { display: none; } /* room after the first date, which carries its month */
+  body.plot-page .legend, body.plot-page .cap-sub, body.plot-page .embed-credit { display: none; }
+  body.plot-page .plot-reading { margin: 2px 0; }
+  /* The link and the (i) in the plot's top corner, not a row of their own. */
+  body.plot-page figure { position: relative; }
+  body.plot-page figcaption { position: absolute; top: 0; right: 0; z-index: 2; margin: 0; }
+  /* The plot takes what is left: the top bar, the time row and the reading come to about 100 px. */
+  body.plot-page .plot[data-fig="next48"] { height: max(150px, calc(100svh - 104px)); }
+  body.plot-page main, body.plot-page #stations, body.plot-page .station, body.plot-page figure { padding-bottom: 0; margin-bottom: 0; }
+}

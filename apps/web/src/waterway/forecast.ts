@@ -191,6 +191,16 @@ export function verTag(t?: number, id?: string): string {
 const VINTAGE = new Map<string, number>(); // station id -> the chosen run's issue time (epoch seconds)
 const VINTAGE_LISTENERS = new WeakMap<HTMLElement, (e: Event) => void>();
 
+/** The run a reader has chosen at a station (the run slider, or a link's "run"): its issue time, or null. */
+export const chosenRun = (id: string): number | null => VINTAGE.get(id) ?? null;
+export const chooseRun = (id: string, issue: number): void => void VINTAGE.set(id, issue);
+
+/** A given run's forecast for a station and hour, or null where that run does not reach it (or has not loaded). */
+export function runForecastAt(id: string, issue: number, t: number): FcValue | null {
+  const r = FCST?.runs[id]?.find((q) => q.issue === issue);
+  return r ? runValue(id, r, t) : null;
+}
+
 const RECENT_RUNS = 24; // the last day's hourly runs; before them, only the 48 h runs (00, 06, 12 and 18 UTC)
 
 /** The runs the plot draws for a station between x0 and x1, oldest first: the newest run (the dashed line), the

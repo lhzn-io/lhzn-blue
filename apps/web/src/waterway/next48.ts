@@ -54,7 +54,7 @@ export const NEXT48: Fig = {
     const m = d.met;
     const lines: Line[] = [
       ...runLines,
-      { ys: fc.map((_, i) => err(xs[i])), color: M.palette().miss, label: "Typical miss at the buoys", hidden: true, fmt: (v) => `&plusmn;${windFmt(v)} ${u.label}` },
+      { ys: fc.map((_, i) => err(xs[i])), color: M.palette().miss, label: "Typical miss at the buoys", hidden: true, tip: false, fmt: (v) => `&plusmn;${windFmt(v)} ${u.label}` },
       { ys: ahead.map((f) => (f ? windVal(f.gust) : NaN)), color: M.palette().contrast, opacity: 0.5, label: "Forecast gust", dots: true, fmt: fmtU },
       { ys: fc.map((v) => windVal(v)), color: M.palette().line, width: 2, dash: "6 3", label: "Stitched forecast", fmt: fmtU },
       { ys: xs.map((t) => windVal(m?.gust?.at(t) ?? NaN)), color: M.palette().contrast, opacity: 0.55, label: "Gust, measured", dots: true, fmt: fmtU },

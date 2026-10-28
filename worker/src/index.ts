@@ -123,7 +123,8 @@ const WATERWAYS: Record<string, Set<string> | null> = {
   "long-island-sound": ids(buoys, shore, airports),
   "piscataqua-region": null,
 };
-const STATION_PATH = /^\/([a-z0-9-]+)\/([a-z0-9-]{2,20})\/?$/i;
+/** A station's page, or one of its plots' pages (the plot alone, with the time bar: waterway/embed.ts). */
+const STATION_PATH = /^\/([a-z0-9-]+)\/([a-z0-9-]{2,20})(?:\/(next-48h))?\/?$/i;
 
 /** Waterways kept out of search results: what the Worker serves under them carries the noindex that _headers gives
  * their static files. */
@@ -146,16 +147,22 @@ async function page(req: Request, env: Env, url: URL): Promise<Response> {
   const m = STATION_PATH.exec(url.pathname);
   const stations = m && Object.hasOwn(WATERWAYS, m[1]) ? WATERWAYS[m[1]] : undefined;
   if (m && stations !== undefined && (!stations || stations.has(m[2].toLowerCase()))) {
-    // One address per station: lower case, with the trailing slash.
-    const path = `/${m[1]}/${m[2].toLowerCase()}/`;
+    // One address per station (and plot): lower case, with the trailing slash.
+    const station = `/${m[1]}/${m[2].toLowerCase()}/`;
+    const path = m[3] ? `${station}${m[3].toLowerCase()}/` : station;
     if (url.pathname !== path) return Response.redirect(`${url.origin}${path}${url.search}`, 301);
     const home = new URL(url);
     home.pathname = `/${m[1]}/`;
     const res = await env.ASSETS.fetch(new Request(home, req));
-    // The station's own address as the canonical one (the page's says the waterway's).
-    return new HTMLRewriter()
-      .on('link[rel="canonical"]', { element: (el) => el.setAttribute("href", `https://longhorizon.blue${path}`) })
+    // The station's own address as the canonical one (the page's says the waterway's); a plot page points to its
+    // station's and stays out of search results, so search sees one page per station.
+    const out = new HTMLRewriter()
+      .on('link[rel="canonical"]', { element: (el) => el.setAttribute("href", `https://longhorizon.blue${station}`) })
       .transform(res);
+    if (!m[3]) return out;
+    const plot = new Response(out.body, out);
+    plot.headers.set("X-Robots-Tag", "noindex");
+    return plot;
   }
   return env.ASSETS.fetch(req);
 }

@@ -457,7 +457,20 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     tip!.hidden = true;
     marks!.replaceChildren();
   };
+  // A plot that sets the page's time (data-time-pick, a plot page): a tap or a drag across it moves the time to the
+  // hour under it, sent as "timepick" (epoch seconds); the page's reading line says the values, so no labels show.
+  const pickTime = (clientX: number) => {
+    const i = Math.max(0, Math.min(xs.length - 1, Math.round((timeAt(clientX) - x0) / (xs[1] - xs[0]))));
+    plot.dispatchEvent(new CustomEvent("timepick", { detail: xs[i], bubbles: true }));
+  };
+  svg.onpointerdown = (e) => {
+    if (plot.dataset.timePick === "1") pickTime(e.clientX);
+  };
   svg.onpointermove = (e) => {
+    if (plot.dataset.timePick === "1") {
+      if (e.buttons || e.pointerType !== "mouse") pickTime(e.clientX);
+      return;
+    }
     if (e.pointerType === "mouse" || plot.dataset.zoom === "1") show(e.clientX, e.clientY);
   };
   svg.onpointerleave = hide;

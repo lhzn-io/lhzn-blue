@@ -113,14 +113,20 @@ const ICON_PLAY = `<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="
 const ICON_PAUSE = `<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2.5 1.5h2.5v9H2.5zM7 1.5h2.5v9H7z" fill="currentColor"/></svg>`;
 
 /** The time, short: the clock hour and how far from now, signed ("10 PM −13.7d", "7 PM +5h"); the date is on the
- * track beneath. On the days scale, the date ("Oct 15 −13d"). */
+ * track beneath. With the weekday where the time is the page's only statement of it (a plot page): "Thu 7 PM +5h".
+ * On the days scale, the date ("Oct 15 −13d"). */
+let weekday = false;
+export function showWeekday(on: boolean): void {
+  weekday = on;
+  sync();
+}
 function label(): string {
   if (offset === 0) return "now";
   const t = new Date((asOf() ?? 0) * 1000);
   const sign = offset < 0 ? "−" : "+";
   if (scale === "days") return `${fmtDay.format(t)} ${sign}${Math.round(Math.abs(offset) / 24)}d`;
   const h = Math.abs(offset);
-  return `${fmtClock.format(t)} ${sign}${h < 48 ? `${h}h` : `${(h / 24).toFixed(1)}d`}`;
+  return `${weekday ? `${fmtWeekday.format(t)} ` : ""}${fmtClock.format(t)} ${sign}${h < 48 ? `${h}h` : `${(h / 24).toFixed(1)}d`}`;
 }
 
 /** The time in full, for screen readers and the label's hover text: "Wed, Oct 15, 10 PM, 13.7 days ago". */

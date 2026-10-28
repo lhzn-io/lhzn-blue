@@ -125,24 +125,37 @@ const WATERWAYS: Record<string, Set<string> | null> = {
 };
 const STATION_PATH = /^\/([a-z0-9-]+)\/([a-z0-9-]{2,20})\/?$/i;
 
+/** Waterways kept out of search results: what the Worker serves under them carries the noindex that _headers gives
+ * their static files. */
+const UNLISTED = ["/piscataqua-region/"];
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname.startsWith("/data/")) return data(req, env, url.pathname);
-    const m = STATION_PATH.exec(url.pathname);
-    const stations = m && Object.hasOwn(WATERWAYS, m[1]) ? WATERWAYS[m[1]] : undefined;
-    if (m && stations !== undefined && (!stations || stations.has(m[2].toLowerCase()))) {
-      // One address per station: lower case, with the trailing slash.
-      const path = `/${m[1]}/${m[2].toLowerCase()}/`;
-      if (url.pathname !== path) return Response.redirect(`${url.origin}${path}${url.search}`, 301);
-      const page = new URL(url);
-      page.pathname = `/${m[1]}/`;
-      const res = await env.ASSETS.fetch(new Request(page, req));
-      // The station's own address as the canonical one (the page's says the waterway's).
-      return new HTMLRewriter()
-        .on('link[rel="canonical"]', { element: (el) => el.setAttribute("href", `https://longhorizon.blue${path}`) })
-        .transform(res);
-    }
-    return env.ASSETS.fetch(req);
+    const res = await page(req, env, url);
+    if (!UNLISTED.some((p) => url.pathname.startsWith(p))) return res;
+    const out = new Response(res.body, res);
+    out.headers.set("X-Robots-Tag", "noindex, nofollow");
+    return out;
   },
 };
+
+/** A page: a station's address serves its waterway's page; anything else, the static assets. */
+async function page(req: Request, env: Env, url: URL): Promise<Response> {
+  const m = STATION_PATH.exec(url.pathname);
+  const stations = m && Object.hasOwn(WATERWAYS, m[1]) ? WATERWAYS[m[1]] : undefined;
+  if (m && stations !== undefined && (!stations || stations.has(m[2].toLowerCase()))) {
+    // One address per station: lower case, with the trailing slash.
+    const path = `/${m[1]}/${m[2].toLowerCase()}/`;
+    if (url.pathname !== path) return Response.redirect(`${url.origin}${path}${url.search}`, 301);
+    const home = new URL(url);
+    home.pathname = `/${m[1]}/`;
+    const res = await env.ASSETS.fetch(new Request(home, req));
+    // The station's own address as the canonical one (the page's says the waterway's).
+    return new HTMLRewriter()
+      .on('link[rel="canonical"]', { element: (el) => el.setAttribute("href", `https://longhorizon.blue${path}`) })
+      .transform(res);
+  }
+  return env.ASSETS.fetch(req);
+}

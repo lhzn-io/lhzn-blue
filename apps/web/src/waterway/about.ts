@@ -10,7 +10,7 @@ export interface AboutHost {
   station(d: StationData): { title: string; html: string };
   link(key: string, d: StationData | null): string; // "" where there is no plot to link to
   method(d: StationData | null): Parameters<typeof methodHtml>[1];
-  extend?(key: string, body: HTMLElement): void; // anything an entry adds below itself
+  extend?(key: string, body: HTMLElement, d: StationData | null): void; // anything an entry adds below itself
 }
 let A: AboutHost;
 let aboutLink = "";
@@ -35,7 +35,7 @@ export function openAbout(key: string, d: StationData | null): void {
   linkBtn.textContent = "Copy link";
   $("about-dialog-title").textContent = d && !key.startsWith("map-") ? `${m.title}: ${d.meta.name}` : m.title;
   $("about-dialog-body").innerHTML = methodHtml(key, A.method(d));
-  A.extend?.(key, $("about-dialog-body"));
+  A.extend?.(key, $("about-dialog-body"), d);
   if (!dialog.open) dialog.showModal();
 }
 

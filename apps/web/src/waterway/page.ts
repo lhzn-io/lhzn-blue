@@ -304,9 +304,16 @@ function timelineBuilt(d: StationData, series: Series | null, depth: string, xs:
     .filter((l) => l.ys.some((v) => Number.isFinite(v)));
   return {
     opts: { xs, lines, ...varOpts(), unit: V().unit, empty: emptyNote(d), ...extra },
-    legend: lines.map((l) => [l.label, l.color, l.opacity ?? 1]),
+    legend: yearsLegend(lines.map((l) => [l.label, l.color, l.opacity ?? 1])),
     note: [coverageNote(d, depth), VK === "oxygen" && extra.bands === undefined ? OXYGEN_NOTE : ""].filter(Boolean).join(" "),
   };
+}
+
+/** A legend of years, this year's first: this year, then one entry for the rest ("earlier years", fainter as they go
+ * back); each year is in the plot's hover. */
+function yearsLegend(entries: [string, string, number][]): [string, string, number, string?][] {
+  const desc = [...entries].sort((a, b) => Number(b[0]) - Number(a[0]));
+  return desc.length > 2 ? [desc[0], ["", desc[1][1], desc[1][2], "earlier years"]] : desc;
 }
 
 function yearBuilt(d: StationData, series: Series | null, xs: number[], extra: Partial<ChartOptions>): Built {
@@ -321,7 +328,7 @@ function yearBuilt(d: StationData, series: Series | null, xs: number[], extra: P
   ].filter(Boolean);
   return {
     opts: { xs, lines, ...varOpts(), unit: V().unit, empty: emptyNote(d), ...extra },
-    legend: shown.map((l) => [String(l.year), yearStyle(l.offset, maxOffset).color, yearStyle(l.offset, maxOffset).opacity ?? 1]),
+    legend: yearsLegend(shown.map((l) => [String(l.year), yearStyle(l.offset, maxOffset).color, yearStyle(l.offset, maxOffset).opacity ?? 1])),
     note: notes.length ? notes.join("; ") : undefined,
   };
 }
@@ -331,7 +338,7 @@ const FIGS: Record<Kind, Fig> = {
     title: "This year against earlier years",
     varies: true,
     in: (k) => isWater(k),
-    sub: "36h mean, same dates",
+    sub: "same dates each year",
     depthTabs: true,
     seasonal: true,
     available: () => true,
@@ -346,7 +353,7 @@ const FIGS: Record<Kind, Fig> = {
     title: "7-day change",
     varies: true,
     in: (k) => isWater(k),
-    sub: "of the 36h mean",
+    sub: "",
     depthTabs: true,
     seasonal: true,
     available: () => true,
@@ -361,7 +368,7 @@ const FIGS: Record<Kind, Fig> = {
     title: "Water column",
     varies: true,
     in: (k) => isWater(k),
-    sub: "hourly and 36h mean",
+    sub: "",
     depthTabs: false,
     seasonal: false,
     available: (d) => d.depths.length >= 2,
@@ -387,7 +394,7 @@ const FIGS: Record<Kind, Fig> = {
     title: "Surface minus bottom",
     varies: true,
     in: (k) => isWater(k),
-    sub: "hourly and 36h mean",
+    sub: "",
     depthTabs: false,
     seasonal: false,
     available: (d) => !!d.delta,
@@ -427,7 +434,7 @@ const FIGS: Record<Kind, Fig> = {
     title: "Wind",
     varies: false,
     in: (k) => k === "wind",
-    sub: "smoothed, with hourly and each day's peak gust",
+    sub: "and each day's peak gust",
     depthTabs: false,
     seasonal: false,
     available: (d) => !!d.met?.wind && Number.isFinite(d.met.wind.lastValid()),
@@ -473,7 +480,7 @@ const FIGS: Record<Kind, Fig> = {
           xs, lines, spans, unit: ` ${u.label}`, zero: true, empty: "No weather data in this window.",
           glyphs: m?.dir ? windGlyphs(xs[0], xs[xs.length - 1], (t) => ({ from: m.dir!.at(t), kt: m.wind?.at(t) ?? NaN, color: P.line })) : undefined,
         },
-        legend: [[smoothLabel, P.line, 1], ["Wind, hourly", P.line, 0.35], ["Daily peak gust", P.contrast, 0.55], ...(hh?.wind ? [[HRRR_HIST_LABEL, P.line, 0.7] as [string, string, number]] : [])],
+        legend: [[smoothLabel, P.line, 1, "Wind"], ["Wind, hourly", P.line, 0.35, "Hourly"], ["Daily peak gust", P.contrast, 0.55, "Peak gust"], ...(hh?.wind ? [[HRRR_HIST_LABEL, P.line, 0.7, "HRRR in gaps"] as [string, string, number, string]] : [])],
         note: zone ? `red: NWS small craft advisory (light), gale or stronger (dark), zone ${zone}` : undefined,
       };
     },
@@ -483,7 +490,7 @@ const FIGS: Record<Kind, Fig> = {
     label: (d) => (d.kind === "airport" ? "Air temperature" : "Air and water temperature"),
     varies: false,
     in: (k) => k === "temp" || k === "wind",
-    sub: "hourly",
+    sub: "",
     depthTabs: false,
     seasonal: false,
     available: (d) => !!d.met?.air,
@@ -505,13 +512,13 @@ const FIGS: Record<Kind, Fig> = {
       if (hh?.air) lines.push({ ys: xs.map((t) => (Number.isFinite(d.met?.air?.at(t) ?? NaN) ? NaN : hh.air!.at(t))), color: P.second, width: 1, opacity: 0.7, dash: "4 3", label: "Air, HRRR (last forecast before each hour)" });
       return {
         opts: { xs, lines, unit: "°F", empty: emptyNote(d) },
-        legend: [...(noWater ? [] : [[label, P.depth[top], 1] as [string, string, number]]), ["Air", P.second, 1], ...(hh?.air ? [["Air, HRRR before each hour", P.second, 0.7] as [string, string, number]] : [])],
+        legend: [...(noWater ? [] : [[label, P.depth[top], 1] as [string, string, number]]), ["Air", P.second, 1], ...(hh?.air ? [["Air, HRRR before each hour", P.second, 0.7, "HRRR in gaps"] as [string, string, number, string]] : [])],
       };
     },
   },
   tide: {
     title: "Departure from prediction",
-    sub: "observed minus NOAA's prediction, hourly, feet",
+    sub: "observed minus predicted",
     varies: false,
     in: (k) => k !== "rivers" && k !== "tides",
     depthTabs: false,
@@ -524,7 +531,7 @@ const FIGS: Record<Kind, Fig> = {
   },
   hilo: {
     title: "Highs and lows",
-    sub: "each tide, predicted and observed, feet above MLLW",
+    sub: "each tide",
     varies: false,
     wide: true,
     in: (k) => k === "tides",
@@ -538,7 +545,7 @@ const FIGS: Record<Kind, Fig> = {
   },
   dep: {
     title: "Departure from prediction",
-    sub: "observed minus NOAA's prediction, hourly, feet; the same days as above",
+    sub: "observed minus predicted",
     varies: false,
     wide: true,
     in: (k) => k === "tides",
@@ -552,7 +559,7 @@ const FIGS: Record<Kind, Fig> = {
   },
   waves: {
     title: "Waves",
-    sub: "significant wave height hourly, with each hour's highest wave",
+    sub: "height and each hour's highest wave",
     varies: false,
     in: (k) => k === "wind",
     depthTabs: false,
@@ -606,13 +613,13 @@ const FIGS: Record<Kind, Fig> = {
       };
       return {
         opts: { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, pick: hasModel ? pick : undefined, marker: hasModel ? { x: Date.now() / 1000, label: "now" } : undefined, empty: `No wave readings in this window. ${A.wavesText(d.meta.id)} Full record shows what we hold.` },
-        legend: [["Significant height", measured, 1], ["Highest wave", P.contrast, 0.35], ...(hasModel ? [["NWS wave model (NWPS)", P.line, 0.7] as [string, string, number]] : [])],
+        legend: [["Significant height", measured, 1, "Height"], ["Highest wave", P.contrast, 0.35], ...(hasModel ? [["NWS wave model (NWPS)", P.line, 0.7, "NWPS model"] as [string, string, number, string]] : [])],
       };
     },
   },
   pressure: {
     title: "Pressure tendency",
-    sub: "change over 3 hours, mb; falling below zero",
+    sub: "change over 3 h",
     varies: false,
     in: (k) => k === "wind",
     depthTabs: false,
@@ -649,14 +656,14 @@ const FIGS: Record<Kind, Fig> = {
       ];
       return {
         opts: { xs, lines, bands, unit: " mb", zero: true, floor: -4, hoverDigits: 1, marker: { x: now, label: "now" }, empty: "No pressure readings in this window." },
-        legend: [["Change over 3 h", P.line, 1], ...(hh ? [[HRRR_HIST_LABEL, P.line, 0.7] as [string, string, number]] : []), [`HRRR forecast${(() => { const a = hrrrAsOf(d.meta.id, xs); return a ? `, ${a}` : ""; })()}`, P.line, 0.7]],
+        legend: [["Change over 3 h", P.line, 1, "Measured"], ...(hh ? [[HRRR_HIST_LABEL, P.line, 0.7, "HRRR in gaps"] as [string, string, number, string]] : []), [`HRRR forecast${(() => { const a = hrrrAsOf(d.meta.id, xs); return a ? `, ${a}` : ""; })()}`, P.line, 0.7, "HRRR forecast"]],
         note: "shaded: steady to falling slowly (under 1.6 mb in 3 h), and falling or rising quickly (3.6 to 6); beyond 6 is very rapid",
       };
     },
   },
   flow: {
     title: "Flow against normal",
-    sub: "with the median and the usual ranges for each date",
+    sub: "against the usual range for the date",
     varies: false,
     in: (k) => k === "rivers",
     depthTabs: false,
@@ -682,14 +689,14 @@ const FIGS: Record<Kind, Fig> = {
       ];
       return {
         opts: { xs, lines, unit: " cfs", hoverDigits: 0, zero: true, marker: { x: d.now, label: "now" }, empty: "No flow readings in this window." },
-        legend: [[`${g?.river ?? id} flow`, P.depth.SFC, 1], ["Median for the date", P.contrast, 0.7], ["Normal, 25th to 75th", P.contrast, 0.38], ["10th to 90th percentile", P.contrast, 0.18]],
+        legend: [[`${g?.river ?? id} flow`, P.depth.SFC, 1], ["Median for the date", P.contrast, 0.7, "Median"], ["Normal, 25th to 75th", P.contrast, 0.38, "25th–75th"], ["10th to 90th percentile", P.contrast, 0.18, "10th–90th"]],
         note: `percentiles of daily flow for each date, from ${r.normals[id]?.sample_count ?? "--"} years of approved record (USGS)`,
       };
     },
   },
   share: {
     title: "All rivers against normal",
-    sub: "each river's flow as a percentile for its date; 25 to 75 is normal",
+    sub: "percentile for the date",
     varies: false,
     in: (k) => k === "rivers",
     wide: true,
@@ -728,7 +735,7 @@ const FIGS: Record<Kind, Fig> = {
   rturb: {
     title: "Turbidity",
     label: (d) => (d.kind === "turbidity" ? "River input" : "Turbidity"),
-    sub: "hourly, formazin nephelometric units",
+    sub: "",
     varies: false,
     in: (k) => k === "rivers" || k === "turbidity",
     depthTabs: false,
@@ -751,7 +758,7 @@ const FIGS: Record<Kind, Fig> = {
   },
   ryoy: {
     title: "This year against earlier years",
-    sub: "daily mean flow, same dates",
+    sub: "same dates each year",
     varies: false,
     in: (k) => k === "rivers",
     depthTabs: false,
@@ -767,7 +774,7 @@ const FIGS: Record<Kind, Fig> = {
   },
   bturb: {
     title: "Turbidity at the buoys",
-    sub: "hourly median at 1 m; faint where the day is flagged as likely sensor fouling",
+    sub: "hourly median at 1 m",
     varies: false,
     in: (k) => k === "turbidity",
     wide: true,
@@ -808,7 +815,7 @@ const FIGS: Record<Kind, Fig> = {
   },
   rpct: {
     title: "Percentile for the date",
-    sub: "25 to 75 is normal",
+    sub: "",
     varies: false,
     in: (k) => k === "rivers",
     depthTabs: false,
@@ -1192,7 +1199,7 @@ function sectionHtml(d: StationData): string {
     const f = FIGS[key];
     return `
     <figure${f.wide ? ' class="wide"' : ""}>
-      <figcaption><span class="cap-label">${STATION_ID ? "" : `<span class="cap-code">${id}</span>: `}${f.label?.(d) ?? f.title}</span><span class="cap-sub">${f.varies ? `${V().label.toLowerCase()}, ` : ""}${f.sub}</span>${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
+      <figcaption><span class="cap-label">${STATION_ID ? "" : `<span class="cap-code">${id}</span>: `}${f.label?.(d) ?? f.title}</span>${f.sub ? `<span class="cap-sub">${f.sub}</span>` : ""}${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
         <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
       <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}"${PLOT_PAGE ? "" : ' title="Click to expand"'}><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
@@ -1272,23 +1279,25 @@ function readouts(d: StationData): void {
 const activeDepth = (d: StationData, key: Kind): string =>
   document.querySelector<HTMLButtonElement>(`#${d.meta.id} .tab[data-fig="${key}"][aria-pressed="true"]`)?.dataset.depth ?? d.depths[0];
 
+/** Each plot's note from its last drawing ("<station>-<plot>"), shown at the top of the plot's (i). */
+const PLOT_NOTES = new Map<string, string>();
+
 function drawInline(d: StationData, key: Kind): void {
   if (!shows(d, key)) return;
   const [x0, x1] = FIGS[key].window(d);
   const b = FIGS[key].build(d, activeDepth(d, key), x0, x1, false);
   if (key === "hilo") {
     drawLadder(d, x0, x1);
+    // The flood levels and MHHW are labelled on the ladder itself; the legend keeps the marks that are not.
     $(`${d.meta.id}-${key}-legend`).innerHTML =
       `<span class="lg"><svg width="10" height="10" viewBox="-5 -5 10 10" aria-hidden="true"><circle r="3" fill="var(--bg)" stroke="var(--ink-mute)"/></svg>predicted</span>` +
       `<span class="lg"><svg width="10" height="10" viewBox="-5 -5 10 10" aria-hidden="true"><circle r="3.2" fill="var(--wp-gold)"/></svg>observed</span>` +
-      `<span class="lg"><svg width="18" height="6" aria-hidden="true"><line x1="0" x2="18" y1="3" y2="3" stroke="var(--wp-amber)" stroke-width="2"/></svg>more than 0.5 ft beyond the prediction</span>` +
-      `<span class="lg"><svg width="18" height="6" aria-hidden="true"><line x1="0" x2="18" y1="3" y2="3" stroke="var(--wp-flood)"/></svg>NWS minor flood</span>` +
-      `<span class="lg"><svg width="18" height="6" aria-hidden="true"><line x1="0" x2="18" y1="3" y2="3" stroke="var(--wp-flood)" stroke-dasharray="6 3"/></svg>moderate flood</span>` +
-      `<span class="lg"><svg width="18" height="6" aria-hidden="true"><line x1="0" x2="18" y1="3" y2="3" stroke="var(--faint)" stroke-dasharray="5 4"/></svg>mean higher high water</span>`;
+      `<span class="lg" title="More than 0.5 ft beyond the prediction"><svg width="18" height="6" aria-hidden="true"><line x1="0" x2="18" y1="3" y2="3" stroke="var(--wp-amber)" stroke-width="2"/></svg>0.5 ft or more off</span>`;
     return;
   }
   renderLines($(`${d.meta.id}-${key}`), b.opts);
   $(`${d.meta.id}-${key}-legend`).innerHTML = legendHtml(b);
+  PLOT_NOTES.set(`${d.meta.id}-${key}`, b.note ?? "");
   if (key === "next48") mountVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
   if (key === "waves") mountNwpsVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
   if (key === "sb") drawWindStrip(d, x0, x1);
@@ -2040,8 +2049,11 @@ async function main(): Promise<void> {
         kind: d?.kind ?? "",
       }),
       // The comfort index's thresholds, as a table with the reader's boat marked.
-      extend: (key, body) => {
+      extend: (key, body, d) => {
         if (key === "comfort") body.querySelector(".about-list")?.insertAdjacentHTML("afterend", comfortTableHtml(BOAT, WU === "ms"));
+        // The plot's own note (what its shading or a colour means, years left out), from its last drawing.
+        const note = d ? PLOT_NOTES.get(`${d.meta.id}-${key}`) : undefined;
+        if (note) body.insertAdjacentHTML("afterbegin", `<p class="about-plot-note">${note}</p>`);
       },
     });
     window.setTimeout(() => revealLinked(), 300); // after the sections draw

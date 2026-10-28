@@ -9,7 +9,9 @@ const $ = (id: string) => document.getElementById(id)!;
 
 export interface Built {
   opts: ChartOptions;
-  legend: [string, string, number][];
+  /** Each entry: the line's label (matched by the highlight; "" for an entry with no line), its colour and opacity, and
+   * the name shown, where shorter than the label. */
+  legend: [string, string, number, string?][];
   note?: string;
 }
 
@@ -48,11 +50,17 @@ export function limits(d: StationData, f: Fig, full: boolean): { min: number; ma
 
 export const fullRange = (d: StationData, f: Fig): [number, number] => [f.start?.(d) ?? recordStart(d), endOf(d, f) + DAY];
 
-export function legendHtml(b: Built): string {
+/** A plot's legend: each line's name (short where it has one; the full one still matches its line for the highlight),
+ * an entry with no line of its own ("earlier years") plain text. Its note, what the shading or a colour means, is in
+ * the plot's (i) beside the plot, and under the plot only in the expanded view, which has the room. */
+export function legendHtml(b: Built, withNote = false): string {
   return (
     b.legend
-      .map(([label, color, op]) => `<button type="button" class="lg" data-label="${label}"><i style="background:${color};opacity:${op}"></i>${label}</button>`)
-      .join("") + (b.note ? `<span class="off">${b.note}</span>` : "")
+      .map(([label, color, op, shown]) =>
+        label
+          ? `<button type="button" class="lg" data-label="${label}" title="${label}"><i style="background:${color};opacity:${op}"></i>${shown ?? label}</button>`
+          : `<span class="lg lg-static"><i style="background:${color};opacity:${op}"></i>${shown ?? ""}</span>`)
+      .join("") + (withNote && b.note ? `<span class="off">${b.note}</span>` : "")
   );
 }
 
@@ -106,7 +114,7 @@ function drawZoom(): void {
   if (!zoom) return;
   const b = H.fig(zoom.key).build(zoom.d, zoom.depth, zoom.x0, zoom.x1, zoom.full);
   renderLines($("zoom-plot"), b.opts);
-  $("zoom-legend").innerHTML = legendHtml(b);
+  $("zoom-legend").innerHTML = legendHtml(b, true);
   H.afterDraw($("zoom-plot"), zoom.d, zoom.key, zoom.x0, zoom.x1);
 }
 

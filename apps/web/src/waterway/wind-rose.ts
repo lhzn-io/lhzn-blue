@@ -131,6 +131,6 @@ export function windRoseHtml(d: StationData | undefined, view: string): string {
   return `<section class="wr" aria-label="Wind roses at ${d.meta.name}">
     <p class="ol-title">Wind rose <span class="ol-src">where the wind blew from, share of hours</span></p>
     <div class="wr-pair">${figs.join("")}</div>
-    <p class="status-key">${bands} ${u} &middot; centre: share of calm hours (under ${windFmt(BANDS_KT[0])} ${u}) &middot; a spoke's area follows its share</p>
+    <p class="status-key" title="The centre gives the share of calm hours (under ${windFmt(BANDS_KT[0])} ${u}); a spoke's area follows its share of the hours.">${bands} ${u} &middot; centre: calm hours</p>
   </section>`;
 }

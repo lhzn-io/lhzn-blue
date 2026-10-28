@@ -56,7 +56,7 @@ export function hiloBuilt(d: StationData, x0: number, x1: number): Built {
   ];
   return {
     opts: { xs, lines, unit: " ft", marker: { x: Date.now() / 1000, label: "now" }, empty: "No tides in this window." },
-    legend: [["Observed", M.palette().now, 1], ["Predicted", M.palette().contrast, 0.45], ["NWS minor flood", M.palette().delayed, 0.7], ["MHHW (dashed)", M.palette().contrast, 0.35]],
+    legend: [["Observed", M.palette().now, 1], ["Predicted", M.palette().contrast, 0.45], ["NWS minor flood", M.palette().delayed, 0.7, "Minor flood"], ["Mean higher high water", M.palette().contrast, 0.35, "MHHW"]],
   };
 }
 

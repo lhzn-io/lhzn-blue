@@ -570,7 +570,7 @@ function drawCal(): void {
     else text(svg, x(r.f) + rad + 4, y(r.o) + 4, `${signed(-r.s.bias)} kt`, { class: "val" });
   }
   $("cal-legend").innerHTML =
-    `<span><i style="background: var(--now)"></i>buoys' mean, raised to 10 m (size: number of hours)</span>` +
+    `<span><i style="background: var(--now)"></i>buoys' mean (size: hours)</span>` +
     `<span><i style="background: var(--fc-mid)"></i>gap from the forecast</span>` +
     `<span><i style="background: var(--ink); opacity: 0.45"></i>forecast = observed</span>`;
 
@@ -641,8 +641,8 @@ function drawLead(): void {
     svg.append(c);
   });
   $("lead-legend").innerHTML =
-    `<span><i style="background: var(--fc-strong)"></i>typical error (mean absolute)</span>` +
-    `<span><i style="background: var(--fc-mid)"></i>bias, dashed (HRRR minus buoy)</span>` +
+    `<span><i style="background: var(--fc-strong)"></i>typical error</span>` +
+    `<span><i style="background: var(--fc-mid)"></i>bias (dashed)</span>` +
     `<span><i style="background: var(--chart-zero)"></i>zero</span>`;
   const a = rows[0];
   const z = rows[rows.length - 1];

@@ -14,7 +14,7 @@ export const NEXT48: Fig = {
   varies: false,
   wide: true, // the plot a reader looks ahead with: the full width, like the map and table above
   in: (k) => k === "wind",
-  sub: "wind and gusts, measured and forecast",
+  sub: "",
   depthTabs: false,
   seasonal: false,
   available: (d) => d.kind === "buoy" || d.kind === "shore" || d.kind === "airport", // every station has HRRR runs; drawn once they load
@@ -81,7 +81,7 @@ export const NEXT48: Fig = {
         xs, lines, glyphs, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" }, empty: "No forecast or measurement in this window.", pick,
         areas: [{ lo: fc.map((v, i) => windVal(Math.max(0, v - err(xs[i])))), hi: fc.map((v, i) => windVal(v + err(xs[i]))), fill: M.palette().miss, opacity: 0.22 }],
       },
-      legend: [["Measured", M.palette().now, 1], ["Stitched forecast", M.palette().line, 1], ["Typical miss (shaded)", M.palette().miss, 0.5], ["Gusts", M.palette().contrast, 0.55], ["Earlier forecasts", M.palette().line, 0.3]],
+      legend: [["Measured", M.palette().now, 1], ["Stitched forecast", M.palette().line, 1, "Forecast"], ["", M.palette().miss, 0.5, "Typical miss"], ["Gusts", M.palette().contrast, 0.55], ["Earlier forecasts", M.palette().line, 0.3, "Earlier runs"]],
       note: `NOAA HRRR, raw &middot; the shading is HRRR's typical miss at each lead, ${verTag()}`,
     };
   },

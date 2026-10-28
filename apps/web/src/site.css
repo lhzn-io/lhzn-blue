@@ -877,7 +877,13 @@ body:not(.landing) .stage { padding: 0; border: 0; border-radius: 0; color: var(
   .collect-btn { margin-right: 12px; }
   .fig-info { margin-right: 12px; }
   .fig-actions { gap: 4px; align-items: center; }
-  .expand { min-height: 30px; padding: 9px 12px; }
+  /* The plot's actions small and on the title's line (a wider tap area around each); pinch zooms, so no zoom help. */
+  .expand { position: relative; min-height: 0; padding: 3px 7px; font-size: 8.5px; letter-spacing: 0.12em; }
+  .expand::after { content: ""; position: absolute; inset: -8px -3px; }
+  figcaption .cap-label { flex: 1 1 0; min-width: 0; } /* wraps beside the actions rather than pushing them down */
+  figcaption .fig-actions { order: 1; }
+  figcaption > .tabs { order: 2; flex-basis: 100%; } /* the depth tabs under the title and its actions */
+  .zoom-hint { display: none; }
   .stab { min-height: 32px; }
   .ro-about { padding: 6px 0; margin: -6px 0; }
   .station-links a { padding: 7px 0; }
@@ -1427,6 +1433,10 @@ body.plot-page .embed-credit a { color: inherit; text-underline-offset: 2px; }
   body.plot-page .timeline > .tl-row:first-child { grid-template-columns: 18px minmax(0, 1fr) auto; grid-template-areas: "play track slot"; column-gap: 10px; }
   body.plot-page .timeline > .tl-row:first-child > .tl-slot { padding-left: 4px; min-height: 0; }
   body.plot-page .timeline .tl-step { min-width: 30px; min-height: 0; height: 22px; margin-right: 4px; padding: 0 6px; font-size: 10px; }
+  /* The time at a fixed width, set by the longest ("Thu 10 PM −13.7d"), and "now" holding its place when hidden, so the
+     track keeps its length as the hour goes from one digit to two. */
+  body.plot-page .timeline .tl-label { display: inline-block; min-width: 16ch; text-align: right; }
+  body.plot-page .timeline .tl-now[hidden] { display: inline !important; visibility: hidden; }
   body.plot-page .tl-dlabel:nth-of-type(2) { display: none; } /* room after the first date, which carries its month */
   body.plot-page .legend, body.plot-page .cap-sub, body.plot-page .embed-credit { display: none; }
   body.plot-page .plot-reading { margin: 2px 0; }
@@ -1437,3 +1447,7 @@ body.plot-page .embed-credit a { color: inherit; text-underline-offset: 2px; }
   body.plot-page .plot[data-fig="next48"] { height: max(150px, calc(100svh - 104px)); }
   body.plot-page main, body.plot-page #stations, body.plot-page .station, body.plot-page figure { padding-bottom: 0; margin-bottom: 0; }
 }
+
+/* A legend entry with no line of its own ("earlier years"), and a plot's note at the top of its (i). */
+.legend .lg-static { padding: 1px 3px; cursor: default; }
+.about-plot-note { margin: 0 0 12px; padding-left: 10px; border-left: 2px solid var(--accent-line); color: var(--ink-soft); }

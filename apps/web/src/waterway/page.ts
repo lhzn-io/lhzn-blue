@@ -1344,8 +1344,9 @@ function statusLines(d: StationData): string[] {
 
 function about(meta: Meta): void {
   $("about-method").innerHTML =
-    `The datasets behind each series and their quality checks. How the page works, its sources and methods, are on the ` +
-    `<a href="/about/">About</a> page; the science behind it on the <a href="/references/">references</a> page.`;
+    `Below are the datasets behind each series and the quality checks applied to them. For how the page works and ` +
+    `where its data come from, see the <a href="/about/">About</a> page; for the science behind it, the ` +
+    `<a href="/references/">references</a> page.`;
   const src = meta.stations
     .flatMap((st) =>
       st.series.map((s: MetaSeries) => {

@@ -105,24 +105,42 @@ export function typicalError(id: string, lead: number, key: keyof FcStats): numb
 /** The newest run's forecast for a station and hour (epoch seconds), or null where no run reaches it. */
 export function forecastAt(id: string, t: number): FcValue | null {
   for (const r of FCST?.runs[id] ?? []) {
-    const lead = Math.round((t - r.issue) / HOUR);
-    if (lead < 1 || Math.abs(t - r.issue - lead * HOUR) > 60) continue;
-    const i = r.leads.indexOf(lead);
-    const u = r.u[i], v = r.v[i];
-    if (i < 0 || u == null || v == null) continue;
-    return {
-      spd: Math.hypot(u, v) * MS_KT,
-      dir: ((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360,
-      gust: r.gust[i] != null ? r.gust[i]! * MS_KT : NaN,
-      air: r.t2m[i] != null ? ((r.t2m[i]! - 273.15) * 9) / 5 + 32 : NaN,
-      pres: r.mslp[i] != null ? r.mslp[i]! / 100 : NaN,
-      lead,
-      issue: r.issue,
-      err: typicalError(id, lead, "mae"),
-      airErr: (typicalError(id, lead, "air_mae") * 9) / 5,
-    };
+    const f = runValue(id, r, t);
+    if (f) return f;
   }
   return null;
+}
+
+/** One run's forecast for a station and hour, or null where the run does not reach it. */
+function runValue(id: string, r: FcRun, t: number): FcValue | null {
+  const lead = Math.round((t - r.issue) / HOUR);
+  if (lead < 1 || Math.abs(t - r.issue - lead * HOUR) > 60) return null;
+  const i = r.leads.indexOf(lead);
+  const u = r.u[i], v = r.v[i];
+  if (i < 0 || u == null || v == null) return null;
+  return {
+    spd: Math.hypot(u, v) * MS_KT,
+    dir: ((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360,
+    gust: r.gust[i] != null ? r.gust[i]! * MS_KT : NaN,
+    air: r.t2m[i] != null ? ((r.t2m[i]! - 273.15) * 9) / 5 + 32 : NaN,
+    pres: r.mslp[i] != null ? r.mslp[i]! / 100 : NaN,
+    lead,
+    issue: r.issue,
+    err: typicalError(id, lead, "mae"),
+    airErr: (typicalError(id, lead, "air_mae") * 9) / 5,
+  };
+}
+
+/** HRRR's change at a station from this hour to `hours` ahead, both ends from one run (the newest that reaches
+ * them), so it is the model's own change and not its offset from the readings. NaN where no run reaches both. */
+export function forecastChange(id: string, hours: number, pick: (f: FcValue) => number): number {
+  const t0 = hourOf(Date.now() / 1000);
+  for (const r of FCST?.runs[id] ?? []) {
+    const a = runValue(id, r, t0), b = runValue(id, r, t0 + hours * HOUR);
+    const delta = a && b ? pick(b) - pick(a) : NaN;
+    if (Number.isFinite(delta)) return delta;
+  }
+  return NaN;
 }
 
 /** The HRRR stand-in for a buoy at a time: only for buoys, and only where the newest run reaches the hour. */

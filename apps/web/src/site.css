@@ -634,6 +634,7 @@ body.landing {
 /* The readouts' context line (trend and %ile), and the (i) that explains it. */
 .readout .trend { display: block; margin-top: 2px; font: 11px/1.35 var(--mono); color: var(--ink-soft); }
 .trend-part { white-space: nowrap; }
+.trend-ahead { display: block; font-style: italic; } /* the model's change ahead, on its own line */
 .trend-arrow { vertical-align: -2px; margin-right: 1px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .band-info { align-self: start; margin: 4px 0 0 6px; }

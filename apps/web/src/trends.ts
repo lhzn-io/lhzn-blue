@@ -57,6 +57,11 @@ export interface Trend {
   delta: number;
 }
 
+/** A change as a trend: no direction inside the spec's dead band. */
+export function classify(delta: number, spec: TrendSpec): Trend {
+  return { dir: Math.abs(delta) < spec.dead ? 0 : delta > 0 ? 1 : -1, delta };
+}
+
 /** Direction over the spec's window, or null where either window has no data. */
 export function trend(s: Hourly | null | undefined, spec: TrendSpec): Trend | null {
   if (!s) return null;
@@ -66,7 +71,7 @@ export function trend(s: Hourly | null | undefined, spec: TrendSpec): Trend | nu
   const delta =
     spec.mode === "mean" ? s.mean(end - w + HOUR, end) - s.mean(end - 2 * w + HOUR, end - w) : s.at(end) - s.at(end - w);
   if (!Number.isFinite(delta)) return null;
-  return { dir: Math.abs(delta) < spec.dead ? 0 : delta > 0 ? 1 : -1, delta };
+  return classify(delta, spec);
 }
 
 const YEAR = Math.round(365.2425 * 24) * HOUR;
@@ -130,17 +135,20 @@ function rateOf(t: Trend, spec: TrendSpec): Rate {
 
 const ADVERB: Record<Rate, string> = { flat: "", slow: "slowly", steady: "steadily", sudden: "quickly" };
 
-/** An arrow at the rate's angle and the signed change: "↗ +0.6°F in 24h". The words ("rising slowly") are in the
- * hover text and in a hidden span for screen readers and the AI prompt. `fmt` formats a size in display units. */
-export function trendText(t: Trend | null, spec: TrendSpec, fmt: (v: number) => string): string {
+/** An arrow at the rate's angle and the signed change over the window: "↗ +0.6°F over the last 24 h", or the word
+ * for no change ("steady over the last 3 h") inside the dead band, where a rounded number would read as a change.
+ * With `model`, the model's change over the window ahead: "HRRR ↘ −4 kt over the next 3 h". The words ("rising
+ * slowly") are in the hover text and in a hidden span for screen readers and the AI prompt. `fmt` formats a size in
+ * display units. */
+export function trendText(t: Trend | null, spec: TrendSpec, fmt: (v: number) => string, model = ""): string {
   if (!t) return "";
   const rate = rateOf(t, spec);
-  const size = fmt(Math.abs(t.delta));
-  const zero = !/[1-9]/.test(size.replace(/<[^>]+>/g, "")); // rounds to zero: no sign
-  const signed = `${zero ? "" : t.delta >= 0 ? "+" : "\u2212"}${size}`;
   const [up, down, none] = spec.words ?? ["rising", "falling", "no change"];
   const words = t.dir === 0 ? none : `${t.dir > 0 ? up : down} ${ADVERB[rate]}`;
-  return `<span class="trend-part" title="${words}, ${signed.replace(/<[^>]+>/g, "")} in ${spec.window}h">${arrowSvg(rate, t.dir)}<span class="sr-only">${words}</span> ${signed} in ${spec.window}h</span>`;
+  const change = t.dir === 0 ? none : `${t.delta > 0 ? "+" : "\u2212"}${fmt(Math.abs(t.delta))}`;
+  const span = `over the ${model ? "next" : "last"} ${spec.window} h`;
+  const title = `${model ? `${model} forecast: ` : ""}${words}${t.dir === 0 ? "" : `, ${change.replace(/<[^>]+>/g, "")}`} ${span}`;
+  return `<span class="trend-part${model ? " trend-ahead" : ""}" title="${title}">${model ? `${model} ` : ""}${arrowSvg(rate, t.dir)}<span class="sr-only">${model ? "forecast " : ""}${words}</span> ${change} ${span}</span>`;
 }
 
 /** Mean direction (degrees) of the wind over [a, b], as a vector mean so 350 and 10 average to 0. */
@@ -177,8 +185,8 @@ export function veerText(dir: Hourly | null | undefined, speed: Hourly | null | 
 
 /** "74th %ile", "74th %ile (last 3 days)", or "-- %ile" when there are fewer than three earlier years. */
 export function percentileText(p: { pct: number; years: number } | null, what = ""): string {
-  if (!p) return `<span title="Fewer than three earlier years on record">-- %ile</span>`;
-  return `${ordinal(p.pct)} %ile${what ? ` (${what})` : ""}`;
+  if (!p) return `<span class="trend-part" title="Fewer than three earlier years on record">-- %ile</span>`;
+  return `<span class="trend-part">${ordinal(p.pct)} %ile${what ? ` (${what})` : ""}</span>`;
 }
 
 /** Hourly values smoothed less the more recent they are: hourly for the last two days, then a half-life that

@@ -3,14 +3,14 @@
  * reading's age, and a model's value under a fault, marked as a model. */
 import { compass, LIGHT_KT, windArrow } from "../wind-dir";
 import { HOUR, oxygenStatus, stratStatus, type Hourly, type LastObs } from "../series";
-import { percentileText, SEASONS, seasonalPercentile, trend, trendText, TRENDS, veerText } from "../trends";
+import { classify, percentileText, SEASONS, seasonalPercentile, trend, trendText, TRENDS, veerText } from "../trends";
 import { ago, cToF, f1, fmtDate, fmtWhenMin, hourOf, lastValue, signed, signedFt, tideText } from "./format";
 import { waveFmt, waveUnit, WIND_UNITS, windFmt, WU } from "./units";
-import { nextTide, obsState, stationState, type StationData } from "./station-data";
+import { nextTide, obsState, stationState, type FcValue, type StationData } from "./station-data";
 import { runText } from "./cells";
 import { M } from "./models";
 import { departure, TIDES } from "./tides";
-import { standIn } from "./forecast";
+import { FCST, forecastChange, loadForecast, standIn } from "./forecast";
 import { loadNwps, NWPS, nwpsAt } from "./nwps";
 
 export function stratNow(d: StationData): { deltaC: number; status: string } {
@@ -32,6 +32,20 @@ export function contextLine(s: Hourly | null | undefined, trendKey: string, fmt:
   const parts = [trendText(trend(s, spec), spec, fmt)];
   if (season) parts.push(percentileText(seasonalPercentile(season.long ?? s, SEASONS[season.key]), season.what));
   return parts.filter(Boolean).join(" &middot; ");
+}
+
+/** HRRR's change at the station over the quantity's window ahead, as a companion to the readings' change over the
+ * window behind: "HRRR ↘ −4 kt over the next 3 h". Only beside a current reading (from a delayed one, the two windows
+ * would leave a gap between them); empty until the runs load, or where none reaches the station. */
+function forecastLine(d: StationData, state: string, trendKey: string, pick: (f: FcValue) => number, fmt: (v: number) => string): string {
+  if (state !== "live") return "";
+  if (!FCST) {
+    void loadForecast();
+    return "";
+  }
+  const spec = TRENDS[trendKey];
+  const delta = forecastChange(d.meta.id, spec.window, pick);
+  return Number.isFinite(delta) ? trendText(classify(delta, spec), spec, fmt, "HRRR") : "";
 }
 
 /** The change in the view's water variable, in display units. */
@@ -83,9 +97,7 @@ function stratContext(d: StationData): string {
   const now = Math.abs(s.mean(end - w + HOUR, end));
   const before = Math.abs(s.mean(end - 2 * w + HOUR, end - w));
   if (!Number.isFinite(now) || !Number.isFinite(before)) return "";
-  const delta = now - before;
-  const t = { dir: (Math.abs(delta) < spec.dead ? 0 : delta > 0 ? 1 : -1) as 1 | -1 | 0, delta };
-  return trendText(t, spec, (v) => `${((v * 5) / 9).toFixed(2)}&deg;C`);
+  return trendText(classify(now - before, spec), spec, (v) => `${((v * 5) / 9).toFixed(2)}&deg;C`);
 }
 
 const fmtTempF = (c: number) => `${f1(cToF(c))}&deg;F<small>${c.toFixed(1)}&deg;C</small>`;
@@ -103,7 +115,7 @@ export function weatherReadouts(d: StationData): string[] {
     out.push(readoutHtml(`${o.dir_deg != null ? windArrow(o.dir_deg, o.wind_kt < LIGHT_KT) : ""}${windFmt(o.wind_kt)}<small>${u}</small>`, "Wind", "wind", `${dir}${dir ? " &middot; " : ""}gusts ${windFmt(o.gust_kt)} ${u} &middot; ${ago(o.time)}${o.source === "panel" ? " &middot; transcribed from the LISICOS panel" : ""}`, state,
       [contextLine(d.met?.wind, "wind", (v) => `${windFmt(v)} ${u}`), veerText(d.met?.dir, d.met?.wind), percentileText(seasonalPercentile(d.metLong?.wind ?? d.met?.wind, SEASONS.wind), "last 3 days")]
         .filter(Boolean)
-        .join(" &middot; ")));
+        .join(" &middot; ") + forecastLine(d, state, "wind",(f) => f.spd, (v) => `${windFmt(v)} ${u}`)));
   } else {
     out.push(readoutHtml("--", "Wind", "wind", "no recent reading", "offline"));
     const f = standIn(d, Date.now() / 1000);
@@ -125,7 +137,8 @@ export function weatherReadouts(d: StationData): string[] {
     }
   }
   if (o?.pressure_mb != null && state !== "offline") {
-    const ctx = contextLine(d.met?.pressure, "pressure", (v) => `${v.toFixed(1)} mb`, { key: "pressure", what: "last day", long: d.metLong?.pressure });
+    const ctx = contextLine(d.met?.pressure, "pressure", (v) => `${v.toFixed(1)} mb`, { key: "pressure", what: "last day", long: d.metLong?.pressure }) +
+      forecastLine(d, state, "pressure",(f) => f.pres, (v) => `${v.toFixed(1)} mb`);
     out.push(readoutHtml(`${o.pressure_mb.toFixed(0)}<small>mb</small>`, "Pressure", "pressure", ago(o.time), state, ctx));
   }
   if (o?.air_f != null && state !== "offline")

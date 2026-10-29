@@ -14,6 +14,7 @@ import "./piscataqua-page.css";
 import { cssVar, el, markAsOf, renderLines, type Line } from "./chart";
 import { CURRENTS_FLOOR, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURRENTS_TOP } from "./currents-ramp";
 import { MEASURED_TOP, measuredColour } from "./measured-ramp";
+import { setPlayButton, timeTrack } from "./time-axis";
 import type { Map as MapLibreMap, ExpressionSpecification, GeoJSONSource } from "maplibre-gl";
 
 interface Series { t0: string; step: number; v: (number | null)[] }
@@ -665,21 +666,19 @@ function startPlay(): void {
   window.clearInterval(playing);
   const [start, end, loop] = playRange();
   if (T !== start) setT(start);
-  const play = $("play");
-  play.textContent = "Pause";
-  play.setAttribute("aria-pressed", "true");
+  setPlayButton($("play"), true);
   playing = window.setInterval(() => setT(T + 10 * MIN >= end ? loop : T + 10 * MIN), 60);
 }
 function stopPlay(): void {
   window.clearInterval(playing);
   playing = 0;
-  const play = $("play");
-  play.textContent = "Play";
-  play.setAttribute("aria-pressed", "false");
+  setPlayButton($("play"), false);
 }
 
 function wireTime(): void {
   const s = $("slider") as HTMLInputElement;
+  timeTrack(s, (v) => v); // the slider's values are the time itself
+  setPlayButton($("play"), false);
   s.min = String(X0);
   s.max = String(X1);
   s.addEventListener("input", () => moveT(Number(s.value)));

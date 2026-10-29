@@ -11,6 +11,7 @@ import "./site.css";
 import "./away-links";
 import "./water-page.css";
 import { el, niceStep } from "./chart";
+import { setPlayButton, timeTrack } from "./time-axis";
 
 const DATA = "/data/v1";
 const HOUR = 3600_000;
@@ -490,6 +491,7 @@ function wireTilt(): void {
   const range = $("tilt-t") as HTMLInputElement;
   const { t0, t1 } = tiltSpan();
   const n = Math.round((t1 - t0) / HOUR);
+  timeTrack(range, (v) => (t0 + v * HOUR) / 1000);
   range.min = "0";
   range.max = String(n);
   range.step = "1";
@@ -505,17 +507,16 @@ function wireTilt(): void {
   });
   range.addEventListener("input", drawTilt);
   const play = $("tilt-play");
+  setPlayButton(play, false);
   const stop = () => {
     if (tiltTimer != null) clearInterval(tiltTimer);
     tiltTimer = null;
-    play.textContent = "Play";
-    play.setAttribute("aria-pressed", "false");
+    setPlayButton(play, false);
   };
   play.addEventListener("click", () => {
     if (tiltTimer != null) return stop();
     if (Number(range.value) >= n) range.value = String(Math.max(0, n - 72)); // replay the last three days
-    play.textContent = "Pause";
-    play.setAttribute("aria-pressed", "true");
+    setPlayButton(play, true);
     tiltTimer = window.setInterval(() => {
       const next = Number(range.value) + 1;
       if (next > n) return stop();

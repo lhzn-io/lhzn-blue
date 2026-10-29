@@ -3,11 +3,11 @@
  *
  * The row is the view's window: hours (a day or two weeks back to 72h ahead, for the forecast and the currents) or
  * days (the last 90, for the satellite history), with a needle for the time and a shaded band for the span the frame
- * on the map covers (a 7-day composite, a day, a 2h model step). Its dates are under it, the moon's phases over it.
- * Past solid, forecast dotted; no accent colour.
+ * on the map covers (a 7-day composite, a day, a 2h model step). Its dates are under it, the moon's phases over it
+ * (time-axis.ts, shared with the other pages' sliders). Past solid, forecast dotted; no accent colour.
  * The cursor is kept as hours from now, so "+5h" stays five hours ahead as the clock moves; 0 is live now. */
 
-import { moonGlyph, moonPhases } from "./moon";
+import { axisHtml, pct, setPlayButton } from "./time-axis";
 
 export type ScaleKind = "hours" | "days";
 
@@ -34,10 +34,7 @@ const builders = new Set<() => void>(); // rows that share the detail row's scal
 const fmtClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric" });
 const fmtFull = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric" });
 const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
-const fmtHour = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" });
-const fmtDate = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", day: "numeric" });
 const fmtWeekday = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" });
-const fmtMonth = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short" });
 
 /** Epoch seconds of the cursor, or null when it is at now. */
 export function asOf(): number | null {
@@ -109,9 +106,6 @@ export function setFrame(back: number, ahead: number): void {
   sync();
 }
 
-const ICON_PLAY = `<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3 1.5v9l7-4.5z" fill="currentColor"/></svg>`;
-const ICON_PAUSE = `<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2.5 1.5h2.5v9H2.5zM7 1.5h2.5v9H7z" fill="currentColor"/></svg>`;
-
 /** The time, short: the clock hour and how far from now, signed ("10 PM −13.7d", "7 PM +5h"); the date is on the
  * track beneath. With the weekday where the time is the page's only statement of it (a plot page): "Thu 7 PM +5h".
  * On the days scale, the date ("Oct 15 −13d"). */
@@ -138,7 +132,6 @@ function fullLabel(): string {
   return `${(scale === "days" ? fmtDay : fmtFull).format(t)}, ${offset < 0 ? `${far} ago` : `in ${far}`}`;
 }
 
-const pct = (f: number) => `${(100 * Math.max(0, Math.min(1, f))).toFixed(3)}%`;
 /** Position on the detail row (0..1) of an offset in hours. */
 const dx = (h: number) => {
   const s = SCALES[scale];
@@ -170,10 +163,7 @@ function sync(): void {
   band.style.width = pct(dx(f1) - dx(f0));
   root.querySelector<HTMLElement>(".tl-needle")!.style.left = pct(dx(offset));
   root.querySelector<HTMLElement>(".tl-knob")!.style.left = pct(dx(offset));
-  const play = root.querySelector<HTMLButtonElement>(".tl-play")!;
-  play.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
-  play.title = playing ? "Pause" : "Play";
-  play.setAttribute("aria-label", play.title);
+  setPlayButton(root.querySelector<HTMLButtonElement>(".tl-play")!, !!playing);
 }
 
 function stop(): void {
@@ -189,55 +179,14 @@ function play(): void {
   sync();
 }
 
-/** Detail ticks: hours scale every 6h, taller at each local midnight; days scale every week, taller at each month's
- * first day. The forecast's are fainter. Under the ticks, in the track's lower half (no added height), small day
- * labels: weekdays over a few days, day numbers over two weeks (the month on the 1st), months and weeks over 90 days.
- * The moon's principal phases along the track's top edge, each at its own time, clear of the dates (so a phone's
- * thinned dates never seem to carry the wrong day's moon). */
-function detailTicks(): string {
-  const s = SCALES[scale];
-  const now = Math.round(Date.now() / 3.6e6);
-  const out: string[] = [];
-  const days = (s.past + s.ahead) / 24;
-  let first = true; // the leftmost label carries its month, so every date on the row can be read
-  const mon = (t: Date) => `<b class="tl-mon">${fmtMonth.format(t)}</b> `;
-  const label = (h: number, t: Date, text: string) => {
-    out.push(`<span class="tl-dlabel${h > 0 ? " ahead" : ""}" style="left:${pct(dx(h))}">${first && !text.includes("tl-mon") ? mon(t) : ""}${text}</span>`);
-    first = false;
-  };
-  for (const p of moonPhases((now - s.past) * 3600, (now + s.ahead) * 3600)) {
-    const h = p.t / 3600 - now;
-    out.push(`<i class="tl-moon${h > 0 ? " ahead" : ""}" data-phase="${p.phase}" style="left:${pct(dx(h))}">${moonGlyph(p.phase, 7)}</i>`);
-  }
-  for (let h = -s.past; h <= s.ahead; h += scale === "days" ? 24 : 1) {
-    const t = new Date((now + h) * 3.6e6);
-    let kind: string | null;
-    if (h === 0) kind = "now";
-    else if (scale === "days") kind = fmtDate.format(t) === "1" ? "day" : (-h / 24) % 7 === 0 ? "hour" : null;
-    else {
-      const etHour = Number(fmtHour.format(t)) % 24;
-      kind = etHour === 0 ? "day" : etHour % 6 === 0 ? "hour" : null;
-    }
-    if (kind) out.push(`<i class="tl-tick ${kind}${h > 0 ? " ahead" : ""}" style="left:${pct(dx(h))}"></i>`);
-    // Labels sit just right of their midnight (the day they name follows it); none on "now", which has its own mark.
-    if (h === 0 || dx(h) > 0.97) continue; // a label at the right edge would be cut off
-    if (scale === "days") {
-      if (fmtDate.format(t) === "1") label(h, t, `<b class="tl-mon">${fmtMonth.format(t)}</b>`);
-      else if ((-h / 24) % 7 === 0 && Number(fmtDate.format(t)) > 4) label(h, t, fmtDate.format(t));
-    } else if (Number(fmtHour.format(t)) % 24 === 0) {
-      const d = fmtDate.format(t);
-      // A new month reads "Nov 1" in place; a few-day window names weekdays, with the month on the first.
-      label(h, t, days <= 5 ? (d === "1" ? `${mon(t)}${fmtWeekday.format(t)}` : fmtWeekday.format(t)) : d === "1" ? `${mon(t)}1` : d);
-    }
-  }
-  return out.join("");
-}
-
+/** The detail row's ticks, dates and moons (time-axis.ts): every 6h and each local midnight on the hours scale, every
+ * week and each month's 1st on the days scale; the forecast's fainter. */
 function build(): void {
   const s = SCALES[scale];
   const detail = root!.querySelector<HTMLElement>(".tl-track")!;
   detail.style.setProperty("--tl-now", pct(dx(0)));
-  root!.querySelector<HTMLElement>(".tl-ticks")!.innerHTML = detailTicks();
+  const now = Math.round(Date.now() / 3.6e6) * 3600;
+  root!.querySelector<HTMLElement>(".tl-ticks")!.innerHTML = axisHtml(now - s.past * 3600, now + s.ahead * 3600, now);
   const range = root!.querySelector<HTMLInputElement>(".tl-range")!;
   range.min = String(-s.past);
   range.max = String(s.ahead);

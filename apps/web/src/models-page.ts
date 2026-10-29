@@ -11,6 +11,7 @@ import "./site.css";
 import "./away-links";
 import { mountAdvisories } from "./advisory";
 import "./models-page.css";
+import { setPlayButton, timeTrack } from "./time-axis";
 import "maplibre-gl/dist/maplibre-gl.css";
 import maplibregl from "maplibre-gl";
 import type { Feature, FeatureCollection } from "geojson"; // types that come with maplibre-gl
@@ -324,13 +325,8 @@ function setFrame(i: number): void {
 
 let timer = 0;
 function setPlaying(on: boolean): void {
-  const btn = $("play");
   window.clearInterval(timer);
-  btn.setAttribute("aria-pressed", String(on));
-  btn.setAttribute("aria-label", on ? "Pause" : "Play");
-  btn.innerHTML = on
-    ? `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 3h3v10H4zM9 3h3v10H9z" fill="currentColor"/></svg>`
-    : `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>`;
+  setPlayButton($("play"), on);
   if (on && MG) timer = window.setInterval(() => setFrame((frame + 1) % MG!.times.length), PLAY_MS);
 }
 
@@ -400,7 +396,9 @@ async function main(): Promise<void> {
         .map((m) => `${m.label} ${m.spacing_km} km`)
         .join(" · ") + ": each on its own grid, the next 48 hours over Long Island Sound.";
     const slider = $("slider") as HTMLInputElement;
-    slider.max = String(MG.times.length - 1);
+    const times = MG.times;
+    slider.max = String(times.length - 1);
+    timeTrack(slider, (v) => Date.parse(times[Math.round(v)]) / 1000);
     slider.addEventListener("input", () => {
       setPlaying(false);
       setFrame(Number(slider.value));

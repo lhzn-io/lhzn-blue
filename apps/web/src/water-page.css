@@ -33,9 +33,8 @@ body.wp { overflow-x: hidden; }
 .wp-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
 .wp-ctl-label { font: 700 8.5px/1 var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--faint); }
 .wp-seg { flex-wrap: wrap; }
-.wp-play { min-width: 64px; }
-.wp-range { flex: 1 1 200px; min-width: 0; max-width: 420px; accent-color: var(--accent); }
-.wp-range:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; }
+.wp-play { width: 28px; height: 28px; }
+.wp-controls .time-track { flex: 1 1 260px; } /* the site's time track (time-axis.ts) around the hour slider */
 .wp-readout { margin: 0; min-height: 1.5em; font: 400 11.5px/1.5 var(--mono); color: var(--ink-mute); }
 .wp-chart { width: 100%; min-width: 0; touch-action: pan-y; }
 .wp-tilt { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }

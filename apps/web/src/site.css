@@ -234,12 +234,15 @@ figure.wide { grid-column: 1 / -1; }
 .tl-tick.now { height: 13px; margin-top: -6.5px; background: var(--dim); }
 .tl-tick.ahead { opacity: 0.6; }
 .tl-frame { position: absolute; top: 50%; height: 8px; margin-top: -4px; background: var(--ink); opacity: 0.13; pointer-events: none; }
-.tl-needle { position: absolute; top: 50%; width: 2px; height: 14px; margin: -7px 0 0 -1px; background: var(--ink); pointer-events: none; }
+.tl-needle { position: absolute; top: 50%; width: 2px; height: 14px; margin: -7px 0 0 -1px; background: var(--tl-ink, var(--ink)); pointer-events: none; }
 /* A ring to grab at the cursor; it fills while the slider is hovered, dragged or focused. */
 .tl-knob { position: absolute; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; box-sizing: border-box;
-  border: 1.5px solid var(--ink); border-radius: 50%; background: var(--bg); pointer-events: none; transition: background 0.12s; }
+  border: 1.5px solid var(--tl-ink, var(--ink)); border-radius: 50%; background: var(--bg); pointer-events: none; transition: background 0.12s; }
 .tl-track:hover .tl-knob, .tl-track:has(.tl-range:active) .tl-knob, .tl-track:has(.tl-range:focus-visible) .tl-knob {
-  background: color-mix(in srgb, var(--ink) 22%, var(--bg)); }
+  background: color-mix(in srgb, var(--tl-ink, var(--ink)) 22%, var(--bg)); }
+/* The same track under a page's own slider (time-axis.ts timeTrack): the forecast, models, tides and Portsmouth Harbor
+   pages. Its height holds the moons above the line and the dates below it. */
+.time-track { height: 30px; min-width: 0; color: var(--dim); }
 /* Day labels under the ticks, in the track's lower half. */
 .tl-dlabel { position: absolute; bottom: 0; padding-left: 2px; font: 7.5px/1 var(--mono); color: var(--faint); white-space: nowrap; pointer-events: none; }
 .tl-dlabel.ahead { opacity: 0.7; }
@@ -281,7 +284,7 @@ html:has(body > .tl-pin) { scroll-padding-top: 26px; }
   .timeline .tl-now { grid-area: now; }
   .timeline .tl-label { grid-area: label; justify-self: end; margin: 0; font-size: 12px; color: var(--ink); text-align: right; }
   .timeline .tl-now[hidden] { display: grid !important; }
-  .tl-dlabel:nth-of-type(even), .tl-dlabel:nth-of-type(3) { display: none; }
+  .timeline .tl-dlabel:nth-of-type(even), .timeline .tl-dlabel:nth-of-type(3) { display: none; } /* the time bar's 4 to 17 days; the other pages' tracks keep theirs */
   .tl-pin { padding: 2px var(--gutter) 4px; }
   .tl-pin .timeline > .tl-row:first-child > .tl-track { height: 28px; }
   .tl-pin .timeline .tl-play, .tl-pin .timeline .tl-step, .tl-pin .timeline .tl-now { height: 16px; }

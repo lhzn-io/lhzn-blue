@@ -41,22 +41,17 @@ select.pq-btn { padding: 0 6px; }
 /* The time bar: one clock for the page, pinned to the top while scrolling. Below 560 px the slider takes its own row. */
 .pq-timebar { position: sticky; top: 0; z-index: 5; margin: 0 0 18px; padding: 8px 0 6px; background: var(--bg); border-bottom: 1px solid var(--rule); }
 .pq-tb-row { display: flex; align-items: center; gap: 6px; }
-/* The slider: a thin track and the same purple disc as the strips' knob. */
-.pq-tb-row input[type="range"] { flex: 1 1 auto; min-width: 0; height: 28px; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
-.pq-tb-row input[type="range"]::-webkit-slider-runnable-track { height: 2px; background: var(--dim); }
-.pq-tb-row input[type="range"]::-moz-range-track { height: 2px; background: var(--dim); }
-.pq-tb-row input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -7px; border: 0; border-radius: 50%; background: var(--pq-time); cursor: grab; }
-.pq-tb-row input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--pq-time); cursor: grab; }
-.pq-tb-row input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; transform: scale(1.15); }
-.pq-tb-row input[type="range"]:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; }
+/* The slider: the site's time track (time-axis.ts), its needle and knob in the strips' purple. */
+.pq-tb-row .time-track { flex: 1 1 auto; height: 30px; --tl-ink: var(--pq-time); }
 .pq-tb-row .pq-btn { flex: none; }
+.pq-tb-row .pq-play { display: grid; place-items: center; min-width: 34px; }
 .pq-share { display: inline-flex; align-items: center; gap: 5px; }
 @media (max-width: 560px) { .pq-share span { display: none; } } /* the icon alone on a phone */
 .pq-tb-read { min-height: 0; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pq-timebar + .fc-sec { border-top: 0; } /* the bar's own rule stands for the section's */
 @media (max-width: 560px) {
   .pq-tb-row { flex-wrap: wrap; }
-  .pq-tb-row input[type="range"] { order: -1; flex-basis: 100%; height: 28px; }
+  .pq-tb-row .time-track { order: -1; flex-basis: 100%; }
   .pq-tb-row .pq-btn { padding: 0 8px; }
 }
 /* In full screen the bar sits below the view, inside the box (see .pq-viewbox below). */

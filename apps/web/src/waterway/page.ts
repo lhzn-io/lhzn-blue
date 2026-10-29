@@ -1050,10 +1050,12 @@ function meterPlace(): { lon: number; lat: number; zoom: number } | null {
   return m ? { lon: m.lon, lat: m.lat - METER_MAP_SOUTH, zoom: METER_MAP_ZOOM } : null;
 }
 
-/** How far back the time bar reaches, in hours: two weeks in the Wind view (its strip spans them) and on a current
- * meter's page (its plan steps back through the meter's record), a day elsewhere. */
+/** How far back the time bar reaches, in hours: as far as the view's data. Two weeks in the Wind view (its strip spans
+ * them), on a current meter's page (its plan steps back through the meter's record) and in the Tides view (within the
+ * current-phase file's 15 days, so the strip under the bar spans a spring-neap cycle beside the moon's phases); a day
+ * elsewhere. */
 const METER_HOURS_BACK = 14 * 24;
-const hoursBack = () => (VK === "wind" ? WS_BACK / HOUR : meterPlace() ? METER_HOURS_BACK : 24);
+const hoursBack = () => (VK === "wind" ? WS_BACK / HOUR : meterPlace() || VK === "tides" ? METER_HOURS_BACK : 24);
 
 /** The Tides view's diagram is the Sound's gauges; a current meter's page shows the map in its place. */
 function syncDiagram(): void {
@@ -1300,7 +1302,7 @@ function wireStatusTabs(stations: StationData[]): void {
 }
 
 /** The current-phase strip under the time bar (Tides, hours scale): loaded once, shown or hidden as the view and
- * scale change. The other views mark the moon's phases on the time bar's dates instead. */
+ * scale change. The moon's phases are on the time bar's dates in every view. */
 let phaseLoad: Promise<import("../phase").PhaseFile | null> | null = null;
 async function syncPhase(hours: boolean): Promise<void> {
   // A plot page keeps its height for the plot; a current meter's page has the same comparison, measured, in its plots.

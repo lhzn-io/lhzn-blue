@@ -13,6 +13,7 @@ import { mountAdvisories } from "./advisory";
 import "./forecast-page.css";
 import { cssVar, el, niceStep, renderLines, type Line } from "./chart";
 import { measuredOr, windGlyphs } from "./wind-dir";
+import { timeTrack } from "./time-axis";
 
 const DATA = "/data/v1";
 const $ = (id: string) => document.getElementById(id)!;
@@ -326,6 +327,7 @@ function setupConv(): void {
     drawConv();
   });
   const slider = $("conv-t") as HTMLInputElement;
+  timeTrack(slider, (v) => (convXs[0] ?? NaN) + v * HOUR); // the slider steps through convXs, an hour apart
   slider.addEventListener("input", () => {
     convT = Number(slider.value);
     placeCursor();

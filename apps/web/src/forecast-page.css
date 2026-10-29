@@ -57,7 +57,6 @@
 .fc-conv-plot { height: 300px; }
 .fc-conv-plot svg { cursor: crosshair; }
 .fc-slider { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; margin: 18px 44px 0 0; }
-.fc-slider input { width: 100%; margin: 0; accent-color: var(--accent); }
 .fc-read { margin: 6px 0 0; min-height: 2.9em; font: 10.5px/1.45 var(--mono); color: var(--ink-soft); }
 .fc-read b { font-weight: 500; color: var(--ink); }
 .fc-panel { padding: 12px 12px 10px; background: var(--panel); border-top: 1px solid var(--accent-line); }
@@ -95,6 +94,5 @@
   .fc-tabs { margin-right: 0; }
   .fc-tabs .tab { min-height: 32px; }
   .fc-slider { margin-right: 0; }
-  .fc-slider input { min-height: 32px; }
   .fc-method .about-list { grid-template-columns: 1fr; }
 }

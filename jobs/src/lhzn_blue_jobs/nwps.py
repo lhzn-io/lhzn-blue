@@ -45,6 +45,7 @@ FIELD_KEY = "v1/fields/nwps-waves.json"
 FIELD_BOX = (-74.40, 40.30, -71.40, 41.70)  # the HRRR layer's box (NWPS CG1 ends at 41.40 N)
 FIELD_BACK, FIELD_AHEAD = 24, 72  # hours of frames kept around now
 FIELD_STEP = 0.05  # m per int8 unit (to 6.35 m)
+FIELD_TP_STEP = 0.125  # s per int8 unit (to 15.9 s), for the peak period
 FIELD_MESH_VERSION = 1
 UA = {"User-Agent": "longhorizon.blue ingest (https://longhorizon.blue; dfry@lhzn.io)"}
 # GRIB short name -> (published name, decimals)
@@ -205,6 +206,7 @@ def field_file(prev: dict | None, runs: dict[str, dict], end: datetime) -> dict 
     frames: dict[str, dict] = {f["valid_time"]: f for f in (prev or {}).get("frames", [])}
     mesh = (prev or {}).get("mesh")
     enc = lambda a: base64.b64encode(np.clip(np.round(np.nan_to_num(a) / FIELD_STEP), -127, 127).astype(np.int8).ravel().tobytes()).decode()  # noqa: E731
+    enc_tp = lambda a: base64.b64encode(np.clip(np.round(np.nan_to_num(a) / FIELD_TP_STEP), 0, 127).astype(np.int8).ravel().tobytes()).decode()  # noqa: E731
     for key in sorted(runs, reverse=True):  # newest first: an older run fills only hours no newer one covers
         g = runs[key].get("grid")
         if not g:
@@ -231,7 +233,8 @@ def field_file(prev: dict | None, runs: dict[str, dict], end: datetime) -> dict 
                 continue
             hs, frm = g["hs"][k].astype(np.float64), g["dir"][k].astype(np.float64)
             to = np.deg2rad((frm + 180.0) % 360.0)  # where the waves travel
-            frames[vkey] = {"valid_time": vkey, "cycle": key, "lead": int(lead), "u": enc(hs * np.sin(to)), "v": enc(hs * np.cos(to))}
+            frames[vkey] = {"valid_time": vkey, "cycle": key, "lead": int(lead), "u": enc(hs * np.sin(to)), "v": enc(hs * np.cos(to)),
+                            "tp": enc_tp(g["tp"][k].astype(np.float64))}
     if mesh is None:
         return None
     kept = sorted((f for f in frames.values() if lo <= datetime.strptime(f["valid_time"], "%Y-%m-%dT%H:%MZ") <= hi), key=lambda f: f["valid_time"])
@@ -241,11 +244,14 @@ def field_file(prev: dict | None, runs: dict[str, dict], end: datetime) -> dict 
         "label": "model forecast",
         "source": "NWS Nearshore Wave Prediction System (SWAN), WFO New York grid CG1, on the model's own 1.8 km cells",
         "attribution": "NWS NWPS (NOAA NOMADS)",
-        "field": "significant wave height along the direction the waves travel (east and north components)",
+        "field": "significant wave height along the direction the waves travel (east and north components); "
+        "tp: peak wave period, where present (older frames lack it)",
         "units": "m",
+        "tp_units": "s",
         "generated_at": iso(end),
         "box": list(FIELD_BOX),
-        "encoding": {"type": "int8 base64", "step": FIELD_STEP, "clip": round(127 * FIELD_STEP, 2)},
+        "encoding": {"type": "int8 base64", "step": FIELD_STEP, "clip": round(127 * FIELD_STEP, 2),
+                     "tp_step": FIELD_TP_STEP, "tp_clip": 127 * FIELD_TP_STEP},
         "mesh": mesh,
         "frames": kept,
     }

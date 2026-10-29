@@ -147,6 +147,10 @@ let EMBED_STATION = "";
 /** A plot page (/<waterway>/<station>/<plot>/): the one figure, with the time bar and a reading line (waterway/embed.ts). */
 let PLOT_PAGE = false;
 let PLOT: PlotPage | null = null;
+/** A water plot page's depth ("BTM"), from the address and then its tabs; empty: the station's first. */
+let PLOT_DEPTH = "";
+/** A water plot page: its time bar is on the days scale (90 days back), which its plot's window covers. */
+const waterPlotPage = () => PLOT_PAGE && !!EMBED && FIGS[EMBED].varies && isWater(VK);
 const V = () => WATER_VARS[VK];
 
 
@@ -1118,7 +1122,8 @@ async function wireTimeline(box: HTMLElement): Promise<void> {
     import("../fields").then((f) => f.setFieldTime(t)).catch(() => undefined);
   });
   tl.setHoursBack(VK === "wind" ? WS_BACK / HOUR : 24); // the view's reach first, or a linked time is clamped to a day
-  applyPendingOffset("hours"); // after the listener, so a linked time reaches the charts, the table and the pins
+  if (waterPlotPage()) tl.setScale("days"); // a water plot spans months: its time moves by days
+  applyPendingOffset(tl.position().scale); // after the listener, so a linked time reaches the charts, the table and the pins
   void syncPhase(tl.position().scale === "hours");
 }
 
@@ -1166,6 +1171,17 @@ async function overviewMap(stations: StationData[]): Promise<void> {
 
 /* ---------- Station sections ---------- */
 
+/** A water plot page's views, in its caption beside the depth tabs (the top bar has no room for them on a phone): the
+ * station's views the plot is drawn in, where there are two or more. Each works the view switch's own button. */
+function plotViewTabs(d: StationData): string {
+  const views = (CFG.stationPages?.views[d.kind] ?? []).filter((v) => PLOT?.views.includes(v));
+  if (!waterPlotPage() || views.length < 2) return "";
+  const label = (v: string) => document.querySelector(`.var-switch [data-var="${v}"]`)?.textContent ?? v;
+  return `<span class="tabs plot-views" role="group" aria-label="View">${views
+    .map((v) => `<button class="tab" type="button" data-plot-view="${v}" aria-pressed="${v === VK}">${escHtml(label(v))}</button>`)
+    .join("")}</span>`;
+}
+
 function depthTabsHtml(d: StationData, key: string, active: string): string {
   return `<span class="tabs" role="group" aria-label="${d.kind === "rivers" ? "River" : "Depth"}">${d.meta.series
     .map((s) => `<button class="tab" type="button" data-fig="${key}" data-depth="${s.depth}" aria-pressed="${s.depth === active}">${s.label}</button>`)
@@ -1200,7 +1216,7 @@ function sectionHtml(d: StationData): string {
     const f = FIGS[key];
     return `
     <figure${f.wide ? ' class="wide"' : ""}>
-      <figcaption><span class="cap-label">${STATION_ID ? "" : `<span class="cap-code">${id}</span>: `}${f.label?.(d) ?? f.title}</span>${f.sub ? `<span class="cap-sub">${f.sub}</span>` : ""}${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, d.depths[0]) : ""}
+      <figcaption><span class="cap-label">${STATION_ID ? "" : `<span class="cap-code">${id}</span>: `}${f.label?.(d) ?? f.title}</span>${f.sub ? `<span class="cap-sub">${f.sub}</span>` : ""}${PLOT_PAGE && key === EMBED ? plotViewTabs(d) : ""}${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, PLOT_PAGE && key === EMBED && d.depths.includes(PLOT_DEPTH) ? PLOT_DEPTH : d.depths[0]) : ""}
         <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
       <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}"${PLOT_PAGE ? "" : ' title="Click to expand"'}><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
@@ -1292,9 +1308,12 @@ let PLOT_DRAWN: { x0: number; x1: number; b: Built } | null = null;
 
 function drawInline(d: StationData, key: Kind): void {
   if (!shows(d, key)) return;
-  const [x0, x1] = FIGS[key].window(d);
+  let [x0, x1] = FIGS[key].window(d);
+  // A water plot page's time reaches 90 days back: its plot does too (the 7-day change and surface minus bottom show 60).
+  if (key === EMBED && waterPlotPage()) x0 = Math.min(x0, d.now - 90 * DAY);
   const b = FIGS[key].build(d, activeDepth(d, key), x0, x1, false);
   if (PLOT_PAGE && key === EMBED) PLOT_DRAWN = { x0, x1, b };
+  if (key === "sb") drawWindStrip(d, x0, x1);
   if (key === "hilo") {
     drawLadder(d, x0, x1);
     // The flood levels and MHHW are labelled on the ladder itself; the legend keeps the marks that are not.
@@ -1309,7 +1328,6 @@ function drawInline(d: StationData, key: Kind): void {
   PLOT_NOTES.set(`${d.meta.id}-${key}`, b.note ?? "");
   if (key === "next48") mountVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
   if (key === "waves") mountNwpsVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
-  if (key === "sb") drawWindStrip(d, x0, x1);
 }
 
 
@@ -1532,6 +1550,7 @@ function linkUrl(plot?: string): string {
   if (ovs.length && !EMBED) p.set("ov", ovs.join(","));
   const tl = timelineModule?.position();
   if (tl && tl.offset !== 0) p.set("t", tl.scale === "days" ? `${Math.round(tl.offset / 24)}d` : `${tl.offset > 0 ? "+" : ""}${tl.offset}h`);
+  if (PLOT_PAGE && PLOT_DEPTH) p.set("depth", PLOT_DEPTH.toLowerCase()); // a plot page's depth tab
   // A plot page or an embed: the run a reader fixed (its UTC hour, "2026102811"), and that it is an embed.
   const run = EMBED ? chosenRun(EMBED_STATION) : null;
   if (run != null) p.set("run", new Date(run * 1000).toISOString().slice(0, 13).replace(/\D/g, ""));
@@ -1807,6 +1826,7 @@ function wireWater(live: Live, stations: StationData[], rebuild: () => void): vo
       }
       mark();
       rebuild();
+      if (PLOT_PAGE) plotReading();
       syncUrl();
     }),
   );
@@ -2013,12 +2033,22 @@ async function main(): Promise<void> {
         openAbout(info.dataset.about!, section ? byId(section.id) : null);
         return;
       }
+      const view = target.closest<HTMLElement>("[data-plot-view]");
+      if (view) {
+        document.querySelector<HTMLButtonElement>(`.var-switch [data-var="${view.dataset.plotView}"]`)?.click();
+        return;
+      }
       const tab = target.closest<HTMLButtonElement>(".tab");
       if (tab) {
         const section = tab.closest<HTMLElement>(".station")!;
         const key = tab.dataset.fig as Kind;
         section.querySelectorAll(`.tab[data-fig="${key}"]`).forEach((b) => b.setAttribute("aria-pressed", String(b === tab)));
         drawInline(byId(section.id), key);
+        if (PLOT_PAGE && key === EMBED) {
+          PLOT_DEPTH = tab.dataset.depth ?? "";
+          plotReading();
+          syncUrl(true);
+        }
         return;
       }
       const opener = target.closest<HTMLElement>(".expand, .plot");
@@ -2143,17 +2173,21 @@ const hasPage = (id: string) => {
 const placeUrl = (id: string | null) => `${PAGES!.base}${id ? `${id.toLowerCase()}/` : ""}${location.search}`;
 /** A station's plot page (/<waterway>/<station>/<plot>/), keeping the page's time, view and units; not the map's layer,
  * which a plot page does not draw. */
-const plotUrl = (id: string, slug: string) => {
+const plotUrl = (id: string, slug: string, depth = "") => {
   const q = new URLSearchParams(location.search);
   q.delete("layer");
   q.delete("ov");
+  if (depth) q.set("depth", depth.toLowerCase());
+  else q.delete("depth");
   const s = q.toString();
   return `${PAGES!.base}${id.toLowerCase()}/${slug}/${s ? `?${s}` : ""}`;
 };
-/** A figure's own page at a station, where both have one. */
+/** A figure's own page at a station, where both have one, at the depth its tabs show (if not the first). */
 const plotPageUrl = (id: string, fig: string): string | null => {
   const slug = plotSlug(fig);
-  return slug && PAGES && hasPage(id) ? plotUrl(id, slug) : null;
+  const d = STATIONS.find((s) => s.meta.id === id);
+  const depth = d && FIGS[fig as Kind]?.depthTabs ? activeDepth(d, fig as Kind) : "";
+  return slug && PAGES && hasPage(id) ? plotUrl(id, slug, d && depth !== d.depths[0] ? depth : "") : null;
 };
 
 /** A plot page: the top bar names the plot beside the place; a tap or drag on the plot moves the page's time; the
@@ -2195,10 +2229,11 @@ function plotReading(): void {
 const prSlot = (key: string, body: string, title: string) =>
   `<span class="pr-slot" title="${escHtml(title)}"><span class="pr-k">${key === "Measured" ? '<span class="wide-only">Measured</span><span class="narrow-only">Obs</span>' : key}</span> ${body}</span>`;
 const PR_NONE = `<span class="pr-none">--</span>`;
-/** A value's number and its unit ("1028.4", " mb"); text that does not start with a number is all number. */
+/** A value's number and its unit ("1028.4", " mb"; a salinity "27.20" has none); text that does not start with a
+ * number is all number. */
 const splitUnit = (s: string): [string, string] => {
-  const m = /^([+\-\u2212]?[\d.,]+)(\D.*)$/.exec(s);
-  return m ? [m[1], m[2]] : [s, ""];
+  const m = /^([+\-\u2212]?[\d.,]*\d)(\D.*)?$/.exec(s);
+  return m ? [m[1], m[2] ?? ""] : [s, ""];
 };
 /** A value with its number held at a width of `w` characters (the line is monospaced), right-aligned, so what follows
  * it in the slot stays put as its digits change; the unit after it, left out on a phone (the axis has it). */
@@ -2217,33 +2252,86 @@ const READING: Partial<Record<Kind, (b: Built) => [string, string[]][]>> = {
   waves: () => [["Height", ["Significant height", "NWS wave model"]], ["Highest", ["Highest wave"]], ["Period", ["Dominant period"]]],
   air: (b) => [["Air", ["Air"]], ...(b.legend[0][0] !== "Air" ? [["Water", [b.legend[0][0]]] as [string, string[]]] : [])],
   dep: () => [["Departure", ["Observed minus predicted"]]],
+  // The water column: each depth's hourly reading, else its 36-hour mean ("Mid-depth" keyed "Mid").
+  col: (b) => b.legend.map(([l]) => [l.split("-")[0], [`${l} hourly`, `${l} 36h`]] as [string, string[]]),
+  sb: () => [["Hourly", ["hourly"]], ["36 h mean", ["36h mean"]]],
 };
+
+/** The plot's point for the page's time: its index on the plot's grid (or -1 outside it), and how many points back a
+ * value may stand for it. On a water plot page, whose lines end with the last reading (an hour or more before now), a
+ * value up to 12 hours before the time stands for it, its hover naming its time. */
+function readAt(xs: number[], t: number): { i: number; back: number } {
+  const step = xs.length > 1 ? xs[1] - xs[0] : HOUR;
+  const i = Math.round((t - xs[0]) / step);
+  const inside = i >= 0 && i < xs.length && Math.abs(xs[i] - t) <= step / 2;
+  return { i: inside ? i : -1, back: waterPlotPage() ? Math.ceil((12 * HOUR) / step) : 0 };
+}
+/** A line's value at index i, or the latest within `back` points before it: its index, or -1. */
+const lastAt = (ys: number[], i: number, back: number): number => {
+  for (let j = i; j >= 0 && j >= i - back; j--) if (Number.isFinite(ys[j])) return j;
+  return -1;
+};
+const fmtAtHour = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric" });
 
 function lineReading(d: StationData, key: Kind): string[] {
   const drawn = PLOT_DRAWN;
   if (!drawn) return [];
+  if (key === "yoy" || key === "chg") return yearReading(key);
   const { xs, lines, unit = "", hoverDigits = 1 } = drawn.b.opts;
   const t = AT ?? Math.floor(Date.now() / 1000 / HOUR) * HOUR;
-  const step = xs.length > 1 ? xs[1] - xs[0] : HOUR;
-  const i = Math.round((t - xs[0]) / step);
-  const inside = i >= 0 && i < xs.length && Math.abs(xs[i] - t) <= step / 2;
+  const { i, back } = readAt(xs, t);
   const spec = READING[key]?.(drawn.b) ?? drawn.b.legend.filter(([l]) => l).map(([l, , , shown]) => [shown ?? l, [l]] as [string, string[]]);
-  const fmt = (l: (typeof lines)[number], v: number) => (l.fmt ? l.fmt(v) : `${v.toFixed(hoverDigits)}${unit}`);
+  const fmt = (l: (typeof lines)[number], v: number) => (l.fmt ? l.fmt(v) : `${v.toFixed(hoverDigits).replace(/^-/, "\u2212")}${unit}`);
   const slots = spec.map(([k, starts]) => {
     const can = lines.filter((l) => starts.some((s) => l.label.startsWith(s)));
     // The slot's width: the longest number any of its lines takes in the plot's window.
     let w = 2;
     for (const l of can) for (const v of l.ys) if (Number.isFinite(v)) w = Math.max(w, splitUnit(fmt(l, v))[0].length);
-    const line = inside ? can.find((l) => Number.isFinite(l.ys[i])) : undefined;
+    const line = i < 0 ? undefined : can.find((l) => lastAt(l.ys, i, back) >= 0);
     if (!line) return prSlot(k, PR_NONE, `${k}: no value at this hour`);
-    const text = fmt(line, line.ys[i]);
+    const j = lastAt(line.ys, i, back);
+    const text = fmt(line, line.ys[j]);
     const model = /HRRR|NWPS|model/.test(line.label) ? ` <small>${/NWPS|wave model/.test(line.label) ? "NWPS" : "HRRR"}</small>` : "";
-    return prSlot(k, `${prVal(text, w)}${model}`, `${line.label}: ${text}`);
+    return prSlot(k, `${prVal(text, w)}${model}`, `${line.label}: ${text}${j < i ? `, at ${fmtAtHour.format(new Date(xs[j] * 1000))}` : ""}`);
   });
   // The departure page also states the water's level at the hour.
   if (key === "dep") {
     const lv = d.level?.at(t) ?? NaN;
     slots.unshift(prSlot("Level", Number.isFinite(lv) ? prVal(ft1(lv), FT1_W) : PR_NONE, Number.isFinite(lv) ? `Measured water level: ${ft1(lv)} above MLLW` : "No level reading at this hour"));
+  }
+  return slots;
+}
+
+/** The year pages (this year, 7-day change): this year's value at the time, the mean of the earlier years drawn on the
+ * same date, and (this year) how far the one is from the other. */
+function yearReading(key: "yoy" | "chg"): string[] {
+  const { xs, lines, unit = "", hoverDigits = 1 } = PLOT_DRAWN!.b.opts;
+  const t = AT ?? Math.floor(Date.now() / 1000 / HOUR) * HOUR;
+  const { i, back } = readAt(xs, t);
+  const year = Math.max(...lines.map((l) => Number(l.label)).filter(Number.isFinite));
+  const cur = lines.find((l) => Number(l.label) === year);
+  const earlier = lines.filter((l) => l !== cur);
+  const num = (v: number, sign = false) => `${sign && v > 0 ? "+" : ""}${(Math.abs(v) < 0.5 * 10 ** -hoverDigits ? 0 : v).toFixed(hoverDigits).replace(/^-/, "\u2212")}${unit}`;
+  // One width for the three, from the widest value the plot holds (a difference can take a sign more).
+  let w = 2;
+  for (const l of lines) for (const v of l.ys) if (Number.isFinite(v)) w = Math.max(w, splitUnit(num(v, key === "chg"))[0].length);
+  const j = cur && i >= 0 ? lastAt(cur.ys, i, back) : -1;
+  const now = j >= 0 ? cur!.ys[j] : NaN;
+  const at = j >= 0 ? j : i; // the earlier years on the same date as this year's reading
+  const others = at >= 0 ? earlier.map((l) => l.ys[at]).filter(Number.isFinite) : [];
+  const mean = others.length ? others.reduce((a, b) => a + b, 0) / others.length : NaN;
+  const what = key === "yoy" ? V().label.toLowerCase() : `7-day change in ${V().label.toLowerCase()}`;
+  const slots = [
+    Number.isFinite(now)
+      ? prSlot(String(year), prVal(num(now, key === "chg"), w), `${year}, ${what}: ${num(now, key === "chg")}${j < i ? `, at ${fmtAtHour.format(new Date(xs[j] * 1000))}` : ""}`)
+      : prSlot(String(year), PR_NONE, `${year}: no value on this date`),
+    Number.isFinite(mean)
+      ? prSlot("Earlier", prVal(num(mean, key === "chg"), w), `Mean of ${others.length} earlier years on this date: ${num(mean, key === "chg")} (${num(Math.min(...others))} to ${num(Math.max(...others))})`)
+      : prSlot("Earlier", PR_NONE, "No earlier year on this date"),
+  ];
+  if (key === "yoy") {
+    const diff = now - mean;
+    slots.push(Number.isFinite(diff) ? prSlot("Diff", prVal(num(diff, true), w + 1), `${year} against the earlier years' mean: ${num(diff, true)}`) : prSlot("Diff", PR_NONE, "No comparison on this date"));
   }
   return slots;
 }
@@ -2489,6 +2577,7 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   // A plot page's address names its plot after the station (/long-island-sound/exrx/next-48h/).
   const slug = PAGES && STATION_ID ? location.pathname.slice(PAGES.base.length).split("/")[1]?.toLowerCase() : "";
   PLOT = slug ? PLOT_PAGES[slug] ?? null : null;
+  PLOT_DEPTH = (LINK.get("depth") ?? "").toUpperCase();
   let fig: string | null;
   ({ fig, station: EMBED_STATION, page: PLOT_PAGE } = embedMode(LINK, CFG.defaults.embedStation, PLOT && STATION_ID ? { fig: PLOT.fig, station: STATION_ID } : null));
   EMBED = fig as Kind | null;

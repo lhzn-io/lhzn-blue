@@ -45,14 +45,15 @@ Long Island Sound page:
 - [x] A page per station: each buoy, shore station and coastal airport with only the views it has, our own photos of
       three of the buoys, and earlier links to a station or one of its plots opening its page
 - [x] Every waterway page built from one configurable page, so each feature below is built once for all of them
+- [x] A page of its own for each plot at a station or river gauge, with the time bar and a reading at its time
 
 ## Next
 
-1. **Tidal currents beside the model.** NOAA tidal current predictions at The Race, Plum Gut and Hell Gate shown
-   with the NECOFS surface currents, and the two compared at each station.
-2. **Global models at longer leads.** ECMWF and GFS wind at the buoys, scored the same way as HRRR.
-3. **Compact currents file.** The currents in the binary frame format the satellite history uses, about a third of
+1. **Forecast revisions.** How HRRR's wind for a given hour changed from run to run, at each buoy: whether the model
+   has been raising or lowering it as the hour approached, with what was measured once the hour has passed.
+2. **Compact currents file.** The currents in the binary frame format the satellite history uses, about a third of
    today's size.
+3. **Global models at longer leads.** ECMWF and GFS wind at the buoys, scored the same way as HRRR.
 4. **Design notes.** The palette and the plot grammar documented, with their licence.
 5. **Anomaly contours on the year comparison (prototype).** On the water "This year" plot, curved reference lines for
    the normal value on each date and set steps either side (1 and 2 °F for temperature), drawn from the earlier years
@@ -62,19 +63,21 @@ Long Island Sound page:
 
 ## After that
 
-1. **Fog.** Dew-point depression and the air-sea temperature difference at the buoys, visibility from the airport
+1. **Tidal currents beside the model.** NOAA tidal current predictions at The Race, Plum Gut and Hell Gate shown
+   with the NECOFS surface currents, and the two compared at each station.
+2. **Fog.** Dew-point depression and the air-sea temperature difference at the buoys, visibility from the airport
    stations around the Sound, satellite fog products, and visibility forecasts scored against them.
-2. **Tide-averaged flow at Middle Haddam.** USGS publishes only tidal flow below Thompsonville on the Connecticut
+3. **Tide-averaged flow at Middle Haddam.** USGS publishes only tidal flow below Thompsonville on the Connecticut
    River. A 25-hour mean of the Middle Haddam flow, published as a derived series without normals.
-3. **Turbidity estimate.** A derived surface turbidity field from river discharge, wind, waves and currents, scored
+4. **Turbidity estimate.** A derived surface turbidity field from river discharge, wind, waves and currents, scored
    against the USGS river sensor and satellite turbidity.
-4. **Weather percentiles at the shore stations**, from NOAA's records of their own weather.
-5. **Quality control.** A flat-line test for every series, the IOOS QARTOD tests through `ioos_qc`, and the
+5. **Weather percentiles at the shore stations**, from NOAA's records of their own weather.
+6. **Quality control.** A flat-line test for every series, the IOOS QARTOD tests through `ioos_qc`, and the
    operators' own flags where they publish them.
-6. **The eastern Sound.** The Race and Block Island Sound, from any further public buoy, NDBC or NERACOOS data.
-7. **The tides diagram for any waterway.** The schematic in the Sound's tides view, drawn from a waterway's own
+7. **The eastern Sound.** The Race and Block Island Sound, from any further public buoy, NDBC or NERACOOS data.
+8. **The tides diagram for any waterway.** The schematic in the Sound's tides view, drawn from a waterway's own
    outline and gauges.
-8. **Documented data access.** A remote MCP server and documented data files that return the same numbers the page
+9. **Documented data access.** A remote MCP server and documented data files that return the same numbers the page
    shows. The current data files serve this site's pages only.
 
 ## Later

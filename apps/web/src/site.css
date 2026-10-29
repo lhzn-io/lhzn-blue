@@ -470,9 +470,11 @@ figcaption { display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wra
 .plot-labels .empty a { color: var(--ink); }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--chart-legend); }
 .legend i { display: inline-block; width: 14px; height: 2px; margin-right: 5px; vertical-align: 3px; }
-.legend .lg { cursor: pointer; padding: 1px 3px; border: 0; border-bottom: 1px solid transparent; background: none; color: inherit; font: inherit; }
-.legend .lg:hover, .legend .lg:focus-visible { color: var(--ink); border-bottom-color: var(--rule); outline: none; }
-.legend .lg.pinned { color: var(--accent); border-bottom-color: var(--accent-line); }
+/* A legend entry picks out its line (on hover, or held with a click): the plot shows it, so the entry itself stays
+   plain, not styled as a link; a held entry is darker, and the keyboard's focus is marked. */
+.legend .lg { cursor: default; padding: 1px 3px; border: 0; border-bottom: 1px solid transparent; background: none; color: inherit; font: inherit; }
+.legend .lg:focus-visible { border-bottom-color: var(--rule); outline: none; }
+.legend .lg.pinned { color: var(--ink); }
 .legend .off { color: var(--faint); }
 
 /* Inline charts open the zoom view */

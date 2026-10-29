@@ -385,15 +385,26 @@ function runoffBuilt(d: StationData, xs: number[]): Built {
   const total = (l: Line) => [...l.ys].reverse().find(Number.isFinite) ?? NaN;
   const byTotal = [...earlier].sort((a, c) => total(a) - total(c));
   const named = new Set([byTotal[0], byTotal[byTotal.length - 1]].filter(Boolean));
+  // The earlier years faint, as the next 48 hours plot draws its earlier runs, and fainter with age; this year stands
+  // out in its own color.
+  const oldest = Math.min(...earlier.map((l) => Number(l.label)));
+  const faint = (l: Line): Line => {
+    const age = (year - Number(l.label) - 1) / Math.max(1, year - oldest - 1);
+    return { ...l, color: P.line, width: 0.8, opacity: 0.3 - 0.22 * age };
+  };
   const lines: Line[] = [
-    ...kept.map((l) => ({ ...l, end: Number(l.label) === year || named.has(l) ? l.label : undefined })),
+    ...kept.map((l) => ({ ...(Number(l.label) === year ? l : faint(l)), end: Number(l.label) === year || named.has(l) ? l.label : undefined })),
     ...(earlier.length >= 3 ? [{ ys: median, color: P.contrast, width: 1.1, opacity: 0.8, dash: "4 3", label: "Median of earlier years", end: "median" }] : []),
   ];
   // This year last, drawn on top.
   lines.sort((a, c) => (Number(a.label) === year ? 1 : 0) - (Number(c.label) === year ? 1 : 0));
   return {
     opts: { ...b.opts, lines, unit: " in", hoverDigits: 2, zero: true, floor: 0, bands: [] },
-    legend: [...b.legend, ["Median of earlier years", P.contrast, 0.8, "median"]],
+    legend: [
+      ...b.legend.filter(([l]) => l === String(year)),
+      ["", P.line, 0.3, "earlier years"],
+      ["Median of earlier years", P.contrast, 0.8, "median"],
+    ],
     note: [
       `runoff added up from ${fmtDate.format(new Date(xs[0] * 1000))}: the daily mean flow, spread over the ${d.gauge!.drainage_sqmi.toLocaleString("en-US")} square miles the gauge drains, as inches of water`,
       dropped.length ? `left out (a record starting after the first date, or a gap of more than 3 days): ${dropped.join(", ")}` : "",

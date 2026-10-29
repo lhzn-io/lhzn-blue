@@ -147,8 +147,10 @@ let EMBED_STATION = "";
 /** A plot page (/<waterway>/<station>/<plot>/): the one figure, with the time bar and a reading line (waterway/embed.ts). */
 let PLOT_PAGE = false;
 let PLOT: PlotPage | null = null;
-/** A water plot page's depth ("BTM"), from the address and then its tabs; empty: the station's first. */
+/** The depth an address names ("depth=btm"): a water plot page's, or on a station page the linked plot's (LINKED_PLOT, the
+ * address's "#WLIS-yoy"); then a plot page's tabs. Empty: the station's first. */
 let PLOT_DEPTH = "";
+const LINKED_PLOT = decodeURIComponent(location.hash.slice(1));
 /** A water or river plot page: its time bar is on the days scale (90 days back), which its plot's window covers. */
 const waterPlotPage = () => PLOT_PAGE && !!EMBED && ((FIGS[EMBED].varies && isWater(VK)) || VK === "rivers");
 /** A river gauge, which has plot pages but no station page. */
@@ -337,6 +339,65 @@ function yearBuilt(d: StationData, series: Series | null, xs: number[], extra: P
     opts: { xs, lines, ...varOpts(), unit: V().unit, empty: emptyNote(d), ...extra },
     legend: yearsLegend(shown.map((l) => [String(l.year), yearStyle(l.offset, maxOffset).color, yearStyle(l.offset, maxOffset).opacity ?? 1])),
     note: notes.length ? notes.join("; ") : undefined,
+  };
+}
+
+/** A river's years as runoff added up from the window's first date, in inches of water over the gauged basin: rising
+ * lines that seldom cross, so a dry year runs below the others and a flood is a step rather than a spike. A year whose
+ * record starts more than 3 days after the first date, or has a longer gap, is left out (its total would not compare);
+ * shorter gaps hold the last day's flow. The earlier years' median runs dashed; this year, the median and the wettest
+ * and driest earlier years are named at their ends. */
+const IN_PER_CFS_DAY_SQMI = (86400 * 0.0283168 * 39.3701) / 2.58999e6; // 1 cfs for a day over 1 sq mi, in inches
+function runoffBuilt(d: StationData, xs: number[]): Built {
+  const b = yearBuilt(d, dailyFlow(d), xs, { marker: { x: d.now, label: "now" }, empty: "No flow in this window." });
+  const step = xs.length > 1 ? xs[1] - xs[0] : HOUR;
+  const perStep = (IN_PER_CFS_DAY_SQMI / d.gauge!.drainage_sqmi) * (step / DAY);
+  const slack = Math.round((3 * DAY) / step);
+  const cumulative = (ys: number[]): number[] | null => {
+    const first = ys.findIndex(Number.isFinite);
+    let last = ys.length - 1;
+    while (last >= 0 && !Number.isFinite(ys[last])) last--;
+    if (first < 0 || first > slack) return null;
+    let sum = 0, held = NaN, gap = 0;
+    const out = ys.map(() => NaN);
+    for (let i = first; i <= last; i++) {
+      if (Number.isFinite(ys[i])) [held, gap] = [ys[i], 0];
+      else if (++gap > slack) return null;
+      sum += held * perStep;
+      out[i] = sum;
+    }
+    return out;
+  };
+  const kept: Line[] = [];
+  const dropped: string[] = [];
+  for (const l of b.opts.lines) {
+    const ys = cumulative(l.ys);
+    if (ys) kept.push({ ...l, ys });
+    else dropped.push(l.label);
+  }
+  const year = Math.max(...kept.map((l) => Number(l.label)));
+  const earlier = kept.filter((l) => Number(l.label) !== year);
+  const median = xs.map((_, i) => {
+    const vs = earlier.map((l) => l.ys[i]).filter(Number.isFinite).sort((a, c) => a - c);
+    return vs.length >= 3 ? (vs.length % 2 ? vs[(vs.length - 1) / 2] : (vs[vs.length / 2 - 1] + vs[vs.length / 2]) / 2) : NaN;
+  });
+  const total = (l: Line) => [...l.ys].reverse().find(Number.isFinite) ?? NaN;
+  const byTotal = [...earlier].sort((a, c) => total(a) - total(c));
+  const named = new Set([byTotal[0], byTotal[byTotal.length - 1]].filter(Boolean));
+  const lines: Line[] = [
+    ...kept.map((l) => ({ ...l, end: Number(l.label) === year || named.has(l) ? l.label : undefined })),
+    ...(earlier.length >= 3 ? [{ ys: median, color: P.contrast, width: 1.1, opacity: 0.8, dash: "4 3", label: "Median of earlier years", end: "median" }] : []),
+  ];
+  // This year last, drawn on top.
+  lines.sort((a, c) => (Number(a.label) === year ? 1 : 0) - (Number(c.label) === year ? 1 : 0));
+  return {
+    opts: { ...b.opts, lines, unit: " in", hoverDigits: 2, zero: true, floor: 0, bands: [] },
+    legend: [...b.legend, ["Median of earlier years", P.contrast, 0.8, "median"]],
+    note: [
+      `runoff added up from ${fmtDate.format(new Date(xs[0] * 1000))}: the daily mean flow, spread over the ${d.gauge!.drainage_sqmi.toLocaleString("en-US")} square miles the gauge drains, as inches of water`,
+      dropped.length ? `left out (a record starting after the first date, or a gap of more than 3 days): ${dropped.join(", ")}` : "",
+      b.note ?? "",
+    ].filter(Boolean).join("; "),
   };
 }
 
@@ -683,21 +744,32 @@ const FIGS: Record<Kind, Fig> = {
       const xs = grid(x0, x1);
       const r = d.river!;
       const id = d.gauge!.id;
-      const band = (p: "p10" | "p25" | "p50" | "p75" | "p90") => xs.map((t) => pct(r, id, p, t));
-      const fmt = (v: number) => `${cfs(v)} cfs`;
+      // On a log axis (the values drawn are log10 of the flow), so a dry spell is as legible as a flood; the record's
+      // percentiles for each date are contours through the year, each named at its end.
+      const log = (v: number) => (v > 0 ? Math.log10(v) : NaN);
+      const band = (p: "p10" | "p25" | "p50" | "p75" | "p90") => xs.map((t) => log(pct(r, id, p, t)));
+      const fmt = (v: number) => `${cfs(10 ** v)} cfs`;
       const g = r.gauges.find((x) => x.id === id);
+      const contour = (p: "p10" | "p25" | "p50" | "p75" | "p90", name: string, opacity: number, width = 0.8): Line =>
+        ({ ys: band(p), color: P.contrast, width, opacity, label: `${name} percentile for the date`, end: name, fmt });
       const lines: Line[] = [
-        { ys: band("p10"), color: P.contrast, width: 0.8, opacity: 0.18, label: "10th to 90th percentile", fmt },
-        { ys: band("p90"), color: P.contrast, width: 0.8, opacity: 0.18, label: "10th to 90th percentile (90th)", fmt },
-        { ys: band("p25"), color: P.contrast, width: 0.9, opacity: 0.38, label: "Normal, 25th to 75th", fmt },
-        { ys: band("p75"), color: P.contrast, width: 0.9, opacity: 0.38, label: "Normal, 25th to 75th (75th)", fmt },
-        { ys: band("p50"), color: P.contrast, width: 1.1, opacity: 0.7, label: "Median for the date", fmt },
-        { ys: xs.map((t) => riverFlow(r, id, t)), color: P.depth.SFC, width: 1.8, label: `${g?.river ?? id} flow`, fmt },
+        contour("p10", "10th", 0.3),
+        contour("p90", "90th", 0.3),
+        contour("p25", "25th", 0.45),
+        contour("p75", "75th", 0.45),
+        { ...contour("p50", "median", 0.7, 1.1), label: "Median for the date" },
+        { ys: xs.map((t) => log(riverFlow(r, id, t))), color: P.depth.SFC, width: 1.8, label: `${g?.river ?? id} flow`, fmt },
       ];
+      // Rules at 1, 2 and 5 of each power of ten ("500 cfs", "2k cfs").
+      const at = [0, 1, 2, 3, 4, 5, 6].flatMap((e) => [1, 2, 5].map((m) => Math.log10(m * 10 ** e)));
+      const tick = (v: number) => {
+        const q = Math.round(10 ** v);
+        return `${q >= 1000 ? `${q / 1000}k` : q} cfs`;
+      };
       return {
-        opts: { xs, lines, unit: " cfs", hoverDigits: 0, zero: true, marker: { x: d.now, label: "now" }, empty: "No flow readings in this window." },
-        legend: [[`${g?.river ?? id} flow`, P.depth.SFC, 1], ["Median for the date", P.contrast, 0.7, "Median"], ["Normal, 25th to 75th", P.contrast, 0.38, "25th–75th"], ["10th to 90th percentile", P.contrast, 0.18, "10th–90th"]],
-        note: `percentiles of daily flow for each date, from ${r.normals[id]?.sample_count ?? "--"} years of approved record (USGS)`,
+        opts: { xs, lines, unit: " cfs", hoverDigits: 0, marker: { x: d.now, label: "now" }, yTicks: { at, label: tick }, minPad: 0.04, empty: "No flow readings in this window." },
+        legend: [[`${g?.river ?? id} flow`, P.depth.SFC, 1], ["Median for the date", P.contrast, 0.7, "Median"]],
+        note: `log scale; the grey contours are percentiles of daily flow for each date (10th, 25th, median, 75th, 90th), from ${r.normals[id]?.sample_count ?? "--"} years of approved record (USGS)`,
       };
     },
   },
@@ -765,7 +837,7 @@ const FIGS: Record<Kind, Fig> = {
   },
   ryoy: {
     title: "This year against earlier years",
-    sub: "same dates each year",
+    sub: "runoff added up over the same dates each year",
     varies: false,
     in: (k) => k === "rivers",
     depthTabs: false,
@@ -777,7 +849,7 @@ const FIGS: Record<Kind, Fig> = {
     build: (d, _depth, x0, x1, full) =>
       full
         ? timelineBuilt(d, dailyFlow(d), "SFC", grid(x0, x1), { marker: { x: d.now, label: "now" }, zero: true, empty: "No flow in this window." })
-        : yearBuilt(d, dailyFlow(d), grid(x0, x1), { marker: { x: d.now, label: "now" }, zero: true, empty: "No flow in this window." }),
+        : runoffBuilt(d, grid(x0, x1)),
   },
   bturb: {
     title: "Turbidity at the buoys",
@@ -1218,7 +1290,7 @@ function sectionHtml(d: StationData): string {
     const f = FIGS[key];
     return `
     <figure${f.wide ? ' class="wide"' : ""}>
-      <figcaption><span class="cap-label">${STATION_ID ? "" : `<span class="cap-code">${id}</span>: `}${f.label?.(d) ?? f.title}</span>${f.sub ? `<span class="cap-sub">${f.sub}</span>` : ""}${PLOT_PAGE && key === EMBED ? plotViewTabs(d) : ""}${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, PLOT_PAGE && key === EMBED && d.depths.includes(PLOT_DEPTH) ? PLOT_DEPTH : d.depths[0]) : ""}
+      <figcaption><span class="cap-label">${STATION_ID ? "" : `<span class="cap-code">${id}</span>: `}${f.label?.(d) ?? f.title}</span>${f.sub ? `<span class="cap-sub">${f.sub}</span>` : ""}${PLOT_PAGE && key === EMBED ? plotViewTabs(d) : ""}${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, ((PLOT_PAGE && key === EMBED) || LINKED_PLOT === `${id}-${key}`) && d.depths.includes(PLOT_DEPTH) ? PLOT_DEPTH : d.depths[0]) : ""}
         <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
       <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}"${PLOT_PAGE ? "" : ' title="Click to expand"'}><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
@@ -1560,6 +1632,10 @@ function linkUrl(plot?: string): string {
   const tl = timelineModule?.position();
   if (tl && tl.offset !== 0) p.set("t", tl.scale === "days" ? `${Math.round(tl.offset / 24)}d` : `${tl.offset > 0 ? "+" : ""}${tl.offset}h`);
   if (PLOT_PAGE && PLOT_DEPTH) p.set("depth", PLOT_DEPTH.toLowerCase()); // a plot page's depth tab
+  // A link to one plot ("WLIS-yoy") keeps the depth its tabs show, where that is not the first.
+  const [, pid, pkey] = /^([A-Z0-9]+)-([a-z0-9]+)$/.exec(plot ?? "") ?? [];
+  const pd = !PLOT_PAGE && pid && FIGS[pkey as Kind]?.depthTabs ? STATIONS.find((s) => s.meta.id === pid) : undefined;
+  if (pd && activeDepth(pd, pkey as Kind) !== pd.depths[0]) p.set("depth", activeDepth(pd, pkey as Kind).toLowerCase());
   // A plot page or an embed: the run a reader fixed (its UTC hour, "2026102811"), and that it is an embed.
   const run = EMBED ? chosenRun(EMBED_STATION) : null;
   if (run != null) p.set("run", new Date(run * 1000).toISOString().slice(0, 13).replace(/\D/g, ""));
@@ -2302,7 +2378,7 @@ function lineReading(d: StationData, key: Kind): string[] {
     if (!line) return prSlot(k, PR_NONE, `${k}: no value at this hour`);
     const j = lastAt(line.ys, i, back);
     const text = fmt(line, line.ys[j]);
-    const model = /HRRR|NWPS|model/.test(line.label) ? ` <small>${/NWPS|wave model/.test(line.label) ? "NWPS" : "HRRR"}</small>` : "";
+    const model = /HRRR|NWPS|model/.test(line.label) ? `<small class="pr-src">${/NWPS|wave model/.test(line.label) ? "NWPS" : "HRRR"}</small>` : "";
     return prSlot(k, `${prVal(text, w)}${model}`, `${line.label}: ${text}${j < i ? `, at ${fmtAtHour.format(new Date(xs[j] * 1000))}` : ""}`);
   });
   // The departure page also states the water's level at the hour.
@@ -2337,14 +2413,15 @@ function flowReading(d: StationData): string[] {
 }
 
 /** The year pages (this year, 7-day change, a river's this year): this year's value at the time, the mean of the
- * earlier years drawn on the same date, and (this year) how far the one is from the other. */
+ * earlier years drawn on the same date, and (this year) how far the one is from the other; for a river's runoff, the
+ * earlier years' median and this year's rank among them. */
 function yearReading(key: "yoy" | "chg" | "ryoy"): string[] {
   const { xs, lines, unit = "", hoverDigits = 1 } = PLOT_DRAWN!.b.opts;
   const t = AT ?? Math.floor(Date.now() / 1000 / HOUR) * HOUR;
   const { i, back } = readAt(xs, t, key === "ryoy" ? 72 : 12);
   const year = Math.max(...lines.map((l) => Number(l.label)).filter(Number.isFinite));
   const cur = lines.find((l) => Number(l.label) === year);
-  const earlier = lines.filter((l) => l !== cur);
+  const earlier = lines.filter((l) => l !== cur && Number.isFinite(Number(l.label))); // the years, not a median line
   // Grouped thousands for a river's flow ("12,400 cfs").
   const nf = new Intl.NumberFormat("en-US", { minimumFractionDigits: hoverDigits, maximumFractionDigits: hoverDigits });
   const num = (v: number, sign = false) => `${sign && v > 0 ? "+" : ""}${nf.format(Math.abs(v) < 0.5 * 10 ** -hoverDigits ? 0 : v).replace(/^-/, "\u2212")}${unit}`;
@@ -2366,11 +2443,22 @@ function yearReading(key: "yoy" | "chg" | "ryoy"): string[] {
   const at = j >= 0 ? j : i; // the earlier years on the same date as this year's reading
   const others = at >= 0 ? earlier.map((l) => l.ys[at]).filter(Number.isFinite) : [];
   const mean = others.length ? others.reduce((a, b) => a + b, 0) / others.length : NaN;
-  const what = key === "ryoy" ? "daily mean flow" : key === "yoy" ? V().label.toLowerCase() : `7-day change in ${V().label.toLowerCase()}`;
+  const what = key === "ryoy" ? "runoff to this date" : key === "yoy" ? V().label.toLowerCase() : `7-day change in ${V().label.toLowerCase()}`;
+  const first = prSlot(String(year), Number.isFinite(now) ? prVal(num(now, key === "chg"), w) : PR_NONE, Number.isFinite(now) ? `${year}, ${what}: ${num(now, key === "chg")}${j < i ? `, at ${fmtAtHour.format(new Date(xs[j] * 1000))}` : ""}` : `${year}: no value on this date`);
+  // A river's runoff: the earlier years' median (the dashed line) and this year's place among them, lowest first.
+  if (key === "ryoy") {
+    const sorted = [...others].sort((a, b) => a - b);
+    const med = sorted.length >= 3 ? (sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2) : NaN;
+    const rank = 1 + others.filter((v) => v < now).length;
+    const n = others.length + 1;
+    return [
+      first,
+      prSlot("Median", Number.isFinite(med) ? prVal(num(med), wMean) : PR_NONE, Number.isFinite(med) ? `Median of ${others.length} earlier years to this date: ${num(med)}` : "Too few earlier years for a median"),
+      prSlot("Rank", Number.isFinite(now) && others.length ? prVal(`${rank}/${n}`, 5, false) : PR_NONE, Number.isFinite(now) && others.length ? `${year} is the ${ordinal(rank)} lowest of ${n} years to this date (1: the driest)` : "No ranking on this date"),
+    ];
+  }
   const slots = [
-    Number.isFinite(now)
-      ? prSlot(String(year), prVal(num(now, key === "chg"), w), `${year}, ${what}: ${num(now, key === "chg")}${j < i ? `, at ${fmtAtHour.format(new Date(xs[j] * 1000))}` : ""}`)
-      : prSlot(String(year), PR_NONE, `${year}: no value on this date`),
+    first,
     Number.isFinite(mean)
       ? prSlot("Earlier", prVal(num(mean, key === "chg"), wMean), `Mean of ${others.length} earlier years on this date: ${num(mean, key === "chg")} (${num(Math.min(...others))} to ${num(Math.max(...others))})`)
       : prSlot("Earlier", PR_NONE, "No earlier year on this date"),
@@ -2378,12 +2466,6 @@ function yearReading(key: "yoy" | "chg" | "ryoy"): string[] {
   if (key === "yoy") {
     const diff = now - mean;
     slots.push(Number.isFinite(diff) ? prSlot("Diff", prVal(num(diff, true), Math.max(w, wMean) + 1), `${year} against the earlier years' mean: ${num(diff, true)}`) : prSlot("Diff", PR_NONE, "No comparison on this date"));
-  }
-  // A river's flow ranges over orders of magnitude: its difference as a share of the earlier years' mean ("\u221282%").
-  if (key === "ryoy") {
-    const pc = Math.round((100 * (now - mean)) / mean);
-    const text = `${pc > 0 ? "+" : ""}${String(pc).replace(/^-/, "\u2212")}%`;
-    slots.push(Number.isFinite(pc) ? prSlot("Diff", prVal(text, 5, false), `${year} against the earlier years' mean: ${text}`) : prSlot("Diff", PR_NONE, "No comparison on this date"));
   }
   return slots;
 }

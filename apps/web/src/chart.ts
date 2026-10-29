@@ -43,6 +43,7 @@ export interface Line {
   hidden?: boolean; // tooltip only: not drawn and not used for the y range (e.g. wind direction)
   dots?: boolean; // draw each value as a dot instead of a connected line (e.g. one peak per day)
   fmt?: (v: number) => string; // tooltip text for this line's value, instead of value + unit
+  end?: string; // a label at the line's last value, just above its end (a contour's name, a year), in its color
 }
 
 export interface Band {
@@ -80,6 +81,10 @@ export interface ChartOptions {
   floor?: number; // the value axis reaches at least down to this (keeps a reference level in view)
   ceil?: number; // the value axis stops here; higher values run along the top edge (the tooltip keeps the true value)
   empty?: string; // message (HTML) when the window holds no data
+  /** The value rules where the plot is drawn in another space (a log axis: the values are log10 of the quantity):
+   * their places in that space and their labels, in place of the evenly spaced rules. */
+  yTicks?: { at: number[]; label: (v: number) => string };
+  minPad?: number; // the least room above and below the values, in the plot's units (default 0.5)
   /** The label of the line under the pointer (e.g. a forecast run) for the hovered sample and the value at the
    * pointer, or null; reported to the page as a "linepick" event on the plot when it changes. */
   pick?: (i: number, value: number) => string | null;
@@ -264,7 +269,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   let lo = Math.min(...all, o.floor ?? Infinity);
   let hi = Math.max(...all);
   if (o.ceil !== undefined) hi = Math.min(hi, o.ceil);
-  const pad = Math.max(0.5, (hi - lo) * 0.08);
+  const pad = Math.max(o.minPad ?? 0.5, (hi - lo) * 0.08);
   lo -= pad;
   hi += pad;
   const glyphs = o.glyphs?.length ? thinGlyphs(o.glyphs, x0, x1, svg.clientWidth || 600) : [];
@@ -309,12 +314,15 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   });
   labels.push(`<span class="axis"></span>`);
 
-  // Value rules.
+  // Value rules: evenly spaced, or the caller's (a log axis).
   const ys = niceStep(hi - lo);
   const digits = Math.min(2, (String(+ys.toPrecision(3)).split(".")[1] ?? "").length); // 2.5 keeps its half
-  for (let v = Math.ceil(lo / ys) * ys; v <= hi; v += ys) {
+  const rulesAt: number[] = [];
+  if (o.yTicks) rulesAt.push(...o.yTicks.at.filter((v) => v >= lo && v <= hi));
+  else for (let v = Math.ceil(lo / ys) * ys; v <= hi; v += ys) rulesAt.push(v);
+  for (const v of rulesAt) {
     const yy = py(v);
-    const isZero = o.zero && Math.abs(v) < ys / 1000;
+    const isZero = !o.yTicks && o.zero && Math.abs(v) < ys / 1000;
     svg.append(
       el("line", {
         x1: 0, x2: W, y1: yy, y2: yy,
@@ -323,7 +331,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
         "vector-effect": "non-scaling-stroke",
       }),
     );
-    labels.push(`<span class="ylab" style="top:${(100 * yy) / H}%">${v.toFixed(digits)}${o.unit}</span>`);
+    labels.push(`<span class="ylab" style="top:${(100 * yy) / H}%">${o.yTicks ? o.yTicks.label(v) : `${v.toFixed(digits)}${o.unit}`}</span>`);
   }
 
   if (o.marker && o.marker.x > x0 && o.marker.x < x1) {
@@ -386,6 +394,15 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
       pen = true;
     });
     if (!d) continue;
+    if (line.end) {
+      // Placed in pixels from the plot's own box (the labels layer also spans the value labels' margin), so the name
+      // ends at the line's end, inside the plot, clear of the value labels.
+      let k = line.ys.length - 1;
+      while (k > 0 && !Number.isFinite(line.ys[k])) k--;
+      const sb = svg.getBoundingClientRect(), lb = labelsEl.getBoundingClientRect();
+      const left = sb.width ? sb.left - lb.left + (sb.width * px(xs[k])) / W : 0;
+      labels.push(`<span class="end-lab" style="left:${left.toFixed(1)}px;top:${(100 * py(Math.min(line.ys[k], hi))) / H}%;color:${line.color}">${line.end}</span>`);
+    }
     svg.append(
       el("path", {
         d, fill: "none", stroke: line.color, "data-label": line.label,

@@ -459,6 +459,8 @@ figcaption { display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wra
 .plot-labels .month { bottom: -15px; transform: translateX(-50%); color: var(--chart-month); font-size: 8px; }
 .plot-labels .axis { left: 0; right: 44px; bottom: -1px; height: 1px; background: var(--chart-axis); }
 .plot-labels .ylab { right: 0; transform: translateY(-50%); width: 40px; text-align: right; }
+/* A line's own name at its end (a percentile contour, a year), right-aligned to the end and just above it. */
+.plot-labels .end-lab { transform: translate(-100%, -115%); padding-right: 2px; font-size: 8px; }
 .plot-labels .arriving { top: 2px; padding-left: 5px; color: var(--chart-label); font-style: italic; font-family: var(--serif); font-size: 12px; }
 .plot-labels.has-glyphs .arriving { top: 24px; }
 /* Direction arrows along the top of a chart (chart.ts glyphs), each centred on its hour. */
@@ -1441,8 +1443,9 @@ body.plot-page .plot[data-fig="sb"] { height: max(200px, calc(100svh - 390px)); 
 .plot-reading .pr-dir { display: inline-block; min-width: calc(3ch + 14px); }
 @media (max-width: 560px) { .plot-reading { column-gap: 10px; font-size: 11px; } .plot-reading .pr-k { letter-spacing: 0.08em; } }
 /* Smaller phones: smaller type and keys; the smallest leave out the wind's arrow (the compass point stays). */
+.plot-reading small.pr-src { margin-left: 0.6ch; } /* a model source after its value ("0.3 NWPS"); closer on the narrowest phones */
 @media (max-width: 374px) { .plot-reading { column-gap: 6px; font-size: 10px; } .plot-reading .pr-k { letter-spacing: 0; } }
-@media (max-width: 340px) { .plot-reading .wind-arrow { display: none; } .plot-reading .pr-dir { min-width: 3ch; } .plot-reading .pr-k, .plot-reading small { font-size: 8px; } }
+@media (max-width: 340px) { .plot-reading .wind-arrow { display: none; } .plot-reading .pr-dir { min-width: 3ch; } .plot-reading .pr-k, .plot-reading small { font-size: 8px; } .plot-reading small.pr-src { margin-left: 2px; } }
 body.plot-page .embed-credit { margin: 8px 0 0; font: 11px/1.4 var(--sans); color: var(--dim); }
 body.plot-page .embed-credit a { color: inherit; text-underline-offset: 2px; }
 @media (max-height: 500px) {

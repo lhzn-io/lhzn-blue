@@ -109,6 +109,24 @@ function moonGlyph(phase: string, r = 4): string {
 }
 const phaseName = (p: string) => ({ new: "new moon", first_quarter: "first quarter", full: "full moon", last_quarter: "last quarter" })[p] ?? p;
 
+type Extreme = { t: number; ft: number; type: string; o: number };
+
+/** The measured high or low near a predicted one: the extreme of the hourly level within two hours of it (NaN ahead,
+ * or with too few readings). */
+function observedExtreme(d: StationData, e: { t: number; type: string }): number {
+  if (!d.level || e.t > Date.now() / 1000) return NaN;
+  const near = [-2, -1, 0, 1, 2].map((k) => d.level!.at(Math.round(e.t / HOUR) * HOUR + k * HOUR)).filter(Number.isFinite);
+  return near.length >= 3 ? (e.type === "H" ? Math.max(...near) : Math.min(...near)) : NaN;
+}
+
+/** The predicted high or low either side of a time, each with the water's own extreme: a plot page's reading. */
+export function hiloAround(d: StationData, t: number): { before?: Extreme; after?: Extreme } {
+  const all = (TIDES?.[d.meta.id]?.hilo ?? d.tides).map((e) => ({ t: Date.parse(e.t) / 1000, ft: e.ft, type: e.type }));
+  const i = all.findIndex((e) => e.t > t);
+  const at = (e: (typeof all)[number] | undefined): Extreme | undefined => (e ? { ...e, o: observedExtreme(d, e) } : undefined);
+  return { before: at(i < 0 ? all[all.length - 1] : all[i - 1]), after: at(i < 0 ? undefined : all[i]) };
+}
+
 /** The tide ladder for one station, as on the tides page: each high and low as NOAA's prediction (open circle) and
  * what the water did (gold dot), joined by a stem; amber where the water ran more than 0.5 ft beyond the prediction in
  * the direction that matters (higher at a high, lower at a low). Flood levels in muted red, mean higher high water
@@ -126,12 +144,7 @@ export function drawLadder(d: StationData, x0: number, x1: number): void {
     svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="ld-note">${TIDES ? "No tides in this window." : "Loading the predictions."}</text>`;
     return;
   }
-  const obsAt = (e: { t: number; type: string }) => {
-    if (!d.level || e.t > Date.now() / 1000) return NaN;
-    const near = [-2, -1, 0, 1, 2].map((k) => d.level!.at(Math.round(e.t / HOUR) * HOUR + k * HOUR)).filter(Number.isFinite);
-    return near.length >= 3 ? (e.type === "H" ? Math.max(...near) : Math.min(...near)) : NaN;
-  };
-  const rows = events.map((e) => ({ ...e, o: obsAt(e) }));
+  const rows = events.map((e) => ({ ...e, o: observedExtreme(d, e) }));
   const fl = (tide?.flood_ft ?? {}) as Record<string, number | null | undefined>;
   const minor = fl.nws_minor ?? NaN, moderate = fl.nws_moderate ?? NaN, mhhw = tide?.datums_ft?.MHHW ?? NaN;
   const vals = rows.flatMap((r) => [r.ft, r.o]).filter(Number.isFinite);

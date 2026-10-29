@@ -94,6 +94,8 @@ export interface ZoomHost {
   varLabel(): string;
   depth(d: StationData, key: string): string;
   depthTabs(d: StationData, key: string, active: string): string;
+  /** The plot's own page at this station, if it has one: the dialog links to it. */
+  pageUrl(d: StationData, key: string): string | null;
   afterDraw(plot: HTMLElement, d: StationData, key: string, x0: number, x1: number): void;
 }
 let H: ZoomHost;
@@ -163,6 +165,12 @@ export function openZoom(d: StationData, key: string, full = false): void {
   zoom = { d, key, depth: H.depth(d, key), x0, x1, full: false };
   $("zoom-title").textContent = `${H.name(f)} · ${d.meta.name}`;
   $("zoom-tabs").innerHTML = f.depthTabs && d.depths.length > 1 ? H.depthTabs(d, "zoom", zoom.depth) : "";
+  const page = document.getElementById("zoom-page") as HTMLAnchorElement | null;
+  const url = H.pageUrl(d, key);
+  if (page) {
+    page.hidden = !url;
+    if (url) page.href = url;
+  }
   ($("zoom") as HTMLDialogElement).showModal();
   setFull(full); // draws after layout, so the axis labels fit the dialog's width
 }

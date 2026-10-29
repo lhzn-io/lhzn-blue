@@ -16,7 +16,7 @@ import {
   type Live, type Meta, type MetaSeries,
 } from "../series";
 import { mountAdvisories } from "../advisory";
-import { ago, escHtml, fmtDate, fmtRun, signed } from "./format";
+import { ago, escHtml, fmtClock, fmtDate, fmtRun, fmtWhenMin, signed } from "./format";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./cursor";
 import { holdRoom } from "./room";
 import { pinTimeline } from "./pin-time";
@@ -36,14 +36,14 @@ import { ADV, ADV_WIND, advisoriesFor, loadAdvisories, zoneOf, zonesInForce } fr
 import { hideWsTip, moveStripCursor, showWsTip, windAcrossHtml, WS_BACK, wsPoint } from "./wind-strip";
 import { windRoseHtml } from "./wind-rose";
 import { DEPARTURE, loadTides, onTides, TIDES } from "./tides";
-import { departureBuilt, departureRowsSvg, drawLadder, highestAheadHtml, hiloBuilt, tidesTable } from "./tides-view";
+import { departureBuilt, departureRowsSvg, drawLadder, highestAheadHtml, hiloAround, hiloBuilt, tidesTable } from "./tides-view";
 import { cfs, dailyFlow, ordinal, pct, percentileOf, riverFlow } from "./rivers";
 import { gaugePins, riverReadoutsHtml, riverTable, wireRiverHover } from "./rivers-view";
 import { dropDown, wireMore } from "./phone-bar";
 import { updatedStrip, wireOutageIcon } from "./freshness";
 import { BOAT, wireBoat } from "./boat";
 import { wireLocate } from "./locate";
-import { embedMode, PLOT_PAGES, type EmbedFig } from "./embed";
+import { embedMode, PLOT_PAGES, plotSlug, type PlotPage } from "./embed";
 import { wireCollect } from "./prompt";
 import { currentSpeed, setUnit, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./units";
 
@@ -142,10 +142,11 @@ try {
 } catch {
   /* private mode: Wind & waves */
 }
-let EMBED: EmbedFig | null = null;
+let EMBED: Kind | null = null;
 let EMBED_STATION = "";
 /** A plot page (/<waterway>/<station>/<plot>/): the one figure, with the time bar and a reading line (waterway/embed.ts). */
 let PLOT_PAGE = false;
+let PLOT: PlotPage | null = null;
 const V = () => WATER_VARS[VK];
 
 
@@ -1090,7 +1091,7 @@ function wireStatusTabs(stations: StationData[]): void {
  * scale change. The other views mark the moon's phases on the time bar's dates instead. */
 let phaseLoad: Promise<import("../phase").PhaseFile | null> | null = null;
 async function syncPhase(hours: boolean): Promise<void> {
-  const show = VK === "tides" && hours;
+  const show = VK === "tides" && hours && !PLOT_PAGE; // a plot page keeps its height for the plot
   const ph = await import("../phase");
   if (show) phaseLoad ??= getJson<import("../phase").PhaseFile>(`${DATA}/current-phase.json`).catch(() => null);
   const u = WIND_UNITS[WU];
@@ -1235,11 +1236,15 @@ function sectionHtml(d: StationData): string {
  * page's: the section, the reading at the page's time, and the way to the station's own page. */
 function embedHtml(d: StationData | undefined): string {
   if (!d) return `<p class="embed-credit">No station ${escHtml(EMBED_STATION)} on this page.</p>`;
+  const every = `<a href="${placeUrl(d.meta.id)}">${escHtml(d.meta.name)}: every plot</a>`;
+  if (PLOT && !shows(d, EMBED!)) return `<p class="embed-credit">${escHtml(d.meta.name)} has no ${escHtml(PLOT.name.toLowerCase())} plot. ${every}</p>`;
   if (PLOT_PAGE)
     return `<p class="plot-reading" id="plot-reading" aria-live="polite"></p>` + sectionHtml(d) +
-      `<p class="embed-credit"><a href="${placeUrl(d.meta.id)}">${escHtml(d.meta.name)}: every plot</a> &middot; tap or drag the plot to move the time &middot; provisional, not for navigation</p>`;
-  const view = EMBED === "next48" ? "wind" : "temp";
-  const link = `https://longhorizon.blue/${CFG.id}/?view=${view}#${d.meta.id}-${EMBED}`;
+      `<p class="embed-credit">${every} &middot; tap or drag the plot to move the time &middot; provisional, not for navigation</p>`;
+  // An embed links to the plot's own page, or for an embed by name, to the plot on the waterway's page.
+  const link = PLOT
+    ? `https://longhorizon.blue${location.pathname}?view=${VK}`
+    : `https://longhorizon.blue/${CFG.id}/?view=${EMBED === "next48" ? "wind" : "temp"}#${d.meta.id}-${EMBED}`;
   return sectionHtml(d) +
     `<p class="embed-credit"><a href="${link}" target="_blank" rel="noopener">${escHtml(d.meta.name)} on longhorizon.blue</a> &middot; live, updated hourly &middot; provisional, not for navigation</p>`;
 }
@@ -1281,11 +1286,15 @@ const activeDepth = (d: StationData, key: Kind): string =>
 
 /** Each plot's note from its last drawing ("<station>-<plot>"), shown at the top of the plot's (i). */
 const PLOT_NOTES = new Map<string, string>();
+/** A plot page's plot as last drawn: its window (each plot's holds the time bar's reach), and what it drew, for the
+ * reading line. */
+let PLOT_DRAWN: { x0: number; x1: number; b: Built } | null = null;
 
 function drawInline(d: StationData, key: Kind): void {
   if (!shows(d, key)) return;
   const [x0, x1] = FIGS[key].window(d);
   const b = FIGS[key].build(d, activeDepth(d, key), x0, x1, false);
+  if (PLOT_PAGE && key === EMBED) PLOT_DRAWN = { x0, x1, b };
   if (key === "hilo") {
     drawLadder(d, x0, x1);
     // The flood levels and MHHW are labelled on the ladder itself; the legend keeps the marks that are not.
@@ -2014,10 +2023,10 @@ async function main(): Promise<void> {
       }
       const opener = target.closest<HTMLElement>(".expand, .plot");
       if (!opener?.dataset.station || PLOT_PAGE) return; // a plot page's plot sets the time instead
-      // On a phone, a plot with a page of its own opens it (Back returns); elsewhere, the expanded view.
-      const slug = Object.keys(PLOT_PAGES).find((s) => PLOT_PAGES[s] === opener.dataset.fig);
-      if (slug && PAGES && opener.dataset.full !== "1" && window.matchMedia("(max-width: 560px), (max-height: 500px)").matches) {
-        location.assign(plotUrl(opener.dataset.station, slug));
+      // On a phone, a plot with a page of its own opens it (Back returns); elsewhere, the expanded view, which links to it.
+      const page = plotPageUrl(opener.dataset.station, opener.dataset.fig!);
+      if (page && opener.dataset.full !== "1" && window.matchMedia("(max-width: 560px), (max-height: 500px)").matches) {
+        location.assign(page);
         return;
       }
       openZoom(byId(opener.dataset.station), opener.dataset.fig!, opener.dataset.full === "1");
@@ -2028,6 +2037,7 @@ async function main(): Promise<void> {
       varLabel: () => V().label,
       depth: (d, k) => activeDepth(d, k as Kind),
       depthTabs: depthTabsHtml,
+      pageUrl: (d, k) => plotPageUrl(d.meta.id, k),
       afterDraw: (plot, d, k, x0, x1) => {
         if (k === "next48") mountVintage(d, plot, x0, x1);
         else if (k === "waves") mountNwpsVintage(d, plot, x0, x1);
@@ -2131,17 +2141,36 @@ const hasPage = (id: string) => {
 
 /** A station's page (or the overview, for null), keeping the page's time and view. */
 const placeUrl = (id: string | null) => `${PAGES!.base}${id ? `${id.toLowerCase()}/` : ""}${location.search}`;
-/** A station's plot page (/<waterway>/<station>/<plot>/), keeping the page's time and view. */
-const plotUrl = (id: string, slug: string) => `${PAGES!.base}${id.toLowerCase()}/${slug}/${location.search}`;
+/** A station's plot page (/<waterway>/<station>/<plot>/), keeping the page's time, view and units; not the map's layer,
+ * which a plot page does not draw. */
+const plotUrl = (id: string, slug: string) => {
+  const q = new URLSearchParams(location.search);
+  q.delete("layer");
+  q.delete("ov");
+  const s = q.toString();
+  return `${PAGES!.base}${id.toLowerCase()}/${slug}/${s ? `?${s}` : ""}`;
+};
+/** A figure's own page at a station, where both have one. */
+const plotPageUrl = (id: string, fig: string): string | null => {
+  const slug = plotSlug(fig);
+  return slug && PAGES && hasPage(id) ? plotUrl(id, slug) : null;
+};
 
 /** A plot page: the top bar names the plot beside the place; a tap or drag on the plot moves the page's time; the
  * run slider's choice goes into the address. The reading follows each. */
 function wirePlotPage(): void {
-  document.getElementById("place-panel")?.insertAdjacentHTML("afterend", `<span class="plot-name">${escHtml(EMBED === "next48" ? FIGS.next48.title.replace("hours", "h").replace(/^The n/, "N") : "")}</span>`);
-  document.addEventListener("timepick", (e) => {
-    const t = (e as CustomEvent<number>).detail;
-    timelineModule?.setOffset(Math.round(t / HOUR - Math.round(Date.now() / 1000 / HOUR)));
-  });
+  document.getElementById("place-panel")?.insertAdjacentHTML("afterend", `<span class="plot-name">${escHtml(PLOT?.name ?? "")}</span>`);
+  const pick = (t: number) => timelineModule?.setOffset(Math.round(t / HOUR - Math.round(Date.now() / 1000 / HOUR)));
+  document.addEventListener("timepick", (e) => pick((e as CustomEvent<number>).detail));
+  // The tide ladder is drawn apart from the charts: a tap or drag on it sets the time the same way.
+  const ladder = (e: PointerEvent) => {
+    const svg = (e.target as Element).closest<SVGSVGElement>('.plot[data-fig="hilo"] svg');
+    if (!svg || !PLOT_DRAWN || (e.type === "pointermove" && !e.buttons && e.pointerType === "mouse")) return;
+    const box = svg.getBoundingClientRect();
+    pick(PLOT_DRAWN.x0 + ((e.clientX - box.left) / Math.max(1, box.width)) * (PLOT_DRAWN.x1 - PLOT_DRAWN.x0));
+  };
+  document.addEventListener("pointerdown", ladder);
+  document.addEventListener("pointermove", ladder);
   document.addEventListener("input", (e) => {
     if (!(e.target as HTMLElement).closest(".vg-range")) return;
     plotReading();
@@ -2149,34 +2178,111 @@ function wirePlotPage(): void {
   });
 }
 
-/** A plot page's reading at the page's time (which the time bar states, with its weekday): what was measured and what
- * HRRR said, wind, gust and direction, in the reader's unit; HRRR from the run the reader fixed, else the newest run
- * that reaches the hour. Two slots of fixed width on one line, each always there ("--" where there is no value), so
- * neither moves as the time does; the full statement of each is its hover text. */
+/** A plot page's reading at the page's time (which the time bar states, with its weekday): slots of equal, fixed width
+ * on one line, each always there ("--" where there is no value), so none moves as the time does; the full statement
+ * of each is its hover text. */
 function plotReading(): void {
   const el = document.getElementById("plot-reading");
   const d = STATIONS.find((s) => s.meta.id === EMBED_STATION);
-  if (!el || !d) return;
+  if (!el || !d || !EMBED) return;
+  const slots = EMBED === "next48" || EMBED === "wind" ? windReading(d) : EMBED === "hilo" ? hiloReading(d) : lineReading(d, EMBED);
+  el.style.setProperty("--pr-n", String(Math.max(2, slots.length)));
+  el.innerHTML = slots.join("");
+}
+
+/** A reading slot: its key in small capitals, the value, and the full statement as hover text. On a phone "Measured"
+ * reads "Obs". */
+const prSlot = (key: string, body: string, title: string) =>
+  `<span class="pr-slot" title="${escHtml(title)}"><span class="pr-k">${key === "Measured" ? '<span class="wide-only">Measured</span><span class="narrow-only">Obs</span>' : key}</span> ${body}</span>`;
+const PR_NONE = `<span class="pr-none">--</span>`;
+/** A value's number and its unit ("1028.4", " mb"); text that does not start with a number is all number. */
+const splitUnit = (s: string): [string, string] => {
+  const m = /^([+\-\u2212]?[\d.,]+)(\D.*)$/.exec(s);
+  return m ? [m[1], m[2]] : [s, ""];
+};
+/** A value with its number held at a width of `w` characters (the line is monospaced), right-aligned, so what follows
+ * it in the slot stays put as its digits change; the unit after it, left out on a phone (the axis has it). */
+const prVal = (text: string, w: number, split = true) => {
+  const [num, u] = split ? splitUnit(text) : [text, ""];
+  return `<b style="--w:${w}">${num}</b>${u ? `<span class="pr-u wide-only">${u}</span>` : ""}`;
+};
+/** A length to one decimal, with a true minus sign (and none on a zero); its number at most "\u221210.2". */
+const ft1 = (v: number) => `${(Math.abs(v) < 0.05 ? 0 : v).toFixed(1).replace(/^-/, "\u2212")} ft`;
+const FT1_W = 5;
+
+/** What a plot page reads from its plot's own lines: per slot, the lines that can fill it, in order (a label's start);
+ * the first with a value at the time fills it, marked with its source when that is a model. */
+const READING: Partial<Record<Kind, (b: Built) => [string, string[]][]>> = {
+  pressure: () => [["Pressure", ["Pressure"]], ["3 h", ["Change over 3 h", HRRR_HIST_LABEL, "HRRR forecast"]]],
+  waves: () => [["Height", ["Significant height", "NWS wave model"]], ["Highest", ["Highest wave"]], ["Period", ["Dominant period"]]],
+  air: (b) => [["Air", ["Air"]], ...(b.legend[0][0] !== "Air" ? [["Water", [b.legend[0][0]]] as [string, string[]]] : [])],
+  dep: () => [["Departure", ["Observed minus predicted"]]],
+};
+
+function lineReading(d: StationData, key: Kind): string[] {
+  const drawn = PLOT_DRAWN;
+  if (!drawn) return [];
+  const { xs, lines, unit = "", hoverDigits = 1 } = drawn.b.opts;
+  const t = AT ?? Math.floor(Date.now() / 1000 / HOUR) * HOUR;
+  const step = xs.length > 1 ? xs[1] - xs[0] : HOUR;
+  const i = Math.round((t - xs[0]) / step);
+  const inside = i >= 0 && i < xs.length && Math.abs(xs[i] - t) <= step / 2;
+  const spec = READING[key]?.(drawn.b) ?? drawn.b.legend.filter(([l]) => l).map(([l, , , shown]) => [shown ?? l, [l]] as [string, string[]]);
+  const fmt = (l: (typeof lines)[number], v: number) => (l.fmt ? l.fmt(v) : `${v.toFixed(hoverDigits)}${unit}`);
+  const slots = spec.map(([k, starts]) => {
+    const can = lines.filter((l) => starts.some((s) => l.label.startsWith(s)));
+    // The slot's width: the longest number any of its lines takes in the plot's window.
+    let w = 2;
+    for (const l of can) for (const v of l.ys) if (Number.isFinite(v)) w = Math.max(w, splitUnit(fmt(l, v))[0].length);
+    const line = inside ? can.find((l) => Number.isFinite(l.ys[i])) : undefined;
+    if (!line) return prSlot(k, PR_NONE, `${k}: no value at this hour`);
+    const text = fmt(line, line.ys[i]);
+    const model = /HRRR|NWPS|model/.test(line.label) ? ` <small>${/NWPS|wave model/.test(line.label) ? "NWPS" : "HRRR"}</small>` : "";
+    return prSlot(k, `${prVal(text, w)}${model}`, `${line.label}: ${text}`);
+  });
+  // The departure page also states the water's level at the hour.
+  if (key === "dep") {
+    const lv = d.level?.at(t) ?? NaN;
+    slots.unshift(prSlot("Level", Number.isFinite(lv) ? prVal(ft1(lv), FT1_W) : PR_NONE, Number.isFinite(lv) ? `Measured water level: ${ft1(lv)} above MLLW` : "No level reading at this hour"));
+  }
+  return slots;
+}
+
+/** The highs and lows page: the predicted tide before the time and the one after, each with what the water did. */
+function hiloReading(d: StationData): string[] {
+  const t = AT ?? Date.now() / 1000;
+  const { before, after } = hiloAround(d, t);
+  const one = (key: string, e: typeof before) => {
+    if (!e) return prSlot(key, PR_NONE, `${key}: no prediction`);
+    const kind = e.type === "H" ? "High" : "Low";
+    const when = fmtWhenMin.format(new Date(e.t * 1000));
+    const obs = Number.isFinite(e.o) ? `, observed ${ft1(e.o)}` : "";
+    return prSlot(key, `${e.type} ${prVal(ft1(e.ft), FT1_W)} <small class="pr-t">${fmtClock.format(new Date(e.t * 1000)).replace(/ ([AP])M$/, (_m, p: string) => p.toLowerCase())}</small>`, `${kind} ${when}: predicted ${ft1(e.ft)}${obs}`);
+  };
+  return [one("Before", before), one("After", after)];
+}
+
+/** The wind pages' reading: what was measured and what HRRR said, wind, gust and direction, in the reader's unit;
+ * HRRR from the run the reader fixed, else the newest run that reaches the hour. */
+function windReading(d: StationData): string[] {
   const u = WIND_UNITS[WU].label;
   // As a mariner says it: the direction, then the wind to its gusts ("NE 6–10"); the unit is the axis's and the
   // menu's, and in full in the hover text.
   type W = [number | null | undefined, number | null | undefined, number | null | undefined];
   const ok = (v: number | null | undefined): v is number => v != null && Number.isFinite(v);
+  // The direction and the speeds each held at their widest ("NNE", "11–17"), so nothing in the slot moves.
   const wind = ([dir, spd, gust]: W) =>
-    `${ok(dir) ? `${windArrow(dir)}${compass(dir)} ` : ""}<b>${windFmt(spd ?? NaN)}${ok(gust) && windFmt(gust) !== windFmt(spd ?? NaN) ? `&ndash;${windFmt(gust)}` : ""}</b>`;
+    `<span class="pr-dir">${ok(dir) ? `${windArrow(dir)}${compass(dir)}` : ""}</span> ${prVal(`${windFmt(spd ?? NaN)}${ok(gust) && windFmt(gust) !== windFmt(spd ?? NaN) ? `&ndash;${windFmt(gust)}` : ""}`, 5, false)}`;
   const words = ([dir, spd, gust]: W) =>
     `${ok(dir) ? `from ${compass(dir)}, ` : ""}${windFmt(spd ?? NaN)} ${u}${ok(gust) ? `, gusts ${windFmt(gust)} ${u}` : ""}`;
-  // On a phone "Measured" reads "Obs", so each slot fits half the width.
-  const slot = (key: string, body: string, title: string) =>
-    `<span class="pr-slot" title="${title}"><span class="pr-k">${key === "Measured" ? '<span class="wide-only">Measured</span><span class="narrow-only">Obs</span>' : key}</span> ${body}</span>`;
+  const slot = prSlot, none = PR_NONE;
   const m = d.met;
   const nowH = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
-  const none = `<span class="pr-none">--</span>`;
   // Measured: the latest reading at now (with its age), the hour's reading at a past time, nothing ahead.
   const last: W | null = AT == null && m?.last?.wind_kt != null ? [m.last.dir_deg, m.last.wind_kt, m.last.gust_kt] : null;
   const atHour: W | null = AT != null && Number.isFinite(m?.wind?.at(AT) ?? NaN) ? [m!.dir?.at(AT), m!.wind!.at(AT), m!.gust?.at(AT)] : null;
   const measured = last
-    ? slot("Measured", `${wind(last)} <small>${ago(m!.last!.time).replace(" ago", "")}</small>`, `Measured ${ago(m!.last!.time)}: ${words(last)}`)
+    ? slot("Measured", `${wind(last)} <small class="pr-t">${ago(m!.last!.time).replace(" ago", "")}</small>`, `Measured ${ago(m!.last!.time)}: ${words(last)}`)
     : atHour
       ? slot("Measured", wind(atHour), `Measured at this hour: ${words(atHour)}`)
       : slot("Measured", none, (AT ?? nowH) > nowH ? "Ahead of now: not yet measured" : "No reading at this hour");
@@ -2188,10 +2294,10 @@ function plotReading(): void {
   const short = run != null && !fixed && f;
   const runName = (issue: number) => fmtRun.format(new Date(issue * 1000));
   const forecast = f
-    ? slot("HRRR", `${wind([f.dir, f.spd, f.gust])} <small>${runName(f.issue).replace(/^\w+, /, "")}${short ? "*" : ""}</small>`,
+    ? slot("HRRR", `${wind([f.dir, f.spd, f.gust])} <small class="pr-t">${runName(f.issue).replace(/^\w+, /, "")}${short ? "*" : ""}</small>`,
         `HRRR, the ${runName(f.issue)} run: ${words([f.dir, f.spd, f.gust])}${short ? `; the ${runName(run!)} run you fixed ends before this hour` : ""}`)
     : slot("HRRR", none, "No HRRR run reaches this hour");
-  el.innerHTML = measured + forecast;
+  return [measured, forecast];
 }
 
 /** The places row: Overview, the stations shown as their own links, and a menu of the rest, in groups; the current one
@@ -2381,10 +2487,16 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   wireMast();
   DATA = CFG.data;
   // A plot page's address names its plot after the station (/long-island-sound/exrx/next-48h/).
-  const plotSlug = PAGES && STATION_ID ? location.pathname.slice(PAGES.base.length).split("/")[1]?.toLowerCase() : "";
-  const pathFig = plotSlug ? PLOT_PAGES[plotSlug] ?? null : null;
-  ({ fig: EMBED, station: EMBED_STATION, page: PLOT_PAGE } = embedMode(LINK, CFG.defaults.embedStation, pathFig && STATION_ID ? { fig: pathFig, station: STATION_ID } : null));
-  if (EMBED) VK = EMBED === "next48" ? "wind" : "temp";
+  const slug = PAGES && STATION_ID ? location.pathname.slice(PAGES.base.length).split("/")[1]?.toLowerCase() : "";
+  PLOT = slug ? PLOT_PAGES[slug] ?? null : null;
+  let fig: string | null;
+  ({ fig, station: EMBED_STATION, page: PLOT_PAGE } = embedMode(LINK, CFG.defaults.embedStation, PLOT && STATION_ID ? { fig: PLOT.fig, station: STATION_ID } : null));
+  EMBED = fig as Kind | null;
+  // The plot's view: the link's, if the plot is drawn in it, else its first (an embed by name: next48 in Wind, yoy in
+  // Temperature).
+  const linked = LINK.get("view") ?? "";
+  if (PLOT) VK = (PLOT.views.includes(linked) ? linked : PLOT.views[0]) as VarKey;
+  else if (EMBED) VK = EMBED === "next48" ? "wind" : "temp";
   // A linked run ("run=2026102811", its UTC hour) stays the plot's run as the time moves.
   const runLink = /^(\d{4})(\d{2})(\d{2})(\d{2})$/.exec(LINK.get("run") ?? "");
   if (runLink && EMBED_STATION) chooseRun(EMBED_STATION, Date.UTC(+runLink[1], +runLink[2] - 1, +runLink[3], +runLink[4]) / 1000);

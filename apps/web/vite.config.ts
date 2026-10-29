@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { defineConfig, loadEnv, type Plugin } from "vite";
+import plotPages from "./src/waterway/plot-pages.json";
 
 const REPO = resolve(import.meta.dirname, "../..");
 
@@ -11,12 +12,12 @@ function localData(stationPages: string[]): Plugin {
   return {
     name: "local-data",
     configureServer(server) {
-      // A waterway's station pages (<base><station>/) and their plot pages (<base><station>/next-48h/) are its own
+      // A waterway's station pages (<base><station>/) and their plot pages (<base><station>/wind/) are its own
       // page, as the Worker serves them; a path with a page of its own (the Sound's forecast, tides and models) stays
       // that page. A page's address without its trailing slash is redirected to it, as in production.
       const hasPage = (path: string) => existsSync(resolve(import.meta.dirname, `.${path}`, "index.html"));
-      const stationBase = (path: string) =>
-        !hasPage(path) && stationPages.find((b) => path.startsWith(b) && /^[a-z0-9-]{2,20}\/(?:next-48h\/)?$/.test(path.slice(b.length)));
+      const station = new RegExp(`^[a-z0-9-]{2,20}/(?:(?:${Object.keys(plotPages).join("|")})/)?$`);
+      const stationBase = (path: string) => !hasPage(path) && stationPages.find((b) => path.startsWith(b) && station.test(path.slice(b.length)));
       server.middlewares.use((req, res, next) => {
         const [path, query] = (req.url ?? "").split("?");
         if (!path.endsWith("/") && (hasPage(`${path}/`) || stationBase(`${path}/`))) {

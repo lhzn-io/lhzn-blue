@@ -393,9 +393,10 @@ export function stationTables(stations: StationData[], SG: string): string {
   const open = (g: string) => `<table class="status-grid" id="status-panel" role="tabpanel" aria-labelledby="stab-${g}">`;
   const air = "air (&deg;F), pressure (mbar)";
   const weather: [string, string][] = [["Wind", WIND_UNITS[WU].label], ["Air", "&deg;F"], ["Pressure", "mb"]];
-  // Ahead of now, the run and its typical miss once, above the table, rather than in every cell.
+  // Ahead of now, the run and its typical miss once, above the table, rather than in every cell; its line is held
+  // empty otherwise, so the table and the page below do not move as the time crosses now.
   const run = AT != null && atFuture() ? (stations.length ? forecastAt(stations[0].meta.id, hourOf(AT)) : null) : null;
-  const source = AT != null && atFuture() ? `<p class="tbl-src">HRRR${run ? `, ${fmtRun.format(new Date(run.issue * 1000))} run` : ""} &middot; ${verTag(AT, stations[0]?.meta.id)}</p>` : "";
+  const source = AT != null && atFuture() ? `<p class="tbl-src">HRRR${run ? `, ${fmtRun.format(new Date(run.issue * 1000))} run` : ""} &middot; ${verTag(AT, stations[0]?.meta.id)}</p>` : `<p class="tbl-src" aria-hidden="true">&nbsp;</p>`;
   const caption = (s: string) => `<caption class="sr-only">${s}</caption>`;
   const table =
     SG === "buoy"

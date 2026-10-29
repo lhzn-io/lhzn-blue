@@ -216,7 +216,11 @@ figure.wide { grid-column: 1 / -1; }
 .tl-step { cursor: pointer; margin-right: 4px; padding: 1px 5px; font: 10px/1.2 var(--mono); color: var(--dim); background: none; border: 1px solid var(--rule); border-radius: 3px; }
 .tl-step:hover:not(:disabled) { color: var(--ink); border-color: var(--dim); }
 .tl-step:disabled { opacity: 0.35; cursor: default; }
-.tl-slot .tl-label { margin-left: 4px; }
+/* The time at a fixed width, set by the longest ("Thu 10 PM −13.7d"), and "now" holding its place when hidden, so
+   nothing beside them moves as the time changes length. */
+.tl-slot .tl-label { display: inline-block; min-width: 16ch; margin-left: 4px; text-align: left; }
+.tl-pin .tl-slot .tl-label { text-align: right; }
+.timeline .tl-now[hidden] { display: inline !important; visibility: hidden; }
 @media (pointer: coarse) { .tl-step { min-width: 46px; min-height: 34px; margin-right: 6px; font-size: 13px; } .tl-row > .tl-slot { padding-left: 0; } }
 .tl-now { margin-left: 8px; font: 10px/1.2 var(--sans); text-decoration: underline; text-underline-offset: 2px; }
 .tl-slot { text-align: right; white-space: nowrap; overflow: hidden; }
@@ -275,7 +279,8 @@ html:has(body > .tl-pin) { scroll-padding-top: 26px; }
   .timeline .tl-step[data-dir="-1"] { grid-area: back; }
   .timeline .tl-step[data-dir="1"] { grid-area: ahead; }
   .timeline .tl-now { grid-area: now; }
-  .timeline .tl-label { grid-area: label; justify-self: end; margin: 0; font-size: 12px; color: var(--ink); }
+  .timeline .tl-label { grid-area: label; justify-self: end; margin: 0; font-size: 12px; color: var(--ink); text-align: right; }
+  .timeline .tl-now[hidden] { display: grid !important; }
   .tl-dlabel:nth-of-type(even), .tl-dlabel:nth-of-type(3) { display: none; }
   .tl-pin { padding: 2px var(--gutter) 4px; }
   .tl-pin .timeline > .tl-row:first-child > .tl-track { height: 28px; }
@@ -1396,7 +1401,7 @@ html.sel-compact .view-menu .vm-label { display: none; }
   .status-grid tbody th { white-space: normal; }
 }
 
-/* A plot page (/<waterway>/<station>/next-48h/, waterway/embed.ts): the top bar names the place and the plot; then the
+/* A plot page (/<waterway>/<station>/<plot>/, waterway/embed.ts): the top bar names the place and the plot; then the
    time bar, the reading at its time, and the plot as tall as the screen allows. A tap or drag on the plot moves the
    time. Sideways on a phone, the legend goes and the plot takes the height. */
 .plot-name { display: none; }
@@ -1415,16 +1420,24 @@ body.plot-page figcaption { justify-content: flex-end; min-height: 0; margin-bot
   body.plot-page .fig-actions::before { content: "turn sideways for more"; margin-right: auto; font: italic 11px/1 var(--serif); color: var(--dim); }
   body.plot-page .fig-actions { flex: 1 1 auto; }
 }
-body.plot-page .plot[data-fig="next48"] { height: max(220px, calc(100svh - 290px)); cursor: crosshair; }
-/* The reading: two slots of equal width on one line, measured then HRRR, each cut short rather than wrapped. */
-.plot-reading { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; min-height: 1.5em; margin: 10px 0 8px;
+body.plot-page .plot { height: max(220px, calc(100svh - 290px)); cursor: crosshair; }
+/* The reading: its slots (two to four, set by the page) of equal width on one line, each cut short rather than wrapped. */
+.plot-reading { display: grid; grid-template-columns: repeat(var(--pr-n, 2), minmax(0, 1fr)); column-gap: 14px; min-height: 1.5em; margin: 10px 0 8px;
   font: 12px/1.5 var(--mono); color: var(--ink); }
 .plot-reading .pr-slot { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .plot-reading .pr-k { margin-right: 2px; font: 700 9px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
-.plot-reading small { color: var(--dim); }
+.plot-reading small { display: inline-block; color: var(--dim); }
+.plot-reading small.pr-t { min-width: 6ch; } /* an age, a run or a clock time ("12:48a"), held at its widest too */
 .plot-reading .pr-none { color: var(--faint); }
 .plot-reading .wind-arrow { margin-right: 2px; }
+/* Values at a fixed width (the page sets it, in characters of the monospaced line), right-aligned, and the wind's
+   direction at its widest ("NNE" and its arrow), so nothing in a slot moves as the digits change. */
+.plot-reading b { display: inline-block; min-width: calc(var(--w, 0) * 1ch); text-align: right; }
+.plot-reading .pr-dir { display: inline-block; min-width: calc(3ch + 14px); }
 @media (max-width: 560px) { .plot-reading { column-gap: 10px; font-size: 11px; } .plot-reading .pr-k { letter-spacing: 0.08em; } }
+/* Smaller phones: smaller type and keys; the smallest leave out the wind's arrow (the compass point stays). */
+@media (max-width: 374px) { .plot-reading { column-gap: 6px; font-size: 10px; } .plot-reading .pr-k { letter-spacing: 0; } }
+@media (max-width: 340px) { .plot-reading .wind-arrow { display: none; } .plot-reading .pr-dir { min-width: 3ch; } .plot-reading .pr-k, .plot-reading small { font-size: 8px; } }
 body.plot-page .embed-credit { margin: 8px 0 0; font: 11px/1.4 var(--sans); color: var(--dim); }
 body.plot-page .embed-credit a { color: inherit; text-underline-offset: 2px; }
 @media (max-height: 500px) {
@@ -1433,10 +1446,7 @@ body.plot-page .embed-credit a { color: inherit; text-underline-offset: 2px; }
   body.plot-page .timeline > .tl-row:first-child { grid-template-columns: 18px minmax(0, 1fr) auto; grid-template-areas: "play track slot"; column-gap: 10px; }
   body.plot-page .timeline > .tl-row:first-child > .tl-slot { padding-left: 4px; min-height: 0; }
   body.plot-page .timeline .tl-step { min-width: 30px; min-height: 0; height: 22px; margin-right: 4px; padding: 0 6px; font-size: 10px; }
-  /* The time at a fixed width, set by the longest ("Thu 10 PM −13.7d"), and "now" holding its place when hidden, so the
-     track keeps its length as the hour goes from one digit to two. */
-  body.plot-page .timeline .tl-label { display: inline-block; min-width: 16ch; text-align: right; }
-  body.plot-page .timeline .tl-now[hidden] { display: inline !important; visibility: hidden; }
+  body.plot-page .timeline .tl-label { text-align: right; }
   body.plot-page .tl-dlabel:nth-of-type(2) { display: none; } /* room after the first date, which carries its month */
   body.plot-page .legend, body.plot-page .cap-sub, body.plot-page .embed-credit { display: none; }
   body.plot-page .plot-reading { margin: 2px 0; }
@@ -1444,7 +1454,7 @@ body.plot-page .embed-credit a { color: inherit; text-underline-offset: 2px; }
   body.plot-page figure { position: relative; }
   body.plot-page figcaption { position: absolute; top: 0; right: 0; z-index: 2; margin: 0; }
   /* The plot takes what is left: the top bar, the time row and the reading come to about 100 px. */
-  body.plot-page .plot[data-fig="next48"] { height: max(150px, calc(100svh - 104px)); }
+  body.plot-page .plot { height: max(150px, calc(100svh - 104px)); }
   body.plot-page main, body.plot-page #stations, body.plot-page .station, body.plot-page figure { padding-bottom: 0; margin-bottom: 0; }
 }
 

@@ -10,6 +10,7 @@
 import buoys from "../../stations/stations.json";
 import shore from "../../stations/shore.json";
 import airports from "../../stations/asos.json";
+import plotPages from "../../apps/web/src/waterway/plot-pages.json";
 
 interface KV {
   get(key: string, options: { type: "stream"; cacheTtl?: number }): Promise<ReadableStream | null>;
@@ -123,8 +124,9 @@ const WATERWAYS: Record<string, Set<string> | null> = {
   "long-island-sound": ids(buoys, shore, airports),
   "piscataqua-region": null,
 };
-/** A station's page, or one of its plots' pages (the plot alone, with the time bar: waterway/embed.ts). */
-const STATION_PATH = /^\/([a-z0-9-]+)\/([a-z0-9-]{2,20})(?:\/(next-48h))?\/?$/i;
+/** A station's page, or one of its plots' pages (the plot alone, with the time bar: waterway/embed.ts); the plots are
+ * the page's own list. */
+const STATION_PATH = new RegExp(`^/([a-z0-9-]+)/([a-z0-9-]{2,20})(?:/(${Object.keys(plotPages).join("|")}))?/?$`, "i");
 
 /** Waterways kept out of search results: what the Worker serves under them carries the noindex that _headers gives
  * their static files. */

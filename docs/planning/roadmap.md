@@ -54,6 +54,11 @@ Long Island Sound page:
 3. **Compact currents file.** The currents in the binary frame format the satellite history uses, about a third of
    today's size.
 4. **Design notes.** The palette and the plot grammar documented, with their licence.
+5. **Anomaly contours on the year comparison (prototype).** On the water "This year" plot, curved reference lines for
+   the normal value on each date and set steps either side (1 and 2 °F for temperature), drawn from the earlier years
+   on record. This year then reads as an anomaly while staying in its own units, and the earlier years' lines can be
+   drawn fainter or left out. After Toph Tucker's warped gridlines (Observable, 2022), which bend the grid rather than
+   the data.
 
 ## After that
 

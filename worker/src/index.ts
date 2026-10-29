@@ -10,6 +10,7 @@
 import buoys from "../../stations/stations.json";
 import shore from "../../stations/shore.json";
 import airports from "../../stations/asos.json";
+import rivers from "../../stations/rivers.json";
 import plotPages from "../../apps/web/src/waterway/plot-pages.json";
 
 interface KV {
@@ -124,6 +125,10 @@ const WATERWAYS: Record<string, Set<string> | null> = {
   "long-island-sound": ids(buoys, shore, airports),
   "piscataqua-region": null,
 };
+/** River gauges: their plots have pages (/long-island-sound/conn/flow/), but a gauge has no station page. */
+const PLOT_ONLY: Record<string, Set<string>> = {
+  "long-island-sound": new Set(rivers.gauges.map((g) => g.id.toLowerCase())),
+};
 /** A station's page, or one of its plots' pages (the plot alone, with the time bar: waterway/embed.ts); the plots are
  * the page's own list. */
 const STATION_PATH = new RegExp(`^/([a-z0-9-]+)/([a-z0-9-]{2,20})(?:/(${Object.keys(plotPages).join("|")}))?/?$`, "i");
@@ -148,7 +153,8 @@ export default {
 async function page(req: Request, env: Env, url: URL): Promise<Response> {
   const m = STATION_PATH.exec(url.pathname);
   const stations = m && Object.hasOwn(WATERWAYS, m[1]) ? WATERWAYS[m[1]] : undefined;
-  if (m && stations !== undefined && (!stations || stations.has(m[2].toLowerCase()))) {
+  const gauge = !!m?.[3] && !!PLOT_ONLY[m[1]]?.has(m[2].toLowerCase());
+  if (m && stations !== undefined && (!stations || stations.has(m[2].toLowerCase()) || gauge)) {
     // One address per station (and plot): lower case, with the trailing slash.
     const station = `/${m[1]}/${m[2].toLowerCase()}/`;
     const path = m[3] ? `${station}${m[3].toLowerCase()}/` : station;
@@ -157,9 +163,9 @@ async function page(req: Request, env: Env, url: URL): Promise<Response> {
     home.pathname = `/${m[1]}/`;
     const res = await env.ASSETS.fetch(new Request(home, req));
     // The station's own address as the canonical one (the page's says the waterway's); a plot page points to its
-    // station's and stays out of search results, so search sees one page per station.
+    // station's (a gauge's, to the waterway's) and stays out of search results, so search sees one page per station.
     const out = new HTMLRewriter()
-      .on('link[rel="canonical"]', { element: (el) => el.setAttribute("href", `https://longhorizon.blue${station}`) })
+      .on('link[rel="canonical"]', { element: (el) => el.setAttribute("href", `https://longhorizon.blue${gauge ? `/${m[1]}/` : station}`) })
       .transform(res);
     if (!m[3]) return out;
     const plot = new Response(out.body, out);

@@ -9,9 +9,12 @@
 import pages from "./plot-pages.json";
 
 /** A plot with a page of its own: its figure, the views it is drawn in (the first unless the link names another),
- * and its short name for the top bar. */
+ * and its short name for the top bar; `river`, the figure the same page shows at a river gauge (this year's flow
+ * against earlier years, under the same name as the water's). The river plots (flow and the rest) are drawn in the
+ * Rivers view only, at the gauges. */
 export interface PlotPage {
   fig: string;
+  river?: string;
   views: string[];
   name: string;
 }
@@ -20,7 +23,7 @@ export interface PlotPage {
 export const PLOT_PAGES: Record<string, PlotPage> = pages;
 
 /** The address segment of a figure's page, if it has one. */
-export const plotSlug = (fig: string): string | undefined => Object.keys(PLOT_PAGES).find((s) => PLOT_PAGES[s].fig === fig);
+export const plotSlug = (fig: string): string | undefined => Object.keys(PLOT_PAGES).find((s) => PLOT_PAGES[s].fig === fig || PLOT_PAGES[s].river === fig);
 
 /** What the address asks for (the station defaults to the page's choice), with the page set up for it: a plot page
  * when the path names one, an embed when the link asks. */

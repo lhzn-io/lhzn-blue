@@ -6,8 +6,11 @@
   "air-water": { "fig": "air", "views": ["wind", "temp"], "name": "Air and water" },
   "departure": { "fig": "dep", "views": ["tides"], "name": "Departure" },
   "highs-lows": { "fig": "hilo", "views": ["tides"], "name": "Highs and lows" },
-  "this-year": { "fig": "yoy", "views": ["temp", "salinity", "oxygen"], "name": "This year" },
+  "this-year": { "fig": "yoy", "river": "ryoy", "views": ["temp", "salinity", "oxygen"], "name": "This year" },
   "7-day-change": { "fig": "chg", "views": ["temp", "salinity", "oxygen"], "name": "7-day change" },
   "water-column": { "fig": "col", "views": ["temp", "salinity", "oxygen"], "name": "Water column" },
-  "surface-bottom": { "fig": "sb", "views": ["temp", "salinity", "oxygen"], "name": "Surface minus bottom" }
+  "surface-bottom": { "fig": "sb", "views": ["temp", "salinity", "oxygen"], "name": "Surface minus bottom" },
+  "flow": { "fig": "flow", "views": ["rivers"], "name": "Flow" },
+  "percentile": { "fig": "rpct", "views": ["rivers"], "name": "Percentile" },
+  "turbidity": { "fig": "rturb", "views": ["rivers"], "name": "Turbidity" }
 }

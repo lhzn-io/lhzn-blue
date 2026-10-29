@@ -1,6 +1,7 @@
 /** Long Island Sound (/long-island-sound/): what is particular to it on its page, as the engine's config. Its stations
  * come from stations/stations.json, shore.json and asos.json (shared with the jobs) through the Sound's adapter
- * (adapters/sound.ts). */
+ * (adapters/sound.ts); its river gauges from stations/rivers.json. */
+import rivers from "../../../../stations/rivers.json";
 import type { StationDataWaterway } from "../waterway/config";
 
 export const LONG_ISLAND_SOUND: StationDataWaterway = {
@@ -27,6 +28,7 @@ export const LONG_ISLAND_SOUND: StationDataWaterway = {
     note: (n, area) =>
       `${n} USGS stream gauges draining ${Math.round(area).toLocaleString("en-US")} square miles, about three quarters of it the Connecticut River above Thompsonville. ` +
       `On Long Island most fresh water reaches the Sound as groundwater, which stream gauges do not measure, so the north shore is under-represented here.`,
+    gauges: rivers.gauges.map((g) => g.id),
   },
   turbidityNote:
       `Point observations from the optical turbidity channel of each buoy's surface sensor, a Sea-Bird <a href="https://www.seabird.com/eco-fluorometer/product-details?id=60429374754">ECO FLNTU</a> ` +

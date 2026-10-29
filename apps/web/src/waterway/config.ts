@@ -51,8 +51,9 @@ export interface StationDataWaterway {
   defaults: { embedStation: string; outlookStation: string; tideStation: string };
   /** The headings over each group of station sections. */
   groups: { buoy: string; shore: string; airport: string; rivers: string; turbidity: string };
-  /** The all-rivers summary: where it sits on the map, and its note. */
-  rivers: { at: [number, number]; note: (gauges: number, sqmi: number) => string };
+  /** The all-rivers summary: where it sits on the map, and its note; the gauges (by id) whose plots have pages of their
+   * own (/<waterway>/<gauge>/flow/), though a gauge has no station page. */
+  rivers: { at: [number, number]; note: (gauges: number, sqmi: number) => string; gauges?: string[] };
   turbidityNote: string; // the buoy turbidity section's note (its sensors and their check)
   /** The outage note's words: the operator's, and what the readings since then are. */
   outage: { operator: string; transcribed: string };

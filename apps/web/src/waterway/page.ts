@@ -149,8 +149,10 @@ let PLOT_PAGE = false;
 let PLOT: PlotPage | null = null;
 /** A water plot page's depth ("BTM"), from the address and then its tabs; empty: the station's first. */
 let PLOT_DEPTH = "";
-/** A water plot page: its time bar is on the days scale (90 days back), which its plot's window covers. */
-const waterPlotPage = () => PLOT_PAGE && !!EMBED && FIGS[EMBED].varies && isWater(VK);
+/** A water or river plot page: its time bar is on the days scale (90 days back), which its plot's window covers. */
+const waterPlotPage = () => PLOT_PAGE && !!EMBED && ((FIGS[EMBED].varies && isWater(VK)) || VK === "rivers");
+/** A river gauge, which has plot pages but no station page. */
+const isGauge = (id: string | null) => !!id && !!CFG.rivers.gauges?.includes(id);
 const V = () => WATER_VARS[VK];
 
 
@@ -1252,7 +1254,14 @@ function sectionHtml(d: StationData): string {
  * page's: the section, the reading at the page's time, and the way to the station's own page. */
 function embedHtml(d: StationData | undefined): string {
   if (!d) return `<p class="embed-credit">No station ${escHtml(EMBED_STATION)} on this page.</p>`;
-  const every = `<a href="${placeUrl(d.meta.id)}">${escHtml(d.meta.name)}: every plot</a>`;
+  // A gauge's plots are in the Rivers view of the overview, under its name (at the page's time).
+  const riverUrl = () => {
+    const q = new URLSearchParams(location.search);
+    q.set("view", "rivers");
+    q.delete("depth");
+    return `${PAGES?.base ?? ""}?${q}#${d.meta.id}`;
+  };
+  const every = `<a href="${isGauge(d.meta.id) ? riverUrl() : placeUrl(d.meta.id)}">${escHtml(d.meta.name)}: every plot</a>`;
   if (PLOT && !shows(d, EMBED!)) return `<p class="embed-credit">${escHtml(d.meta.name)} has no ${escHtml(PLOT.name.toLowerCase())} plot. ${every}</p>`;
   if (PLOT_PAGE)
     return `<p class="plot-reading" id="plot-reading" aria-live="polite"></p>` + sectionHtml(d) +
@@ -1890,7 +1899,7 @@ async function main(): Promise<void> {
     // A station's page: only its views (the first is its default), and the outlook on it.
     if (STATION_ID) {
       const kind = stations.find((d) => d.meta.id === STATION_ID)?.kind ?? (A.SHORE.some((s) => s.id === STATION_ID) ? "shore" : "airport");
-      const views = CFG.stationPages?.views[kind] ?? [];
+      const views: VarKey[] = isGauge(STATION_ID) ? ["rivers"] : (CFG.stationPages?.views[kind] ?? []);
       if (!views.includes(VK)) {
         VK = views[0] ?? VK;
         if (!LINK.get("layer")) fieldPick = VIEW_LAYERS[VK].def;
@@ -1902,7 +1911,7 @@ async function main(): Promise<void> {
     // A remembered salinity or oxygen choice loads its history first; if that fails, show temperature.
     if (VK !== "temp") await A.ensureVar(VK, live, stations, addSources).catch(() => (VK = "temp"));
     /** The stations on screen: the rivers section in the Rivers view, the buoys and shore stations otherwise. */
-    const shown = () => (EMBED ? stations.filter((d) => d.meta.id === EMBED_STATION) : VK === "rivers" ? A.RIVER_SECTIONS : VK === "turbidity" ? (A.TURB_SECTION ? [A.TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore") : stations.filter((d) => d.kind !== "airport" || VK === "wind")).filter(onStation);
+    const shown = () => (EMBED ? [...stations, ...A.RIVER_SECTIONS].filter((d) => d.meta.id === EMBED_STATION) : VK === "rivers" ? A.RIVER_SECTIONS : VK === "turbidity" ? (A.TURB_SECTION ? [A.TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore") : stations.filter((d) => d.kind !== "airport" || VK === "wind")).filter(onStation);
     const drawAll = () => {
       for (const d of shown()) {
         readouts(d);
@@ -1922,7 +1931,7 @@ async function main(): Promise<void> {
       };
       if (STATION_ID && !EMBED) $("stations").innerHTML = shown().map(sectionHtml).join("");
       else $("stations").innerHTML = EMBED
-        ? embedHtml(stations.find((d) => d.meta.id === EMBED_STATION))
+        ? embedHtml([...stations, ...A.RIVER_SECTIONS].find((d) => d.meta.id === EMBED_STATION))
         : VK === "tides"
           ? `<h2 class="station-group">${CFG.groups.shore}</h2>${stations.filter((d) => d.kind === "shore").map(sectionHtml).join("")}`
           : VK === "rivers"
@@ -2187,7 +2196,7 @@ const plotPageUrl = (id: string, fig: string): string | null => {
   const slug = plotSlug(fig);
   const d = STATIONS.find((s) => s.meta.id === id);
   const depth = d && FIGS[fig as Kind]?.depthTabs ? activeDepth(d, fig as Kind) : "";
-  return slug && PAGES && hasPage(id) ? plotUrl(id, slug, d && depth !== d.depths[0] ? depth : "") : null;
+  return slug && PAGES && (hasPage(id) || isGauge(id)) ? plotUrl(id, slug, d && depth !== d.depths[0] ? depth : "") : null;
 };
 
 /** A plot page: the top bar names the plot beside the place; a tap or drag on the plot moves the page's time; the
@@ -2217,7 +2226,7 @@ function wirePlotPage(): void {
  * of each is its hover text. */
 function plotReading(): void {
   const el = document.getElementById("plot-reading");
-  const d = STATIONS.find((s) => s.meta.id === EMBED_STATION);
+  const d = [...STATIONS, ...A.RIVER_SECTIONS].find((s) => s.meta.id === EMBED_STATION);
   if (!el || !d || !EMBED) return;
   const slots = EMBED === "next48" || EMBED === "wind" ? windReading(d) : EMBED === "hilo" ? hiloReading(d) : lineReading(d, EMBED);
   el.style.setProperty("--pr-n", String(Math.max(2, slots.length)));
@@ -2258,13 +2267,14 @@ const READING: Partial<Record<Kind, (b: Built) => [string, string[]][]>> = {
 };
 
 /** The plot's point for the page's time: its index on the plot's grid (or -1 outside it), and how many points back a
- * value may stand for it. On a water plot page, whose lines end with the last reading (an hour or more before now), a
- * value up to 12 hours before the time stands for it, its hover naming its time. */
-function readAt(xs: number[], t: number): { i: number; back: number } {
+ * value may stand for it. On a water or river plot page, whose lines end with the last reading (an hour or more before
+ * now), a value up to 12 hours before the time stands for it (3 days for a river's daily means, which come a day or two
+ * behind), its hover naming its time. */
+function readAt(xs: number[], t: number, hours = 12): { i: number; back: number } {
   const step = xs.length > 1 ? xs[1] - xs[0] : HOUR;
   const i = Math.round((t - xs[0]) / step);
   const inside = i >= 0 && i < xs.length && Math.abs(xs[i] - t) <= step / 2;
-  return { i: inside ? i : -1, back: waterPlotPage() ? Math.ceil((12 * HOUR) / step) : 0 };
+  return { i: inside ? i : -1, back: waterPlotPage() ? Math.ceil((hours * HOUR) / step) : 0 };
 }
 /** A line's value at index i, or the latest within `back` points before it: its index, or -1. */
 const lastAt = (ys: number[], i: number, back: number): number => {
@@ -2276,7 +2286,8 @@ const fmtAtHour = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York
 function lineReading(d: StationData, key: Kind): string[] {
   const drawn = PLOT_DRAWN;
   if (!drawn) return [];
-  if (key === "yoy" || key === "chg") return yearReading(key);
+  if (key === "yoy" || key === "chg" || key === "ryoy") return yearReading(key);
+  if (key === "flow" || key === "rpct") return flowReading(d);
   const { xs, lines, unit = "", hoverDigits = 1 } = drawn.b.opts;
   const t = AT ?? Math.floor(Date.now() / 1000 / HOUR) * HOUR;
   const { i, back } = readAt(xs, t);
@@ -2302,36 +2313,77 @@ function lineReading(d: StationData, key: Kind): string[] {
   return slots;
 }
 
-/** The year pages (this year, 7-day change): this year's value at the time, the mean of the earlier years drawn on the
- * same date, and (this year) how far the one is from the other. */
-function yearReading(key: "yoy" | "chg"): string[] {
-  const { xs, lines, unit = "", hoverDigits = 1 } = PLOT_DRAWN!.b.opts;
+/** A river's flow and percentile pages: the flow at the time, the median for the date, and where the flow stands among
+ * the record's flows for the date (its percentile), read from the gauge's records on the plot's own grid. */
+function flowReading(d: StationData): string[] {
+  const { xs } = PLOT_DRAWN!.b.opts;
   const t = AT ?? Math.floor(Date.now() / 1000 / HOUR) * HOUR;
   const { i, back } = readAt(xs, t);
+  const r = d.river!;
+  const id = d.gauge!.id;
+  const flows = xs.map((x) => riverFlow(r, id, x));
+  const medians = xs.map((x) => pct(r, id, "p50", x));
+  const w = Math.max(2, cfs(Math.max(...[...flows, ...medians].filter(Number.isFinite))).length); // the highest is widest
+  const j = i >= 0 ? lastAt(flows, i, back) : -1;
+  const q = j >= 0 ? flows[j] : NaN;
+  const m = i >= 0 ? medians[i] : NaN;
+  const p = Number.isFinite(q) ? percentileOf(r, id, xs[j], q) : NaN;
+  const pText = (v: number) => (v <= 2.5 ? "<5th" : v >= 97.5 ? ">95th" : ordinal(v));
+  return [
+    Number.isFinite(q) ? prSlot("Flow", prVal(`${cfs(q)} cfs`, w), `${d.gauge!.river} flow: ${cfs(q)} cfs${j < i ? `, at ${fmtAtHour.format(new Date(xs[j] * 1000))}` : ""}`) : prSlot("Flow", PR_NONE, "No flow reading at this time"),
+    Number.isFinite(m) ? prSlot("Median", prVal(`${cfs(m)} cfs`, w), `Median flow for the date: ${cfs(m)} cfs`) : prSlot("Median", PR_NONE, "No median for this date"),
+    Number.isFinite(p) ? prSlot("Pctile", prVal(escHtml(pText(p)), 5, false), `The flow is at the ${pText(p)} percentile of the record's flows for the date`) : prSlot("Pctile", PR_NONE, "No percentile at this time"),
+  ];
+}
+
+/** The year pages (this year, 7-day change, a river's this year): this year's value at the time, the mean of the
+ * earlier years drawn on the same date, and (this year) how far the one is from the other. */
+function yearReading(key: "yoy" | "chg" | "ryoy"): string[] {
+  const { xs, lines, unit = "", hoverDigits = 1 } = PLOT_DRAWN!.b.opts;
+  const t = AT ?? Math.floor(Date.now() / 1000 / HOUR) * HOUR;
+  const { i, back } = readAt(xs, t, key === "ryoy" ? 72 : 12);
   const year = Math.max(...lines.map((l) => Number(l.label)).filter(Number.isFinite));
   const cur = lines.find((l) => Number(l.label) === year);
   const earlier = lines.filter((l) => l !== cur);
-  const num = (v: number, sign = false) => `${sign && v > 0 ? "+" : ""}${(Math.abs(v) < 0.5 * 10 ** -hoverDigits ? 0 : v).toFixed(hoverDigits).replace(/^-/, "\u2212")}${unit}`;
-  // One width for the three, from the widest value the plot holds (a difference can take a sign more).
-  let w = 2;
-  for (const l of lines) for (const v of l.ys) if (Number.isFinite(v)) w = Math.max(w, splitUnit(num(v, key === "chg"))[0].length);
+  // Grouped thousands for a river's flow ("12,400 cfs").
+  const nf = new Intl.NumberFormat("en-US", { minimumFractionDigits: hoverDigits, maximumFractionDigits: hoverDigits });
+  const num = (v: number, sign = false) => `${sign && v > 0 ? "+" : ""}${nf.format(Math.abs(v) < 0.5 * 10 ** -hoverDigits ? 0 : v).replace(/^-/, "\u2212")}${unit}`;
+  // Each value's width: the widest it takes in the plot's window, its lowest or highest (this year's line, and the
+  // earlier years' mean on each date; a difference can take a sign more).
+  const width = (ys: number[]) => {
+    let [lo, hi] = [Infinity, -Infinity];
+    for (const v of ys) if (Number.isFinite(v)) [lo, hi] = [Math.min(lo, v), Math.max(hi, v)];
+    return Math.max(2, ...[lo, hi].filter(Number.isFinite).map((v) => splitUnit(num(v, key === "chg"))[0].length));
+  };
+  const meanAt = (k: number) => {
+    const vs = earlier.map((l) => l.ys[k]).filter(Number.isFinite);
+    return vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : NaN;
+  };
+  const w = width(cur?.ys ?? []);
+  const wMean = width(xs.map((_, k) => meanAt(k)));
   const j = cur && i >= 0 ? lastAt(cur.ys, i, back) : -1;
   const now = j >= 0 ? cur!.ys[j] : NaN;
   const at = j >= 0 ? j : i; // the earlier years on the same date as this year's reading
   const others = at >= 0 ? earlier.map((l) => l.ys[at]).filter(Number.isFinite) : [];
   const mean = others.length ? others.reduce((a, b) => a + b, 0) / others.length : NaN;
-  const what = key === "yoy" ? V().label.toLowerCase() : `7-day change in ${V().label.toLowerCase()}`;
+  const what = key === "ryoy" ? "daily mean flow" : key === "yoy" ? V().label.toLowerCase() : `7-day change in ${V().label.toLowerCase()}`;
   const slots = [
     Number.isFinite(now)
       ? prSlot(String(year), prVal(num(now, key === "chg"), w), `${year}, ${what}: ${num(now, key === "chg")}${j < i ? `, at ${fmtAtHour.format(new Date(xs[j] * 1000))}` : ""}`)
       : prSlot(String(year), PR_NONE, `${year}: no value on this date`),
     Number.isFinite(mean)
-      ? prSlot("Earlier", prVal(num(mean, key === "chg"), w), `Mean of ${others.length} earlier years on this date: ${num(mean, key === "chg")} (${num(Math.min(...others))} to ${num(Math.max(...others))})`)
+      ? prSlot("Earlier", prVal(num(mean, key === "chg"), wMean), `Mean of ${others.length} earlier years on this date: ${num(mean, key === "chg")} (${num(Math.min(...others))} to ${num(Math.max(...others))})`)
       : prSlot("Earlier", PR_NONE, "No earlier year on this date"),
   ];
   if (key === "yoy") {
     const diff = now - mean;
-    slots.push(Number.isFinite(diff) ? prSlot("Diff", prVal(num(diff, true), w + 1), `${year} against the earlier years' mean: ${num(diff, true)}`) : prSlot("Diff", PR_NONE, "No comparison on this date"));
+    slots.push(Number.isFinite(diff) ? prSlot("Diff", prVal(num(diff, true), Math.max(w, wMean) + 1), `${year} against the earlier years' mean: ${num(diff, true)}`) : prSlot("Diff", PR_NONE, "No comparison on this date"));
+  }
+  // A river's flow ranges over orders of magnitude: its difference as a share of the earlier years' mean ("\u221282%").
+  if (key === "ryoy") {
+    const pc = Math.round((100 * (now - mean)) / mean);
+    const text = `${pc > 0 ? "+" : ""}${String(pc).replace(/^-/, "\u2212")}%`;
+    slots.push(Number.isFinite(pc) ? prSlot("Diff", prVal(text, 5, false), `${year} against the earlier years' mean: ${text}`) : prSlot("Diff", PR_NONE, "No comparison on this date"));
   }
   return slots;
 }
@@ -2412,7 +2464,7 @@ function drawPlaces(): void {
   const panel = document.getElementById("place-panel");
   if (!pick || !panel) return;
   pick.hidden = false;
-  pick.querySelector(".vm-current")!.textContent = STATION_ID ? (STATIONS.find((d) => d.meta.id === STATION_ID)?.meta.name ?? STATION_ID) : "Overview";
+  pick.querySelector(".vm-current")!.textContent = STATION_ID ? ([...STATIONS, ...A.RIVER_SECTIONS].find((d) => d.meta.id === STATION_ID)?.meta.name ?? STATION_ID) : "Overview";
   const item = (id: string | null, label: string) => `<a href="${placeUrl(id)}" data-place="${id ?? ""}"${here(id)}>${escHtml(label)}</a>`;
   const chips = withPage.filter((d) => sp.chips.includes(d.kind));
   panel.innerHTML =
@@ -2506,8 +2558,10 @@ function markStationPage(): void {
     if (canonical) canonical.href = MAST.canonical;
     return;
   }
-  const d = STATIONS.find((s) => s.meta.id === STATION_ID);
-  if (!d || !hasPage(d.meta.id)) {
+  // A gauge has plot pages only, which keep the waterway's canonical address.
+  const gauge = PLOT_PAGE && isGauge(STATION_ID);
+  const d = [...STATIONS, ...(gauge ? A.RIVER_SECTIONS : [])].find((s) => s.meta.id === STATION_ID);
+  if (!d || !(hasPage(d.meta.id) || gauge)) {
     location.replace(placeUrl(null));
     return;
   }
@@ -2515,7 +2569,7 @@ function markStationPage(): void {
   if (bottom) bottom.textContent = d.meta.name.toUpperCase();
   document.title = `${PLOT_PAGE && EMBED ? `${d.meta.name}, ${FIGS[EMBED].title.toLowerCase()}` : d.meta.name} | ${CFG.name} (alpha) | longhorizon.blue`;
   // A plot page's canonical address is its station's page (one page per station for search engines).
-  if (canonical && MAST.canonical) canonical.href = new URL(`${d.meta.id.toLowerCase()}/`, MAST.canonical).href;
+  if (canonical && MAST.canonical && !gauge) canonical.href = new URL(`${d.meta.id.toLowerCase()}/`, MAST.canonical).href;
 }
 
 /** The station an address is for (null on the overview). */
@@ -2578,13 +2632,16 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   const slug = PAGES && STATION_ID ? location.pathname.slice(PAGES.base.length).split("/")[1]?.toLowerCase() : "";
   PLOT = slug ? PLOT_PAGES[slug] ?? null : null;
   PLOT_DEPTH = (LINK.get("depth") ?? "").toUpperCase();
+  // A river gauge's plot page (/long-island-sound/conn/flow/): the gauge's figure, in the Rivers view.
+  const gauge = !!PLOT && isGauge(STATION_ID);
   let fig: string | null;
-  ({ fig, station: EMBED_STATION, page: PLOT_PAGE } = embedMode(LINK, CFG.defaults.embedStation, PLOT && STATION_ID ? { fig: PLOT.fig, station: STATION_ID } : null));
+  ({ fig, station: EMBED_STATION, page: PLOT_PAGE } = embedMode(LINK, CFG.defaults.embedStation, PLOT && STATION_ID ? { fig: (gauge && PLOT.river) || PLOT.fig, station: STATION_ID } : null));
   EMBED = fig as Kind | null;
   // The plot's view: the link's, if the plot is drawn in it, else its first (an embed by name: next48 in Wind, yoy in
   // Temperature).
   const linked = LINK.get("view") ?? "";
-  if (PLOT) VK = (PLOT.views.includes(linked) ? linked : PLOT.views[0]) as VarKey;
+  if (gauge) VK = "rivers";
+  else if (PLOT) VK = (PLOT.views.includes(linked) ? linked : PLOT.views[0]) as VarKey;
   else if (EMBED) VK = EMBED === "next48" ? "wind" : "temp";
   // A linked run ("run=2026102811", its UTC hour) stays the plot's run as the time moves.
   const runLink = /^(\d{4})(\d{2})(\d{2})(\d{2})$/.exec(LINK.get("run") ?? "");

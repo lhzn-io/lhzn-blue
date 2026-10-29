@@ -15,8 +15,9 @@ Published layout (``v1/fields/hrrr-wind.json``):
 - ``mesh``: ``nx``, ``ny``; ``corner_lon``/``corner_lat`` ((ny+1) x (nx+1), row-major from the south-west);
   ``centre_lon``/``centre_lat``, ``land`` (1 where HRRR's LAND mask says land) and ``arrow_level`` per cell
   (ny x nx, row-major from the south-west); ``block`` (the first row and column in HRRR's full grid).
-- ``frames``: ``{valid_time, cycle, lead, u, v}``, with ``u`` and ``v`` (east and north, m/s) per cell as int8 in
-  steps of ``encoding.step`` (clipped to +-31.75 m/s), base64.
+- ``frames``: ``{valid_time, cycle, lead, u, v, gust}``, with ``u`` and ``v`` (east and north, m/s) per cell as int8
+  in steps of ``encoding.step`` (clipped to +-31.75 m/s), base64, and ``gust`` (HRRR's surface wind gust, m/s) in steps
+  of ``encoding.gust_step`` (0 to 31.75 m/s). Frames written before 2026-10-29 have no ``gust``.
 
 The past beyond that window (``v1/fields/hrrr-wind-history.json``): the hours from ``HISTORY_DAYS`` back up to the
 main file's first frame, which the page loads only when its time bar goes back past the main file. Each run moves
@@ -83,12 +84,15 @@ def _fetch(cycle: pd.Timestamp, lead: int, block: tuple[slice, slice] | None, la
             idx = f.read()
     except FileNotFoundError:
         return None, 0
-    patterns = {"u10": hp.idx_pattern("u10", lead), "v10": hp.idx_pattern("v10", lead)}
+    patterns = {"u10": hp.idx_pattern("u10", lead), "v10": hp.idx_pattern("v10", lead), "gust": hp.idx_pattern("gust", lead)}
     if land:
         patterns["land"] = ":LAND:surface:"
     out, nbytes = {}, len(idx)
     for name, pattern in patterns.items():
         ranges = _parse_idx(idx, (pattern,))[:1] if name == "land" else _parse_idx(idx, (pattern,))
+        if len(ranges) != 1 and name == "gust":  # the gust is extra: a lead without one still gives the wind
+            log.warning("HRRR s3://%s: no single message for %r; frame without gust", key, pattern)
+            continue
         if len(ranges) != 1:
             raise FileNotFoundError(f"HRRR s3://{key}: expected one message for {pattern!r}, found {len(ranges)}")
         path = os.path.join(workdir, f"{name}_{cycle:%Y%m%d%H}_f{lead:02d}.grib2")
@@ -147,8 +151,8 @@ def _mesh(u, land, block: tuple[slice, slice]) -> dict:
     }
 
 
-def _encode(a: np.ndarray) -> str:
-    q = np.clip(np.round(np.where(np.isfinite(a), a, 0.0) / STEP), -127, 127).astype(np.int8)
+def _encode(a: np.ndarray, lo: int = -127) -> str:
+    q = np.clip(np.round(np.where(np.isfinite(a), a, 0.0) / STEP), lo, 127).astype(np.int8)
     return base64.b64encode(q.ravel().tobytes()).decode()
 
 
@@ -158,7 +162,7 @@ def decode(s: str) -> np.ndarray:
 
 def _frame(cycle: pd.Timestamp, lead: int, d: dict, lon: np.ndarray) -> dict:
     """One published frame from a lead's u10 and v10 on the block, rotated to east and north where HRRR gives them
-    on the grid axes."""
+    on the grid axes, with the surface gust where the lead has one."""
     u, v = d["u10"].values.astype(np.float64).ravel(), d["v10"].values.astype(np.float64).ravel()
     a = d["u10"].attrs
     if int(a.get("GRIB_uvRelativeToGrid", 1)) == 1:
@@ -168,7 +172,10 @@ def _frame(cycle: pd.Timestamp, lead: int, d: dict, lon: np.ndarray) -> dict:
         u, v = earth_relative_winds(u, v, lon, cone, float(a["GRIB_LoVInDegrees"]))
     valid = cycle + pd.Timedelta(hours=lead)
     vkey = _valid_key(valid)
-    return {"valid_time": vkey, "cycle": _cycle_key(cycle), "lead": lead, "u": _encode(u), "v": _encode(v)}
+    out = {"valid_time": vkey, "cycle": _cycle_key(cycle), "lead": lead, "u": _encode(u), "v": _encode(v)}
+    if "gust" in d:
+        out["gust"] = _encode(d["gust"].values.astype(np.float64).ravel(), lo=0)
+    return out
 
 
 def _valid_key(t: pd.Timestamp) -> str:
@@ -271,11 +278,11 @@ def build(prev: dict | None, end=None, box: tuple[float, ...] = BOX) -> tuple[di
         "label": "model forecast",
         "source": SOURCE,
         "attribution": ATTRIBUTION,
-        "field": "10 m wind, east and north components",
+        "field": "10 m wind, east and north components; gust: surface wind gust, where present",
         "units": "m/s",
         "generated_at": iso(end),
         "box": list(box),
-        "encoding": {"type": "int8 base64", "step": STEP, "clip": round(127 * STEP, 2)},
+        "encoding": {"type": "int8 base64", "step": STEP, "clip": round(127 * STEP, 2), "gust_step": STEP},
         "cycles_read": sorted(c for c in used if _parse_key(c) >= cutoff),
         "mesh": mesh,
         "frames": kept,
@@ -326,11 +333,11 @@ def _history_doc(frames, main: dict, lo: pd.Timestamp, hi: pd.Timestamp) -> dict
         "label": "model forecast, past hours",
         "source": SOURCE,
         "attribution": ATTRIBUTION,
-        "field": "10 m wind, east and north components",
+        "field": "10 m wind, east and north components; gust: surface wind gust, where present",
         "units": "m/s",
         "generated_at": iso(now_utc()),
         "box": list(BOX),
-        "encoding": {"type": "int8 base64", "step": STEP, "clip": round(127 * STEP, 2)},
+        "encoding": {"type": "int8 base64", "step": STEP, "clip": round(127 * STEP, 2), "gust_step": STEP},
         "cycles": sorted({f["cycle"] for f in kept}),
         "mesh": {"version": m.get("version"), "nx": m["nx"], "ny": m["ny"], "block": m["block"]},
         "frames": kept,

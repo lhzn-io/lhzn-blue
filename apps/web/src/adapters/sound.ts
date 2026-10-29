@@ -12,7 +12,7 @@ import {
   type WaveFrame, type WaveHistory, type WaveLive, type WaveObs,
 } from "../series";
 import { fmtDate, hoursOld } from "../waterway/format";
-import { DEPTHS, OFFLINE_HOURS, WATER_VARS, type Met, type StationData, type TurbData, type VarKey, type VarView, type Waves } from "../waterway/station-data";
+import { DEPTHS, OFFLINE_HOURS, WATER_VARS, type Met, type MeterData, type StationData, type TurbData, type VarKey, type VarView, type Waves } from "../waterway/station-data";
 import { DATA } from "../waterway/data";
 import { addFittedTides, loadTides } from "../waterway/tides";
 import { riverSections } from "../waterway/rivers";
@@ -223,6 +223,7 @@ export const panelsOf = (id: string): Panels =>
 /** The latest reading we have seen for any depth of the station (epoch seconds). */
 export function lastSeen(d: StationData): number {
   if (d.kind === "airport") return d.met?.last ? Date.parse(d.met.last.time) / 1000 : -Infinity;
+  if (d.kind === "meter") return d.meter?.last ? Date.parse(d.meter.last.time) / 1000 : -Infinity;
   return Math.max(...d.depths.map((dep) => (d.obs[dep] ? Date.parse(d.obs[dep]!.time) / 1000 : -Infinity)));
 }
 
@@ -346,6 +347,30 @@ export function airportStations(a: AsosFile): StationData[] {
   return out;
 }
 
+/* ---------- Current meters (NOAA PORTS, in shore.json's meters part) ---------- */
+
+/** The current meters in the registry (shore.json's `meters`). */
+export const METERS = shoreRegistry.meters;
+
+/** The meters as stations of their own kind: each bin's current along the flood direction, shown in the Tides view. */
+export function meterStations(sl: ShoreLive): StationData[] {
+  const out: StationData[] = [];
+  for (const m of METERS) {
+    const f = sl.meters?.[m.id];
+    if (!f) continue;
+    const meta = { id: m.id, name: m.name, operator: m.operator, lat: m.lat, lon: m.lon, coops_id: m.coops_id, info_url: m.info_url, note: m.note, record_start: `${m.record_start}T00:00:00Z` } as ShoreMetaStation;
+    const meter: MeterData = {
+      coops: m.coops_id, place: m.place, flood: f.flood_dir, realtime: f.realtime_bin, binsM: f.bins_m,
+      bins: f.bins_m.map((_, i) => Hourly.fromArray(f.bins[String(i + 1)]?.t0, f.bins[String(i + 1)]?.kt)),
+      across: f.bins_m.map((_, i) => Hourly.fromArray(f.bins[String(i + 1)]?.t0, f.bins[String(i + 1)]?.x_kt)),
+      beam: f.beam_dir ?? null,
+      last: f.last_obs, depthM: m.sensor_depth_m, start: m.record_start,
+    };
+    out.push({ ...shoreStation(meta, undefined, undefined), kind: "meter", meter, met: null, level: null, levelNow: null });
+  }
+  return out;
+}
+
 /** Shore stations from the registry, west to east (their record start years until the history arrives). */
 export const SHORE: ShoreMetaStation[] = shoreRegistry.stations
   .map((s) => ({ ...s, note: (s as { note?: string }).note ?? null, record_start: `${s.record_start_year}-01-01T00:00:00Z` }))
@@ -392,6 +417,7 @@ export async function joinExtras(
   const sl = await x.shoreLive;
   if (sl) {
     stations.push(...SHORE.map((st) => shoreStation(st, sl.stations[st.id], undefined)));
+    stations.push(...meterStations(sl));
     on.changed(true);
     on.sources(shoreSources(sl.qc));
   }

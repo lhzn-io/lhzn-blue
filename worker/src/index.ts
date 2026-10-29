@@ -122,7 +122,7 @@ async function data(req: Request, env: Env, path: string): Promise<Response> {
 // unknown station back to the overview.
 const ids = (...files: { stations: { id: string }[] }[]) => new Set(files.flatMap((f) => f.stations.map((s) => s.id.toLowerCase())));
 const WATERWAYS: Record<string, Set<string> | null> = {
-  "long-island-sound": ids(buoys, shore, airports),
+  "long-island-sound": ids(buoys, shore, airports, { stations: shore.meters }),
   "piscataqua-region": null,
 };
 /** River gauges: their plots have pages (/long-island-sound/conn/flow/), but a gauge has no station page. */

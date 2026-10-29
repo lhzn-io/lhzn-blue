@@ -45,5 +45,25 @@
       "record_start_year": 1995,
       "note": "No wind sensor."
     }
+  ],
+  "meters": [
+    {
+      "id": "GRTN",
+      "coops_id": "nl0101",
+      "name": "Groton",
+      "place": "Thames River, Pier 6",
+      "operator": "NOAA CO-OPS",
+      "lat": 41.3918,
+      "lon": -72.0923,
+      "info_url": "https://tidesandcurrents.noaa.gov/stationhome.html?id=nl0101",
+      "flood_dir": 310,
+      "realtime_bin": 9,
+      "sensor_depth_m": 5.2,
+      "bins_m": [6.0, 10.0, 13.99, 18.01, 22.01, 26.0, 29.99, 33.99, 38.01, 42.0],
+      "beam_dir": 219,
+      "beam_dir_note": "Inferred: NOAA does not publish the beams' bearing. The charted pier (ENC US5CT1FV) has two faces within 4 m of the meter's position: its long side (37 to 217 degrees) and its south-west end (129 to 309 degrees). Flow in the nearest bin (6 m out) floods toward about 316 and ebbs toward about 136 degrees, along the end face, as flow beside a face must; so the meter is on the end, its beams square to it, out along the pier's axis into the channel (scripts/fetch-meter-charts.py lists the faces).",
+      "record_start": "2018-11-16",
+      "note": "Side-looking current meter on a pier, 5.2 m below the surface; its ten bins reach 6 to 42 m out across the channel. Part of NOAA's New London PORTS."
+    }
   ]
 }

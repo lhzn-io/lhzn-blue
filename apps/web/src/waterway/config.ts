@@ -50,7 +50,7 @@ export interface StationDataWaterway {
   /** The stations a page opens on: an embed's, the outlook's, and the tide gauge the tides view falls back to. */
   defaults: { embedStation: string; outlookStation: string; tideStation: string };
   /** The headings over each group of station sections. */
-  groups: { buoy: string; shore: string; airport: string; rivers: string; turbidity: string };
+  groups: { buoy: string; shore: string; airport: string; rivers: string; turbidity: string; meter?: string };
   /** The all-rivers summary: where it sits on the map, and its note; the gauges (by id) whose plots have pages of their
    * own (/<waterway>/<gauge>/flow/), though a gauge has no station page. */
   rivers: { at: [number, number]; note: (gauges: number, sqmi: number) => string; gauges?: string[] };

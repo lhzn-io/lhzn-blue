@@ -1,4 +1,5 @@
-"""The tidal current's phase at four reference points along the Sound, for the strip under the page's time bar.
+"""The tidal current's phase at reference points along the Sound, for the strip under the page's time bar, and at the
+Groton current meter (its station page compares both with the meter's measurements).
 
 Each point pairs NOAA's tidal current predictions (CO-OPS harmonic stations, the bin nearest the surface) with the
 NECOFS FVCOM surface current at the nearest model element, projected onto the station's flood direction so both read
@@ -37,6 +38,8 @@ POINTS = [
     ("central", "Central Sound (Branford Reef, 5 mi S)", "LIS1021", 20, (-72.8280, 41.1444), 1.2),
     ("exrx", "Execution Rocks", "LIS1036", 14, (-73.7334, 40.8732), 0.8),
     ("throgs", "Throgs Neck", "LIS1038", 15, (-73.7921, 40.8010), 2.0),
+    # The PORTS meter's real-time bin (38 m out from the pier), the only bin NOAA predicts there.
+    ("groton", "Groton (Thames River)", "nl0101", 9, (-72.0923, 41.3918), 1.0),
 ]
 
 

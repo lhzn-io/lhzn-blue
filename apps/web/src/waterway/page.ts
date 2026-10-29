@@ -38,6 +38,7 @@ import { hideWsTip, moveStripCursor, showWsTip, windAcrossHtml, WS_BACK, wsPoint
 import { windRoseHtml } from "./wind-rose";
 import { DEPARTURE, loadTides, onTides, TIDES } from "./tides";
 import { departureBuilt, departureRowsSvg, drawLadder, highestAheadHtml, hiloAround, hiloBuilt, tidesTable } from "./tides-view";
+import { BINS_WINDOW, meterBinsBuilt, type MeterColours, meterFanSvg, meterFlowBuilt, meterRecord, meterStart, METER_WINDOW } from "./meter";
 import { cfs, dailyFlow, ordinal, pct, percentileOf, riverFlow } from "./rivers";
 import { gaugePins, riverReadoutsHtml, riverTable, wireRiverHover } from "./rivers-view";
 import { dropDown, wireMore } from "./phone-bar";
@@ -201,6 +202,26 @@ function willowRamp(n: number): string[] {
   });
 }
 
+/** A current meter's plot colours: measured gold, and its bins from strong (nearest the meter) to pale. */
+function meterColours(): MeterColours {
+  const { L, C, h } = P.ramp;
+  return { measured: P.now, ramp: (u) => oklch(L[0] + (L[1] - L[0]) * u, C[0] + (C[1] - C[0]) * u, h[0] + (h[1] - h[0]) * u) };
+}
+
+/** A meter's plan at the page's time: every bin's current seen from above (meter.ts draws it). */
+function drawMeterFan(d: StationData): void {
+  const hero = d.meta.id === STATION_ID ? document.getElementById("meter-hero-plot") : null;
+  const el = hero ?? document.getElementById(`${d.meta.id}-mfan`);
+  if (!el) return;
+  // The drawing is 300 units tall and as wide as its box allows, so a unit is the box's height over 300 on screen.
+  const [w, h] = [el.clientWidth, el.clientHeight];
+  const { svg, legend, note } = meterFanSvg(d, AT, meterColours(), w && h ? w / h : undefined, h ? h / 300 : 1);
+  el.innerHTML = svg;
+  const lg = document.getElementById(hero ? "meter-hero-legend" : `${d.meta.id}-mfan-legend`);
+  if (lg) lg.innerHTML = legend;
+  PLOT_NOTES.set(`${d.meta.id}-mfan`, note);
+}
+
 function yearStyle(offset: number, maxOffset: number): Pick<Line, "color" | "width" | "opacity"> {
   if (offset === 0) return { color: P.now, width: 2.6, opacity: 1 };
   const t = maxOffset <= 1 ? 0 : (offset - 1) / (maxOffset - 1);
@@ -218,7 +239,7 @@ function yearStyle(offset: number, maxOffset: number): Pick<Line, "color" | "wid
 
 /* ---------- Figures: one builder per view, used inline and in the zoom view ---------- */
 
-type Kind = "yoy" | "chg" | "col" | "sb" | "next48" | "hilo" | "dep" | "wind" | "air" | "tide" | "waves" | "pressure" | "flow" | "share" | "rturb" | "ryoy" | "rpct" | "bturb";
+type Kind = "yoy" | "chg" | "col" | "sb" | "next48" | "hilo" | "dep" | "mflow" | "mfan" | "mbins" | "wind" | "air" | "tide" | "waves" | "pressure" | "flow" | "share" | "rturb" | "ryoy" | "rpct" | "bturb";
 
 /**
  * Charts sit in two columns, and a chart shares its time axis with the ones above and below it: the left
@@ -637,6 +658,49 @@ const FIGS: Record<Kind, Fig> = {
     start: (d) => d.level?.t0 ?? d.now,
     build: (d, _depth, x0, x1) => departureBuilt(d, x0, x1),
   },
+  mflow: {
+    title: "Current against prediction and model",
+    sub: "along the flood direction",
+    varies: false,
+    wide: true,
+    in: (k) => k === "tides",
+    depthTabs: false,
+    seasonal: false,
+    available: (d) => d.kind === "meter",
+    window: METER_WINDOW,
+    maxSpan: 30 * DAY,
+    start: meterStart,
+    build: (d, _depth, x0, x1) => meterFlowBuilt(d, x0, x1, meterColours()),
+  },
+  mfan: {
+    title: "Seen from above",
+    sub: "north up, every bin at the page's time",
+    varies: false,
+    wide: true,
+    in: (k) => k === "tides",
+    depthTabs: false,
+    seasonal: false,
+    available: (d) => d.kind === "meter" && d.meta.id !== STATION_ID, // on the meter's own page the plan is the hero
+    window: BINS_WINDOW,
+    maxSpan: 30 * DAY,
+    start: meterStart,
+    // Drawn as a plan (drawMeterFan), not a chart: the build is only the bins' timeline, for the prompt and links.
+    build: (d, _depth, x0, x1) => meterBinsBuilt(d, x0, x1, meterColours()),
+  },
+  mbins: {
+    title: "Across the channel",
+    sub: "every bin of the meter",
+    varies: false,
+    wide: true,
+    in: (k) => k === "tides",
+    depthTabs: false,
+    seasonal: false,
+    available: (d) => d.kind === "meter",
+    window: BINS_WINDOW,
+    maxSpan: 30 * DAY,
+    start: meterStart,
+    build: (d, _depth, x0, x1) => meterBinsBuilt(d, x0, x1, meterColours()),
+  },
   waves: {
     title: "Waves",
     sub: "height and each hour's highest wave",
@@ -937,7 +1001,7 @@ const FIGS: Record<Kind, Fig> = {
 };
 
 /** Figure order in a section, left column then right, row by row. */
-const ORDER: Kind[] = ["yoy", "chg", "col", "sb", "next48", "hilo", "dep", "wind", "tide", "waves", "pressure", "share", "bturb", "flow", "rpct", "ryoy", "rturb", "air"];
+const ORDER: Kind[] = ["yoy", "chg", "col", "sb", "next48", "hilo", "dep", "mflow", "mfan", "mbins", "wind", "tide", "waves", "pressure", "share", "bturb", "flow", "rpct", "ryoy", "rturb", "air"];
 
 /** A figure's name with the variable it shows, for the zoom title and screen readers. */
 const figName = (f: Fig) => (f.varies && VK !== "temp" ? `${V().label}: ${f.title.charAt(0).toLowerCase()}${f.title.slice(1)}` : f.title);
@@ -976,6 +1040,64 @@ async function syncZones(): Promise<void> {
 
 
 
+/** Where a current meter's page puts its map, a locator inset over the plan: the harbour, the towns either side and
+ * the river's mouth on the Sound; centred a little south of the meter, toward the Sound
+ * (METER_MAP_SOUTH degrees of latitude, about 2 km), so the mouth is in view. Null on any other page. */
+const METER_MAP_ZOOM = 9;
+const METER_MAP_SOUTH = 0.018;
+function meterPlace(): { lon: number; lat: number; zoom: number } | null {
+  const m = STATION_ID ? A.METERS.find((x) => x.id === STATION_ID) : undefined;
+  return m ? { lon: m.lon, lat: m.lat - METER_MAP_SOUTH, zoom: METER_MAP_ZOOM } : null;
+}
+
+/** How far back the time bar reaches, in hours: two weeks in the Wind view (its strip spans them) and on a current
+ * meter's page (its plan steps back through the meter's record), a day elsewhere. */
+const METER_HOURS_BACK = 14 * 24;
+const hoursBack = () => (VK === "wind" ? WS_BACK / HOUR : meterPlace() ? METER_HOURS_BACK : 24);
+
+/** The Tides view's diagram is the Sound's gauges; a current meter's page shows the map in its place. */
+function syncDiagram(): void {
+  if (meterPlace()) document.querySelector("#map .schematic")?.remove();
+  else PARTS.diagram?.sync();
+  syncMeterHero();
+}
+
+/** A current meter's page leads with its plan, large, in the map's place: the map shrinks to a locator inset over the
+ * plan's corner (the east bank, land in the plan), and the empty status column folds away. Other pages are as they
+ * were; leaving the meter's page puts the map back. */
+function syncMeterHero(): void {
+  const overview = document.querySelector<HTMLElement>(".overview");
+  const col = document.querySelector<HTMLElement>(".map-col");
+  if (!overview || !col) return;
+  const on = !!meterPlace() && !EMBED;
+  if (overview.classList.contains("meter-page") !== on) {
+    overview.classList.toggle("meter-page", on);
+    // The map's box has just changed size: fit it, and centre it again on the meter (or leave it where it was).
+    const place = meterPlace();
+    void import("../map").then((m) => {
+      m.refitMap();
+      if (place) void m.focusOn(place, true);
+    });
+  }
+  let hero = document.getElementById("meter-hero");
+  if (!on) {
+    hero?.remove();
+    return;
+  }
+  if (!hero) {
+    hero = document.createElement("div");
+    hero.id = "meter-hero";
+    hero.className = "meter-hero";
+    hero.innerHTML =
+      `<div class="meter-hero-cap"><span class="cap-label">Seen from above</span><span class="cap-sub">north up, every bin at the page's time</span>` +
+      `<button class="fig-info" type="button" data-about="mfan" aria-label="About this plan" title="About this plan">i</button></div>` +
+      `<div class="plot" id="meter-hero-plot" data-fig="mfan"></div><div class="legend" id="meter-hero-legend"></div>`;
+    col.insertBefore(hero, col.firstChild);
+  }
+  const d = STATIONS.find((s) => s.meta.id === STATION_ID && s.kind === "meter");
+  if (d) drawMeterFan(d);
+}
+
 /** The table row whose station the outlook shows, marked. */
 function markOutlookRow(): void {
   const on = OUTLOOK.peek ?? OUTLOOK.pin;
@@ -984,7 +1106,7 @@ function markOutlookRow(): void {
     const shown = VK === "tides" && !STATIONS.some((d) => d.meta.id === on && d.kind === "shore") ? CFG.defaults.tideStation : on;
     tr.classList.toggle("ol-on", (VK === "wind" || VK === "tides") && id === shown);
   });
-  PARTS.diagram?.sync();
+  syncDiagram();
 }
 
 /* ---------- Overview: map and status grid ---------- */
@@ -1051,7 +1173,7 @@ function statusHtml(all: StationData[], survey = false): string {
   const stations = all.filter(onStation);
   if (VK === "turbidity") return turbTable() + PARTS.shoreTable() + outlookHtml(STATIONS);
   if (VK === "rivers") return riverTable(A.RIVER_SECTIONS[0]) + outlookHtml(STATIONS);
-  if (VK === "tides") return tidesTable(stations) + highestAheadHtml(stations, CFG.defaults.tideStation);
+  if (VK === "tides") return STATION_ID && stations[0]?.kind === "meter" ? "" : tidesTable(stations) + highestAheadHtml(stations, CFG.defaults.tideStation);
   const group = STATION_ID ? (stations[0]?.kind === "shore" ? "shore" : "buoy") : SG;
   // An airport is in neither table: its page leads with the outlook. The shore gauges' own table is the overview's.
   const table = STATION_ID && stations[0]?.kind === "airport" ? "" : stationTables(stations, group);
@@ -1181,7 +1303,8 @@ function wireStatusTabs(stations: StationData[]): void {
  * scale change. The other views mark the moon's phases on the time bar's dates instead. */
 let phaseLoad: Promise<import("../phase").PhaseFile | null> | null = null;
 async function syncPhase(hours: boolean): Promise<void> {
-  const show = VK === "tides" && hours && !PLOT_PAGE; // a plot page keeps its height for the plot
+  // A plot page keeps its height for the plot; a current meter's page has the same comparison, measured, in its plots.
+  const show = VK === "tides" && hours && !PLOT_PAGE && !meterPlace();
   const ph = await import("../phase");
   if (show) phaseLoad ??= getJson<import("../phase").PhaseFile>(`${DATA}/current-phase.json`).catch(() => null);
   const u = WIND_UNITS[WU];
@@ -1208,7 +1331,7 @@ async function wireTimeline(box: HTMLElement): Promise<void> {
     if (PLOT_PAGE) plotReading();
     import("../fields").then((f) => f.setFieldTime(t)).catch(() => undefined);
   });
-  tl.setHoursBack(VK === "wind" ? WS_BACK / HOUR : 24); // the view's reach first, or a linked time is clamped to a day
+  tl.setHoursBack(hoursBack()); // the view's reach first, or a linked time is clamped to a day
   if (waterPlotPage()) tl.setScale("days"); // a water plot spans months: its time moves by days
   applyPendingOffset(tl.position().scale); // after the listener, so a linked time reaches the charts, the table and the pins
   void syncPhase(tl.position().scale === "hours");
@@ -1227,6 +1350,7 @@ async function showAt(t: number | null): Promise<void> {
   const rowsBox = document.getElementById("sound-rows-box");
   if (rowsBox && VK === "tides") rowsBox.innerHTML = departureRowsSvg(STATIONS);
   if (VK === "tides") for (const d of STATIONS.filter((s) => s.kind === "shore")) { const [a, b] = FIGS.hilo.window(d); drawLadder(d, a, b); }
+  if (VK === "tides") STATIONS.filter((s) => s.kind === "meter").forEach(drawMeterFan);
   if (STATIONS.length) statusGrid(STATIONS, true);
   void syncZones();
   if (EMBED) return;
@@ -1248,7 +1372,7 @@ async function overviewMap(stations: StationData[]): Promise<void> {
       // With station pages a pin opens its station's page; without them it goes to the station's section.
       (id) => (PAGES ? void (id !== STATION_ID && hasPage(id) && goToPlace?.(id, true)) : navigateTo(id)),
       currentTheme(),
-      STATIONS.find((d) => d.meta.id === STATION_ID)?.meta,
+      meterPlace() ?? STATIONS.find((d) => d.meta.id === STATION_ID)?.meta,
     );
     void syncMap();
   } catch {
@@ -1277,6 +1401,7 @@ function depthTabsHtml(d: StationData, key: string, active: string): string {
 
 /** The heading's record line: per depth for the water views; the wave record (or the weather window) for wind. */
 function recordLine(d: StationData, perDepth: string): string {
+  if (d.kind === "meter") return meterRecord(d);
   if (VK === "tides") return "Water level, hourly, the last 100 days; predictions and flood levels from NOAA";
   if (d.kind === "rivers") return "Daily flow from 1990; recent flow hourly";
   if (d.kind === "turbidity") {
@@ -1304,8 +1429,8 @@ function sectionHtml(d: StationData): string {
     return `
     <figure${f.wide ? ' class="wide"' : ""}>
       <figcaption><span class="cap-label">${STATION_ID ? "" : `<span class="cap-code">${id}</span>: `}${f.label?.(d) ?? f.title}</span>${f.sub ? `<span class="cap-sub">${f.sub}</span>` : ""}${PLOT_PAGE && key === EMBED ? plotViewTabs(d) : ""}${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, ((PLOT_PAGE && key === EMBED) || LINKED_PLOT === `${id}-${key}`) && d.depths.includes(PLOT_DEPTH) ? PLOT_DEPTH : d.depths[0]) : ""}
-        <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button></span></figcaption>
-      <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}"${PLOT_PAGE ? "" : ' title="Click to expand"'}><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
+        <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" || key === "mfan" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}${key === "mfan" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button>`}</span></figcaption>
+      <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}"${PLOT_PAGE || key === "mfan" ? "" : ' title="Click to expand"'}><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
     </figure>`;
   };
@@ -1319,10 +1444,10 @@ function sectionHtml(d: StationData): string {
         <span class="sid">${d.kind === "turbidity" ? `${CFG.operator} buoys, optical sensors at 1 m` : d.kind === "rivers" ? "USGS stream gauges" : d.kind === "river" ? `USGS ${d.gauge!.usgs_id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W` : `${id} &middot; ${st.lat.toFixed(2)}&deg;N ${Math.abs(st.lon).toFixed(2)}&deg;W`}</span>
         <span class="rec">${recordLine(d, rec)}</span>
       </div>
-      <p class="station-links"><span>${d.kind === "turbidity" ? "Buoys:" : d.kind === "rivers" || d.kind === "river" ? "At USGS:" : d.kind === "shore" ? (d.meta.operator === "USGS" ? "At USGS:" : "At NOAA:") : d.kind === "airport" ? "At IEM:" : `At ${CFG.operator}:`}</span>${[
+      <p class="station-links"><span>${d.kind === "turbidity" ? "Buoys:" : d.kind === "rivers" || d.kind === "river" ? "At USGS:" : d.kind === "shore" ? (d.meta.operator === "USGS" ? "At USGS:" : "At NOAA:") : d.kind === "meter" ? "At NOAA:" : d.kind === "airport" ? "At IEM:" : `At ${CFG.operator}:`}</span>${[
         ...(d.kind === "rivers" ? (d.river?.gauges ?? []).map((g) => `<a href="#${g.id}">${g.river}</a>`) : []),
         ...(d.kind === "turbidity" ? (d.turb?.buoys ?? []).map((b) => `<a href="${A.infoUrl(b.id) ?? "#"}">${b.name}</a>`) : []),
-        st.info_url ? `<a href="${st.info_url}">${d.kind === "river" ? "Gauge page" : d.kind === "shore" || d.kind === "airport" ? "Station page" : "About this buoy"}</a>` : "",
+        st.info_url ? `<a href="${st.info_url}">${d.kind === "river" ? "Gauge page" : d.kind === "shore" || d.kind === "airport" || d.kind === "meter" ? "Station page" : "About this buoy"}</a>` : "",
         A.panelsOf(id).weather ? `<a href="${A.panelsOf(id).weather}">Weather panel</a>` : "",
         A.panelsOf(id).water_quality ? `<a href="${A.panelsOf(id).water_quality}">Water quality panel</a>` : "",
         A.panelsOf(id).waves ? `<a href="${A.panelsOf(id).waves}">Wave panel</a>` : "",
@@ -1408,6 +1533,7 @@ function drawInline(d: StationData, key: Kind): void {
   const b = FIGS[key].build(d, activeDepth(d, key), x0, x1, false);
   if (PLOT_PAGE && key === EMBED) PLOT_DRAWN = { x0, x1, b };
   if (key === "sb") drawWindStrip(d, x0, x1);
+  if (key === "mfan") return drawMeterFan(d);
   if (key === "hilo") {
     drawLadder(d, x0, x1);
     // The flood levels and MHHW are labelled on the ladder itself; the legend keeps the marks that are not.
@@ -1477,7 +1603,7 @@ const isRiver = (d: StationData) => d.kind === "rivers" || d.kind === "river";
 
 
 const aboutNoun = (d: StationData) =>
-  d.kind === "rivers" ? "these gauges" : d.kind === "river" ? "this gauge" : d.kind === "turbidity" ? "these sensors" : d.kind === "buoy" ? "this buoy" : "this station";
+  d.kind === "rivers" ? "these gauges" : d.kind === "river" ? "this gauge" : d.kind === "turbidity" ? "these sensors" : d.kind === "buoy" ? "this buoy" : d.kind === "meter" ? "this current meter" : "this station";
 
 /** A quiet station needs a last reading to date its status from. */
 const isQuiet = (d: StationData) => (d.kind === "buoy" || d.kind === "shore") && stationState(d) === "offline" && Number.isFinite(A.lastSeen(d));
@@ -1594,7 +1720,7 @@ function keepPlace(render: () => void): void {
 /** The map follows the view: basins and gauges in Rivers, the Sound otherwise; and the view's surface field. */
 async function syncMap(): Promise<void> {
   if (EMBED) return; // an embed draws no map
-  PARTS.diagram?.sync();
+  syncDiagram();
   try {
     (await import("../map")).setRiverMode(VK === "rivers", VK === "rivers" ? gaugePins(A.RIVER_SECTIONS) : []);
   } catch {
@@ -1805,7 +1931,7 @@ async function syncField(): Promise<void> {
   const shown = kind !== "none" && (payload.raster || payload.currents || payload.wind || payload.wat || payload.comfort) ? kind : null;
   // The time bar: days for a satellite layer once its history is in, hours otherwise.
   const tl = await import("../timeline");
-  tl.setHoursBack(VK === "wind" ? WS_BACK / HOUR : 24);
+  tl.setHoursBack(hoursBack());
   if (shown !== "sst" && shown !== "chl" && shown !== "kd490") tl.setScale("hours");
   // The span each frame covers, shaded on the time bar: a 2h model step, a day of SST, a 7-day composite.
   tl.setFrame(...FRAME_SPAN[shown ?? "none"]);
@@ -1990,7 +2116,7 @@ async function main(): Promise<void> {
     STATIONS = stations;
     // A station's page: only its views (the first is its default), and the outlook on it.
     if (STATION_ID) {
-      const kind = stations.find((d) => d.meta.id === STATION_ID)?.kind ?? (A.SHORE.some((s) => s.id === STATION_ID) ? "shore" : "airport");
+      const kind = stations.find((d) => d.meta.id === STATION_ID)?.kind ?? (A.SHORE.some((s) => s.id === STATION_ID) ? "shore" : A.METERS.some((m) => m.id === STATION_ID) ? "meter" : "airport");
       const views: VarKey[] = isGauge(STATION_ID) ? ["rivers"] : (CFG.stationPages?.views[kind] ?? []);
       if (!views.includes(VK)) {
         VK = views[0] ?? VK;
@@ -2003,7 +2129,7 @@ async function main(): Promise<void> {
     // A remembered salinity or oxygen choice loads its history first; if that fails, show temperature.
     if (VK !== "temp") await A.ensureVar(VK, live, stations, addSources).catch(() => (VK = "temp"));
     /** The stations on screen: the rivers section in the Rivers view, the buoys and shore stations otherwise. */
-    const shown = () => (EMBED ? [...stations, ...A.RIVER_SECTIONS].filter((d) => d.meta.id === EMBED_STATION) : VK === "rivers" ? A.RIVER_SECTIONS : VK === "turbidity" ? (A.TURB_SECTION ? [A.TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore") : stations.filter((d) => d.kind !== "airport" || VK === "wind")).filter(onStation);
+    const shown = () => (EMBED ? [...stations, ...A.RIVER_SECTIONS].filter((d) => d.meta.id === EMBED_STATION) : VK === "rivers" ? A.RIVER_SECTIONS : VK === "turbidity" ? (A.TURB_SECTION ? [A.TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore" || d.kind === "meter") : stations.filter((d) => (d.kind !== "airport" || VK === "wind") && d.kind !== "meter")).filter(onStation);
     const drawAll = () => {
       for (const d of shown()) {
         readouts(d);
@@ -2011,6 +2137,7 @@ async function main(): Promise<void> {
       }
       redrawZoom();
       if (PLOT_PAGE) plotReading();
+      if (meterPlace()) syncMeterHero();
     };
     /** Station sections for the selected variable (captions and record lines name it), buoys then shore. */
     const renderSections = () => {
@@ -2025,7 +2152,8 @@ async function main(): Promise<void> {
       else $("stations").innerHTML = EMBED
         ? embedHtml([...stations, ...A.RIVER_SECTIONS].find((d) => d.meta.id === EMBED_STATION))
         : VK === "tides"
-          ? `<h2 class="station-group">${CFG.groups.shore}</h2>${stations.filter((d) => d.kind === "shore").map(sectionHtml).join("")}`
+          ? `<h2 class="station-group">${CFG.groups.shore}</h2>${stations.filter((d) => d.kind === "shore").map(sectionHtml).join("")}` +
+            (CFG.groups.meter && stations.some((d) => d.kind === "meter") ? `<h2 class="station-group">${CFG.groups.meter}</h2>${stations.filter((d) => d.kind === "meter").map(sectionHtml).join("")}` : "")
           : VK === "rivers"
           ? `<h2 class="station-group">${CFG.groups.rivers}</h2>${A.RIVER_SECTIONS.map(sectionHtml).join("")}`
           : VK === "turbidity"
@@ -2101,7 +2229,7 @@ async function main(): Promise<void> {
       statusGrid(stations);
       syncUrl();
       void syncMap();
-      void import("../map").then((m) => m.focusOn(d ? { lon: d.meta.lon, lat: d.meta.lat } : null, true));
+      void import("../map").then((m) => m.focusOn(meterPlace() ?? (d ? { lon: d.meta.lon, lat: d.meta.lat } : null), true));
     };
     // A link from before station pages (#EXRX, or ?view=wind#EXRX-wind, on the overview) opens that station's page,
     // keeping a plot's anchor so the page still scrolls to it.
@@ -2153,7 +2281,7 @@ async function main(): Promise<void> {
         return;
       }
       const opener = target.closest<HTMLElement>(".expand, .plot");
-      if (!opener?.dataset.station || PLOT_PAGE) return; // a plot page's plot sets the time instead
+      if (!opener?.dataset.station || PLOT_PAGE || opener.dataset.fig === "mfan") return; // the plan has no expanded view // a plot page's plot sets the time instead
       // On a phone, a plot with a page of its own opens it (Back returns); elsewhere, the expanded view, which links to it.
       const page = plotPageUrl(opener.dataset.station, opener.dataset.fig!);
       if (page && opener.dataset.full !== "1" && window.matchMedia("(max-width: 560px), (max-height: 500px)").matches) {

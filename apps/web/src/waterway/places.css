@@ -45,3 +45,22 @@
 .wr-svg .wr-calm-n { font: 400 5px var(--mono); fill: var(--dim); }
 .wr-svg .wr-cmp { font: 600 5.5px var(--sans); fill: var(--dim); letter-spacing: 0.08em; }
 .station-photo figcaption { margin-top: 6px; font-size: 12px; line-height: 1.4; color: var(--dim); }
+/* A current meter seen from above (meter.ts): a plan, taller than a chart, drawn to fit. */
+.plot[data-fig="mfan"] { height: 300px; padding-right: 0; }
+@media (max-width: 560px) { .plot[data-fig="mfan"] { height: 220px; } }
+.plot[data-fig="mfan"] { cursor: default; } /* the plan has no expanded view */
+
+/* A current meter's page (page.ts syncMeterHero): its plan, large, in the map's place; the map a locator inset over the
+   plan's lower right (the east bank, land in the plan); the empty status column folded away. */
+.overview.meter-page { grid-template-columns: minmax(0, 1fr); }
+.overview.meter-page .status:empty { display: none; }
+.overview.meter-page .map-col { position: relative; }
+.meter-hero-cap { display: flex; align-items: baseline; gap: 10px; margin: 0 0 6px; }
+.meter-hero .plot[data-fig="mfan"] { height: 440px; border: 1px solid var(--rule); background: var(--bg); }
+.meter-hero .legend { margin-top: 6px; }
+.overview.meter-page .map { position: absolute; right: 12px; bottom: 74px; width: 250px; height: 170px; min-height: 0; flex: none; z-index: 2; border-color: var(--dim); }
+.overview.meter-page .map .maplibregl-ctrl-top-right, .overview.meter-page .map .maplibregl-ctrl-bottom-right { display: none; }
+@media (max-width: 560px) {
+  .meter-hero .plot[data-fig="mfan"] { height: 300px; }
+  .overview.meter-page .map { position: relative; right: auto; bottom: auto; width: 100%; height: 150px; margin-top: 10px; } /* too small to overlay: below the plan */
+}

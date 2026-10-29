@@ -84,7 +84,7 @@ export const PLACE_ZOOM = 9.6;
 /** Centre the map on a place near the Sound (the reader's own location, when they turn that on; a station's page), or
  * return to the whole Sound (null); with `jump`, at once rather than in flight. Returns false when the place is not
  * near the Sound. */
-export async function focusOn(at: { lon: number; lat: number } | null, jump = false): Promise<boolean> {
+export async function focusOn(at: { lon: number; lat: number; zoom?: number } | null, jump = false): Promise<boolean> {
   // The map as soon as it exists (moving it needs no tiles); before it is drawn, wait for it.
   const map = current ?? (await mapReady());
   if (!at) {
@@ -93,10 +93,16 @@ export async function focusOn(at: { lon: number; lat: number } | null, jump = fa
   }
   const [[x0, y0], [x1, y1]] = NEAR;
   if (at.lon < x0 || at.lon > x1 || at.lat < y0 || at.lat > y1) return false;
-  const view = { center: [at.lon, at.lat] as [number, number], zoom: Math.max(map.getZoom(), PLACE_ZOOM) };
+  const view = { center: [at.lon, at.lat] as [number, number], zoom: at.zoom ?? Math.max(map.getZoom(), PLACE_ZOOM) };
   if (jump) map.jumpTo(view);
   else map.flyTo({ ...view, duration: 900 });
   return true;
+}
+
+/** Fit the map to its box again after the page changes the box's size (a current meter's page makes it an inset):
+ * the map's own watch on its size misses a change made while the page is in the background. */
+export function refitMap(): void {
+  current?.resize();
 }
 
 /** The page theme the map is drawn in. */
@@ -230,14 +236,15 @@ function marker(map: maplibregl.Map, p: Pin, go: string): maplibregl.Marker {
   return new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lon, p.lat]).addTo(map);
 }
 
-/** Draw the map: on the home view, or on `start` (a station's page opens on its station, without a flight). */
-export function drawMap(container: HTMLElement, pins: Pin[], onSelect: (id: string) => void, initial: Theme, start?: { lon: number; lat: number }): void {
+/** Draw the map: on the home view, or on `start` (a station's page opens on its station, without a flight), at its own
+ * zoom where it gives one (a current meter's page opens close in, on its harbour). */
+export function drawMap(container: HTMLElement, pins: Pin[], onSelect: (id: string) => void, initial: Theme, start?: { lon: number; lat: number; zoom?: number }): void {
   theme = initial;
   select = onSelect;
   const map = new maplibregl.Map({
     container,
     style: STYLES[initial],
-    ...(start ? { center: [start.lon, start.lat] as [number, number], zoom: PLACE_ZOOM } : { bounds: HOME, fitBoundsOptions: { padding: container.clientWidth < 560 ? 6 : 24 } }),
+    ...(start ? { center: [start.lon, start.lat] as [number, number], zoom: start.zoom ?? PLACE_ZOOM } : { bounds: HOME, fitBoundsOptions: { padding: container.clientWidth < 560 ? 6 : 24 } }),
     canvasContextAttributes: { preserveDrawingBuffer: true }, // Collect paints the map into its image
     // Credits behind the (i) button; set explicitly so they never depend on the style loading.
     attributionControl: {

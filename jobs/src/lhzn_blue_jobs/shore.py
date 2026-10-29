@@ -8,6 +8,7 @@ Published layout (under ``<root>/v1/``):
   in knots, speed-weighted mean direction, pressure in mbar, water level in feet above MLLW), the latest
   6-minute readings, and high and low tide predictions for the next 48 hours plus the most recent past
   one. Refreshed hourly; each run fetches only the last 72 hours and merges them over the held window.
+  The registry's current meters (``meters``) ride along as the file's ``meters`` part (see ``meters.py``).
   An hourly value is the mean of the 6-minute readings that passed QC in ``[hour, hour + 1)``; gust is
   the hourly maximum.
 - ``shore-history.json``: water temperature only, hourly in F, the full record of every station.
@@ -255,13 +256,19 @@ def live(prev: dict | None, end: datetime | None = None, full: bool = False, reg
         obj.update({"last_obs": last_obs, "tides": tide_list, "datum": DATUM, "coops_id": st["coops_id"]})
         out_stations[st["id"]] = obj
         out_datasets[st["coops_id"]] = status
-    return {
+    out = {
         "schema": SCHEMA,
         "generated_at": iso(end),
         "stations": out_stations,
         "datasets": out_datasets,
         "qc": QC_DESCRIPTION,
     }
+    meters = load_shore(registry).get("meters") or []
+    if meters:  # the current meters ride in this file, so they cost no writes of their own (see meters.py)
+        from . import meters as meters_mod
+
+        out["meters"] = meters_mod.live(prev.get("meters"), end, meters)
+    return out
 
 
 def water_hourly(df: pd.DataFrame) -> pd.Series:

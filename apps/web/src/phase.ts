@@ -25,7 +25,7 @@ export interface PhaseFile {
   points: PhasePoint[];
 }
 
-const SHORT: Record<string, string> = { race: "The Race", central: "Central", exrx: "Execution Rocks", throgs: "Throgs Neck" };
+const SHORT: Record<string, string> = { race: "The Race", central: "Central", exrx: "Execution Rocks", throgs: "Throgs Neck", groton: "Groton" };
 const STORE = "lhzn-blue-phase";
 const fmtTime = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 

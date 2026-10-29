@@ -12,6 +12,7 @@ import { M } from "./models";
 import { departure, TIDES } from "./tides";
 import { FCST, forecastChange, loadForecast, standIn } from "./forecast";
 import { loadNwps, NWPS, nwpsAt } from "./nwps";
+import { meterReadouts } from "./meter";
 
 export function stratNow(d: StationData): { deltaC: number; status: string } {
   const delta = d.temp.delta;
@@ -188,6 +189,7 @@ function tidesReadouts(d: StationData): string[] {
 export function stationReadouts(d: StationData): string[] {
   const depths = d.depths.filter((dep) => dep !== "MID");
   if (d.kind === "airport") return weatherReadouts(d);
+  if (d.kind === "meter") return meterReadouts(d);
   if (d.kind === "shore") {
     if (M.view() === "wind") return [...weatherReadouts(d), levelReadout(d)];
     if (M.view() === "tides") return tidesReadouts(d);

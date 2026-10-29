@@ -150,6 +150,20 @@ export interface ShoreLive {
   qc: string;
   stations: Record<string, ShoreFrame>;
   datasets: Record<string, { last_ok?: string; last_error?: string }>;
+  meters?: Record<string, MeterFrame>;
+}
+
+/** A current meter's bins (the jobs' meters.py): hourly knots along its flood direction (positive flood) and across it
+ * (positive 90 degrees clockwise of the flood); the bearing its beams point, where known. */
+export interface MeterFrame {
+  coops_id: string;
+  flood_dir: number;
+  realtime_bin: number;
+  bins_m: number[];
+  beam_dir?: number | null;
+  bins: Record<string, { t0: string | null; step: number; kt: (number | null)[]; x_kt?: (number | null)[] }>;
+  last_obs: { time: string; spd_kt: number; dir_deg: number; along_kt: number } | null;
+  status: { last_ok?: string; last_error?: string };
 }
 
 export interface ShoreMetaStation {

@@ -16,6 +16,7 @@ import { M } from "./models";
 import { departure, predictedHour, TIDES } from "./tides";
 import { forecastAt, standIn, typicalError, verTag } from "./forecast";
 import { loadNwps, NWPS, nwpsAt } from "./nwps";
+import { meterPin } from "./meter";
 
 const V = () => WATER_VARS[M.view()];
 
@@ -280,6 +281,7 @@ export function tideCell(d: StationData): string {
 /** A station's map pin: its latest readings, or its observations at the timeline cursor's time. */
 export function stationPin(d: StationData): Pin {
   if (d.kind === "airport") return airportPin(d);
+  if (d.kind === "meter") return meterPin(d);
   const dep = d.depths.includes("SFC") ? "SFC" : d.depths[0];
   const kind = d.kind === "shore" ? ("shore" as const) : ("buoy" as const);
   const base = { id: d.meta.id, name: d.meta.name, lat: d.meta.lat, lon: d.meta.lon, kind };

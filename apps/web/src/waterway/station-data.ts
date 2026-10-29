@@ -52,7 +52,7 @@ export interface VarView {
 }
 
 export interface StationData {
-  kind: "buoy" | "shore" | "airport" | "rivers" | "river" | "turbidity"; // rivers: the all-rivers summary; river: one gauge; airport: coastal ASOS weather
+  kind: "buoy" | "shore" | "airport" | "meter" | "rivers" | "river" | "turbidity"; // rivers: the all-rivers summary; river: one gauge; airport: coastal ASOS weather; meter: a current meter
   meta: MetaStation;
   depths: string[]; // depths this station has, top to bottom
   // The selected variable's views (see useVar); `temp` always holds temperature, for stratification and air.
@@ -76,6 +76,24 @@ export interface StationData {
   river?: RiverData; // the rivers sections
   gauge?: Gauge; // a river section's gauge
   turb?: TurbData; // the buoy turbidity section
+  meter?: MeterData; // a current meter
+}
+
+/** A current meter: each bin's hourly current along the flood direction (knots, positive flood) and across it
+ * (positive 90 degrees clockwise of the flood), nearest the meter first, and its latest reading at the bin NOAA
+ * predicts (the real-time bin). */
+export interface MeterData {
+  coops: string; // NOAA's id for it (nl0101), as the phase file names its point
+  place: string;
+  flood: number; // degrees true the flood runs toward
+  realtime: number; // the real-time bin, 1-based
+  binsM: number[]; // each bin's distance from the meter, metres
+  bins: (Hourly | null)[];
+  across: (Hourly | null)[];
+  beam: number | null; // degrees true the beams point (inferred where NOAA does not publish it)
+  last: { time: string; spd_kt: number; dir_deg: number; along_kt: number } | null;
+  depthM: number;
+  start: string; // the deployment's first day
 }
 
 /** Buoy turbidity: hourly median and fouling flag per buoy, the latest reading, and the recent share flagged. */
@@ -137,6 +155,7 @@ export function overallState(d: StationData): State | "partial" {
 
 export function stationState(d: StationData): State {
   if (d.kind === "airport") return d.met?.last ? obsState({ time: d.met.last.time } as LastObs) : "offline";
+  if (d.kind === "meter") return d.meter?.last ? obsState({ time: d.meter.last.time } as LastObs) : "offline";
   const states = d.depths.map((dep) => obsState(d.obs[dep]));
   return states.includes("live") ? "live" : states.includes("delayed") ? "delayed" : "offline";
 }

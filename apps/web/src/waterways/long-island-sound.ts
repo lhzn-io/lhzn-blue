@@ -22,6 +22,7 @@ export const LONG_ISLAND_SOUND: StationDataWaterway = {
     airport: "Coastal airports, NWS weather stations",
     rivers: "Rivers into the Sound, USGS stream gauges",
     turbidity: "Turbidity, point observations",
+    meter: "Current meter, NOAA PORTS",
   },
   rivers: {
     at: [41.5, -72.6],
@@ -51,11 +52,12 @@ export const LONG_ISLAND_SOUND: StationDataWaterway = {
     mailTo: "long-island-sound@longhorizon.blue",
   },
   stationPages: {
-    views: { buoy: ["temp", "salinity", "oxygen", "wind"], shore: ["tides", "temp", "wind"], airport: ["wind"] },
+    views: { buoy: ["temp", "salinity", "oxygen", "wind"], shore: ["tides", "temp", "wind"], airport: ["wind"], meter: ["tides"] },
     chips: ["buoy"],
     menu: [
       { title: "Shore stations", kinds: ["shore"] },
       { title: "Coastal airports", kinds: ["airport"] },
+      { title: "Current meter", kinds: ["meter"] },
     ],
   },
   photos: {

@@ -325,11 +325,66 @@ export const METHODS: Record<string, Method> = {
   },
 };
 
+METHODS.mflow = {
+  title: "Current against prediction and model",
+  shows:
+    "At NOAA's current meter at Groton, in the Thames River: the measured current (gold) at the bin 38 m out from the pier, " +
+    "NOAA's tidal current prediction for that bin (blue) and the NECOFS model's surface current at the nearest model element " +
+    "(teal, dashed), all along the meter's flood direction (310 degrees, up the river): above the line is flood, below it ebb. " +
+    "The arrows above the plot give the measured direction each hour (faint under 0.05 knots, where it wanders). " +
+    "The note in the expanded plot and the readouts score the prediction and the model against the meter.",
+  method:
+    "Measured: the meter's 6-minute readings resolved along and across the flood direction and each part averaged by the " +
+    "hour; the two give the hour's speed and direction. The comparison uses the " +
+    "hours where both have a value: the root-mean-square difference; flood and ebb strength as the 90th percentile of the " +
+    "current's size each way, the estimate's over the meter's; and slack timing as the mean time from each of the meter's " +
+    "slacks to the estimate's nearest slack of the same turn (within 3 hours, interpolated between hours). The plot's note " +
+    "scores the hours on screen; the readouts score the last 14 days.",
+  sources: "NOAA CO-OPS: New London PORTS current meter nl0101 and NOAA's tidal current predictions for it. NECOFS FVCOM, UMass Dartmouth [[chen2006fvcom]].",
+  caveats:
+    "A river mouth: the current is weak (about half a knot at most) and the river's flow adds to the ebb, and NOAA notes that " +
+    "its predictions err more where currents are weak and during high runoff. The meter reads 5.2 m below the surface; the " +
+    "model's value is its surface layer. Hourly means smooth the timing of slack. Readings faster than 4 m/s are left out " +
+    "as bad pings; gaps stay gaps.",
+};
+
+METHODS.mfan = {
+  title: "Seen from above",
+  shows:
+    "The Groton current meter from above, north up, at the page's time, on NOAA's chart: land, piers, depth contours " +
+    "(metres below mean lower low water) and the dredged channel, faintly; the meter's beam out into the channel to scale; " +
+    "and at each of its ten bins an arrow for the hour's current (gold), its length on the speed scale. The heavier arrow " +
+    "is the bin NOAA predicts; NOAA's prediction for it is the dashed blue arrow, along NOAA's flood or ebb direction. A " +
+    "hollow dot is a bin with no reading that hour. Move the time bar to watch the current turn across the channel.",
+  method:
+    "Each bin's 6-minute readings resolved along and across the flood direction (310 degrees) and averaged by the hour; " +
+    "speed and direction from the two parts.",
+  sources: "NOAA CO-OPS: New London PORTS current meter nl0101 and NOAA's tidal current predictions for it. The chart: NOAA Electronic Navigational Chart US5CT1FV (1:12,000), public domain; not for navigation.",
+  caveats:
+    "NOAA does not publish which way the meter's beams point. The charted pier has two faces within 4 m of the meter's " +
+    "position; flow in the nearest bin runs along its south-west end (as flow beside a face must), so the drawing takes the " +
+    "beams as square to that end, out along the pier's axis into the channel (about 219 degrees). The arrows' directions are measured; only the bins' " +
+    "placement on the drawing rests on that bearing.",
+};
+
+METHODS.mbins = {
+  title: "Across the channel",
+  shows:
+    "Every bin of the Groton current meter, one line each: the current along the flood direction from 6 m out from the pier " +
+    "(strongest colour) to 42 m (palest). The heavy line is the bin NOAA predicts. Where the lines part, the current runs " +
+    "faster toward mid-channel or turns earlier near the pier.",
+  method:
+    "The meter is side-looking: mounted on the pier 5.2 m below the surface, it measures horizontally across the channel in " +
+    "4 m bins. Each bin's 6-minute readings are resolved onto the flood direction (310 degrees) and averaged by the hour.",
+  sources: "NOAA CO-OPS: New London PORTS current meter nl0101.",
+  caveats: "NOAA predicts one bin only; the others are measurements alone.",
+};
+
 METHODS["current-phase"] = {
   title: "Current at a reference point",
   shows:
     "In the Tides view, under the time bar, the tidal current at one of four points along the Sound: the Race, the central Sound (Branford " +
-    "Reef, 5 miles south), Execution Rocks and Throgs Neck. Above the line is flood, below it ebb. The filled band is the " +
+    "Reef, 5 miles south), Execution Rocks and Throgs Neck; or at NOAA's current meter at Groton, in the Thames River. Above the line is flood, below it ebb. The filled band is the " +
     "NECOFS model's surface current (the light band); the fine line is NOAA's tidal current prediction; " +
     "the vertical line is the time bar's hour. The label reads the phase there and the next slack. Each point keeps a " +
     "fixed scale. Slack and strength differ by hours and knots along the Sound, so pick the point nearest your water; a " +

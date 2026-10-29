@@ -1086,6 +1086,25 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .vintage input[type="range"].vg-range::-moz-range-thumb { width: 10px; height: 10px; border: 1.5px solid var(--ink); border-radius: 50%; background: var(--bg); box-sizing: border-box; }
 .vintage input[type="range"].vg-range:hover::-webkit-slider-thumb, .vintage input[type="range"].vg-range:active::-webkit-slider-thumb { background: color-mix(in srgb, var(--ink) 22%, var(--bg)); }
 .vintage input[type="range"].vg-range:hover::-moz-range-thumb, .vintage input[type="range"].vg-range:active::-moz-range-thumb { background: color-mix(in srgb, var(--ink) 22%, var(--bg)); }
+/* Revisions (next 48 hours): a switch at the top right, and when on, a small chart in that corner of how the forecast
+   for one hour changed from run to run (its axis: the time each run was issued). */
+.plot .rev-switch { position: absolute; top: 4px; right: 50px; z-index: 3; padding: 1px 6px; border: 1px solid var(--rule); border-radius: 9px;
+  background: var(--pop-bg); font: 10px/1.4 var(--mono); color: var(--ink-soft); cursor: pointer; }
+.plot .rev-switch[aria-pressed="true"] { border-color: var(--ink-soft); color: var(--ink); }
+.plot:has(.plot-labels.has-glyphs) .rev-switch { top: 26px; }
+.plot .rev-pop { position: absolute; top: 26px; right: 50px; z-index: 4; width: min(300px, 62%); padding: 6px 8px 4px;
+  border: 1px solid var(--rule); background: var(--bg); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); cursor: default; }
+.plot:has(.plot-labels.has-glyphs) .rev-pop { top: 48px; }
+.rev-pop .rev-h { margin: 0 0 4px; font: 10px/1.35 var(--mono); color: var(--ink-soft); }
+.rev-pop .rev-h b { color: var(--ink); font-weight: 600; }
+.rev-pop .rev-m { color: var(--now); font-weight: 600; }
+.rev-pop .rev-plot { position: relative; height: 96px; padding: 0 40px 16px 0; } /* laid out like a plot: value labels right, dates below */
+.rev-pop .rev-plot line.asof { display: none; } /* the page's time is this chart's subject, not a time on its axis */
+@media (max-width: 560px) {
+  /* A phone: the run slider takes the top; the switch sits at the bottom left, the chart across the top. */
+  .plot .rev-switch, .plot:has(.plot-labels.has-glyphs) .rev-switch { top: auto; bottom: 22px; left: 6px; right: auto; }
+  .plot .rev-pop, .plot:has(.plot-labels.has-glyphs) .rev-pop { top: 48px; left: 6px; right: 44px; width: auto; }
+}
 
 /* The outage note is an icon in the masthead that opens it in a dialog, on every screen. Phones also get a tighter
    advisory box and a shorter map (the Sound is long and narrow, so a tall map on a narrow screen shows mostly land). */

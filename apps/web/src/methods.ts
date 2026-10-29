@@ -84,7 +84,10 @@ export const METHODS: Record<string, Method> = {
       "faint line is an earlier HRRR run: where they bunch together, the model has been consistent; where they spread " +
       "apart, it has not, and the timing or strength is less certain. The slider at the top left picks a run (so does " +
       "hovering its line) and draws it dashed, with the time it was issued; the expanded chart pans back through a week " +
-      "of runs.",
+      "of runs. Revisions, a switch on the plot, opens a small chart of how the forecast for one hour, the one under the pointer or " +
+      "the page's time, changed from run to run: along its bottom is the time each run was issued, so a line rising to " +
+      "the right is the model raising that hour's wind as it drew nearer; once the hour has passed, a gold dot is the " +
+      "wind measured then.",
     method:
       "HRRR (3 km, run every hour) is read at the station's nearest water cells [[dowell2022hrrr]]. Hourly runs reach 18 " +
       "hours ahead and the 00, 06, 12 and 18 UTC runs 48, so beyond 18 hours the stitched forecast comes from the latest " +

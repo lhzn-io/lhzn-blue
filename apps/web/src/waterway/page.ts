@@ -32,6 +32,7 @@ import { chooseRun, chosenRun, FCST, forecastAt, HRRR_HIST_LABEL, hrrrAsOf, hrrr
 import { loadNwps, mountNwpsVintage, NWPS, nwpsLabel, nwpsRunAt, nwpsRuns, nwpsSeries } from "./nwps";
 import { OUTLOOK, outlookHtml } from "./outlook";
 import { NEXT48 } from "./next48";
+import { mountRevisions, setRevisionTime } from "./revisions";
 import { ADV, ADV_WIND, advisoriesFor, loadAdvisories, zoneOf, zonesInForce } from "./advisories";
 import { hideWsTip, moveStripCursor, showWsTip, windAcrossHtml, WS_BACK, wsPoint } from "./wind-strip";
 import { windRoseHtml } from "./wind-rose";
@@ -1192,6 +1193,7 @@ async function wireTimeline(box: HTMLElement): Promise<void> {
     syncUrl(true);
     chart.markAsOf(t);
     void showAt(t);
+    setRevisionTime(t); // the next 48 hours plot's Revisions follow the page's time
     if (PLOT_PAGE) plotReading();
     import("../fields").then((f) => f.setFieldTime(t)).catch(() => undefined);
   });
@@ -1407,7 +1409,10 @@ function drawInline(d: StationData, key: Kind): void {
   renderLines($(`${d.meta.id}-${key}`), b.opts);
   $(`${d.meta.id}-${key}-legend`).innerHTML = legendHtml(b);
   PLOT_NOTES.set(`${d.meta.id}-${key}`, b.note ?? "");
-  if (key === "next48") mountVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
+  if (key === "next48") {
+    mountVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
+    mountRevisions(d, $(`${d.meta.id}-${key}`), x0, x1);
+  }
   if (key === "waves") mountNwpsVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
 }
 
@@ -2154,7 +2159,10 @@ async function main(): Promise<void> {
       depthTabs: depthTabsHtml,
       pageUrl: (d, k) => plotPageUrl(d.meta.id, k),
       afterDraw: (plot, d, k, x0, x1) => {
-        if (k === "next48") mountVintage(d, plot, x0, x1);
+        if (k === "next48") {
+          mountVintage(d, plot, x0, x1);
+          mountRevisions(d, plot, x0, x1);
+        }
         else if (k === "waves") mountNwpsVintage(d, plot, x0, x1);
         else plot.querySelector(".vintage")?.remove();
       },

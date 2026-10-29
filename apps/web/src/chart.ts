@@ -281,6 +281,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   const px = (t: number) => ((t - x0) / (x1 - x0)) * W;
   const py = (v: number) => H - ((v - lo) / (hi - lo)) * H;
   const labels: string[] = [];
+  const ends: { left: number; top: number; color: string; text: string }[] = []; // line names, placed after the lines
   labelsEl.classList.toggle("has-glyphs", glyphs.length > 0);
   for (const g of glyphs) {
     labels.push(
@@ -401,7 +402,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
       while (k > 0 && !Number.isFinite(line.ys[k])) k--;
       const sb = svg.getBoundingClientRect(), lb = labelsEl.getBoundingClientRect();
       const left = sb.width ? sb.left - lb.left + (sb.width * px(xs[k])) / W : 0;
-      labels.push(`<span class="end-lab" style="left:${left.toFixed(1)}px;top:${(100 * py(Math.min(line.ys[k], hi))) / H}%;color:${line.color}">${line.end}</span>`);
+      ends.push({ left, top: (100 * py(Math.min(line.ys[k], hi))) / H, color: line.color, text: line.end });
     }
     svg.append(
       el("path", {
@@ -414,6 +415,12 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
       }),
     );
   }
+  // Names that would overlap are set apart, top to bottom, by a line of type (10 px).
+  const gap = 1000 / Math.max(1, svg.getBoundingClientRect().height || 200); // 10 px, in percent of the plot's height
+  ends.sort((p, q) => p.top - q.top).forEach((e, i, all) => {
+    if (i && e.top - all[i - 1].top < gap) e.top = all[i - 1].top + gap;
+    labels.push(`<span class="end-lab" style="left:${e.left.toFixed(1)}px;top:${e.top.toFixed(2)}%;color:${e.color}">${e.text}</span>`);
+  });
   labelsEl.innerHTML = labels.join("");
 
   // Cursor and tooltip.

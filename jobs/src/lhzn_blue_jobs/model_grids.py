@@ -244,7 +244,9 @@ def _ecmwf_frame(ec: _Polite, run: pd.Timestamp, valid: pd.Timestamp, workdir: s
 
 
 def _gfs_key(run: pd.Timestamp, lead: int) -> str:
-    return f"{GFS_BUCKET}/gfs.{run:%Y%m%d}/{run:%H}/atmos/gfs.t{run:%H}z.pgrb2.0p25.f{lead:03d}"
+    from .gfs import key  # one place for GFS's file names (the stations' GFS reads the same files)
+
+    return key(run, lead)
 
 
 def _gfs_frame(n: _Counter, run: pd.Timestamp, valid: pd.Timestamp, workdir: str):

@@ -17,7 +17,7 @@ SOUND = [
         "sst", "chl", "kd490", "currents-mesh", "hrrr-wind", "hrrr-wind-history", "model-grids",
         "nwps-waves", "wind-against-tide", "rips", "piscataqua-currents", "piscataqua-currents-mesh",
     )),
-    "v1/fields/currents.bin", "v1/fields/sst-90d.bin", "v1/fields/chl-90d.bin", "v1/fields/kd490-90d.bin", "v1/fields/piscataqua-currents-history.bin",
+    "v1/forecast-gfs.json", "v1/fields/currents.bin", "v1/fields/sst-90d.bin", "v1/fields/chl-90d.bin", "v1/fields/kd490-90d.bin", "v1/fields/piscataqua-currents-history.bin",
     "v1/hrrr-history/WLIS.json", "v1/hrrr-history/KHVN-recent.json",
 ]
 REGION = [

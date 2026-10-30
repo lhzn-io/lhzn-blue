@@ -308,10 +308,12 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   // Time rules: every rule drawn, labels thinned to what the plot width can hold.
   const rules = timeRules(x0, x1);
   const every = Math.ceil(rules.length / Math.max(3, Math.floor((plot.clientWidth || 600) / 64)));
+  const mark = o.marker && o.marker.x > x0 && o.marker.x < x1 ? px(o.marker.x) : null;
+  const pxPer = (plot.clientWidth || 600) / W; // screen px per drawing unit: a date under the marker's label gives way
   rules.forEach(([t, text], i) => {
     const xx = px(t);
     svg.append(el("line", { x1: xx, x2: xx, y1: 0, y2: H, stroke: theme.rule, "vector-effect": "non-scaling-stroke" }));
-    if (i % every === 0) labels.push(`<span class="month" style="left:${(100 * xx) / W}%">${text}</span>`);
+    if (i % every === 0 && (mark == null || Math.abs(xx - mark) * pxPer > 38)) labels.push(`<span class="month" style="left:${(100 * xx) / W}%">${text}</span>`);
   });
   labels.push(`<span class="axis"></span>`);
 
@@ -339,7 +341,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     const xx = px(o.marker.x);
     svg.append(el("rect", { x: xx, y: 0, width: Math.max(0, W - xx), height: H, fill: theme.shade }));
     svg.append(el("line", { x1: xx, x2: xx, y1: 0, y2: H, stroke: o.marker.color ?? theme.now, "stroke-opacity": 0.7, "stroke-dasharray": "3 3", "vector-effect": "non-scaling-stroke" }));
-    labels.push(`<span class="arriving" style="left:${(100 * xx) / W}%">${o.marker.label}</span>`);
+    labels.push(`<span class="mark-lab" style="left:${(100 * xx) / W}%">${o.marker.label}</span>`);
   }
 
   // Areas: one polygon per run of hours where both edges are known.

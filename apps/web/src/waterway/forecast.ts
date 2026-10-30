@@ -224,7 +224,7 @@ export function mountVintage(d: StationData, plot: HTMLElement, x0?: number, x1?
   mountRunSlider(plot, { store: d.meta.id, model: "HRRR", runs: vintageRuns(d.meta.id, x0, x1), lineLabel: (r) => vintageLabel(d.meta.id, r as FcRun) });
 }
 
-/** A version slider on a plot: picks one of a model's runs (oldest to newest), shows only "<model>, as of <run>", and
+/** A version slider on a plot: picks one of a model's runs (oldest to newest), shows only "<model> run, <its time>", and
  * emphasises that run's line; hovering a run's line moves it. The choice is kept per plot (store key). */
 export function mountRunSlider(plot: HTMLElement, o: { store: string; model: string; runs: { issue: number }[]; lineLabel: (r: { issue: number }) => string }): void {
   plot.querySelector(".vintage")?.remove();
@@ -242,7 +242,7 @@ export function mountRunSlider(plot: HTMLElement, o: { store: string; model: str
   const label = box.querySelector<HTMLElement>(".vg-label")!;
   const set = (k: number, picked: boolean) => {
     const r = runs[k];
-    label.textContent = `${o.model}, as of ${fmtRun.format(new Date(r.issue * 1000))}`;
+    label.textContent = `${o.model} run, ${fmtRun.format(new Date(r.issue * 1000)).replace(",", "")}`;
     range.value = String(k);
     range.setAttribute("aria-valuetext", label.textContent);
     if (picked) VINTAGE.set(o.store, r.issue);

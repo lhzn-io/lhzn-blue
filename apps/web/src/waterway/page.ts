@@ -2429,6 +2429,34 @@ const plotPageUrl = (id: string, fig: string): string | null => {
  * run slider's choice goes into the address. The reading follows each. */
 function wirePlotPage(): void {
   document.getElementById("place-panel")?.insertAdjacentHTML("afterend", `<span class="plot-name">${escHtml(PLOT?.name ?? "")}</span>`);
+  // The way back: to the overview when the reader came from it, else to the station's page (a gauge's plots are in the
+  // overview's Rivers view), at the page's time and view when followed.
+  const fromOverview = (() => {
+    try {
+      const r = new URL(document.referrer);
+      return r.origin === location.origin && r.pathname === PAGES?.base;
+    } catch {
+      return false;
+    }
+  })();
+  const gauge = !!STATION_ID && isGauge(STATION_ID);
+  const back = document.createElement("a");
+  back.className = "plot-back";
+  back.textContent = "\u2039";
+  const name = () =>
+    fromOverview || gauge ? "the overview" : (STATIONS.find((s) => s.meta.id === STATION_ID)?.meta.name ?? "the station's page");
+  const backUrl = () => {
+    back.title = `Back to ${name()}`;
+    back.setAttribute("aria-label", back.title);
+    if (!gauge) return placeUrl(fromOverview ? null : STATION_ID);
+    const q = new URLSearchParams(location.search);
+    q.set("view", "rivers");
+    q.delete("depth");
+    return `${PAGES?.base ?? ""}?${q}#${STATION_ID}`;
+  };
+  back.href = backUrl();
+  for (const type of ["click", "pointerenter", "focus"]) back.addEventListener(type, () => (back.href = backUrl()), true);
+  document.getElementById("place-pick")?.before(back);
   const pick = (t: number) => timelineModule?.setOffset(Math.round(t / HOUR - Math.round(Date.now() / 1000 / HOUR)));
   document.addEventListener("timepick", (e) => pick((e as CustomEvent<number>).detail));
   // The tide ladder is drawn apart from the charts: a tap or drag on it sets the time the same way.
@@ -2750,6 +2778,14 @@ function wirePlaces(): void {
     if (menu?.open && (!menu.contains(t) || a)) menu.open = false;
     if (a && panel?.contains(a)) setPanel?.(false);
     if (!a) return;
+    if (PLOT_PAGE) {
+      // A plot page: the same plot at the place picked, where it has one, else the place's own page (the overview has
+      // no plot pages), loaded in full.
+      const to = a.dataset.place || null;
+      const d = to ? STATIONS.find((s) => s.meta.id === to) : undefined;
+      a.href = (d && EMBED && shows(d, EMBED) && plotPageUrl(d.meta.id, EMBED)) || placeUrl(to);
+      return;
+    }
     a.href = placeUrl(a.dataset.place || null);
     if (plain(e) && goToPlace) {
       e.preventDefault();

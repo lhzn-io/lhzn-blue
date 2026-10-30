@@ -115,8 +115,8 @@ export function showWeekday(on: boolean): void {
   sync();
 }
 function label(): string {
-  if (offset === 0) return "now";
-  const t = new Date((asOf() ?? 0) * 1000);
+  const t = new Date((asOf() ?? Date.now() / 1000) * 1000);
+  if (offset === 0) return `now, ${weekday ? `${fmtWeekday.format(t)} ` : ""}${fmtClock.format(t)}`;
   const sign = offset < 0 ? "−" : "+";
   if (scale === "days") return `${fmtDay.format(t)} ${sign}${Math.round(Math.abs(offset) / 24)}d`;
   const h = Math.abs(offset);
@@ -147,6 +147,7 @@ function sync(): void {
   const lab = root.querySelector<HTMLElement>(".tl-label")!;
   lab.textContent = label();
   lab.title = fullLabel();
+  lab.classList.toggle("is-now", offset === 0);
   root.querySelector<HTMLButtonElement>(".tl-now")!.hidden = offset === 0;
   const unit = scale === "days" ? "d" : "h";
   root.querySelectorAll<HTMLButtonElement>(".tl-step").forEach((b) => {

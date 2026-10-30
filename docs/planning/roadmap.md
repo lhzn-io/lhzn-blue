@@ -1,6 +1,6 @@
 # Roadmap
 
-What `longhorizon.blue` builds next, in rough order. Last revised 2026-10-27.
+What `longhorizon.blue` builds next, in rough order. Last revised 2026-10-30.
 
 ## Principles
 
@@ -48,16 +48,16 @@ Long Island Sound page:
 - [x] A page of its own for each plot at a station or river gauge, with the time bar and a reading at its time
 - [x] NOAA's current meter at Groton, in the Thames River: a pin and a page with its ten bins across the channel,
       drawn on NOAA's chart, and its measurements beside NOAA's prediction and the NECOFS model
+- [x] Forecast revisions: on the next 48 hours plot, how HRRR's wind for one hour changed from run to run, with
+      what was measured once the hour has passed
 
 ## Next
 
-1. **Forecast revisions.** How HRRR's wind for a given hour changed from run to run, at each buoy: whether the model
-   has been raising or lowering it as the hour approached, with what was measured once the hour has passed.
-2. **Compact currents file.** The currents in the binary frame format the satellite history uses, about a third of
+1. **Compact currents file.** The currents in the binary frame format the satellite history uses, about a third of
    today's size.
-3. **Global models at longer leads.** ECMWF and GFS wind at the buoys, scored the same way as HRRR.
-4. **Design notes.** The palette and the plot grammar documented, with their licence.
-5. **Anomaly contours on the year comparison (prototype).** On the water "This year" plot, curved reference lines for
+2. **Global models at longer leads.** ECMWF and GFS wind at the buoys, scored the same way as HRRR.
+3. **Design notes.** The palette and the plot grammar documented, with their licence.
+4. **Anomaly contours on the year comparison (prototype).** On the water "This year" plot, curved reference lines for
    the normal value on each date and set steps either side (1 and 2 °F for temperature), drawn from the earlier years
    on record. This year then reads as an anomaly while staying in its own units, and the earlier years' lines can be
    drawn fainter or left out. After Toph Tucker's warped gridlines (Observable, 2022), which bend the grid rather than

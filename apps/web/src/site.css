@@ -220,6 +220,7 @@ figure.wide { grid-column: 1 / -1; }
    nothing beside them moves as the time changes length. */
 .tl-slot .tl-label { display: inline-block; min-width: 16ch; margin-left: 4px; text-align: left; }
 .tl-pin .tl-slot .tl-label { text-align: right; }
+.tl-label.is-now { font-weight: 700; color: var(--ink); text-decoration: underline 2px var(--now); text-underline-offset: 3px; }
 .timeline .tl-now[hidden] { display: inline !important; visibility: hidden; }
 @media (pointer: coarse) { .tl-step { min-width: 46px; min-height: 34px; margin-right: 6px; font-size: 13px; } .tl-row > .tl-slot { padding-left: 0; } }
 .tl-now { margin-left: 8px; font: 10px/1.2 var(--sans); text-decoration: underline; text-underline-offset: 2px; }
@@ -465,8 +466,8 @@ figcaption { display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wra
 .plot-labels .ylab { right: 0; transform: translateY(-50%); width: 40px; text-align: right; }
 /* A line's own name at its end (a percentile contour, a year), right-aligned to the end and just above it. */
 .plot-labels .end-lab { transform: translate(-100%, -115%); padding-right: 2px; font-size: 8px; }
-.plot-labels .arriving { top: 2px; padding-left: 5px; color: var(--chart-label); font-style: italic; font-family: var(--serif); font-size: 12px; }
-.plot-labels.has-glyphs .arriving { top: 24px; }
+/* The marker's label ("now") among the dates under the axis, in bold over a gold tick, where nothing in the plot covers it. */
+.plot-labels .mark-lab { bottom: -16px; transform: translateX(-50%); padding: 1px 3px 0; border-top: 2px solid var(--now); color: var(--ink); font-weight: 700; font-size: 9px; }
 /* Direction arrows along the top of a chart (chart.ts glyphs), each centred on its hour. */
 .plot-labels .glyph { top: 4px; width: 14px; height: 14px; transform: translateX(-50%); line-height: 0; }
 .plot-labels .glyph svg { display: block; }
@@ -917,6 +918,7 @@ body:not(.landing) .stage { padding: 0; border: 0; border-radius: 0; color: var(
   .strip-cap { font-size: 9.5px; }
   .plot-labels { font-size: 9.5px; }
   .plot-labels .month { font-size: 9.5px; }
+  .plot-labels .mark-lab { font-size: 10px; }
 }
 
 /* The next 48 hours: one line per quantity under the status table, and a sentence in the masthead. */
@@ -1084,7 +1086,7 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
    only the run's time beside it; the chosen run's line is emphasised. */
 .plot path.lit { stroke-opacity: 0.95 !important; stroke-width: 1.8px; stroke-dasharray: 6 3; } /* dashed like the newest forecast: a forecast, not a measurement */
 .plot .vintage { position: absolute; top: 4px; left: 6px; z-index: 3; display: flex; align-items: center; gap: 7px;
-  padding: 1px 6px; background: var(--pop-bg); font: 10px/1.6 var(--mono); color: var(--ink-soft); }
+  padding: 1px 6px; background: var(--pop-bg); font: 10px/1.6 var(--mono); color: var(--dim); }
 .plot:has(.plot-labels.has-glyphs) .vintage { top: 26px; } /* below the direction arrows */
 .vintage input[type="range"].vg-range { -webkit-appearance: none; appearance: none; width: 110px; height: 16px; margin: 0; background: transparent; cursor: pointer; }
 .vintage input[type="range"].vg-range::-webkit-slider-runnable-track { height: 1px; background: var(--dim); }
@@ -1319,7 +1321,7 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 /* Embed mode (?embed=...): one figure and its credit line; everything else on the page is hidden. */
 body.embed .topbar, body.embed .mast, body.embed .timebar, body.embed .overview, body.embed .about, body.embed footer.credits,
 body.embed .station-head .head-info, body.embed .station-head .sid, body.embed .station-head .rec,
-body.embed .station-links, body.embed .station-note, body.embed .band, body.embed .collect-btn, body.embed .expand { display: none !important; }
+body.embed .station-links, body.embed .station-note, body.embed .band, body.embed:not(.plot-page) .collect-btn, body.embed .expand { display: none !important; }
 body.embed main { max-width: none; margin: 0; padding: 10px 14px 6px; }
 body.embed .station { margin: 0; padding: 0; border: 0; }
 body.embed .station-head h2 { margin: 0 0 6px; font-size: 13px; letter-spacing: 0.16em; }
@@ -1437,9 +1439,11 @@ html.sel-compact .view-menu .vm-label { display: none; }
 .plot-name { display: none; }
 body.plot-page .mast, body.plot-page .pick-band, body.plot-page .overview, body.plot-page .about, body.plot-page footer.credits,
 body.plot-page .station-head, body.plot-page .station-links, body.plot-page .station-note, body.plot-page .band,
-body.plot-page .expand, body.plot-page .collect-btn, body.plot-page .topbar .view-menu { display: none !important; }
+body.plot-page .expand, body.plot-page .topbar .view-menu { display: none !important; }
 body.plot-page .topbar .plot-name { display: inline-flex; align-items: center; gap: 6px; order: 0; flex: none; padding: 0 6px;
   font: 700 10px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+body.plot-page .topbar .plot-back { order: -1; flex: none; padding: 0 8px 2px 2px; font: 400 22px/1 var(--sans); color: var(--ink); text-decoration: none; }
+body.plot-page .topbar .plot-back:hover, body.plot-page .topbar .plot-back:focus-visible { color: var(--accent); }
 body.plot-page .topbar .plot-name::before { content: "\00b7"; color: var(--faint); }
 body.plot-page .station { margin: 0; padding: 0; border: 0; }
 body.plot-page .figs { display: block; margin: 0; }

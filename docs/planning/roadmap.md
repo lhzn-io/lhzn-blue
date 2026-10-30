@@ -46,6 +46,8 @@ Long Island Sound page:
       three of the buoys, and earlier links to a station or one of its plots opening its page
 - [x] Every waterway page built from one configurable page, so each feature below is built once for all of them
 - [x] A page of its own for each plot at a station or river gauge, with the time bar and a reading at its time
+- [x] NOAA's current meter at Groton, in the Thames River: a pin and a page with its ten bins across the channel,
+      drawn on NOAA's chart, and its measurements beside NOAA's prediction and the NECOFS model
 
 ## Next
 
@@ -63,8 +65,9 @@ Long Island Sound page:
 
 ## After that
 
-1. **Tidal currents beside the model.** NOAA tidal current predictions at The Race, Plum Gut and Hell Gate shown
-   with the NECOFS surface currents, and the two compared at each station.
+1. **Tidal currents beside the model.** Plum Gut added to the current phase strip, with NOAA's prediction beside the
+   NECOFS surface current. Scored only where there is a measurement, as at Groton; the other points show the two
+   curves without a score.
 2. **Fog.** Dew-point depression and the air-sea temperature difference at the buoys, visibility from the airport
    stations around the Sound, satellite fog products, and visibility forecasts scored against them.
 3. **Tide-averaged flow at Middle Haddam.** USGS publishes only tidal flow below Thompsonville on the Connecticut
@@ -82,6 +85,7 @@ Long Island Sound page:
 
 ## Later
 
+- **Hell Gate in the current phase strip**, once the model currents on this site reach the East River.
 - **Gap filling with labelled estimates.** A buoy's conditions estimated from its neighbours and its own seasonal
   relationships during an outage, scored by withholding known periods, and drawn dashed.
 - **Derived maps.** Chlorophyll, dissolved oxygen and salinity fields across the Sound.

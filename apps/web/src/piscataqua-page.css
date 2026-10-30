@@ -45,6 +45,8 @@ select.pq-btn { padding: 0 6px; }
 .pq-tb-row .time-track { flex: 1 1 auto; height: 30px; --tl-ink: var(--pq-time); }
 .pq-tb-row .pq-btn { flex: none; }
 .pq-tb-row .pq-play { display: grid; place-items: center; min-width: 34px; }
+/* The steps read as the site's time bar's do ("−1h", "+1h"): the same figures, in its mono face. */
+.pq-tb-row #back, .pq-tb-row #fwd { font: 10px/1 var(--mono); letter-spacing: 0; text-transform: none; }
 .pq-share { display: inline-flex; align-items: center; gap: 5px; }
 @media (max-width: 560px) { .pq-share span { display: none; } } /* the icon alone on a phone */
 .pq-tb-read { min-height: 0; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

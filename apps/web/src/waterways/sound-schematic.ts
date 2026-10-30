@@ -263,7 +263,7 @@ function schematicSvg(sc: Schematic, W: number, H: number): string {
   lines.forEach((l, k) => { for (let i = 0; i < l.length; i += k < 2 ? 2 : 1) pts.push([X(l[i][0]), Y(l[i][1])]); });
   for (const r of sc.rivers ?? []) for (const [x, y] of r.line) pts.push([X(x), Y(y)]);
   const taken: Box[] = [];
-  const CW = 6.15, LH = 12;
+  const CW = 7, LH = 12; // the mono face at 10px: 7 px a character, as measured
   // Each label tries spots out on its shore's land side (near, then farther into the open space) and takes the one that
   // keeps clear of the shore, of other labels and marks, and whose leader line crosses the least shore.
   const leads: [number, number, number, number][] = [];
@@ -290,8 +290,10 @@ function schematicSvg(sc: Schematic, W: number, H: number): string {
       return { b: kept, lead: true };
     }
     const w = Math.max(...rows.map((r) => r.length)) * CW + 6, h = rows.length * LH + 3;
-    // The site's gauges at one distance, just clear of the largest bar; the USGS gauges farther out, stepping on.
-    const dists = far ? [56, 72, 88, 104, 122, 140] : [Math.max(9, 2 * FT) + 6, Math.max(9, 2 * FT) + 22];
+    // The site's gauges at one distance, just clear of the largest bar; the USGS gauges farther out, stepping on. On a
+    // phone the site's labels may step out too, stacked at different heights, since side by side they do not fit.
+    const near = Math.max(9, 2 * FT);
+    const dists = far ? [56, 72, 88, 104, 122, 140] : nar ? [near + 6, near + 22, near + 40, near + 58, near + 76, near + 94] : [near + 6, near + 22];
     const xs = [-w / 2, -8, -w + 8, -w * 0.25, -w * 0.75];
     let best: { b: Box; score: number; lead: boolean } | null = null;
     dists.forEach((d, di) => xs.forEach((dx, xi) => {
@@ -309,6 +311,10 @@ function schematicSvg(sc: Schematic, W: number, H: number): string {
       for (const sh of shoreSegs) if (cross(seg, sh)) { score += 600; break; }
       if (!best || score < best.score) best = { b: bx, score, lead: true };
     }));
+    // Where no spot fits (a narrow phone), the least crowded one is pulled back inside the frame rather than cut off.
+    const b = best!.b;
+    const mx = Math.max(2 - b.x0, Math.min(0, W - 2 - b.x1)), my = Math.max(2 - b.y0, Math.min(0, H - 2 - b.y1));
+    best!.b = { x0: b.x0 + mx, y0: b.y0 + my, x1: b.x1 + mx, y1: b.y1 + my };
     taken.push(best!.b);
     leads.push([px, py, ...anchorOf(px, py, best!.b)]);
     memo.set(key, best!.b);
@@ -327,6 +333,11 @@ function schematicSvg(sc: Schematic, W: number, H: number): string {
   // labels.
   const band = nar ? null : { y0: bandY0, y1: bandY1 };
   if (band) taken.push({ x0: 0, y0: band.y0 - 14, x1: W, y1: band.y1 + 4 });
+  // The scale bar and north arrow (drawn last), kept clear of labels too.
+  const km = zk >= 4 ? 5 : zk >= 2 ? 10 : 20; // a bar of about the same length at any zoom
+  const sk = s * zk;
+  const sx = W - (nar ? 14 : 40) - km * sk - 40, sy = H - 18;
+  taken.push({ x0: sx - 8, y0: sy - 20, x1: sx + km * sk + 44, y1: H });
   // Marks first (so labels keep off them), then labels.
   const on = OUTLOOK.peek ?? OUTLOOK.pin;
   const shown = sc.gauges.some((q) => q.id === on && q.kind === "site") ? on : "KPTN";
@@ -369,17 +380,14 @@ function schematicSvg(sc: Schematic, W: number, H: number): string {
   }
   // The site's gauges claim their spots first, then the candidates, then the named places.
   for (const m of [...marks].sort((a, b) => (a.q.kind === "site" ? 0 : 1) - (b.q.kind === "site" ? 0 : 1))) {
-    const p = place(m.q.id, m.x, m.y, m.q.kind === "site" ? [m.q.name, "-00.0 ft +0.0 pred."] : m.rows, m.q.side, m.q.kind !== "site");
+    const p = place(m.q.id, m.x, m.y, m.q.kind === "site" ? [m.q.name, "10.0 ft pred."] : m.rows, m.q.side, m.q.kind !== "site");
     const body = `<title>${m.title}</title>${p.lead ? leader(m.x, m.y, p.b) : ""}${m.svg}${text(p.b, m.rows, m.cls)}`;
     g += m.q.kind === "site" ? `<g data-id="${m.q.id}" class="sc-g">${body}</g>` : `<g data-usgs="${m.q.usgs}">${body}</g>`;
   }
   if (band) g += tiltBand(sc, X, W, band);
-  // Scale bar and north arrow, at the foot.
-  const km = zk >= 4 ? 5 : zk >= 2 ? 10 : 20; // a bar of about the same length at any zoom
-  const sk = s * zk;
-  const sx = W - (nar ? 14 : 40) - km * sk - 40, sy = H - 18;
+  // Scale bar and north arrow, at the foot (its middle figure left out on a phone, where the bar is too short for it).
   g += `<g class="sc-scale"><line x1="${f1(sx)}" x2="${f1(sx + km * sk)}" y1="${sy}" y2="${sy}"/>` +
-    [0, km / 2, km].map((t) => `<line x1="${f1(sx + t * sk)}" x2="${f1(sx + t * sk)}" y1="${sy - 3}" y2="${sy + 3}"/><text x="${f1(sx + t * sk)}" y="${sy - 7}" text-anchor="middle">${t === km ? `${km} km` : t}</text>`).join("") +
+    (nar ? [0, km] : [0, km / 2, km]).map((t) => `<line x1="${f1(sx + t * sk)}" x2="${f1(sx + t * sk)}" y1="${sy - 3}" y2="${sy + 3}"/><text x="${f1(sx + t * sk)}" y="${sy - 7}" text-anchor="middle">${t === km ? `${km} km` : t}</text>`).join("") +
     `<path d="M${f1(sx + km * sk + 28)},${sy + 3} V${sy - 15} M${f1(sx + km * sk + 24.5)},${sy - 9} L${f1(sx + km * sk + 28)},${sy - 16} L${f1(sx + km * sk + 31.5)},${sy - 9}"/>` +
     `<text x="${f1(sx + km * sk + 36)}" y="${sy}">N</text></g>`;
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Long Island Sound in outline, with water level at the tide gauges">${g}</svg>`;

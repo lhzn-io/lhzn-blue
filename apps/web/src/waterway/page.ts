@@ -34,7 +34,7 @@ import { OUTLOOK, outlookHtml } from "./outlook";
 import { NEXT48 } from "./next48";
 import { mountRevisions, setRevisionTime } from "./revisions";
 import { ADV, ADV_WIND, advisoriesFor, loadAdvisories, zoneOf, zonesInForce } from "./advisories";
-import { hideWsTip, moveStripCursor, showWsTip, windAcrossHtml, WS_BACK, wsPoint } from "./wind-strip";
+import { fitStripDates, hideWsTip, moveStripCursor, showWsTip, windAcrossHtml, WS_BACK, wsPoint } from "./wind-strip";
 import { windRoseHtml } from "./wind-rose";
 import { DEPARTURE, loadTides, onTides, TIDES } from "./tides";
 import { departureBuilt, departureRowsSvg, drawLadder, highestAheadHtml, hiloAround, hiloBuilt, tidesTable } from "./tides-view";
@@ -1207,6 +1207,7 @@ function statusGrid(all: StationData[], timeOnly = false): void {
   const keep = strip && moveStripCursor(strip) ? strip : null;
   box.innerHTML = statusHtml(all, !!keep);
   if (keep) box.append(keep);
+  else fitStripDates(box);
   if (VK !== "turbidity" && VK !== "rivers") markOutlookRow();
   if (!EMBED) holdRoom(box, `${VK}|${STATION_ID}|${SG}|${box.clientWidth}`, !timeOnly, () => statusHtml(all, true), roomTimes);
 }

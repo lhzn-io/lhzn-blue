@@ -284,7 +284,8 @@ html:has(body > .tl-pin) { scroll-padding-top: 26px; }
   .timeline .tl-now { grid-area: now; }
   .timeline .tl-label { grid-area: label; justify-self: end; margin: 0; font-size: 12px; color: var(--ink); text-align: right; }
   .timeline .tl-now[hidden] { display: grid !important; }
-  .timeline .tl-dlabel:nth-of-type(even), .timeline .tl-dlabel:nth-of-type(3) { display: none; } /* the time bar's 4 to 17 days; the other pages' tracks keep theirs */
+  .timeline .tl-dlabel:nth-of-type(even), .timeline .tl-dlabel:nth-of-type(3),
+  .ws-axis .tl-dlabel:nth-of-type(even), .ws-axis .tl-dlabel:nth-of-type(3) { display: none; } /* the time bar's 4 to 17 days, and the wind strip's under it; the other pages' tracks keep theirs */
   .tl-pin { padding: 2px var(--gutter) 4px; }
   .tl-pin .timeline > .tl-row:first-child > .tl-track { height: 28px; }
   .tl-pin .timeline .tl-play, .tl-pin .timeline .tl-step, .tl-pin .timeline .tl-now { height: 16px; }
@@ -614,6 +615,7 @@ body.landing {
 @media (max-width: 1180px) {
   .overview { grid-template-columns: 1fr; }
   .map { height: 300px; min-height: 0; }
+  .map:has(> .schematic) { height: 520px; } /* the Tides view's diagram: the Sound, its labels and the tilt band below */
 }
 
 @media (max-width: 900px) {
@@ -1066,7 +1068,8 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .ws-svg .ws-adv { fill: var(--advisory); opacity: 0.45; }
 .ws-svg .ws-adv-hi { opacity: 1; }
 .ws-svg .ws-zone { font-size: 5.5px; fill: var(--faint); letter-spacing: 0.04em; }
-.ws-svg .ws-tick { stroke: var(--faint); stroke-width: 0.6; }
+/* The strip's dates: the time bar's track (time-axis.ts) under the plotted span, without the bar's needle. */
+.ws-axis { height: 26px; margin-top: 2px; }
 .ws-svg .ws-now { stroke: var(--now); stroke-width: 0.8; stroke-dasharray: 2 2; }
 .ws-model { fill: none; stroke: var(--ink); stroke-width: 0.6; stroke-dasharray: 1.6 1.2; }
 .ws-model-key { stroke-width: 1; stroke-dasharray: 2.4 1.6; }
@@ -1141,6 +1144,7 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
   .mast .mast-advisory { padding: 6px 10px; max-width: none; flex: 1 1 100%; margin-left: 0; }
   .mast-advisory b { font-size: 13px; }
   .map { height: 230px; }
+  .map:has(> .schematic) { height: 380px; } /* the Tides view's diagram: room for its eight two-line labels */
 }
 
 /* Wind against tide: a categorical key, one swatch per level. */

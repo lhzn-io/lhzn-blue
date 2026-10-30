@@ -101,6 +101,17 @@ function firstOfMonth(t: number): number {
   return s + (h >= 12 ? 24 - h : -h) * HOUR;
 }
 
+/** Hide the dates that would run into the one before (a narrow phone, a long first label), left to right. */
+export function thinDates(ticks: HTMLElement): void {
+  let right = -Infinity;
+  for (const s of ticks.querySelectorAll<HTMLElement>(".tl-dlabel")) {
+    s.style.visibility = "";
+    const r = s.getBoundingClientRect();
+    if (r.width && r.left < right + 4) s.style.visibility = "hidden";
+    else right = r.right;
+  }
+}
+
 /** Dress a page's own range input as the site's time track: the line, ticks, dates and moons drawn behind it, the
  * needle and knob at its value. `timeOf` maps the input's values to epoch seconds (an index into the page's hours, or
  * the time itself). The page keeps its input and its listeners; setting the input's value, min or max (as the page
@@ -122,16 +133,7 @@ export function timeTrack(input: HTMLInputElement, timeOf: (v: number) => number
     const f = hi > lo ? (num(input.value, lo) - lo) / (hi - lo) : 0;
     needle.style.left = knob.style.left = pct(f);
   };
-  // Dates that would run into the one before (a narrow phone, a long first label) are hidden, left to right.
-  const thin = () => {
-    let right = -Infinity;
-    for (const s of ticks.querySelectorAll<HTMLElement>(".tl-dlabel")) {
-      s.style.visibility = "";
-      const r = s.getBoundingClientRect();
-      if (r.width && r.left < right + 4) s.style.visibility = "hidden";
-      else right = r.right;
-    }
-  };
+  const thin = () => thinDates(ticks);
   new ResizeObserver(thin).observe(track);
   void document.fonts?.ready.then(thin); // widths change once the mono face loads
   let drawn = "";

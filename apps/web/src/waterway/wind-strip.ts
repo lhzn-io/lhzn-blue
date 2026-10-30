@@ -12,6 +12,7 @@ import type { StationData } from "./station-data";
 import { FCST, forecastAt, hrrrAsOf, loadForecast } from "./forecast";
 import { ADV, ADV_WIND, advisoriesFor, loadAdvisories, zoneOf } from "./advisories";
 import { M } from "./models";
+import { axisHtml, pct, thinDates } from "../time-axis";
 
 type Theme = "dark" | "light";
 const currentTheme = (): Theme => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
@@ -22,7 +23,7 @@ const WS_STOPS: Record<Theme, [number, string][]> = {
 };
 export const WS_BACK = 14 * DAY, WS_AHEAD = 48 * HOUR;
 const WS_REACH = { back: WS_BACK, ahead: 72 * HOUR }; // the time slider's hours scale in this view (timeline.ts)
-const WS = { W: 480, L: 34, R: 4, top: 12, row: 8, ribbon: 3, gap: 7, bot: 13 };
+const WS = { W: 480, L: 34, R: 4, top: 12, row: 8, ribbon: 3, gap: 7, bot: 2 };
 /** The strip's station rows as last drawn (viewBox units), for the pointer to find its station. */
 const WS_ROWS: { d: StationData; y0: number; y1: number }[] = [];
 
@@ -124,6 +125,12 @@ export function moveStripCursor(section: HTMLElement): boolean {
   return true;
 }
 
+/** Once the strip is in the page: hide the dates under it that would run together (on a phone). */
+export function fitStripDates(root: HTMLElement): void {
+  const ticks = root.querySelector<HTMLElement>(".ws-axis .tl-ticks");
+  if (ticks) thinDates(ticks);
+}
+
 /** The strip for a waterway ("the Sound"), in the weather view only. */
 export function windAcrossHtml(stations: StationData[], waterway: string): string {
   if (M.view() !== "wind") return "";
@@ -221,15 +228,7 @@ export function windAcrossHtml(stations: StationData[], waterway: string): strin
     }
     y += gap;
   }
-  // Days: a tick at each Eastern midnight, labelled on Mondays; "now" and the page's time.
-  const fmtTick = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", weekday: "short", hour: "numeric", hourCycle: "h23" });
-  for (let h = t0; h <= t1; h += HOUR) {
-    const p = fmtTick.formatToParts(new Date(h * 1000));
-    if (p.find((q) => q.type === "hour")?.value !== "00") continue;
-    g += `<line x1="${x(h).toFixed(1)}" x2="${x(h).toFixed(1)}" y1="${H - bot}" y2="${H - bot + 2.5}" class="ws-tick"/>`;
-    if (p.find((q) => q.type === "weekday")?.value === "Mon")
-      g += `<text x="${x(h).toFixed(1)}" y="${H - 2}" text-anchor="middle">${p.find((q) => q.type === "month")!.value} ${p.find((q) => q.type === "day")!.value}</text>`;
-  }
+  // "Now" and the page's time; the days and moons are the time bar's own track, under the strip (axisHtml).
   g += `<line x1="${x(nowS).toFixed(1)}" x2="${x(nowS).toFixed(1)}" y1="${top - 4}" y2="${H - bot}" class="ws-now"/><text x="${x(nowS).toFixed(1)}" y="${top - 5}" text-anchor="middle" class="ws-zone">now</text>`;
   const cur = AT ?? null;
   if (cur != null && cur >= t0 && cur <= t1) g += `<line x1="${x(cur).toFixed(1)}" x2="${x(cur).toFixed(1)}" y1="${top - 2}" y2="${H - bot}" class="hi-cursor"/>`;
@@ -241,6 +240,7 @@ export function windAcrossHtml(stations: StationData[], waterway: string): strin
   return `<section class="ws" id="${WIND_STRIP_HASH.slice(1)}" data-t0="${t0}" aria-label="Wind across ${waterway}">
     <p class="ol-title">Wind across ${waterway} <span class="ol-src">west to east, by NWS zone; two weeks back, 48 h ahead &middot; click to move the time</span></p>
     <svg viewBox="0 0 ${W} ${H}" class="hi-svg ws-svg" role="img" aria-label="Hourly wind at each station, two weeks back to 48 hours ahead, with NWS advisories">${g}</svg>
+    <div class="tl-track ws-axis" style="--tl-now:${pct((nowS - t0) / (t1 - t0))};margin-left:${pct(X0 / W)};margin-right:${pct(XR / W)}"><span class="tl-ticks" aria-hidden="true">${axisHtml(t0, t1, nowS)}</span></div>
     <p class="status-key">0 ${ramp} ${fmtU(35)} &middot; arrows point downwind, darker in stronger wind &middot; <svg width="14" height="9" class="ws-sw" aria-hidden="true"><rect width="14" height="9" fill="${windColour(16)}"/><rect x="0.6" y="0.6" width="12.8" height="7.8" class="ws-model ws-model-key"/></svg>model where a buoy is out &middot; past now: HRRR forecast${(() => { const a = hrrrAsOf(rows[0].meta.id, Array.from({ length: 48 }, (_, i) => hourOf(nowS) + (i + 1) * HOUR)); return a ? `, ${a}` : ""; })()} &middot; ${sw("var(--advisory)", ' opacity="0.45"')}small craft ${sw("var(--advisory)")}gale or stronger (NWS)</p>
   </section>`;
 }

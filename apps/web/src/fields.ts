@@ -41,12 +41,13 @@ export interface CurrentsMesh {
   source: string;
 }
 
+/** The surface current forecast, east and north in cm/s per time step and element (see loadCurrents). */
 export interface CurrentsField {
   t0: string;
   step: number;
   steps: number;
-  u: number[][];
-  v: number[][];
+  u: ArrayLike<number>[];
+  v: ArrayLike<number>[];
   label: string;
   source: string;
   layer: string;
@@ -130,14 +131,39 @@ export interface FieldData {
   wind?: WindField;
 }
 
-/** Unzip and parse a history file: "LHZF", a little-endian uint32 header length, the JSON header, the frames. */
-export async function decodeHistory(buf: ArrayBuffer): Promise<RasterHistory> {
+/** Unzip and parse one of the jobs' binary files: "LHZF", a little-endian uint32 header length, the JSON header, the
+ * frames. */
+async function unpack<H>(buf: ArrayBuffer): Promise<{ header: H; body: Uint8Array }> {
   const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"));
   const raw = new Uint8Array(await new Response(stream).arrayBuffer());
-  if (String.fromCharCode(...raw.subarray(0, 4)) !== "LHZF") throw new Error("not a history file");
+  if (String.fromCharCode(...raw.subarray(0, 4)) !== "LHZF") throw new Error("not a binary field file");
   const n = new DataView(raw.buffer, raw.byteOffset).getUint32(4, true);
-  const header = JSON.parse(new TextDecoder().decode(raw.subarray(8, 8 + n))) as RasterHistory["header"];
-  return { header, body: raw.subarray(8 + n) };
+  return { header: JSON.parse(new TextDecoder().decode(raw.subarray(8, 8 + n))) as H, body: raw.subarray(8 + n) };
+}
+
+/** A raster's 90-day history file. */
+export const decodeHistory = (buf: ArrayBuffer): Promise<RasterHistory> => unpack<RasterHistory["header"]>(buf);
+
+/** The currents forecast from a fields directory: currents.bin (see the jobs' fields.py: per time step one signed byte
+ * per element for east, then for north, in steps of encoding.step_cms cm/s), or the currents.json written before it. */
+export async function loadCurrents(dir: string, init?: RequestInit): Promise<CurrentsField> {
+  try {
+    const res = await fetch(`${dir}currents.bin`, init);
+    if (res.ok) {
+      type Head = Omit<CurrentsField, "u" | "v"> & { elements: number; encoding: { step_cms: number } };
+      const { header, body } = await unpack<Head>(await res.arrayBuffer());
+      const n = header.elements;
+      const k = header.encoding.step_cms;
+      const part = (j: number, c: number) => Int16Array.from(new Int8Array(body.buffer, body.byteOffset + (2 * j + c) * n, n), (q) => q * k);
+      const steps = Array.from({ length: header.steps }, (_, j) => j);
+      return { ...header, u: steps.map((j) => part(j, 0)), v: steps.map((j) => part(j, 1)) };
+    }
+  } catch {
+    /* not there yet, or not this format: the JSON below */
+  }
+  const res = await fetch(`${dir}currents.json`, init);
+  if (!res.ok || !res.headers.get("content-type")?.includes("json")) throw new Error(`currents: HTTP ${res.status}`);
+  return (await res.json()) as CurrentsField;
 }
 
 /** The fields a point readout draws on: HRRR wind and NWPS waves (both on their model cells) and wind against tide. */

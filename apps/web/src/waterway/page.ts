@@ -1850,7 +1850,7 @@ function fieldData(kind: FieldKind): Promise<FieldData> {
       kind === "wat"
         ? getJson<FieldData["wat"]>(`${DATA}/fields/wind-against-tide.json`).then((wat) => ({ wat }))
         : kind === "currents"
-        ? Promise.all([getJson<FieldData["mesh"]>(`${DATA}/fields/currents-mesh.json`), getJson<FieldData["currents"]>(`${DATA}/fields/currents.json`)]).then(([mesh, currents]) => ({ mesh, currents }))
+        ? Promise.all([getJson<FieldData["mesh"]>(`${DATA}/fields/currents-mesh.json`), import("../fields").then((f) => f.loadCurrents(`${DATA}/fields/`))]).then(([mesh, currents]) => ({ mesh, currents }))
         : kind === "wind" || kind === "waves"
           ? getJson<FieldData["wind"]>(`${DATA}/fields/${kind === "wind" ? "hrrr-wind" : "nwps-waves"}.json`).then((wind) => ({ wind }))
           : getJson<FieldData["raster"]>(`${DATA}/fields/${kind}.json`).then((raster) => ({ raster }));

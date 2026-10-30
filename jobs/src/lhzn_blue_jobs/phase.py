@@ -8,7 +8,7 @@ but east at Throgs Neck, so each point carries its own axis.
 
 - NOAA: 30-minute predictions and the slack and maximum events, from DAYS_BACK days back to DAYS_AHEAD ahead,
   refreshed when the file's NOAA part is older than NOAA_REFRESH_HOURS (the predictions are fixed in advance).
-- NECOFS: from the page's ``v1/fields/currents.json`` (24 h back to 72 h ahead, every 2 h); hours older than that are
+- NECOFS: from the page's ``v1/fields/currents.bin`` (24 h back to 72 h ahead, every 2 h); hours older than that are
   kept from the previous file, so the strip's past reaches back as far as the time bar.
 
 Published as ``v1/current-phase.json``. Each point has a fixed scale (``scale_kt``) so the strip never rescales.
@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+from . import fields
 from .build import SCHEMA, Store, iso, now_utc
 
 log = logging.getLogger(__name__)
@@ -125,7 +126,7 @@ def publish(store: Store) -> list[str]:
     end = now_utc()
     prev = store.read_json(KEY) or {}
     prev_points = {p["id"]: p for p in prev.get("points", [])}
-    currents, mesh = store.read_json("v1/fields/currents.json"), store.read_json("v1/fields/currents-mesh.json")
+    currents, mesh = fields.read_currents(store), store.read_json("v1/fields/currents-mesh.json")
     out = []
     for pid, name, station, binno, (lon, lat), scale in POINTS:
         before = prev_points.get(pid, {})

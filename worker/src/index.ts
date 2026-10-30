@@ -57,7 +57,8 @@ const FILES: Record<string, number> = {
   "v1/fields/sst.json": 3600,
   "v1/fields/chl.json": 3600,
   "v1/fields/kd490.json": 3600,
-  "v1/fields/currents.json": 3600,
+  "v1/fields/currents.bin": 3600,
+  "v1/fields/currents.json": 3600, // as written before currents.bin; the page falls back to it
   "v1/fields/piscataqua-currents.json": 3600, // the unlisted /portsmouth-harbor/ page's own box
   "v1/fields/piscataqua-currents-mesh.json": 86400,
   "v1/fields/piscataqua-currents-history.bin": 3600, // the model's past hours, loaded when the time goes back
@@ -81,7 +82,7 @@ const FILES: Record<string, number> = {
   ),
   // The /piscataqua-region/ waterway (jobs: region.py), under its own prefix.
   ...Object.fromEntries(
-    ([["live.json", 300], ["history.json", 3600], ["fields/currents.json", 3600], ["fields/currents-mesh.json", 86400],
+    ([["live.json", 300], ["history.json", 3600], ["fields/currents.bin", 3600], ["fields/currents.json", 3600], ["fields/currents-mesh.json", 86400],
       ["fields/sst.json", 3600], ["fields/sst-90d.bin", 3600], ["fields/hrrr-wind.json", 600]] as const).map(([f, s]) => [`v1/piscataqua-region/${f}`, s]),
   ),
 };

@@ -14,21 +14,22 @@ SOUND = [
     "v1/archive/WLIS_SFC.json", "v1/archive/EXRX_MET.json", "v1/archive/forecast-verification-sums.json",
     "v1/archive/usgs-tidal-pred.json",
     *(f"v1/fields/{n}.json" for n in (
-        "sst", "chl", "kd490", "currents", "currents-mesh", "hrrr-wind", "hrrr-wind-history", "model-grids",
+        "sst", "chl", "kd490", "currents-mesh", "hrrr-wind", "hrrr-wind-history", "model-grids",
         "nwps-waves", "wind-against-tide", "rips", "piscataqua-currents", "piscataqua-currents-mesh",
     )),
-    "v1/fields/sst-90d.bin", "v1/fields/chl-90d.bin", "v1/fields/kd490-90d.bin", "v1/fields/piscataqua-currents-history.bin",
+    "v1/fields/currents.bin", "v1/fields/sst-90d.bin", "v1/fields/chl-90d.bin", "v1/fields/kd490-90d.bin", "v1/fields/piscataqua-currents-history.bin",
     "v1/hrrr-history/WLIS.json", "v1/hrrr-history/KHVN-recent.json",
 ]
 REGION = [
     "v1/piscataqua-region/live.json", "v1/piscataqua-region/history.json",
-    "v1/piscataqua-region/fields/currents.json", "v1/piscataqua-region/fields/currents-mesh.json",
+    "v1/piscataqua-region/fields/currents.bin", "v1/piscataqua-region/fields/currents-mesh.json",
     "v1/piscataqua-region/fields/sst.json", "v1/piscataqua-region/fields/hrrr-wind.json",
     "v1/piscataqua-region/fields/sst-90d.bin",
 ]
 REFUSED = [
     "v1/piscataqua-region/shore.json", "v1/piscataqua-region/fields/chl.json", "v1/piscataqua-region/../live.json",
     "v1/other-region/live.json", "v1/piscataqua-region/live.json.bak", "v1/live2.json", "v2/live.json",
+    "v1/fields/currents.json", "v1/piscataqua-region/fields/currents.json",  # written as currents.bin
 ]
 
 

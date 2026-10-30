@@ -394,7 +394,7 @@ def publish_fields(store: Store, end: datetime | None = None) -> list[str]:
     try:
         mesh, data = fields.currents(end, bbox, step_hours=1)
         store.write_json(key(reg, "fields/currents-mesh.json"), mesh, max_age=86400)
-        store.write_json(key(reg, "fields/currents.json"), data, max_age=3600)
+        store.write_bytes(key(reg, "fields/currents.bin"), fields.encode_currents(data), max_age=3600)
         water = mesh
     except Exception as exc:
         outages.record(failed, "region currents", exc, log)

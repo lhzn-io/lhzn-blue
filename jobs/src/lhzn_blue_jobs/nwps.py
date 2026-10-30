@@ -27,7 +27,7 @@ from pathlib import Path
 import numpy as np
 import requests
 
-from . import wat
+from . import fields, wat
 from .build import SCHEMA, Store, iso, load_stations, now_utc
 
 log = logging.getLogger(__name__)
@@ -296,7 +296,7 @@ def publish(store: Store, root: str | None) -> list[str]:
     # newer run than the wind-against-tide layer was built from (once a day).
     prev_field = store.read_json(FIELD_KEY)
     prev_wat = store.read_json(wat.KEY)
-    currents, mesh = store.read_json("v1/fields/currents.json"), store.read_json("v1/fields/currents-mesh.json")
+    currents, mesh = fields.read_currents(store), store.read_json("v1/fields/currents-mesh.json")
     built_from = max((f.get("currents_run", "") for f in (prev_wat or {}).get("frames", [])), default="")
     stale = currents is not None and mesh is not None and built_from < currents["generated_at"]
     if (prev_field is None or stale) and not grids:

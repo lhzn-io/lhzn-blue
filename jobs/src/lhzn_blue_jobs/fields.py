@@ -14,8 +14,12 @@ Published layout (under ``<root>/v1/fields/``):
 - ``currents-mesh.json``: the model mesh inside the box: node positions, triangles (indices into the nodes),
   element centres, and each element's arrow level (0 shows at the widest zoom, higher levels fill in as the map zooms
   in).
-- ``currents.json``: surface (top sigma layer) eastward and northward current per element, in cm/s, every
-  ``step`` seconds from ``t0``: a model forecast, labelled as one.
+- ``currents.bin``: surface (top sigma layer) eastward and northward current per element, every ``step`` seconds
+  from ``t0``: a model forecast, labelled as one. Gzipped; inside, ``LHZF``, a little-endian uint32 header length, a
+  JSON header (the forecast's times, source and labels), then per time step one signed byte per element for the
+  eastward component and then one for the northward, in steps of ``CURRENT_STEP_CMS`` cm/s (to 254 cm/s either way;
+  the Sound's fastest modelled surface current is about 230). About 0.85 MB gzipped, against 1.4 MB for the same
+  forecast as JSON in whole cm/s.
 - ``sst-90d.bin``, ``chl-90d.bin``, ``kd490-90d.bin``: the last 90 days of each raster, one frame per UTC day (the
   composite at the day's end, or now for today), for playing the recent past. Gzipped; inside, ``LHZF``, a
   little-endian uint32 header length, a JSON header (grid, days, encoding, sources), then per frame one byte per
@@ -57,7 +61,8 @@ RASTERS = {
 }
 CURRENT_HOURS_BACK = 24
 CURRENT_HOURS_AHEAD = 72
-CURRENT_STEP_HOURS = 2  # keeps the file near 5 MB for about 12,500 elements
+CURRENT_STEP_HOURS = 2
+CURRENT_STEP_CMS = 2  # currents.bin's step: within 1 cm/s (0.02 kt) of the model's value
 ARROW_LEVELS = 6
 ARROW_CELL_DEG = 0.08  # level 0: one arrow per 0.08 degree cell; each level halves the cell
 HISTORY_DAYS = 90
@@ -193,6 +198,35 @@ def decode_history(blob: bytes) -> tuple[dict, list[tuple[np.ndarray, np.ndarray
         chunk = body[i * per : (i + 1) * per]
         frames.append((chunk[:px].copy(), chunk[px:].copy() if header.get("age") else None))
     return header, frames
+
+
+def encode_currents(data: dict) -> bytes:
+    """A currents forecast (as currents() returns it, in cm/s) as currents.bin; see the module's layout."""
+    q = lambda a: np.clip(np.round(np.asarray(a, dtype=np.float64) / CURRENT_STEP_CMS), -127, 127).astype(np.int8)  # noqa: E731
+    header = {k: x for k, x in data.items() if k not in ("u", "v")}
+    header["encoding"] = {"step_cms": CURRENT_STEP_CMS, "type": "int8", "order": "per time step: east, then north"}
+    head = json.dumps(header, separators=(",", ":")).encode()
+    body = np.stack([q(data["u"]), q(data["v"])], axis=1).tobytes()
+    return gzip.compress(MAGIC + struct.pack("<I", len(head)) + head + body, compresslevel=9, mtime=0)
+
+
+def decode_currents(blob: bytes) -> dict:
+    """currents.bin back to the forecast: its header, with u and v as arrays (time step, element) in cm/s."""
+    raw = gzip.decompress(blob)
+    if raw[:4] != MAGIC:
+        raise ValueError("not a currents file")
+    (n,) = struct.unpack("<I", raw[4:8])
+    data = json.loads(raw[8 : 8 + n])
+    q = np.frombuffer(raw, dtype=np.int8, offset=8 + n).reshape(int(data["steps"]), 2, int(data["elements"]))
+    step = data["encoding"]["step_cms"]
+    data["u"], data["v"] = q[:, 0].astype(np.float64) * step, q[:, 1].astype(np.float64) * step
+    return data
+
+
+def read_currents(store: Store, rel: str = "v1/fields/currents") -> dict | None:
+    """The stored currents forecast (rel without its extension): currents.bin, or the currents.json written before it."""
+    blob = store.read_bytes(f"{rel}.bin")
+    return decode_currents(blob) if blob is not None else store.read_json(f"{rel}.json")
 
 
 def _frame_end(day: date, now: datetime) -> datetime:
@@ -360,7 +394,7 @@ def publish(store: Store) -> list[str]:
     try:
         mesh, data = currents(end)
         store.write_json("v1/fields/currents-mesh.json", mesh, max_age=86400)
-        store.write_json("v1/fields/currents.json", data, max_age=3600)
+        store.write_bytes("v1/fields/currents.bin", encode_currents(data), max_age=3600)
         water = mesh
     except Exception as exc:
         outages.record(failed, "currents", exc, log)

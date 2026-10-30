@@ -563,7 +563,7 @@ function fieldData(kind: FieldKind): Promise<FieldData> {
   if (!fieldCache.has(kind)) {
     const get = <X,>(name: string) => fetch(`${DATA}/fields/${name}`, { cache: "no-cache" }).then((r) => (r.ok ? (r.json() as Promise<X>) : Promise.reject(new Error(`${name}: HTTP ${r.status}`))));
     const load: Promise<FieldData> =
-      kind === "currents" ? Promise.all([get<FieldData["mesh"]>("currents-mesh.json"), get<FieldData["currents"]>("currents.json")]).then(([mesh, currents]) => ({ mesh, currents }))
+      kind === "currents" ? Promise.all([get<FieldData["mesh"]>("currents-mesh.json"), import("./fields").then((f) => f.loadCurrents(`${DATA}/fields/`, { cache: "no-cache" }))]).then(([mesh, currents]) => ({ mesh, currents }))
         : kind === "wind" ? get<FieldData["wind"]>("hrrr-wind.json").then((wind) => ({ wind }))
           : get<FieldData["raster"]>(`${kind}.json`).then((raster) => ({ raster }));
     fieldCache.set(kind, load.catch((err) => {

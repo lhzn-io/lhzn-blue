@@ -50,14 +50,13 @@ Long Island Sound page:
       drawn on NOAA's chart, and its measurements beside NOAA's prediction and the NECOFS model
 - [x] Forecast revisions: on the next 48 hours plot, how HRRR's wind for one hour changed from run to run, with
       what was measured once the hour has passed
+- [x] The model currents in a compact binary file, in steps of 2 cm/s: 0.85 MB to load instead of 1.4 MB
 
 ## Next
 
-1. **Compact currents file.** The currents in the binary frame format the satellite history uses, about a third of
-   today's size.
-2. **Global models at longer leads.** ECMWF and GFS wind at the buoys, scored the same way as HRRR.
-3. **Design notes.** The palette and the plot grammar documented, with their licence.
-4. **Anomaly contours on the year comparison (prototype).** On the water "This year" plot, curved reference lines for
+1. **Global models at longer leads.** ECMWF and GFS wind at the buoys, scored the same way as HRRR.
+2. **Design notes.** The palette and the plot grammar documented, with their licence.
+3. **Anomaly contours on the year comparison (prototype).** On the water "This year" plot, curved reference lines for
    the normal value on each date and set steps either side (1 and 2 °F for temperature), drawn from the earlier years
    on record. This year then reads as an anomaly while staying in its own units, and the earlier years' lines can be
    drawn fainter or left out. After Toph Tucker's warped gridlines (Observable, 2022), which bend the grid rather than

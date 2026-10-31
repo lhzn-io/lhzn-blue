@@ -1,4 +1,4 @@
-"""HRRR against the buoys: running verification statistics for the page.
+"""HRRR and GFS against the buoys: running verification statistics for the page, one set per model.
 
 Each archived HRRR forecast at a buoy (issue time, valid time, lead) is paired with the buoy's hourly observation
 for the hour that starts at the valid time: the same hourly means the page shows (wind and air temperature means,
@@ -24,18 +24,24 @@ buoy's surface water temperature, both known when the forecast is read, for the 
   Seeded once by ``import-verification`` from the forecast archive and our saved copies of the buoys' weather
   datasets; then the history job adds each day from the forecast job's page file and the live weather window.
 - ``v1/forecast-verification.json``: statistics derived from the sums, for the page.
+
+GFS (``gfs``) is scored the same way at its own leads (6 to 168 h) and bands, from its own archive (``gfs/`` in the
+forecast archive, seeded with ``import-verification --model gfs``) and page file, into
+``v1/archive/forecast-verification-gfs-sums.json`` and ``v1/forecast-verification-gfs.json``. GFS carries wind only
+here, so its air, pressure and stability groups stay empty.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from . import forecast
+from . import forecast, gfs
 from .build import SCHEMA, Store, decode, decode_frame, iso, load_stations, met_hourly, now_utc
 
 log = logging.getLogger(__name__)
@@ -59,6 +65,30 @@ DAYS_KEPT = 120
 FIELDS = ("u10", "v10", "t2m", "mslp")
 
 
+@dataclass(frozen=True)
+class Model:
+    """One model's verification: where its forecasts and sums live, its leads and bands, and the fields it has."""
+
+    name: str
+    page_key: str
+    sums_key: str
+    public_key: str
+    leads: tuple[int, ...]
+    bands: dict
+    recent_bands: tuple[str, ...]
+    fields: tuple[str, ...]
+    archive_dir: str  # its cycles under the forecast archive ("" for HRRR's, at the top)
+    source: str
+
+
+HRRR = Model("hrrr", forecast.KV_KEY, SUMS_KEY, PUBLIC_KEY, tuple(LEADS), BANDS, ("1-3", "18-24"), FIELDS, "",
+             "NOAA HRRR at the buoys (our archive, through forcingkit) against the buoys' hourly observations")
+GFS = Model("gfs", gfs.KV_KEY, "v1/archive/forecast-verification-gfs-sums.json", "v1/forecast-verification-gfs.json",
+            tuple(gfs.VERIFY_LEADS), {"6-24": (6, 24), "36-72": (36, 72), "96-168": (96, 168)}, ("6-24", "96-168"),
+            ("u10", "v10"), "gfs", "NOAA GFS 0.25 degree at the buoys (our archive) against the buoys' hourly observations")
+MODELS = {m.name: m for m in (HRRR, GFS)}
+
+
 def buoys() -> list[dict]:
     return [st for st in load_stations()["stations"] if (st.get("met") or {}).get("dataset")]
 
@@ -67,15 +97,15 @@ def buoys() -> list[dict]:
 # Forecasts and observations as frames
 
 
-def forecasts_from_page(page: dict | None) -> pd.DataFrame:
+def forecasts_from_page(page: dict | None, fields: tuple[str, ...] = FIELDS) -> pd.DataFrame:
     """The forecast job's page file as rows: issue_time, valid_time, lead_h, point, and one column per field."""
     rows = []
     for key, entry in (page or {}).get("cycles", {}).items():
         issue = pd.Timestamp(key.replace("Z", ""), tz="UTC")
-        for point, fields in entry["points"].items():
+        for point, series in entry["points"].items():
             for i, lead in enumerate(entry["leads"]):
                 row = {"issue_time": issue, "lead_h": lead, "point": point}
-                row.update({f: (fields.get(f) or [None] * len(entry["leads"]))[i] for f in FIELDS})
+                row.update({f: (series.get(f) or [None] * len(entry["leads"]))[i] for f in fields})
                 rows.append(row)
     df = pd.DataFrame(rows)
     if df.empty:
@@ -84,11 +114,15 @@ def forecasts_from_page(page: dict | None) -> pd.DataFrame:
     return df
 
 
-def forecasts_from_archive(root: Path) -> pd.DataFrame:
-    """Archived cycles from a local copy of the forecast archive, in the same shape."""
-    frames = [pd.read_csv(f) for f in sorted(root.rglob("cycle=*.csv.gz"))]
-    df = pd.concat(frames)
-    df = df[df["field"].isin(FIELDS)]
+def forecasts_from_archive(root: Path, model: Model | None = None) -> pd.DataFrame:
+    """A model's archived cycles from a local copy of the forecast archive, in the same shape. HRRR's are at the
+    top; another model's under its own folder, which HRRR's reading leaves out."""
+    model = model or HRRR
+    base = root / model.archive_dir if model.archive_dir else root
+    others = {m.archive_dir for m in MODELS.values() if m.archive_dir}
+    files = [f for f in sorted(base.rglob("cycle=*.csv.gz")) if model.archive_dir or f.relative_to(root).parts[0] not in others]
+    df = pd.concat([pd.read_csv(f) for f in files])
+    df = df[df["field"].isin(model.fields)]
     for c in ("issue_time", "valid_time"):
         df[c] = pd.to_datetime(df[c].str.replace("Z", ""), utc=True)
     return df.pivot_table(index=["issue_time", "valid_time", "lead_h", "point"], columns="field", values="value").reset_index()
@@ -131,12 +165,16 @@ def _angdiff(a, b):
     return (a - b + 180) % 360 - 180
 
 
-def pairs(fc: pd.DataFrame, obs: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Forecast rows joined to the observation for their valid hour, with the errors and the bin labels."""
+def pairs(fc: pd.DataFrame, obs: dict[str, pd.DataFrame], bands: dict | None = None) -> pd.DataFrame:
+    """Forecast rows joined to the observation for their valid hour, with the errors and the bin labels (in the
+    model's lead bands; HRRR's by default)."""
     parts = [fc[fc["point"] == b].merge(o, left_on="valid_time", right_index=True, how="inner") for b, o in obs.items()]
     d = pd.concat(parts) if parts else pd.DataFrame()
     if d.empty:
         return d
+    for f in FIELDS:  # a model without air or pressure (GFS here): those errors are missing
+        if f not in d:
+            d[f] = np.nan
     d["f_spd"] = np.hypot(d["u10"], d["v10"]) * MS_TO_KT
     d["f_dir"] = np.degrees(np.arctan2(-d["u10"], -d["v10"])) % 360  # the direction the wind comes from
     d["o_spd10"] = d["wind_kt"] * HEIGHT_FACTOR
@@ -146,7 +184,7 @@ def pairs(fc: pd.DataFrame, obs: dict[str, pd.DataFrame]) -> pd.DataFrame:
     d["e_t"] = (d["t2m"] - 273.15) - air_c
     d["e_p"] = d["mslp"] / 100 - d["pressure_mb"]
     d["band"] = None
-    for name, (lo, hi) in BANDS.items():
+    for name, (lo, hi) in (bands or BANDS).items():
         d.loc[d["lead_h"].between(lo, hi), "band"] = name
     labels = [f"{a}-{b}" if b < 100 else f"{a}+" for a, b in zip(SPEED_BINS[:-1], SPEED_BINS[1:])]
     d["fspeed"] = pd.cut(d["f_spd"], SPEED_BINS, labels=labels, right=False).astype(object)
@@ -242,10 +280,11 @@ def stats(acc: dict) -> dict:
     return out
 
 
-def public(sums: dict, end: datetime) -> dict:
+def public(sums: dict, end: datetime, model: Model | None = None) -> dict:
+    model = model or HRRR
     g = sums["groups"]
     by_lead: dict = {}
-    for lead in LEADS:
+    for lead in model.leads:
         if f"lead/{lead}" not in g:
             continue
         by_lead[str(lead)] = {
@@ -254,19 +293,20 @@ def public(sums: dict, end: datetime) -> dict:
         }
     bins = {
         band: {by: {k.split("/", 2)[2]: stats(v) for k, v in g.items() if k.startswith(f"{band}/{by}/")} for by in BINNED_BY}
-        for band in BANDS
+        for band in model.bands
     }
     days = sorted({k.split("/")[1] for k in g if k.startswith("day/")})[-30:]
     recent = {
         band: {b["id"]: [stats(g[k]) if (k := f"day/{day}/{band}/{b['id']}") in g else None for day in days] for b in buoys()}
-        for band in ("1-3", "18-24")
+        for band in model.recent_bands
     }
     return {
         "schema": SCHEMA,
         "generated_at": iso(end),
         "first_valid": sums.get("first_valid"),
         "through": sums["through"],
-        "source": "NOAA HRRR at the buoys (our archive, through forcingkit) against the buoys' hourly observations",
+        "model": model.name,
+        "source": model.source,
         "method": {
             "observed": "the buoy's hourly mean for the hour starting at the forecast's valid time",
             "speed_at_10m": f"buoy speed x {HEIGHT_FACTOR:.3f}: from an anemometer at {ANEMOMETER_M} m (assumed), "
@@ -275,7 +315,7 @@ def public(sums: dict, end: datetime) -> dict:
             "buoy directions turned to true north",
             "hist_edges_kt": [-HIST_HALF, HIST_HALF],
             "bins": "fspeed: by forecast speed; speed: by observed speed at 10 m (includes regression to the mean); "
-            "stability: HRRR air minus buoy surface water temperature; sector: observed direction",
+            "stability: HRRR air minus buoy surface water temperature (HRRR only); sector: observed direction",
         },
         "units": {"speed": "kt", "direction": "deg", "air": "C", "pressure": "mb"},
         "leads": [int(k) for k in by_lead],
@@ -289,48 +329,51 @@ def public(sums: dict, end: datetime) -> dict:
 # Entry points
 
 
-def seed(store: Store, archive: Path, saved_met: Path) -> dict:
-    """Build the sums from scratch: a local copy of the forecast archive and our saved weather datasets (with the
-    live window for the latest weeks). Run once by hand (``import-verification``)."""
+def seed(store: Store, archive: Path, saved_met: Path, model: Model | None = None) -> dict:
+    """Build a model's sums from scratch: a local copy of the forecast archive and our saved weather datasets (with
+    the live window for the latest weeks). Run once by hand (``import-verification [--model gfs]``)."""
+    model = model or HRRR
     end = now_utc()
     limit = pd.Timestamp(end).floor("h") - pd.Timedelta(hours=LAG_HOURS)
     live = store.read_json("v1/live.json")
-    fc = forecasts_from_archive(archive)
-    fc = fc[fc["lead_h"].isin(LEADS) & (fc["valid_time"] <= limit)]
-    d = pairs(fc, observations(store, live, saved_met))
+    fc = forecasts_from_archive(archive, model)
+    fc = fc[fc["lead_h"].isin(model.leads) & (fc["valid_time"] <= limit)]
+    d = pairs(fc, observations(store, live, saved_met), model.bands)
     groups: dict = {}
     accumulate(groups, d)
     _prune_days(groups, end)
     sums = {"schema": SCHEMA, "first_valid": iso(d["valid_time"].min()), "through": iso(limit), "groups": _round(groups)}
-    store.write_json(SUMS_KEY, sums, max_age=86400)
-    log.info("verification seeded: %d pairs, %s to %s", len(d), sums["first_valid"], sums["through"])
+    store.write_json(model.sums_key, sums, max_age=86400)
+    log.info("%s verification seeded: %d pairs, %s to %s", model.name, len(d), sums["first_valid"], sums["through"])
     return sums
 
 
-def update(store: Store) -> dict | None:
-    """Add the hours since the last run (forecasts from the page file, observations from the live window), then
-    publish the statistics. The page file keeps forecast.KEEP_HOURS of cycles, enough for a 48 h lead of an hour a
-    day back; a run missed for longer loses the longest leads of the hours in between."""
-    sums = store.read_json(SUMS_KEY)
+def update(store: Store, model: Model | None = None) -> dict | None:
+    """Add the hours since the last run (forecasts from the model's page file, observations from the live window),
+    then publish the statistics. HRRR's page file keeps forecast.KEEP_HOURS of cycles, enough for a 48 h lead of an
+    hour a day back, and GFS's its verification leads for gfs.KEEP_DAYS; a run missed for longer loses the longest
+    leads of the hours in between."""
+    model = model or HRRR
+    sums = store.read_json(model.sums_key)
     if not sums:
-        log.warning("no verification sums: run import-verification first")
+        log.warning("no %s verification sums: run import-verification first", model.name)
         return None
     end = now_utc()
     start = pd.Timestamp(sums["through"])
     limit = pd.Timestamp(end).floor("h") - pd.Timedelta(hours=LAG_HOURS)
     if limit > start:
         live = store.read_json("v1/live.json")
-        fc = forecasts_from_page(store.read_json(forecast.KV_KEY))
+        fc = forecasts_from_page(store.read_json(model.page_key), model.fields)
         if not fc.empty:
-            fc = fc[fc["lead_h"].isin(LEADS) & (fc["valid_time"] > start) & (fc["valid_time"] <= limit)]
-        d = pairs(fc, observations(store, live)) if not fc.empty else pd.DataFrame()
+            fc = fc[fc["lead_h"].isin(model.leads) & (fc["valid_time"] > start) & (fc["valid_time"] <= limit)]
+        d = pairs(fc, observations(store, live), model.bands) if not fc.empty else pd.DataFrame()
         groups = sums["groups"]
         accumulate(groups, d)
         _prune_days(groups, end)
         sums.update({"through": iso(limit), "groups": _round(groups)})
-        store.write_json(SUMS_KEY, sums, max_age=86400)
-        log.info("verification: %d new pairs through %s", len(d), sums["through"])
-    out = public(sums, end)
-    store.write_json(PUBLIC_KEY, out, max_age=3600)
+        store.write_json(model.sums_key, sums, max_age=86400)
+        log.info("%s verification: %d new pairs through %s", model.name, len(d), sums["through"])
+    out = public(sums, end, model)
+    store.write_json(model.public_key, out, max_age=3600)
     return out
 

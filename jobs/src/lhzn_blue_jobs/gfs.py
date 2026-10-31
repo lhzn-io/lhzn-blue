@@ -40,6 +40,7 @@ LAST_LEAD = 168  # 7 days: the page's longest view
 LEADS = list(range(3, LAST_LEAD + 1, 3))
 VERIFY_LEADS = [6, 12, 24, 36, 48, 60, 72, 96, 120, 144, 168]
 MESSAGES = {"u10": ":UGRD:10 m above ground:", "v10": ":VGRD:10 m above ground:", "gust": ":GUST:surface:"}
+WIND = {k: MESSAGES[k] for k in ("u10", "v10")}  # the backfill's: verification scores the wind, not the gust
 LAND = ":LAND:surface:"  # in each cycle's analysis file (f000): 1 land, 0 water
 LOOKBACK_CYCLES = 4  # a day of cycles is tried each run; GFS posts a cycle's last lead within about 5 hours
 KEEP_FULL_HOURS = 30  # cycles whose every lead stays in the page's file (the newest, and the one before it, always)
@@ -112,14 +113,14 @@ def weights(land: np.ndarray, lat: np.ndarray, lon: np.ndarray, pts: dict[str, t
     return out
 
 
-def fetch_cycle(cycle: pd.Timestamp, leads: list[int], pts: dict[str, tuple[float, float]], workers: int = 6) -> pd.DataFrame:
+def fetch_cycle(cycle: pd.Timestamp, leads: list[int], pts: dict[str, tuple[float, float]], workers: int = 6, messages: dict[str, str] = MESSAGES) -> pd.DataFrame:
     """One cycle's rows at the stations; leads not posted are left out (a backfill's old cycle may lack one)."""
     a = read_messages(cycle, 0, {"land": LAND}, coords=True)
     wts = weights(a["land"], a["lat"], a["lon"], pts)
 
     def one(lead: int) -> list[tuple]:
         try:
-            msgs = read_messages(cycle, lead, MESSAGES)
+            msgs = read_messages(cycle, lead, messages)
         except FileNotFoundError as exc:
             log.warning("GFS %s f%03d: %s", cycle, lead, exc)
             return []
@@ -198,7 +199,7 @@ def archive(store: Store, root: str, lookback: int = LOOKBACK_CYCLES) -> list[st
 
 
 def backfill(root: str, start: str, end: str, task: int = 0, tasks: int = 1, hours: tuple[int, ...] = (0, 12), workers: int = 3) -> dict[str, int]:
-    """Archive past cycles from start to end (UTC, inclusive) at VERIFY_LEADS: the cycles at the given hours, this task
+    """Archive past cycles from start to end (UTC, inclusive) at VERIFY_LEADS, wind only: the cycles at the given hours, this task
     taking every `tasks`-th from `task` (Cloud Run's task index and count). Create-only; one that fails is logged and
     left for a rerun. The page's file is not touched."""
     arch = forecast.Archive(_gfs_root(root))
@@ -210,7 +211,7 @@ def backfill(root: str, start: str, end: str, task: int = 0, tasks: int = 1, hou
             if arch.has(cycle):
                 counts["already"] += 1
                 continue
-            df = fetch_cycle(cycle, VERIFY_LEADS, pts, workers=workers)
+            df = fetch_cycle(cycle, VERIFY_LEADS, pts, workers=workers, messages=WIND)
             counts["empty" if df.empty else "archived" if arch.put(cycle, forecast.to_csv_gz(df)) else "already"] += 1
         except Exception as exc:
             counts["failed"] += 1

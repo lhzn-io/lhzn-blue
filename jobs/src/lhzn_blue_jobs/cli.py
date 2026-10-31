@@ -52,6 +52,7 @@ def _main() -> None:
     )
     parser.add_argument("--start", help="forecast-backfill, gfs-backfill: first cycle, UTC (e.g. 2024-01-01T00)")
     parser.add_argument("--end", help="forecast-backfill, gfs-backfill: last cycle, UTC")
+    parser.add_argument("--model", choices=["hrrr", "gfs"], default="hrrr", help="import-verification: the model to score (default hrrr)")
     parser.add_argument("--days", type=int, default=14, help="hrrr-wind-backfill: days back to fill (default 14)")
     parser.add_argument("--vintage", help="import-archive: fallback snapshot folder when stations.json names none")
     parser.add_argument("--full", action="store_true", help="live: refetch the whole 45-day window")
@@ -69,6 +70,7 @@ def _main() -> None:
         store.write_json("v1/history-waves.json", waves.history(store), max_age=3600)
         _shore(lambda: store.write_json("v1/history-met.json", weather.history(store), max_age=3600), "weather")
         _shore(lambda: _verify(store), "verification")
+        _shore(lambda: _verify(store, "gfs"), "gfs verification")  # nothing until import-verification --model gfs
         _shore(lambda: store.write_json("v1/history-turbidity.json", turbidity.history(store), max_age=3600), "turbidity")
         _shore(lambda: store.write_json(
             "v1/shore-history.json", shore.history(store.read_json("v1/shore-history.json"), build.now_utc()), max_age=3600
@@ -169,8 +171,9 @@ def _main() -> None:
 
         if not (args.forecasts and args.archive_dir):
             parser.error("import-verification needs --forecasts (a local copy of the archive) and --archive-dir")
-        verify.seed(store, Path(args.forecasts), args.archive_dir)
-        verify.update(store)
+        model = verify.MODELS[args.model]
+        verify.seed(store, Path(args.forecasts), args.archive_dir, model)
+        verify.update(store, model)
     elif args.command == "snapshot":
         from . import snapshot
 
@@ -200,10 +203,10 @@ def _main() -> None:
 _failed: list[str] = []
 
 
-def _verify(store: build.Store) -> None:
+def _verify(store: build.Store, model: str = "hrrr") -> None:
     from . import verify  # pandas only; kept out of the other jobs' imports
 
-    verify.update(store)
+    verify.update(store, verify.MODELS[model])
 
 
 def _usgs_fit(store: build.Store) -> None:

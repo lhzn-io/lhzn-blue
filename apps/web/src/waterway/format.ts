@@ -1,5 +1,6 @@
 /** Times and numbers as the waterway pages write them (New York time). */
 import { HOUR, type Hourly, type TideEvent } from "../series";
+import { zoned } from "../dst";
 
 export const fmtUtc = (iso: string) => iso.slice(0, 16).replace("T", " ") + " UTC";
 export const fmtDate = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "short", day: "numeric" });
@@ -27,22 +28,23 @@ export const f1 = (v: number) => (Number.isFinite(v) ? v.toFixed(1) : "--");
 export const signed = (v: number, d = 1) => (Number.isFinite(v) ? `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(d)}` : "--");
 export const cToF = (c: number) => (c * 9) / 5 + 32;
 
-export const fmtClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+export const fmtClock = zoned(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }));
 export const feet = (v: number) => (Math.abs(v) < 0.05 ? "0.0" : `${v < 0 ? "−" : ""}${Math.abs(v).toFixed(1)}`);
-export const tideText = (e: TideEvent) => `${e.type === "H" ? "high" : "low"} ${fmtClock.format(new Date(e.t)).toLowerCase()}, ${feet(e.ft)} ft`;
+export const tideText = (e: TideEvent) => `${e.type === "H" ? "high" : "low"} ${fmtClock.format(new Date(e.t)).replace(/ (AM|PM)/, (m) => m.toLowerCase())}, ${feet(e.ft)} ft`;
 export const lastValue = (h: Hourly | null) => {
   const t = h ? h.lastValid() : NaN;
   return h && Number.isFinite(t) ? h.at(t) : NaN;
 };
 export const signedFt = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
-export const fmtRun = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" });
-export const noComma = (f: Intl.DateTimeFormat) => ({ format: (d: Date) => f.format(d).replace(",", "") });
+export const fmtRun = zoned(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" }));
+/** Without Intl's comma, and with the zone in the hour the clocks repeat (dst.ts). */
+export const noComma = (f: Intl.DateTimeFormat) => zoned({ format: (d: Date | number) => f.format(d).replace(",", "") });
 export const fmtWhen = noComma(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" }));
 export const fmtWhenMin = noComma(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" }));
 export const hourOf = (t: number) => Math.floor(t / HOUR) * HOUR;
 
-export const etClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
-export const etDayClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+export const etClock = zoned(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }));
+export const etDayClock = zoned(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }));
 export const etKey = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
 /** New York time, short: "2:20 PM" today, "Oct 8, 3:15 AM" otherwise. */
 export function fmtEt(iso: string): string {

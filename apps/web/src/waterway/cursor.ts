@@ -2,6 +2,7 @@
  * table, the pins and the readouts all read it, so they agree. Read `AT` live; the time bar's listener sets it. */
 import { DAY, grid, type Hourly } from "../series";
 import { span } from "./format";
+import { zoned } from "../dst";
 
 export let AT: number | null = null;
 export function setAt(t: number | null): void {
@@ -9,7 +10,7 @@ export function setAt(t: number | null): void {
 }
 export const atFuture = () => AT != null && AT * 1000 > Date.now();
 
-const fmtAtWhen = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" });
+const fmtAtWhen = zoned(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" }));
 /** "Tue 3 PM, 5h ago" or "Thu 9 AM, in 1d". */
 export function atLabel(t: number): string {
   const ms = t * 1000;

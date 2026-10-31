@@ -5,6 +5,7 @@
  */
 
 import { arrowMarkup } from "./wind-dir";
+import { zoned } from "./dst";
 
 const SVG = "http://www.w3.org/2000/svg";
 export const YELLOW = "#decf03";
@@ -115,7 +116,7 @@ function thinGlyphs(gs: Glyph[], x0: number, x1: number, widthPx: number): Glyph
 
 const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "short", day: "numeric" });
 const fmtMonth = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "short", year: "numeric" });
-const fmtHour = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric" });
+const fmtHour = zoned(new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric" }));
 
 export function niceStep(span: number, target = 4): number {
   const raw = span / target;

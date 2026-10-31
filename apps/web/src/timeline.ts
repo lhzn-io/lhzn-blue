@@ -8,6 +8,7 @@
  * The cursor is kept as hours from now, so "+5h" stays five hours ahead as the clock moves; 0 is live now. */
 
 import { axisHtml, pct, setPlayButton } from "./time-axis";
+import { zoned } from "./dst";
 
 export type ScaleKind = "hours" | "days";
 
@@ -31,8 +32,8 @@ let root: HTMLElement | null = null;
 const listeners = new Set<(t: number | null) => void>();
 const builders = new Set<() => void>(); // rows that share the detail row's scale, redrawn when it changes
 
-const fmtClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric" });
-const fmtFull = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric" });
+const fmtClock = zoned(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric" }));
+const fmtFull = zoned(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric" }));
 const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
 const fmtWeekday = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" });
 

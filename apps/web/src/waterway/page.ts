@@ -17,6 +17,7 @@ import {
 } from "../series";
 import { mountAdvisories } from "../advisory";
 import { ago, escHtml, fmtClock, fmtDate, fmtRun, fmtWhenMin, signed } from "./format";
+import { zoned } from "../dst";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./cursor";
 import { holdRoom } from "./room";
 import { pinTimeline } from "./pin-time";
@@ -2545,7 +2546,7 @@ const lastAt = (ys: number[], i: number, back: number): number => {
   for (let j = i; j >= 0 && j >= i - back; j--) if (Number.isFinite(ys[j])) return j;
   return -1;
 };
-const fmtAtHour = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric" });
+const fmtAtHour = zoned(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric" }));
 
 function lineReading(d: StationData, key: Kind): string[] {
   const drawn = PLOT_DRAWN;

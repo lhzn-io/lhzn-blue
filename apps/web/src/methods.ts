@@ -98,11 +98,13 @@ export const METHODS: Record<string, Method> = {
       "here, run every 6 hours) is read the same way, from NOAA's open data [[noaa2026gfsaws]], at its four nearest water " +
       "cells, every 3 hours to 168 hours ahead, " +
       "and linearly between; its typical miss is measured at the four buoys at its own lead times (6 to 168 hours) since " +
-      "January 2024.",
+      "January 2024: about 3.4 kt at 6 hours, rising to 5.0 kt at 168 (the Forecast verification page " +
+      "sets it beside HRRR's).",
     caveats:
       "Uncorrected model output: HRRR to 48 hours, then GFS, never blended. Not a substitute for the National Weather " +
       "Service marine forecast. HRRR is used first for its 3 km grid, run hourly; GFS's cells are one or two across a " +
-      "Sound 5 to 34 km wide, so it smooths the wind over the water, and at the buoys it tends to read low. Where the two " +
+      "Sound 5 to 34 km wide, so it smooths the wind over the water, and at the buoys it reads slightly low (a bias of " +
+      "about −0.5 to −1.1 kt by lead time, uncorrected on the plot). Where the two " +
       "models meet, the step between them is the models' difference, not a change in the weather.",
   },
   wind: {

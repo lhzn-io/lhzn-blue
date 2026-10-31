@@ -6,12 +6,15 @@
   --fc-strong: #a9d6f0;
   --fc-mid: #6f9cc4;
   --fc-pale: #3b5f80;
+  /* GFS, by lead time beside HRRR: the station plots' green (waterway/page.ts, palette key gfs). */
+  --fc-gfs: #86d1ab;
 }
 :root[data-theme="light"] {
   /* Light theme: cobalt to pale willow on the eggshell ground. */
   --fc-strong: #133c8b;
   --fc-mid: #4a7fae;
   --fc-pale: #a9c0da;
+  --fc-gfs: #2f7d5b;
 }
 
 /* Masthead: the waterway as an eyebrow (a link back), the question as the title. */

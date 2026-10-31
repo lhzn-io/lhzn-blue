@@ -10,12 +10,16 @@ A self-contained three.js pane (no build step) showing, over a 4.4 km box centre
 - current profiles at the buoy: measured (UNH buoy), model (NECOFS at the buoy's element), and their
   difference.
 
-Window: 2026-09-28 00:00 to 2026-10-01 00:00 UTC (a spring tide; 73 hourly NECOFS records).
+Window: a rolling 7 days of hourly NECOFS records, from 5 days before the buoy's latest record to 48 hours after
+it, rewritten daily by the site's jobs (`jobs/src/lhzn_blue_jobs/piscataqua_pane.py`). The particle tracks cover
+2026-09-28 00:00 to 2026-10-01 00:00 UTC (a spring tide) only; outside those hours the tracers are hidden.
 
 ## Files
 
 The data files are not kept in this repository. On longhorizon.blue the site's Worker serves them from Workers
-KV at `/data/v1/piscataqua-pane/`, and `scripts/upload-pane-data.sh` uploads them.
+KV at `/data/v1/piscataqua-pane/`. The jobs write the model's window (`window.bin`, `mesh.json`, `nodes.f32`,
+`tri.u16`); `scripts/upload-pane-data.sh` uploaded the rest. A `mesh.json` without `files.window` names the
+fixed-window files instead (`zeta.i16`, `u.i16`, `v.i16`, with `profile.json`), which the pane still reads.
 
 | File | Contents |
 | :--- | :--- |
@@ -24,12 +28,11 @@ KV at `/data/v1/piscataqua-pane/`, and `scripts/upload-pane-data.sh` uploads the
 | `data/mesh.json` | NECOFS mesh counts, record times (epoch s), sigma levels, file layout, statistics |
 | `data/nodes.f32` | per node: east, north (m from the buoy), h (m, positive down), float32 |
 | `data/tri.u16` | per element: three node indices, uint16, counter-clockwise |
-| `data/zeta.i16` | surface elevation (time, node), mm, int16 |
-| `data/u.i16`, `data/v.i16` | eastward and northward velocity (time, layer, element), mm/s, int16, surface layer first |
-| `data/profile.json` | u, v at all 45 layer centres of the element holding the buoy, mm/s |
+| `data/window.bin` | per hour: eastward and northward velocity (layer, element; surface layer first) as int8 in steps of 2 cm/s, then surface elevation per node as int16 mm; gzipped, after "LHZF", a uint32 header length and a JSON header |
+| `data/zeta.i16`, `data/u.i16`, `data/v.i16`, `data/profile.json` | the first fixed window: the same fields as int16 mm and mm/s, and the profile at the buoy (in a rolling window the pane takes it from `window.bin`, at `mesh.json`'s `buoy_element`) |
 | `data/tracks.f32`, `data/tracks.json` | particle tracks (particle, record, 4: east, north, z, depth fraction), float32; layout and release times |
 | `data/dem.bin`, `data/dem.json` | DEM, 800 x 800, int16 cm above local MSL, row 0 south; bounds and datum |
-| `data/buoy.json` | UNH buoy records in the window: speed (cm/s), logged and true directions, flags, declination |
+| `data/buoy.json` | UNH buoy records in the first window: speed (cm/s), logged and true directions, flags, declination; the page passes the buoy's current record instead (`buoy` below) |
 
 All coordinates are east and north metres from the buoy (an equirectangular projection about the
 buoy), and heights are metres, positive up. The data files total about 17 MB.
@@ -43,6 +46,7 @@ const pane = mountPane(el, {
   dataBase: './data/',
   title: true,                     // false: no heading (the page's caption names the view)
   controls: true,                  // false: no "Layers and view" panel
+  buoy: { t, spd_cm_s, dir_deg_toward_true, flag, declination_deg },  // optional: the buoy's record (buoy.json's shape)
   onReady: ({ t0, t1 }) => {},     // optional: the model's first and last hours, once the data load
   onChange: () => {},              // optional: a panel control or the camera moved (for a shareable link)
 });

@@ -167,6 +167,28 @@ async function getBin(url) {
     if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
     return r.arrayBuffer();
 }
+// The rolling window (window.bin, written by the site's jobs): gzipped "LHZF", a uint32 header length, a JSON header,
+// then per hour u and v as int8 (layer, element) in steps of uv_step_mm_s, and zeta as int16 mm per node. Returns
+// the arrays this pane draws from: u and v in mm/s (time, layer, element), zeta in mm (time, node).
+async function getWindow(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+    const raw = new Uint8Array(await new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+    if (String.fromCharCode(...raw.subarray(0, 4)) !== 'LHZF') throw new Error(`${url}: not a window file`);
+    const n = new DataView(raw.buffer, raw.byteOffset).getUint32(4, true);
+    const head = JSON.parse(new TextDecoder().decode(raw.subarray(8, 8 + n)));
+    const L = head.layers, E = head.elements, N = head.nodes, T = head.times.length, k = head.uv_step_mm_s;
+    const per = 2 * L * E + 2 * N;
+    const u = new Int16Array(T * L * E), v = new Int16Array(T * L * E), zeta = new Int16Array(T * N);
+    for (let r = 0; r < T; r++) {
+        const at = 8 + n + r * per;
+        const qu = new Int8Array(raw.buffer, raw.byteOffset + at, L * E);
+        const qv = new Int8Array(raw.buffer, raw.byteOffset + at + L * E, L * E);
+        for (let i = 0; i < L * E; i++) { u[r * L * E + i] = qu[i] * k; v[r * L * E + i] = qv[i] * k; }
+        zeta.set(new Int16Array(raw.slice(at + 2 * L * E, at + per).buffer), r * N); // little-endian, as every browser
+    }
+    return { u, v, zeta };
+}
 
 // ---- styles (scoped to .pqp) -----------------------------------------------------------------
 
@@ -271,6 +293,8 @@ function themeVars(th) {
 
 export function mountPane(el, opts = {}) {
     const dataBase = opts.dataBase || './data/';
+    // The buoy's record, from the page (the shape of buoy.json); without it the pane reads buoy.json.
+    const buoyIn = opts.buoy && Array.isArray(opts.buoy.t) ? opts.buoy : null;
     const onReady = typeof opts.onReady === 'function' ? opts.onReady : null;
     const onChange = typeof opts.onChange === 'function' ? opts.onChange : null; // a control or the camera moved
     const showTitle = opts.title !== false;
@@ -542,26 +566,30 @@ export function mountPane(el, opts = {}) {
     // ---- init ----
     (async () => {
         try {
-            const [lib, meshJ, demJ, buoyJ, trkJ, profJ] = await Promise.all([
+            const [lib, meshJ, demJ, buoyJ, trkJ] = await Promise.all([
                 loadThree(),
                 getJson(joinUrl(dataBase, 'mesh.json')),
                 getJson(joinUrl(dataBase, 'dem.json')),
-                getJson(joinUrl(dataBase, 'buoy.json')),
+                buoyIn ? Promise.resolve(buoyIn) : getJson(joinUrl(dataBase, 'buoy.json')),
                 getJson(joinUrl(dataBase, 'tracks.json')),
-                getJson(joinUrl(dataBase, 'profile.json')),
             ]);
-            profile = profJ;
             if (state.disposed) return;
             const f = meshJ.files;
-            const [nodesB, triB, zetaB, uB, vB, demB, trkB, sigB] = await Promise.all([
+            // A rolling window carries every hour in one file and the model's profile at the buoy within it; a fixed
+            // window has a file per field and its own profile.json.
+            const [nodesB, triB, fields, profJ, demB, trkB, sigB] = await Promise.all([
                 getBin(joinUrl(dataBase, f.nodes)), getBin(joinUrl(dataBase, f.tri)),
-                getBin(joinUrl(dataBase, f.zeta)), getBin(joinUrl(dataBase, f.u)), getBin(joinUrl(dataBase, f.v)),
+                f.window ? getWindow(joinUrl(dataBase, f.window))
+                    : Promise.all([getBin(joinUrl(dataBase, f.zeta)), getBin(joinUrl(dataBase, f.u)), getBin(joinUrl(dataBase, f.v))])
+                        .then(([z, u, v]) => ({ zeta: new Int16Array(z), u: new Int16Array(u), v: new Int16Array(v) })),
+                f.window ? Promise.resolve(null) : getJson(joinUrl(dataBase, 'profile.json')),
                 getBin(joinUrl(dataBase, 'dem.bin')), getBin(joinUrl(dataBase, 'tracks.f32')),
                 f.siglev ? getBin(joinUrl(dataBase, f.siglev)) : Promise.resolve(null),
             ]);
             if (state.disposed) return;
             THREE = lib.THREE;
-            setupData(meshJ, nodesB, triB, zetaB, uB, vB, sigB, demJ, demB, buoyJ, trkJ, trkB);
+            setupData(meshJ, nodesB, triB, fields, sigB, demJ, demB, buoyJ, trkJ, trkB);
+            profile = profJ || windowProfile(meshJ);
             setupScene(lib.OrbitControls);
             state.ready = true;
             showMsg('');
@@ -577,7 +605,7 @@ export function mountPane(el, opts = {}) {
     })();
 
     // ---- data ----
-    function setupData(meshJ, nodesB, triB, zetaB, uB, vB, sigB, demJ, demB, buoyJ, trkJ, trkB) {
+    function setupData(meshJ, nodesB, triB, fields, sigB, demJ, demB, buoyJ, trkJ, trkB) {
         const nd = new Float32Array(nodesB);
         const N = meshJ.nodes, E = meshJ.elements, L = meshJ.layers, T = meshJ.times.length;
         const ex = new Float32Array(N), ny = new Float32Array(N), h = new Float32Array(N);
@@ -592,7 +620,7 @@ export function mountPane(el, opts = {}) {
         }
         mesh = {
             N, E, L, T, ex, ny, h, siglev, uniform: meshJ.sigma_uniform, levels: meshJ.siglev,
-            tri: new Uint16Array(triB), zeta: new Int16Array(zetaB), u: new Int16Array(uB), v: new Int16Array(vB),
+            tri: new Uint16Array(triB), zeta: fields.zeta, u: fields.u, v: fields.v,
             times: meshJ.times, stats: meshJ.stats,
             // Layer-centre sigma for the profile (uniform here; otherwise the mid-level of node 0's column).
             siglay: meshJ.siglay || Array.from({ length: L }, (_, k) => 0.5 * (siglev(k, 0) + siglev(k + 1, 0))),
@@ -635,6 +663,17 @@ export function mountPane(el, opts = {}) {
         buoy = { ...buoyJ, rec: -1 };
         $('[data-v="decl"]').textContent = Math.abs(buoyJ.declination_deg).toFixed(1);
         trk = { meta: trkJ, data: new Float32Array(trkB), rec: -1 };
+    }
+
+    // The model's profile at the buoy, from a rolling window: u and v at every layer of the element holding the
+    // buoy, each hour (profile.json's shape).
+    function windowProfile(meshJ) {
+        const el = meshJ.buoy_element, { L, E, T } = mesh;
+        const at = (a, r) => Array.from({ length: L }, (_, k) => a[(r * L + k) * E + el]);
+        return {
+            element: el, element_id: meshJ.buoy_element_id, centroid_en_m: meshJ.buoy_element_centroid_en_m, times: meshJ.times,
+            u_mm_s: Array.from({ length: T }, (_, r) => at(mesh.u, r)), v_mm_s: Array.from({ length: T }, (_, r) => at(mesh.v, r)),
+        };
     }
 
     // Node elevation of sigma level k at record r: siglev * (h + zeta) + zeta.
@@ -1379,14 +1418,20 @@ export function mountPane(el, opts = {}) {
         buoy.rec = rB;
         const fl = rB >= 0 ? buoy.flag[rB] : 0;
         const flagTxt = fl === 1 ? '' : fl === 3 ? ', flag 3 suspect' : fl === 4 ? ', flag 4 fail' : '';
-        parts.push(`<b>Buoy</b> ${rB >= 0 ? fmtUtc(buoy.t[rB]).replace(/^\w+ \d+ /, '') + flagTxt : 'no record yet'}`);
+        // The record's clock time, and its day too when that is not the hour shown (past the buoy's last record).
+        const dayOf = (x) => fmtUtc(x).replace(/ \d\d:\d\d UTC$/, '');
+        const bAt = rB >= 0 ? (dayOf(buoy.t[rB]) === dayOf(t) ? fmtUtc(buoy.t[rB]).replace(/^\w+ \d+ /, '') : fmtUtc(buoy.t[rB])) : '';
+        parts.push(`<b>Buoy</b> ${rB >= 0 ? bAt + flagTxt : 'no record yet'}`);
         updateBuoy();
-        // Tracks: their own record step from the track t0.
+        // Tracks: their own record step from the track t0, and only within their own hours (which may be fewer than
+        // the model's window).
         const m = trk.meta;
         const kT = t == null ? -1 : Math.floor((t - m.t0) / m.record_step_s);
-        const lastK = Math.round((mesh.times[mesh.times.length - 1] - m.t0) / m.record_step_s);
-        trk.rec = kT < 0 ? -1 : Math.min(kT, lastK);
-        parts.push(`<b>Tracks</b> ${trk.rec >= 0 ? fmtUtc(m.t0 + trk.rec * m.record_step_s).replace(/^\w+ \d+ /, '') : 'no record yet'}`);
+        const lastK = Math.min(m.records - 1, Math.round((mesh.times[mesh.times.length - 1] - m.t0) / m.record_step_s));
+        trk.rec = kT < 0 || kT > lastK ? -1 : kT;
+        const [d0, d1] = [dayOf(m.t0), dayOf(m.t0 + lastK * m.record_step_s)];
+        const trkDays = d0 === d1 ? d0 : `${d0} to ${d1}`;
+        parts.push(`<b>Tracks</b> ${trk.rec >= 0 ? fmtUtc(m.t0 + trk.rec * m.record_step_s).replace(/^\w+ \d+ /, '') : kT > lastK ? `${trkDays} only` : 'no record yet'}`);
         updateTracks();
         if (profStatus) parts.push(profStatus);
         // Outside the window one plain line replaces the per-source times (which would all read the same).

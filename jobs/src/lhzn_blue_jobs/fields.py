@@ -381,6 +381,12 @@ def piscataqua(store: Store, end: datetime, new_days: int = 6) -> list[str]:
         outages.record(failed, "piscataqua-history", exc, log)
     data["at_buoy"] = piscataqua_model.at_buoy(store, mesh, data)
     store.write_json("v1/fields/piscataqua-currents.json", data, max_age=3600)
+    try:  # the 3D view's window: every layer, around the buoy's latest record
+        from . import piscataqua_pane
+
+        log.info("piscataqua 3D window: %s", piscataqua_pane.update(store, end))
+    except Exception as exc:
+        outages.record(failed, "piscataqua-pane", exc, log)
     return failed
 
 

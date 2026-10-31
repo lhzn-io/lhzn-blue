@@ -1061,13 +1061,32 @@ function wireMapTip(map: MapLibreMap, popup: import("maplibre-gl").Popup, pins: 
 
 const restyleMap = () => MAP?.setStyle(light() ? STYLE_LIGHT : STYLE_DARK);
 
-/* The 3D view: a separate module with its own data (/portsmouth-harbor/pane/), the default view. The page owns the clock:
-   it passes every time change in, and learns the pane's data window (for Jump to and Play) once its data load. */
+/* The 3D view: a separate module with its own model data (/portsmouth-harbor/pane/; a rolling window the jobs keep around
+   the buoy's latest record), the default view. The page owns the clock: it passes every time change in, hands over the
+   buoy's record (so the view's buoy is the page's), and learns the pane's data window (for Jump to and Play) once its
+   data load. */
 interface Pane {
   setTime(t: number): void; setTheme(light: boolean): void; setUnits?(unit: "kt" | "mph" | "ms"): void;
   getState?(): Record<string, unknown>; setState?(s: Record<string, unknown>): void; dispose(): void;
 }
-interface PaneOpts { dataBase: string; title?: boolean; onChange?: () => void; onReady?: (range: { t0: number; t1: number }) => void }
+interface PaneOpts {
+  dataBase: string; title?: boolean; buoy?: PaneBuoy; onChange?: () => void; onReady?: (range: { t0: number; t1: number }) => void;
+}
+/** The buoy's record in the 3D view's shape (its buoy.json): epoch seconds, speeds in cm/s and directions turned to true. */
+interface PaneBuoy { name: string; lat: number; lon: number; t: number[]; spd_cm_s: (number | null)[][]; dir_deg_toward_true: (number | null)[][]; declination_deg: number; flag: number[] }
+function paneBuoy(): PaneBuoy | undefined {
+  const b = D.buoy;
+  if (!b) return undefined;
+  const t0 = sec(b.t0);
+  return {
+    name: b.name, lat: b.lat, lon: b.lon,
+    t: b.t.map((m) => t0 + m * 60),
+    spd_cm_s: b.spd,
+    dir_deg_toward_true: b.dir.map((row) => row.map((d) => (d == null ? null : trueDir(d)))),
+    declination_deg: DECLINATION,
+    flag: b.flag,
+  };
+}
 let PANE: Pane | null = null;
 let PANE_RANGE: [number, number] | null = null; // the pane's data window, epoch s
 let paneReady: (r: [number, number] | null) => void = () => undefined;
@@ -1100,6 +1119,7 @@ async function showView(next: "map" | "3d"): Promise<void> {
     PANE = mod.mountPane(box, {
       dataBase: PANE_DATA,
       title: false, // the figure's caption names the view
+      buoy: paneBuoy(),
       onChange: writeLink,
       onReady: ({ t0, t1 }) => {
         PANE_RANGE = [t0, t1];

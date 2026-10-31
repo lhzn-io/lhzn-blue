@@ -77,9 +77,12 @@ const FILES: Record<string, number> = {
   "v1/fields/sst-90d.bin": 3600,
   "v1/fields/chl-90d.bin": 3600,
   "v1/fields/kd490-90d.bin": 3600,
-  // The /portsmouth-harbor/ page's 3D view: one fixed window (a spring tide), uploaded once with scripts/upload-pane-data.sh.
+  // The /portsmouth-harbor/ page's 3D view: the model's rolling window, rewritten daily by the jobs (piscataqua_pane.py);
+  // the seabed and the particle tracks, uploaded by hand; and the files of the first fixed window, until it is retired.
+  "v1/piscataqua-pane/window.bin": 3600,
+  "v1/piscataqua-pane/mesh.json": 3600,
   ...Object.fromEntries(
-    ["mesh.json", "nodes.f32", "tri.u16", "zeta.i16", "u.i16", "v.i16", "profile.json", "tracks.f32", "tracks.json", "dem.bin", "dem.json", "buoy.json"].map((f) => [`v1/piscataqua-pane/${f}`, 86400]),
+    ["nodes.f32", "tri.u16", "zeta.i16", "u.i16", "v.i16", "profile.json", "tracks.f32", "tracks.json", "dem.bin", "dem.json", "buoy.json"].map((f) => [`v1/piscataqua-pane/${f}`, 86400]),
   ),
   // The /piscataqua-region/ waterway (jobs: region.py), under its own prefix.
   ...Object.fromEntries(

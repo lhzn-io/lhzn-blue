@@ -27,6 +27,7 @@ export interface Fig {
   available: (d: StationData) => boolean;
   window: (d: StationData) => [number, number];
   maxSpan: number; // widest zoom in the normal view
+  reach?: () => number; // the latest time the zoom may show, where a figure looks further ahead than its window
   start?: (d: StationData) => number; // earliest data for this figure, if not the water record
   build: (d: StationData, depth: string, x0: number, x1: number, full: boolean) => Built;
 }
@@ -44,8 +45,8 @@ export function limits(d: StationData, f: Fig, full: boolean): { min: number; ma
   const end = endOf(d, f);
   const min = Math.min(f.start?.(d) ?? recordStart(d), end - 2 * DAY);
   return full
-    ? { min, max: end + 2 * DAY, maxSpan: Infinity }
-    : { min: Math.min(min, f.window(d)[0]), max: Math.max(end + (f.seasonal ? 60 : 2) * DAY, f.window(d)[1]), maxSpan: f.maxSpan };
+    ? { min, max: Math.max(end + 2 * DAY, f.reach?.() ?? -Infinity), maxSpan: Infinity }
+    : { min: Math.min(min, f.window(d)[0]), max: Math.max(end + (f.seasonal ? 60 : 2) * DAY, f.window(d)[1], f.reach?.() ?? -Infinity), maxSpan: f.maxSpan };
 }
 
 export const fullRange = (d: StationData, f: Fig): [number, number] => [f.start?.(d) ?? recordStart(d), endOf(d, f) + DAY];

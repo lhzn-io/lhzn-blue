@@ -1102,6 +1102,10 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
   background: var(--pop-bg); font: 10px/1.4 var(--mono); color: var(--ink-soft); cursor: pointer; }
 .plot .rev-switch[aria-pressed="true"] { border-color: var(--ink-soft); color: var(--ink); }
 .plot:has(.plot-labels.has-glyphs) .rev-switch { top: 26px; }
+.plot .range-switch { position: absolute; top: 4px; right: 132px; z-index: 3; padding: 1px 6px; border: 1px solid var(--rule); border-radius: 9px;
+  background: var(--pop-bg); font: 10px/1.4 var(--mono); color: var(--ink-soft); cursor: pointer; }
+.plot .range-switch[aria-pressed="true"] { border-color: var(--ink-soft); color: var(--ink); }
+.plot:has(.plot-labels.has-glyphs) .range-switch { top: 26px; }
 .plot .rev-pop { position: absolute; top: 26px; right: 50px; z-index: 4; width: min(300px, 62%); padding: 6px 8px 4px;
   border: 1px solid var(--rule); background: var(--bg); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); cursor: default; }
 .plot:has(.plot-labels.has-glyphs) .rev-pop { top: 48px; }
@@ -1113,6 +1117,7 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 @media (max-width: 560px) {
   /* A phone: the run slider takes the top; the switch sits at the bottom left, the chart across the top. */
   .plot .rev-switch, .plot:has(.plot-labels.has-glyphs) .rev-switch { top: auto; bottom: 22px; left: 6px; right: auto; }
+  .plot .range-switch, .plot:has(.plot-labels.has-glyphs) .range-switch { top: auto; bottom: 22px; left: 92px; right: auto; }
   .plot .rev-pop, .plot:has(.plot-labels.has-glyphs) .rev-pop { top: 48px; left: 6px; right: 44px; width: auto; }
 }
 

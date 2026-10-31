@@ -6,7 +6,7 @@ import type { VarKey } from "./station-data";
 
 export interface PageModels {
   view(): VarKey;
-  palette(): { now: string; delayed: string; line: string; contrast: string; miss: string; depth: Record<string, string> };
+  palette(): { now: string; delayed: string; line: string; contrast: string; miss: string; gfs: string; depth: Record<string, string> };
   waveSensor(id: string): { sensor: boolean } | null;
   wavePanel(id: string): string | undefined;
   wavesText(id: string, short?: boolean): string;

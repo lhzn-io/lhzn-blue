@@ -12,15 +12,23 @@ import { DATA, FORECAST_PAGE, requestRedraw } from "./data";
 export interface FcRun { issue: number; leads: number[]; u: (number | null)[]; v: (number | null)[]; gust: (number | null)[]; t2m: (number | null)[]; mslp: (number | null)[] }
 export interface Verification { leads: number[]; by_lead: Record<string, { all: FcStats; buoys: Record<string, FcStats> }> }
 export let FCST: { runs: Record<string, FcRun[]>; ver: Verification | null; generated: number } | null = null;
+/** NOAA GFS at the stations, for the hours past HRRR's reach (the jobs' gfs.py: leads every 3 h to 168 h), with its
+ * own verification at the buoys. Loaded with HRRR; null where either file is missing. */
+export interface GfsRun { issue: number; leads: number[]; u: (number | null)[]; v: (number | null)[]; gust: (number | null)[] }
+export let GFS: { runs: Record<string, GfsRun[]>; ver: Verification | null } | null = null;
 let fcstLoading: Promise<void> | null = null;
 export const MS_KT = 1.943844;
 
+type ModelPage = { generated_at: string; cycles: Record<string, { leads: number[]; points: Record<string, Record<string, (number | null)[]>> }> };
+
 export function loadForecast(): Promise<void> {
   fcstLoading ??= Promise.all([
-    getJson<{ generated_at: string; cycles: Record<string, { leads: number[]; points: Record<string, Record<string, (number | null)[]>> }> }>(`${DATA}/forecast-hrrr.json`),
+    getJson<ModelPage>(`${DATA}/forecast-hrrr.json`),
     getJson<Verification>(`${DATA}/forecast-verification.json`).catch(() => null),
+    getJson<ModelPage>(`${DATA}/forecast-gfs.json`).catch(() => null),
+    getJson<Verification>(`${DATA}/forecast-verification-gfs.json`).catch(() => null),
   ])
-    .then(([page, ver]) => {
+    .then(([page, ver, gfsPage, gfsVer]) => {
       const runs: Record<string, FcRun[]> = {};
       for (const [key, c] of Object.entries(page.cycles)) {
         const issue = Date.parse(key.replace(/Z$/, ":00Z")) / 1000;
@@ -31,6 +39,18 @@ export function loadForecast(): Promise<void> {
       }
       Object.values(runs).forEach((r) => r.sort((a, b) => b.issue - a.issue));
       FCST = { runs, ver, generated: Date.parse(page.generated_at) / 1000 };
+      if (gfsPage) {
+        const g: Record<string, GfsRun[]> = {};
+        for (const [key, c] of Object.entries(gfsPage.cycles)) {
+          const issue = Date.parse(key.replace(/Z$/, ":00Z")) / 1000;
+          for (const [id, f] of Object.entries(c.points)) {
+            const none = c.leads.map(() => null);
+            (g[id] ??= []).push({ issue, leads: c.leads, u: f.u10 ?? none, v: f.v10 ?? none, gust: f.gust ?? none });
+          }
+        }
+        Object.values(g).forEach((r) => r.sort((a, b) => b.issue - a.issue));
+        GFS = { runs: g, ver: gfsVer };
+      }
       requestRedraw();
     })
     .catch(() => undefined);
@@ -89,10 +109,11 @@ export function hrrrHist(id: string, x0: number, x1: number, observed: (t: numbe
 }
 export const HRRR_HIST_LABEL = "HRRR, last forecast before each hour"; // drawn only where the station has no reading
 
-/** The typical error (mean absolute, verified at the buoys) at a lead, between the verified leads. */
-export function typicalError(id: string, lead: number, key: keyof FcStats): number {
-  const v = FCST?.ver;
-  if (!v) return NaN;
+/** The typical error (mean absolute, verified at the buoys) at a lead, between the verified leads: HRRR's, or the
+ * given model's verification. */
+export function typicalError(id: string, lead: number, key: keyof FcStats, ver: Verification | null | undefined = FCST?.ver): number {
+  const v = ver;
+  if (!v || !v.leads.length) return NaN;
   const at = (L: number) => (v.by_lead[L]?.buoys[id]?.[key] ?? v.by_lead[L]?.all[key] ?? NaN) as number;
   const ls = v.leads;
   if (lead <= ls[0]) return at(ls[0]);
@@ -129,6 +150,44 @@ function runValue(id: string, r: FcRun, t: number): FcValue | null {
     err: typicalError(id, lead, "mae"),
     airErr: (typicalError(id, lead, "air_mae") * 9) / 5,
   };
+}
+
+/** GFS's forecast for a station and hour from the newest run issued by now that reaches it, linear between its
+ * 3-hourly leads, with GFS's own typical miss at that lead; null where no run reaches it. Air and pressure are not
+ * read from GFS. */
+export function gfsAt(id: string, t: number): FcValue | null {
+  const now = Date.now() / 1000;
+  for (const r of GFS?.runs[id] ?? []) {
+    if (r.issue > now) continue;
+    const h = (t - r.issue) / HOUR;
+    const b = r.leads.findIndex((L) => L >= h);
+    if (b < 0 || h < r.leads[0]) continue;
+    const a = r.leads[b] > h ? b - 1 : b;
+    const w = a === b ? 0 : (h - r.leads[a]) / (r.leads[b] - r.leads[a]);
+    const at = (s: (number | null)[]) => (s[a] == null || s[b] == null ? NaN : s[a]! + (s[b]! - s[a]!) * w);
+    const u = at(r.u), v = at(r.v);
+    if (!Number.isFinite(u) || !Number.isFinite(v)) continue;
+    const lead = Math.round(h);
+    return {
+      spd: Math.hypot(u, v) * MS_KT,
+      dir: ((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360,
+      gust: at(r.gust) * MS_KT,
+      air: NaN,
+      pres: NaN,
+      lead,
+      issue: r.issue,
+      err: typicalError(id, lead, "mae", GFS?.ver),
+      airErr: NaN,
+    };
+  }
+  return null;
+}
+
+/** The verification tag for GFS: its typical miss at the buoys at a lead, linked to the page. */
+export function gfsTag(lead?: number, err?: number): string {
+  const n = GFS?.ver ? Object.values(GFS.ver.by_lead).reduce((a, b) => a + ((b.all as FcStats & { n?: number }).n ?? 0), 0) : 0;
+  const what = lead != null && Number.isFinite(err) ? `typical miss &plusmn;${windFmt(err!)} ${WIND_UNITS[WU].label} at ${lead} h ahead` : GFS?.ver ? "verified at the buoys" : "not yet scored at the buoys";
+  return `<a class="ver-tag" href="${FORECAST_PAGE}" title="GFS scored against the buoys${n ? ` over ${n.toLocaleString("en-US")} forecast hours` : ""}">${what}</a>`;
 }
 
 /** HRRR's change at a station from this hour to `hours` ahead, both ends from one run (the newest that reaches

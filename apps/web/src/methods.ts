@@ -87,17 +87,23 @@ export const METHODS: Record<string, Method> = {
       "of runs. Revisions, a switch on the plot, opens a small chart of how the forecast for one hour, the one under the pointer or " +
       "the page's time, changed from run to run: along its bottom is the time each run was issued, so a line rising to " +
       "the right is the model raising that hour's wind as it drew nearer; once the hour has passed, a gold dot is the " +
-      "wind measured then.",
+      "wind measured then. Past the last hour HRRR reaches, NOAA's GFS model carries the forecast on in green, with its " +
+      "own typical miss shaded in a paler green; \"7 days\", a switch on the plot, widens it to a week ahead.",
     method:
       "HRRR (3 km, run every hour) is read at the station's nearest water cells [[dowell2022hrrr]]. Hourly runs reach 18 " +
       "hours ahead and the 00, 06, 12 and 18 UTC runs 48, so beyond 18 hours the stitched forecast comes from the latest " +
       "48-hour run, which can be up to 6 hours older than the newest. The plot keeps every run of the last day and the " +
       "48-hour runs of the last week. The typical error is the mean absolute difference between HRRR and the four buoys at " +
-      "each lead time since January 2024; about 6 in 10 forecast hours fall within it.",
+      "each lead time since January 2024; about 6 in 10 forecast hours fall within it. GFS [[noaa2026gfs]] (0.25 degree, about 28 by 20 km " +
+      "here, run every 6 hours) is read the same way, from NOAA's open data [[noaa2026gfsaws]], at its four nearest water " +
+      "cells, every 3 hours to 168 hours ahead, " +
+      "and linearly between; its typical miss is measured at the four buoys at its own lead times (6 to 168 hours) since " +
+      "January 2024.",
     caveats:
-      "Uncorrected output of a single model; other models are not shown. Not a substitute for the National Weather " +
-      "Service marine forecast. HRRR is used for its 3 km grid, run hourly, 18 to 48 hours ahead; global models such as " +
-      "ECMWF and GFS run on grids of about 9 to 25 km, one or two cells across a Sound 5 to 34 km wide.",
+      "Uncorrected model output: HRRR to 48 hours, then GFS, never blended. Not a substitute for the National Weather " +
+      "Service marine forecast. HRRR is used first for its 3 km grid, run hourly; GFS's cells are one or two across a " +
+      "Sound 5 to 34 km wide, so it smooths the wind over the water, and at the buoys it tends to read low. Where the two " +
+      "models meet, the step between them is the models' difference, not a change in the weather.",
   },
   wind: {
     title: "Wind",
@@ -480,6 +486,8 @@ export const REF_LABELS: Record<string, string> = {
   chen2003fvcom: "Chen, Liu and Beardsley (2003), FVCOM",
   chen2006fvcom: "Chen, Beardsley and Cowles (2006), the FVCOM system",
   dowell2022hrrr: "Dowell et al. (2022), the High-Resolution Rapid Refresh (HRRR)",
+  noaa2026gfs: "NOAA EMC, the Global Forecast System (GFS)",
+  noaa2026gfsaws: "NOAA, GFS on the Registry of Open Data on AWS",
   booij1999swan: "Booij, Ris and Holthuijsen (1999), the SWAN wave model",
   noaa2019chart1: "NOAA and NGA (2019), U.S. Chart No. 1",
   thyng2016cmocean: "Thyng et al. (2016), cmocean: colormaps for oceanography",

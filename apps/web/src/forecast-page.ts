@@ -730,7 +730,7 @@ function drawMethod(): void {
     ["Height", `Buoy wind raised to 10 m (x${FACTOR.toFixed(3)}: 3.8 m anemometer assumed, neutral profile). In stable air the true factor is larger.`],
     ["Direction", "Observed wind 6 kt or more; buoy directions turned to true north; positive is clockwise."],
     ["Raw model", "As issued, uncorrected. A 3 km cell and a point buoy differ, which sets a floor on the error."],
-    ["Why HRRR", "Why not ECMWF or GFS? HRRR is NOAA's 3 km model, run every hour, for the next 18 to 48 hours. Global models such as ECMWF and GFS reach further ahead on coarser grids (about 9 to 25 km); across a Sound 5 to 34 km wide that is one or two cells. For the next day or two at the water's edge, the finer grid matters. We will add the global models with their own measured errors at the buoys."],
+    ["Why HRRR", "Why not ECMWF or GFS? HRRR is NOAA's 3 km model, run every hour, for the next 18 to 48 hours. Global models such as ECMWF and GFS reach further ahead on coarser grids (about 9 to 25 km); across a Sound 5 to 34 km wide that is one or two cells. For the next day or two at the water's edge, the finer grid matters. Past HRRR's 48 hours, the station plots carry on with GFS, scored at the buoys the same way at its own lead times to 7 days; ECMWF will follow."],
     ["Other models", `<a href="/long-island-sound/models/">Wind models compared</a>`],
     ["Sources", `NOAA High-Resolution Rapid Refresh (HRRR), read at the buoys with forcingkit; buoy observations from <a href="https://lisicos.uconn.edu/">LISICOS</a>, University of Connecticut. Times are Eastern. Verification updated ${fmtFull.format(new Date(V.generated_at))}.`],
   ];

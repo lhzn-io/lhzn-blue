@@ -90,6 +90,15 @@ export function setHoursBack(h: number): void {
   set(offset);
 }
 
+/** How far ahead the hours scale reaches: 3 days, or 7 on the next 48 hours plot page with "7 days" on. */
+export function setHoursAhead(h: number): void {
+  if (SCALES.hours.ahead === h) return;
+  SCALES.hours.ahead = h;
+  if (scale !== "hours") return;
+  if (root) build();
+  set(offset);
+}
+
 /** The cursor and its scale, for links ("-6h", "-30d"). */
 export function position(): { offset: number; scale: ScaleKind } {
   return { offset, scale };

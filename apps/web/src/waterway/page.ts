@@ -28,10 +28,10 @@ import { type Built, type Fig, legendHtml, openZoom, redrawZoom, visibleYears, w
 import { stationReadouts } from "./readouts";
 import { openAbout, wireAbout } from "./about";
 import { configureData, onModelData } from "./data";
-import { chooseRun, chosenRun, FCST, forecastAt, HRRR_HIST_LABEL, hrrrAsOf, hrrrHist, loadForecast, mountVintage, runForecastAt } from "./forecast";
+import { chooseRun, chosenRun, FCST, forecastAt, gfsAt, HRRR_HIST_LABEL, hrrrAsOf, hrrrHist, loadForecast, mountVintage, runForecastAt } from "./forecast";
 import { loadNwps, mountNwpsVintage, NWPS, nwpsLabel, nwpsRunAt, nwpsRuns, nwpsSeries } from "./nwps";
 import { OUTLOOK, outlookHtml } from "./outlook";
-import { NEXT48 } from "./next48";
+import { longRange, mountLongRange, NEXT48, onLongRange } from "./next48";
 import { mountRevisions, setRevisionTime } from "./revisions";
 import { ADV, ADV_WIND, advisoriesFor, loadAdvisories, zoneOf, zonesInForce } from "./advisories";
 import { fitStripDates, hideWsTip, moveStripCursor, showWsTip, windAcrossHtml, WS_BACK, wsPoint } from "./wind-strip";
@@ -85,6 +85,7 @@ interface Palette {
   oxygen: [string, string, string]; // dissolved oxygen shading: anoxic, hypoxic, below the growth criterion
   advisory: [string, string]; // NWS advisories behind the wind, in brick red: small craft, gale and above
   miss: string; // a forecast's typical miss, either side of it: faint lavender, apart from the forecast's own blue
+  gfs: string; // GFS past HRRR's reach, its line and (fainter) its typical miss: muted green, apart from HRRR's blue
   yearStops: { t: number; L: number; C: number; h: number }[];
 }
 
@@ -101,6 +102,7 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     oxygen: ["rgba(240,177,53,0.26)", "rgba(240,177,53,0.14)", "rgba(240,177,53,0.05)"],
     advisory: ["rgba(210,74,55,0.16)", "rgba(210,74,55,0.36)"],
     miss: "#b7a2dd",
+    gfs: "#86d1ab",
     yearStops: [
       { t: 0, L: 0.78, C: 0.07, h: 225 }, // pale willow blue
       { t: 0.3, L: 0.64, C: 0.09, h: 245 },
@@ -119,6 +121,7 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     oxygen: ["rgba(163,90,0,0.22)", "rgba(163,90,0,0.12)", "rgba(163,90,0,0.045)"],
     advisory: ["rgba(158,36,24,0.09)", "rgba(158,36,24,0.24)"],
     miss: "#9a84cc",
+    gfs: "#2f7d5b",
     yearStops: [
       { t: 0, L: 0.42, C: 0.13, h: 262 }, // deep cobalt
       { t: 0.35, L: 0.52, C: 0.11, h: 256 },
@@ -1336,6 +1339,11 @@ async function wireTimeline(box: HTMLElement): Promise<void> {
   });
   tl.setHoursBack(hoursBack()); // the view's reach first, or a linked time is clamped to a day
   if (waterPlotPage()) tl.setScale("days"); // a water plot spans months: its time moves by days
+  if (PLOT_PAGE && EMBED === "next48") {
+    // The next 48 hours plot page's time reaches as far as its plot: 7 days ahead with "7 days" on.
+    tl.setHoursAhead(longRange() ? 168 : 72);
+    onLongRange((on) => tl.setHoursAhead(on ? 168 : 72));
+  }
   applyPendingOffset(tl.position().scale); // after the listener, so a linked time reaches the charts, the table and the pins
   void syncPhase(tl.position().scale === "hours");
 }
@@ -1552,6 +1560,7 @@ function drawInline(d: StationData, key: Kind): void {
   if (key === "next48") {
     mountVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
     mountRevisions(d, $(`${d.meta.id}-${key}`), x0, x1);
+    mountLongRange($(`${d.meta.id}-${key}`));
   }
   if (key === "waves") mountNwpsVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
 }
@@ -2304,6 +2313,7 @@ async function main(): Promise<void> {
         if (k === "next48") {
           mountVintage(d, plot, x0, x1);
           mountRevisions(d, plot, x0, x1);
+          mountLongRange(plot);
         }
         else if (k === "waves") mountNwpsVintage(d, plot, x0, x1);
         else plot.querySelector(".vintage")?.remove();
@@ -2696,7 +2706,12 @@ function windReading(d: StationData): string[] {
   const forecast = f
     ? slot("HRRR", `${wind([f.dir, f.spd, f.gust])} <small class="pr-t">${runName(f.issue).replace(/^\w+, /, "")}${short ? "*" : ""}</small>`,
         `HRRR, the ${runName(f.issue)} run: ${words([f.dir, f.spd, f.gust])}${short ? `; the ${runName(run!)} run you fixed ends before this hour` : ""}`)
-    : slot("HRRR", none, "No HRRR run reaches this hour");
+    : (() => {
+        const gf = t >= nowH ? gfsAt(d.meta.id, t) : null;
+        return gf
+          ? slot("GFS", `${wind([gf.dir, gf.spd, gf.gust])} <small class="pr-t">${runName(gf.issue).replace(/^\w+, /, "")}</small>`, `GFS, the ${runName(gf.issue)} run: ${words([gf.dir, gf.spd, gf.gust])}`)
+          : slot("HRRR", none, "No HRRR run reaches this hour");
+      })();
   return [measured, forecast];
 }
 

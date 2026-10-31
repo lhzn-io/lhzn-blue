@@ -144,26 +144,18 @@ async function unpack<H>(buf: ArrayBuffer): Promise<{ header: H; body: Uint8Arra
 /** A raster's 90-day history file. */
 export const decodeHistory = (buf: ArrayBuffer): Promise<RasterHistory> => unpack<RasterHistory["header"]>(buf);
 
-/** The currents forecast from a fields directory: currents.bin (see the jobs' fields.py: per time step one signed byte
- * per element for east, then for north, in steps of encoding.step_cms cm/s), or the currents.json written before it. */
+/** The currents forecast from a fields directory's currents.bin (see the jobs' fields.py: per time step one signed byte
+ * per element for east, then for north, in steps of encoding.step_cms cm/s). */
 export async function loadCurrents(dir: string, init?: RequestInit): Promise<CurrentsField> {
-  try {
-    const res = await fetch(`${dir}currents.bin`, init);
-    if (res.ok) {
-      type Head = Omit<CurrentsField, "u" | "v"> & { elements: number; encoding: { step_cms: number } };
-      const { header, body } = await unpack<Head>(await res.arrayBuffer());
-      const n = header.elements;
-      const k = header.encoding.step_cms;
-      const part = (j: number, c: number) => Int16Array.from(new Int8Array(body.buffer, body.byteOffset + (2 * j + c) * n, n), (q) => q * k);
-      const steps = Array.from({ length: header.steps }, (_, j) => j);
-      return { ...header, u: steps.map((j) => part(j, 0)), v: steps.map((j) => part(j, 1)) };
-    }
-  } catch {
-    /* not there yet, or not this format: the JSON below */
-  }
-  const res = await fetch(`${dir}currents.json`, init);
-  if (!res.ok || !res.headers.get("content-type")?.includes("json")) throw new Error(`currents: HTTP ${res.status}`);
-  return (await res.json()) as CurrentsField;
+  const res = await fetch(`${dir}currents.bin`, init);
+  if (!res.ok) throw new Error(`currents: HTTP ${res.status}`);
+  type Head = Omit<CurrentsField, "u" | "v"> & { elements: number; encoding: { step_cms: number } };
+  const { header, body } = await unpack<Head>(await res.arrayBuffer());
+  const n = header.elements;
+  const k = header.encoding.step_cms;
+  const part = (j: number, c: number) => Int16Array.from(new Int8Array(body.buffer, body.byteOffset + (2 * j + c) * n, n), (q) => q * k);
+  const steps = Array.from({ length: header.steps }, (_, j) => j);
+  return { ...header, u: steps.map((j) => part(j, 0)), v: steps.map((j) => part(j, 1)) };
 }
 
 /** The fields a point readout draws on: HRRR wind and NWPS waves (both on their model cells) and wind against tide. */

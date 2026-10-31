@@ -1,4 +1,4 @@
-"""currents.bin: the forecast survives encoding to within half a step, and the stored file is read in either form."""
+"""currents.bin: the forecast survives encoding to within half a step, and the stored file is read back."""
 
 import numpy as np
 
@@ -41,12 +41,12 @@ def test_beyond_the_range_is_held_at_its_end():
     assert back["u"].tolist() == [[254.0, -254.0]]
 
 
-def test_read_prefers_the_binary_and_falls_back_to_json(tmp_path):
+def test_read_takes_the_binary_only(tmp_path):
     store = Store(str(tmp_path))
     assert fields.read_currents(store) is None
     old = forecast()
     (tmp_path / "v1/fields").mkdir(parents=True)
     (tmp_path / "v1/fields/currents.json").write_text(__import__("json").dumps(old))
-    assert fields.read_currents(store)["u"] == old["u"]  # from before currents.bin
+    assert fields.read_currents(store) is None  # the retired JSON is not read
     store.write_bytes("v1/fields/currents.bin", fields.encode_currents(old), max_age=3600)
     assert isinstance(fields.read_currents(store)["u"], np.ndarray)

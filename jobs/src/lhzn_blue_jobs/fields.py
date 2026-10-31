@@ -224,9 +224,9 @@ def decode_currents(blob: bytes) -> dict:
 
 
 def read_currents(store: Store, rel: str = "v1/fields/currents") -> dict | None:
-    """The stored currents forecast (rel without its extension): currents.bin, or the currents.json written before it."""
+    """The stored currents forecast (rel without its extension, read from its .bin), or None before the first run."""
     blob = store.read_bytes(f"{rel}.bin")
-    return decode_currents(blob) if blob is not None else store.read_json(f"{rel}.json")
+    return decode_currents(blob) if blob is not None else None
 
 
 def _frame_end(day: date, now: datetime) -> datetime:

@@ -30,7 +30,7 @@ REGION = [
 REFUSED = [
     "v1/piscataqua-region/shore.json", "v1/piscataqua-region/fields/chl.json", "v1/piscataqua-region/../live.json",
     "v1/other-region/live.json", "v1/piscataqua-region/live.json.bak", "v1/live2.json", "v2/live.json",
-    "v1/fields/currents.json", "v1/piscataqua-region/fields/currents.json",  # written as currents.bin
+    "v1/fields/currents.json", "v1/piscataqua-region/fields/currents.json",  # retired for currents.bin
     "v1/piscataqua-pane/dem.bin", "v1/piscataqua-pane/tracks.f32",  # uploaded by hand, not by the jobs
 ]
 

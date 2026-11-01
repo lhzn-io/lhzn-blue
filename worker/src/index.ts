@@ -154,8 +154,18 @@ export default {
   },
 };
 
+/** Pages that are another page shown another way (the page reads its own address): served from that page's file. */
+const SAME_PAGE: Record<string, string> = { "/portsmouth-harbor/currents/": "/portsmouth-harbor/" };
+
 /** A page: a station's address serves its waterway's page; anything else, the static assets. */
 async function page(req: Request, env: Env, url: URL): Promise<Response> {
+  const same = url.pathname.toLowerCase().replace(/\/?$/, "/");
+  if (Object.hasOwn(SAME_PAGE, same)) {
+    if (url.pathname !== same) return Response.redirect(`${url.origin}${same}${url.search}`, 301);
+    const home = new URL(url);
+    home.pathname = SAME_PAGE[same];
+    return env.ASSETS.fetch(new Request(home, req));
+  }
   const m = STATION_PATH.exec(url.pathname);
   const stations = m && Object.hasOwn(WATERWAYS, m[1]) ? WATERWAYS[m[1]] : undefined;
   const gauge = !!m?.[3] && !!PLOT_ONLY[m[1]]?.has(m[2].toLowerCase());

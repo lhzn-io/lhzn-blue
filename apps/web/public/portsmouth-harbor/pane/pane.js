@@ -1424,14 +1424,15 @@ export function mountPane(el, opts = {}) {
         parts.push(`<b>Buoy</b> ${rB >= 0 ? bAt + flagTxt : 'no record yet'}`);
         updateBuoy();
         // Tracks: their own record step from the track t0, and only within their own hours (which may be fewer than
-        // the model's window).
+        // the model's window). Tracks that share no hour with the window say nothing.
         const m = trk.meta;
         const kT = t == null ? -1 : Math.floor((t - m.t0) / m.record_step_s);
         const lastK = Math.min(m.records - 1, Math.round((mesh.times[mesh.times.length - 1] - m.t0) / m.record_step_s));
         trk.rec = kT < 0 || kT > lastK ? -1 : kT;
+        const trkInWindow = lastK >= 0 && m.t0 + lastK * m.record_step_s >= mesh.times[0];
         const [d0, d1] = [dayOf(m.t0), dayOf(m.t0 + lastK * m.record_step_s)];
         const trkDays = d0 === d1 ? d0 : `${d0} to ${d1}`;
-        parts.push(`<b>Tracks</b> ${trk.rec >= 0 ? fmtUtc(m.t0 + trk.rec * m.record_step_s).replace(/^\w+ \d+ /, '') : kT > lastK ? `${trkDays} only` : 'no record yet'}`);
+        if (trkInWindow) parts.push(`<b>Tracks</b> ${trk.rec >= 0 ? fmtUtc(m.t0 + trk.rec * m.record_step_s).replace(/^\w+ \d+ /, '') : kT > lastK ? `${trkDays} only` : 'no record yet'}`);
         updateTracks();
         if (profStatus) parts.push(profStatus);
         // Outside the window one plain line replaces the per-source times (which would all read the same).

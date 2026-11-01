@@ -33,6 +33,9 @@ interface CurField { t0: string; step: number; steps: number; u: number[][]; v: 
 interface CurHistory { t0: number; step: number; hours: number; elements: number; scale: number; body: Int8Array }
 
 const DATA = "/data/v1";
+const PAGE_PATH = "/portsmouth-harbor/";
+// The currents' own page (/portsmouth-harbor/currents/): this page with only the view, the profile and the time bar.
+const FOCUS = location.pathname.replace(/\/?$/, "/") === `${PAGE_PATH}currents/`;
 const TZ = "America/New_York";
 const MIN = 60;
 const HOUR = 3600;
@@ -342,13 +345,16 @@ function placeCursor(): void {
 
 // ---------- The profile panel ----------
 
+let showDeep = localStorage.getItem("lhzn-blue-pq-deep") === "1"; // the cells below the likely seabed, folded away by default
+
 function drawProfile(): void {
   const b = D.buoy;
   const box = $("profile");
   const k = nearestProfile(T);
+  const rows = showDeep ? CELLS : LIKELY_BED;
   const W = 300;
   const rowH = 17;
-  const H = 28 + CELLS * rowH + 34;
+  const H = 28 + rows * rowH + 34;
   const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", role: "img", "aria-label": "Current profile at the selected time" });
   const ink = cssVar("--ink");
   const dim = cssVar("--dim");
@@ -363,7 +369,7 @@ function drawProfile(): void {
   text(W - 62, 14, UL(), { "text-anchor": "end" });
   text(W - 6, 14, "deg", { "text-anchor": "end" });
   if (b && k >= 0) {
-    for (let c = 0; c < CELLS; c++) {
+    for (let c = 0; c < rows; c++) {
       const y = 28 + c * rowH + rowH / 2;
       const faded = c >= LIKELY_BED;
       const op = faded ? 0.4 : 1;
@@ -382,15 +388,12 @@ function drawProfile(): void {
       text(W - 62, y + 3.5, (v * PER()).toFixed(2), { "text-anchor": "end", fill: faded ? dim : ink, opacity: op });
       text(W - 6, y + 3.5, String(dirDeg), { "text-anchor": "end", opacity: op });
     }
-    const y = 28 + CELLS * rowH + 18;
+    const y = 28 + rows * rowH + 18;
     svg.append(el("rect", { x: BAR_X, y: y - 5, width: 0.1 * ARROW_PX_PER_MS, height: 10, fill: speedColour(0.1), stroke: cssVar("--rule"), "stroke-width": 0.5 }));
     text(BAR_X + 0.1 * ARROW_PX_PER_MS + 6, y + 3.5, spdTxt(10, 2));
     $("prof-cap").textContent = `Profile at ${fmtTime.format(new Date(buoyT[k] * 1000))}`;
-    const tmp = b.temp[k];
-    const p = b.pressure[k];
-    const flag = b.flag[k] === 1 ? "" : b.flag[k] === 3 ? " Flagged suspect: the buoy was tilted more than 20 degrees." : " Flagged: the instrument reported an error.";
-    $("prof-note").textContent =
-      `Water ${tmp != null ? `${tmp.toFixed(1)} °C (${(tmp * 1.8 + 32).toFixed(1)} °F)` : "temperature missing"} at the profiler, ${p != null ? `${p.toFixed(2)} dbar` : ""} below the surface. Arrows point where the water goes, true north up (turned 14.2° from the logged directions, taken as magnetic; inferred, not confirmed).${flag}`;
+    // The flag stays in view; how to read the panel sits behind the (i).
+    $("prof-note").textContent = b.flag[k] === 1 ? "" : b.flag[k] === 3 ? "Flagged suspect: the buoy was tilted more than 20 degrees." : "Flagged: the instrument reported an error.";
   } else {
     $("prof-cap").textContent = "Profile";
     const why = !b ? "No buoy profiles could be read." : T > sec(b.last) ? `No profile at this time: the buoy has been quiet since ${fmtTime.format(new Date(b.last))}.` : "No profile within 15 minutes of this time (a gap in the buoy's record).";
@@ -459,25 +462,74 @@ function drawFlow(plot = $("flow-plot")): void {
   renderLines(plot, { xs, lines, unit: ` ${UL()}`, zero: true, ...MARKS(), empty: "No current data for this window." });
 }
 
-/* The small chart under the profile: the current or the tide over the plots' window, with a one-line key; Expand
-   opens both at full size in a dialog, drawn only while it is open. */
-let sparkTab: "flow" | "tide" = "flow";
+/** One of the buoy's per-record values at time t: the nearest 10-minute record, or a gap. */
+function buoyAt(vals: (number | null)[] | undefined, t: number): number {
+  const k = nearestProfile(t);
+  if (!vals || k < 0 || Math.abs(buoyT[k] - t) > 6 * MIN) return NaN;
+  return vals[k] ?? NaN;
+}
+
+function drawTemp(plot = $("temp-plot")): void {
+  const xs = grid(10 * MIN);
+  const lines: Line[] = [
+    { ys: xs.map((t) => buoyAt(D.buoy?.temp, t)), color: cssVar("--now"), width: 1.6, label: "UNH buoy, at the profiler", fmt: (v) => `${v.toFixed(1)} °C (${(v * 1.8 + 32).toFixed(1)} °F)` },
+  ];
+  renderLines(plot, { xs, lines, unit: " °C", ...MARKS(), empty: "No water temperature for this window." });
+}
+
+function drawDepth(plot = $("depth-plot")): void {
+  const xs = grid(10 * MIN);
+  const lines: Line[] = [
+    { ys: xs.map((t) => buoyAt(D.buoy?.pressure, t)), color: cssVar("--now"), width: 1.6, label: "UNH buoy, profiler pressure", fmt: (v) => `${v.toFixed(2)} dbar` },
+  ];
+  // No unit on the axis, which has no room for "dbar": the caption names it.
+  renderLines(plot, { xs, lines, unit: "", ...MARKS(), empty: "No profiler pressure for this window." });
+}
+
+/* The small chart under the profile: the current, the tide or the water temperature over the plots' window, with a
+   one-line key; Expand opens them at full size in a dialog, drawn only while it is open. */
+type SparkTab = "flow" | "tide" | "water";
+let sparkTab: SparkTab = "flow";
+const asSparkTab = (s: string | null | undefined): SparkTab => (s === "tide" || s === "water" ? s : "flow");
 function drawSpark(): void {
   const plot = $("spark-plot");
   if (sparkTab === "tide") drawTide(plot);
+  else if (sparkTab === "water") drawTemp(plot);
   else drawFlow(plot);
   const keys: [string, string][] = sparkTab === "tide"
     ? [["var(--now)", "observed"], ["var(--fc-mid)", "predicted"]]
+    : sparkTab === "water" ? [["var(--now)", "buoy, at the profiler"]]
     : [["var(--fc-mid)", "NOAA predicted"], [MODEL_LINE(), "NECOFS"], ["var(--now)", "buoy"]];
-  const unit = sparkTab === "tide" ? "ft above MLLW" : `${UL()}, flood positive`;
+  const unit = sparkTab === "tide" ? "ft above MLLW" : sparkTab === "water" ? "°C" : `${UL()}, flood positive`;
   $("spark-legend").innerHTML = keys.map(([c, label]) => `<span><i style="background:${c}"></i>${label}</span>`).join("") + `<span class="pq-spark-unit">${unit}</span>`;
 }
 const chartsOpen = () => ($("charts-dialog") as HTMLDialogElement).open;
 
+function wireProfile(): void {
+  const info = $("prof-info");
+  const ibtn = $("prof-ibtn");
+  ibtn.addEventListener("click", () => {
+    info.hidden = !info.hidden;
+    ibtn.setAttribute("aria-expanded", String(!info.hidden));
+  });
+  const deep = $("prof-deep");
+  const label = () => {
+    deep.setAttribute("aria-expanded", String(showDeep));
+    deep.title = `${showDeep ? "Hide" : "Show"} cells ${LIKELY_BED + 1} to ${CELLS}, likely at or below the seabed`;
+  };
+  label();
+  deep.addEventListener("click", () => {
+    showDeep = !showDeep;
+    localStorage.setItem("lhzn-blue-pq-deep", showDeep ? "1" : "0");
+    label();
+    drawProfile();
+  });
+}
+
 function wireCharts(): void {
   document.querySelectorAll<HTMLButtonElement>("[data-spark]").forEach((b) =>
     b.addEventListener("click", () => {
-      sparkTab = b.dataset.spark === "tide" ? "tide" : "flow";
+      sparkTab = asSparkTab(b.dataset.spark);
       document.querySelectorAll<HTMLButtonElement>("[data-spark]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
       drawSpark();
       markAsOf(T);
@@ -490,6 +542,8 @@ function wireCharts(): void {
     dialog.showModal();
     drawTide();
     drawFlow();
+    drawTemp();
+    drawDepth();
     markAsOf(T);
   });
   $("charts-close").addEventListener("click", () => dialog.close());
@@ -594,7 +648,7 @@ function linkURL(): string {
   if (VIEW === "map") q.push(["view", "map"]);
   if (stripCount !== 7) q.push(["days", stripCount ? String(stripCount) : "all"]);
   if (stripAlign === "tide") q.push(["align", "tide"]);
-  if (sparkTab === "tide") q.push(["chart", "tide"]);
+  if (sparkTab !== "flow") q.push(["chart", sparkTab]);
   if (SPAN == null) q.push(["span", "all"]);
   // The 3D view's and the map's own state while they exist; before then, whatever the link asked for, kept.
   const ps = PANE ? (PANE.getState?.() as Record<string, unknown> | undefined) : undefined;
@@ -634,7 +688,7 @@ function readLink(): void {
   if (days === "all") stripCount = 0;
   else if (days === "16") stripCount = 16;
   if (LINK.get("align") === "tide") stripAlign = "tide";
-  if (LINK.get("chart") === "tide") sparkTab = "tide";
+  sparkTab = asSparkTab(LINK.get("chart"));
   if (LINK.get("span") === "all") SPAN = null;
   const press = (attr: string, value: string) =>
     document.querySelectorAll<HTMLButtonElement>(`[${attr}]`).forEach((b) => b.setAttribute("aria-pressed", String(b.getAttribute(attr) === value)));
@@ -1153,33 +1207,16 @@ function dockBar(into: HTMLElement | null): void {
 
 function wireViews(): void {
   document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((b) => b.addEventListener("click", () => void showView(b.dataset.view === "map" ? "map" : "3d")));
-  // Full screen on the view's box (map or 3D); both fill it and follow its size. A fixed full-window class where the
-  // Fullscreen API is missing (iPhone Safari). The time bar moves into the box while it is full screen, and back.
-  const box = $("viewbox");
-  const btn = $("fullscreen");
-  const sync = () => {
-    const on = document.fullscreenElement === box || box.classList.contains("pq-full");
-    btn.textContent = on ? "Exit full screen" : "Full screen";
-    btn.setAttribute("aria-pressed", String(on));
-    dockBar(on ? box : null);
-    $("fs-exit").hidden = !on; // the page's button is outside the box, so the bar carries its own way out
-    window.setTimeout(() => MAP?.resize(), 50);
-  };
-  const toggle = () => {
-    if (document.fullscreenElement === box) void document.exitFullscreen();
-    else if (box.classList.contains("pq-full")) box.classList.remove("pq-full");
-    else if (box.requestFullscreen) void box.requestFullscreen().catch(() => box.classList.add("pq-full"));
-    else box.classList.add("pq-full");
-    window.setTimeout(sync, 60);
-  };
-  btn.addEventListener("click", toggle);
-  $("fs-exit").addEventListener("click", toggle);
-  document.addEventListener("fullscreenchange", sync);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && box.classList.contains("pq-full")) {
-      box.classList.remove("pq-full");
-      sync();
-    }
+  // Expand opens the currents' own page, and Close there comes back, each with the time and the view as they are.
+  const go = $("cur-expand") as HTMLAnchorElement;
+  if (FOCUS) {
+    go.textContent = "Close";
+    go.href = PAGE_PATH;
+  }
+  go.addEventListener("click", (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; // a new tab gets the plain address
+    e.preventDefault();
+    location.href = linkURL().replace(location.pathname, FOCUS ? PAGE_PATH : `${PAGE_PATH}currents/`);
   });
 }
 const MODEL_LINE = () => (light() ? "#1f7f86" : "#5fc3c4"); // the model's teal
@@ -1271,6 +1308,8 @@ function drawCharts(): void {
   if (chartsOpen()) {
     drawTide();
     drawFlow();
+    drawTemp();
+    drawDepth();
   }
 }
 
@@ -1292,6 +1331,10 @@ async function fetchJson<T>(name: string): Promise<T | null> {
 }
 
 async function main(): Promise<void> {
+  if (FOCUS) {
+    document.body.classList.add("pq-focus");
+    document.title = `Currents | ${document.title}`;
+  }
   let d: Data | null = null;
   try {
     const r = await fetch(`${DATA}/piscataqua.json`, { cache: "no-cache" });
@@ -1332,6 +1375,7 @@ async function main(): Promise<void> {
   });
   wireViews();
   wireNotice();
+  wireProfile();
   wireCharts();
   drawMethod();
   drawMapScale();

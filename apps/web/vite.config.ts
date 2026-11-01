@@ -25,7 +25,7 @@ function localData(stationPages: string[]): Plugin {
           res.end();
           return;
         }
-        const base = stationBase(path);
+        const base = stationBase(path) || (path.replace(/\/?$/, "/") === "/portsmouth-harbor/currents/" && "/portsmouth-harbor/"); // as the Worker's SAME_PAGE
         if (base) req.url = base + (query ? `?${query}` : "");
         next();
       });

@@ -47,6 +47,7 @@ HALF_M = 2200.0  # the box: 4.4 km square centred on the buoy
 EARTH_M = 6371000.0  # the frame: equirectangular about the buoy
 WINDOW_BACK_DAYS = 5
 WINDOW_AHEAD_HOURS = 48
+FORECAST_HOURS_PER_READ = 24  # as an archive day, which the server reads well within its timeout
 UV_STEP_MM = 20  # 2 cm/s: within 1 cm/s of the model, to 2.54 m/s (the harbour peaks near 1.6 m/s)
 MAGIC = b"LHZF"
 SOURCE = "NECOFS FVCOM GOM7, UMass Dartmouth SMAST"
@@ -224,16 +225,25 @@ def update(store: Store, end: datetime | None = None, max_new_days: int = 2, rea
             same_subset(ds)
             hours.update(_hours_from(ds, "hindcast"))
             added.append(str(day.date()))
-    # The forecast for every hour of the window the hindcast does not hold.
-    rest = [t for t in want if hours.get(t, {}).get("from") != "hindcast"]
-    if rest:
+    # The forecast for the hours after the newest hindcast hour, a day per request: the server reads a request hour by
+    # hour and layer by layer, and the whole window in one request outlasts its timeout. Older hours the hindcast
+    # lacks wait for the archive days of later runs.
+    last_hind = max((t for t, h in hours.items() if h["from"] == "hindcast"), default=None)
+    rest = [t for t in want if last_hind is None or t > last_hind]
+    for i in range(0, len(rest), FORECAST_HOURS_PER_READ):
+        part = rest[i:i + FORECAST_HOURS_PER_READ]
         try:
-            ds = read(box, rest[0], int((rest[-1] - rest[0]) / pd.Timedelta(hours=1)) + 1)
-            if ds.sizes.get("time", 0):
-                same_subset(ds)
-                hours.update({t: h for t, h in _hours_from(ds, "forecast").items() if t in rest})
+            ds = read(box, part[0], len(part))
+        except RuntimeError as exc:  # read_volume: the file holds none of these hours (before its start)
+            if "none of" not in str(exc):
+                raise
+            continue
         except Exception as exc:
-            log.warning("piscataqua pane: forecast not read (%s)", exc)
+            log.warning("piscataqua pane: forecast from %s not read (%s)", part[0], exc)
+            break
+        if ds.sizes.get("time", 0):
+            same_subset(ds)
+            hours.update({t: h for t, h in _hours_from(ds, "forecast").items() if t in part})
     hours = {t: h for t, h in hours.items() if t in want}
     if not hours:
         return {"hours": 0, "added_days": added}

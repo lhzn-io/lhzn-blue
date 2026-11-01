@@ -143,7 +143,32 @@ def test_a_run_reads_at_most_two_archive_days_and_only_archive_files(tmp_path):
     _, hours, _ = read_back(tmp_path)
     hind = sorted(t for t, h in hours.items() if h["from"] == "hindcast")
     assert hind[0] == pd.Timestamp("2026-10-28T01:00") and hind[-1] == pd.Timestamp("2026-10-30T00:00")
-    assert hours[pd.Timestamp("2026-10-26T05:00")]["from"] == "forecast"  # the older hours wait for later runs
+    assert pd.Timestamp("2026-10-26T05:00") not in hours  # the older hours wait for later runs' archive days
+
+
+def test_forecast_read_a_day_at_a_time_after_the_hindcast(tmp_path):
+    store = store_with_buoy(tmp_path)
+    reader = Reader(fc_from=pd.Timestamp("2026-10-25T00:00"), missing={"2026-10-31"})
+    pp.update(store, END, reader=reader)
+    forecast = [c for c in reader.calls if not c[0]]
+    assert forecast[0][1] == pd.Timestamp("2026-10-30T01:00")  # the hour after the newest hindcast hour
+    assert all(n <= pp.FORECAST_HOURS_PER_READ for _, _, n in forecast)
+    assert sum(n for _, _, n in forecast) == 60  # to Nov 1 12:00, 48 h past the buoy's record
+
+
+def test_a_forecast_read_that_fails_stops_the_forecast(tmp_path):
+    calls = []
+
+    def reader(bbox, start, hours, dap_url=None):
+        if dap_url is not None:
+            return volume(pd.date_range(pd.Timestamp(start), periods=hours, freq="h"), 0.3, (10, 11))
+        calls.append(start)
+        raise OSError("read timed out")
+
+    pp.update(store_with_buoy(tmp_path), END, reader=reader)
+    assert len(calls) == 1  # no further requests to a server that has just timed out
+    _, hours, _ = read_back(tmp_path)
+    assert all(h["from"] == "hindcast" for h in hours.values())
 
 
 def test_archive_urls_are_the_daily_files(tmp_path):
@@ -170,3 +195,20 @@ def test_nothing_read_writes_nothing(tmp_path):
 @pytest.mark.parametrize("name", ["v1/piscataqua-pane/window.bin", "v1/piscataqua-pane/mesh.json"])
 def test_writable(name, tmp_path):
     Store(str(tmp_path)).write_bytes(name, b"x", max_age=60)
+
+
+def test_forecast_hours_before_the_file_are_skipped(tmp_path):
+    calls = []
+
+    def reader(bbox, start, hours, dap_url=None):
+        if dap_url is not None:
+            raise OSError("not published")
+        calls.append(pd.Timestamp(start))
+        if pd.Timestamp(start) < pd.Timestamp("2026-10-29T00:00"):
+            raise RuntimeError("forecast holds 2026-10-29 to 2026-11-05, none of those hours")
+        return volume(pd.date_range(pd.Timestamp(start), periods=hours, freq="h"), 0.1, (10, 11))
+
+    pp.update(store_with_buoy(tmp_path), END, reader=reader)
+    assert len(calls) == 8  # no hindcast: the whole window, a day per request
+    _, hours, _ = read_back(tmp_path)
+    assert min(hours) == pd.Timestamp("2026-10-29T00:00") and max(hours) == pd.Timestamp("2026-11-01T12:00")

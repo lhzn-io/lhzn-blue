@@ -1,12 +1,13 @@
 /**
- * "Forecast verification" (/long-island-sound/forecast/): NOAA HRRR wind forecasts at the four Long Island
+ * "Forecast verification" (/long-island-sound/forecast/): NOAA wind forecasts (HRRR and GFS) at the four Long Island
  * Sound buoys, compared with what the buoys measured.
  *
- * Four files: forecast-verification.json (the archive's statistics since January 2024), forecast-verification-gfs.json
- * (the same for GFS, 6 to 168 h ahead, drawn beside HRRR by lead time), forecast-hrrr.json (every recent HRRR run at
- * the buoys) and live.json (the buoys' recent hourly means). Colour follows the site: gold for observed, willow blues
- * for order (strong for recent runs and short leads, pale for old or long), the station plots' green for GFS, the
- * page's ink for references, amber only for states that must stand out.
+ * Each model in MODELS has a verification file (the archive's statistics since January 2024) and a runs file (every
+ * recent run at the buoys); live.json holds the buoys' recent hourly means. The error-by-lead chart overlays every
+ * model on one lead axis; a page-level switch (kept in the URL as ?model=) picks the model for the other sections.
+ * Colour follows the site: gold for observed, willow blues for order (strong for recent runs and short leads, pale for
+ * old or long), each model's own colour in the lead chart, the page's ink for references, amber only for states that
+ * must stand out.
  */
 import "./site.css";
 import "./away-links";
@@ -64,13 +65,14 @@ interface Verification {
   recent: { days: string[]; bands: Record<string, Record<string, (Stats | null)[]>> };
 }
 type Num = number | null;
-interface HrrrPoint {
+interface RunPoint {
   u10: Num[];
   v10: Num[];
 }
-interface Hrrr {
+/** A model's recent runs at the buoys (forecast-hrrr.json, forecast-gfs.json). */
+interface Runs {
   generated_at: string;
-  cycles: Record<string, { leads: number[]; points: Record<string, HrrrPoint | undefined> }>;
+  cycles: Record<string, { leads: number[]; points: Record<string, RunPoint | undefined> }>;
 }
 interface Met {
   t0: string;
@@ -112,7 +114,6 @@ interface Colours {
   strong: string;
   mid: string;
   pale: string;
-  gfs: string;
   now: string;
 }
 let C: Colours;
@@ -123,7 +124,6 @@ function readColours(): void {
     strong: cssVar("--fc-strong"),
     mid: cssVar("--fc-mid"),
     pale: cssVar("--fc-pale"),
-    gfs: cssVar("--fc-gfs"),
     now: cssVar("--now"),
   };
 }
@@ -205,13 +205,89 @@ function tabs(host: HTMLElement, items: [string, string][], current: string, pic
   };
 }
 
+// ---------- Models ----------
+
+/** One forecast model on the page. A new model is a new entry here plus its two data files and a colour token. */
+interface Model {
+  id: string; // the ?model= value
+  label: string;
+  ver: string; // verification file, under /data/v1
+  runs: string; // recent runs file
+  strong: string; // lead chart: typical error colour (CSS token)
+  soft: string; // lead chart: bias colour (CSS token)
+  softOpacity: number;
+  bands: [string, string][]; // lead bands of the verification file's bins and recent days
+  calBand: string; // the calibration chart's first band
+  dirLead: number; // the lead for the direction card
+  panelTicks: number[]; // leads labelled on the run panel, longest first
+  cardMin: number; // pairs a day needs to count in the 30-day card (a full day: HRRR 72 or 28, GFS 6 or 8)
+  note: (v: Verification) => string; // the method note
+}
+const MODELS: Model[] = [
+  {
+    id: "hrrr",
+    label: "HRRR",
+    ver: "forecast-verification",
+    runs: "forecast-hrrr",
+    strong: "--fc-strong",
+    soft: "--fc-mid",
+    softOpacity: 1,
+    bands: [
+      ["1-3", "1 to 3 h"],
+      ["6-12", "6 to 12 h"],
+      ["18-24", "18 to 24 h"],
+      ["36-48", "36 to 48 h"],
+    ],
+    calBand: "18-24",
+    dirLead: 18,
+    panelTicks: [48, 36, 24, 12, 1],
+    cardMin: 18,
+    note: () =>
+      "NOAA's High-Resolution Rapid Refresh: a 3 km grid, run every hour. Scored 1 to 18 hours ahead from every run and to 48 hours from the four runs a day that reach that far. Across a Sound 5 to 34 km wide, that is 2 to 11 cells.",
+  },
+  {
+    id: "gfs",
+    label: "GFS",
+    ver: "forecast-verification-gfs",
+    runs: "forecast-gfs",
+    strong: "--fc-gfs",
+    soft: "--fc-gfs",
+    softOpacity: 0.6,
+    bands: [
+      ["6-24", "6 to 24 h"],
+      ["36-72", "36 to 72 h"],
+      ["96-168", "96 to 168 h"],
+    ],
+    calBand: "36-72",
+    dirLead: 24,
+    panelTicks: [168, 120, 72, 24, 3],
+    cardMin: 3,
+    note: (v) => {
+      const low = lowRange(v);
+      return (
+        "NOAA's Global Forecast System: a 0.25 degree grid (about 25 km), run every 6 hours, scored 6 to 168 hours ahead. Across the Sound that is one or two cells." +
+        (low ? ` Its speed reads low at every lead, by ${low}. Air temperature and pressure are not scored.` : " Air temperature and pressure are not scored.")
+      );
+    },
+  },
+];
+/** "0.5 to 1.1 kt" when a model's speed bias (all buoys) is negative at every lead, else "". */
+function lowRange(v: Verification): string {
+  const bs = v.leads.map((L) => v.by_lead[String(L)]?.all.bias ?? NaN);
+  if (!bs.length || !bs.every((b) => b < 0)) return "";
+  return `${Math.abs(Math.max(...bs)).toFixed(1)} to ${Math.abs(Math.min(...bs)).toFixed(1)} kt`;
+}
+
 // ---------- State ----------
 
-let V: Verification;
-let G: Verification | null = null;
-let HR: Hrrr | null = null;
+let M: Model = MODELS[0]; // the selected model
+let V: Verification; // its verification
+const VER: Record<string, Verification | undefined> = {};
+const RUNS: Record<string, Promise<Runs | null> | undefined> = {};
+let RUN: Runs | null = null; // the selected model's runs
 let LIVE: Live | null = null;
 let FACTOR = 1.098;
+const loaded = () => MODELS.filter((m) => VER[m.id]);
 
 // ---------- Observations ----------
 
@@ -248,29 +324,49 @@ function lastObs(b: string): number {
 function drawIntro(): void {
   const total = V.leads.reduce((s, L) => s + (V.by_lead[String(L)]?.all.n ?? 0), 0);
   const since = fmtMonthYear.format(new Date(V.first_valid));
-  $("lede").innerHTML = `NOAA HRRR at four buoys since ${since}: <b>${total.toLocaleString("en-US")}</b> forecast hours, 1 to 48 hours ahead.`;
+  const [l0, l1] = [V.leads[0], V.leads[V.leads.length - 1]];
+  $("lede").innerHTML = `NOAA ${M.label} at four buoys since ${since}: <b>${total.toLocaleString("en-US")}</b> forecast hours, ${l0} to ${l1} hours ahead.`;
 
-  const L1 = V.by_lead["1"].all;
-  const L18 = V.by_lead["18"]?.all ?? L1;
-  const L48 = V.by_lead["48"]?.all ?? V.by_lead[String(V.leads[V.leads.length - 1])].all;
-  // The month with the coldest air bias (18 to 24 h), to say when HRRR runs coldest over the water.
-  const months = V.bins["18-24"]?.month ?? {};
-  let coldest = "";
-  let coldV = Infinity;
-  for (const [k, s] of Object.entries(months)) if (s && s.air_n > 100 && s.air_bias < coldV) [coldest, coldV] = [k, s.air_bias];
-  const airF = L18.air_bias * 1.8;
+  const first = V.by_lead[String(l0)].all;
+  const last = V.by_lead[String(l1)].all;
+  const mid = V.by_lead[String(M.dirLead)]?.all ?? first;
   const cards: [string, string, string, string][] = [
     // Typical errors are a size either way (mean absolute error): plus or minus; the biases below carry a sign.
-    [`±${L1.mae.toFixed(1)}`, "kt", "Typical speed error, 1 h ahead", `mean absolute error over ${L1.n.toLocaleString("en-US")} forecast hours at 4 buoys`],
-    [`±${L48.mae.toFixed(1)}`, "kt", "Typical speed error, 48 h ahead", `${(L48.mae - L1.mae).toFixed(1)} kt more than 1 h ahead`],
-    [signed(L18.dir_bias, 0), "deg", "Direction bias, 18 h ahead", `HRRR turned clockwise of the buoy on average; typical miss ${L18.dir_mae.toFixed(0)} deg (wind 6 kt and up)`],
+    [`±${first.mae.toFixed(1)}`, "kt", `Typical speed error, ${l0} h ahead`, `mean absolute error over ${first.n.toLocaleString("en-US")} forecast hours at 4 buoys`],
+    [`±${last.mae.toFixed(1)}`, "kt", `Typical speed error, ${l1} h ahead`, `${(last.mae - first.mae).toFixed(1)} kt more than ${l0} h ahead`],
     [
-      signed(L18.air_bias, 1),
-      "°C",
-      "Air temperature bias, 18 h ahead",
-      `${signed(airF, 1)} °F; HRRR runs colder than the buoys${coldest ? `, most in ${MONTHS[Number(coldest) - 1]} (${signed(coldV, 1)} °C)` : ""}`,
+      signed(mid.dir_bias, 0),
+      "deg",
+      `Direction bias, ${M.dirLead} h ahead`,
+      `${M.label} turned ${mid.dir_bias >= 0 ? "clockwise" : "counterclockwise"} of the buoy on average; typical miss ${mid.dir_mae.toFixed(0)} deg (wind 6 kt and up)`,
     ],
   ];
+  if (mid.air_n > 0) {
+    // The month with the coldest air bias (in the direction card's band), to say when the model runs coldest over the water.
+    const band = M.bands.find(([k]) => {
+      const [a, b] = k.split("-").map(Number);
+      return M.dirLead >= a && M.dirLead <= b;
+    });
+    const months = (band && V.bins[band[0]]?.month) ?? {};
+    let coldest = "";
+    let coldV = Infinity;
+    for (const [k, s] of Object.entries(months)) if (s && s.air_n > 100 && s.air_bias < coldV) [coldest, coldV] = [k, s.air_bias];
+    cards.push([
+      signed(mid.air_bias, 1),
+      "°C",
+      `Air temperature bias, ${M.dirLead} h ahead`,
+      `${signed(mid.air_bias * 1.8, 1)} °F; ${M.label} runs ${mid.air_bias < 0 ? "colder" : "warmer"} than the buoys${coldest && mid.air_bias < 0 ? `, most in ${MONTHS[Number(coldest) - 1]} (${signed(coldV, 1)} °C)` : ""}`,
+    ]);
+  } else {
+    // No air temperature in the model's archive: its speed bias instead.
+    const low = lowRange(V);
+    cards.push([
+      signed(mid.bias, 1),
+      "kt",
+      `Speed bias, ${M.dirLead} h ahead`,
+      low ? `${M.label} reads low at every lead, by ${low}` : "forecast minus observed, mean over all hours",
+    ]);
+  }
   $("cards").innerHTML = cards
     // The display face's minus sign is set wide; the big figures use its en dash instead.
     .map(([n, u, l, s]) => `<div class="readout"><div class="num">${n.replace(MINUS, "–")}<small>${u}</small></div><span class="lab">${l}</span><span class="sub">${s}</span></div>`)
@@ -289,11 +385,12 @@ let convRuns: Run[] = [];
 let convT = 0; // index into convXs
 let convX0 = 0;
 let convX1 = 1;
+let convStep = HOUR; // the runs' output step: HRRR hourly, GFS 3-hourly
 
 function runsFor(b: Buoy): Run[] {
-  if (!HR) return [];
+  if (!RUN) return [];
   const out: Run[] = [];
-  for (const [key, c] of Object.entries(HR.cycles)) {
+  for (const [key, c] of Object.entries(RUN.cycles)) {
     const issue = sec(key.replace(/Z$/, ":00:00Z"));
     const p = c.points[b];
     if (!Number.isFinite(issue) || !p) continue;
@@ -309,20 +406,19 @@ function runsFor(b: Buoy): Run[] {
   return out.sort((a, b) => a.issue - b.issue);
 }
 
-/** The default hour for a buoy: its latest observation if the runs cover it, else the latest run's first hour. */
+/** The default hour for a buoy: its latest observation (on the runs' step) if the runs cover it, else the latest
+ * run's first hour. */
 function defaultT(b: Buoy): number {
   const lo = lastObs(b);
-  let i = convXs.indexOf(lo);
-  if (i < 0 && convRuns.length) i = convXs.indexOf(convRuns[convRuns.length - 1].issue + HOUR);
+  let i = lo >= convXs[0] && lo <= convXs[convXs.length - 1] ? Math.floor((lo - convXs[0]) / convStep) : -1;
+  if (i < 0 && convRuns.length) {
+    const r = convRuns[convRuns.length - 1];
+    i = convXs.indexOf(Math.min(...r.pts.keys()));
+  }
   return i < 0 ? convXs.length - 1 : i;
 }
 
 function setupConv(): void {
-  if (!HR || !Object.keys(HR.cycles).length) {
-    $("conv-note").hidden = false;
-    $("conv-note").textContent = "The recent HRRR runs could not be loaded, so this chart is empty for now.";
-    return;
-  }
   // Default: the buoy with the latest observation.
   convBuoy = BUOYS.reduce((a, b) => (lastObs(b) > lastObs(a) ? b : a), BUOYS[0]);
   tabs($("conv-buoy"), BUOYS.map((b) => [b, NAMES[b]]), convBuoy, (k) => {
@@ -332,7 +428,7 @@ function setupConv(): void {
     drawConv();
   });
   const slider = $("conv-t") as HTMLInputElement;
-  timeTrack(slider, (v) => (convXs[0] ?? NaN) + v * HOUR); // the slider steps through convXs, an hour apart
+  timeTrack(slider, (v) => (convXs[0] ?? NaN) + v * convStep); // the slider steps through convXs
   slider.addEventListener("input", () => {
     convT = Number(slider.value);
     placeCursor();
@@ -345,7 +441,7 @@ function setupConv(): void {
   const pick = (clientX: number) => {
     const box = svg.getBoundingClientRect();
     const t = convX0 + ((clientX - box.left) / Math.max(1, box.width)) * (convX1 - convX0);
-    convT = Math.max(0, Math.min(convXs.length - 1, Math.round((t - convX0) / HOUR)));
+    convT = Math.max(0, Math.min(convXs.length - 1, Math.round((t - convX0) / convStep)));
     slider.value = String(convT);
     placeCursor();
     drawPanel();
@@ -361,6 +457,19 @@ function setupConv(): void {
   svg.addEventListener("pointerup", stop);
   svg.addEventListener("pointercancel", stop);
   svg.addEventListener("pointerleave", stop);
+}
+
+/** Point the section at the selected model's runs (RUN). */
+function loadConv(): void {
+  $("conv-intro").textContent = `Every recent ${M.label} run for one buoy, and what the buoy measured. Pick an hour to see each run's forecast for it.`;
+  $("conv-runs-key").textContent = `${M.label} runs, paler older`;
+  // The output step: the smallest gap between leads in any run.
+  convStep = HOUR;
+  const c = RUN && Object.values(RUN.cycles)[0];
+  if (c) {
+    const gaps = c.leads.slice(1).map((L, i) => L - c.leads[i]).filter((d) => d > 0);
+    if (gaps.length) convStep = Math.min(...gaps) * HOUR;
+  }
   buildConv();
   convT = defaultT(convBuoy);
 }
@@ -371,14 +480,24 @@ function buildConv(): void {
   let hi = -Infinity;
   for (const r of convRuns) for (const t of r.pts.keys()) [lo, hi] = [Math.min(lo, t), Math.max(hi, t)];
   convXs = [];
-  if (Number.isFinite(lo)) for (let t = lo; t <= hi; t += HOUR) convXs.push(t);
+  if (Number.isFinite(lo)) for (let t = lo; t <= hi; t += convStep) convXs.push(t);
   const slider = $("conv-t") as HTMLInputElement;
   slider.max = String(Math.max(0, convXs.length - 1));
 }
 
 function drawConv(): void {
-  if (!convXs.length) return;
   const slider = $("conv-t") as HTMLInputElement;
+  if (!convXs.length) {
+    // No runs: an empty chart and panel, and say why.
+    renderLines($("conv-plot"), { xs: [], lines: [], unit: " kt", empty: `No ${M.label} runs to show` });
+    $("conv-read").textContent = "";
+    $("conv-panel").replaceChildren();
+    $("conv-panel-note").textContent = "";
+    const note = $("conv-note");
+    note.hidden = false;
+    note.textContent = `The recent ${M.label} runs could not be loaded, so this chart is empty for now.`;
+    return;
+  }
   slider.value = String(convT);
   const b = convBuoy;
   $("conv-cap").textContent = `${NAMES[b]}: wind at 10 m`;
@@ -418,7 +537,7 @@ function drawConv(): void {
     unit: " kt",
     floor: 0,
     marker: now > convXs[0] && now < convXs[convXs.length - 1] ? { x: now, label: "now" } : undefined,
-    empty: "No HRRR runs to show",
+    empty: `No ${M.label} runs to show`,
   });
   convX0 = r.x0;
   convX1 = r.x1;
@@ -473,15 +592,16 @@ function drawPanel(): void {
     ? `<b>${when}</b>: ${forT.length} run${forT.length > 1 ? "s" : ""}, from <b>${forT[0].v.toFixed(0)} kt</b> (${forT[0].L} h out) to <b>${forT[forT.length - 1].v.toFixed(0)} kt</b> (${forT[forT.length - 1].L} h out)${obsText}`
     : `<b>${when}</b>: no run covers this hour${obsText}`;
 
-  // The panel: speed against lead, 48 h out on the left to 1 h out on the right.
+  // The panel: speed against lead, the longest lead on the left to the shortest on the right.
   const box = $("conv-panel");
   const H = narrow() ? 230 : 262;
-  const { svg, W } = frame(box, H, `What each HRRR run said for ${when}`);
+  const { svg, W } = frame(box, H, `What each ${M.label} run said for ${when}`);
   const m = { t: 18, r: 10, b: 30, l: 30 };
   const w = W - m.l - m.r;
   const h = H - m.t - m.b;
-  const maxL = 48;
-  const x = (L: number) => m.l + ((maxL - L) / (maxL - 1)) * w;
+  const maxL = M.panelTicks[0];
+  const minL = M.panelTicks[M.panelTicks.length - 1];
+  const x = (L: number) => m.l + ((maxL - L) / (maxL - minL)) * w;
   // The typical error band: around the observation, or around the latest run when nothing is observed yet.
   const ref = haveObs ? oT : forT.length ? forT[forT.length - 1].v : NaN;
   const band = V.leads.map((L) => {
@@ -495,7 +615,7 @@ function drawPanel(): void {
     line(svg, m.l, y(v), m.l + w, y(v), v === 0 ? AXIS : GRID);
     text(svg, m.l - 5, y(v) + 3, tickText(v, tk.step), { "text-anchor": "end" });
   }
-  for (const L of [48, 36, 24, 12, 1]) text(svg, x(L), m.t + h + 13, `${L} h`, { "text-anchor": L === 48 ? "start" : L === 1 ? "end" : "middle" });
+  for (const L of M.panelTicks) text(svg, x(L), m.t + h + 13, `${L} h`, { "text-anchor": L === maxL ? "start" : L === minL ? "end" : "middle" });
   text(svg, m.l + w, m.t + h + 26, "how far ahead the run was made", { "text-anchor": "end" });
   text(svg, m.l, m.t - 5, "kt", { "text-anchor": "start" });
   if (Number.isFinite(ref)) {
@@ -514,7 +634,7 @@ function drawPanel(): void {
   }
   if (forT.length > 1) path(svg, "M" + forT.map((p) => `${x(p.L).toFixed(1)},${y(p.v).toFixed(1)}`).join("L"), `fill: none; stroke: ${C.mid}; stroke-width: 1; stroke-opacity: 0.7`);
   for (const p of forT) {
-    const c = el("circle", { cx: x(p.L), cy: y(p.v), r: 3.4, style: `fill: ${ramp((p.L - 1) / (maxL - 1))}; stroke: ${C.bg}; stroke-width: 1` });
+    const c = el("circle", { cx: x(p.L), cy: y(p.v), r: 3.4, style: `fill: ${ramp((p.L - minL) / (maxL - minL))}; stroke: ${C.bg}; stroke-width: 1` });
     const tt = el("title", {});
     tt.textContent = `${p.L} h out: ${p.v.toFixed(1)} kt`;
     c.append(tt);
@@ -527,12 +647,6 @@ function drawPanel(): void {
 
 // ---------- Section 4: forecast speed bins ----------
 
-const BANDS: [string, string][] = [
-  ["1-3", "1 to 3 h"],
-  ["6-12", "6 to 12 h"],
-  ["18-24", "18 to 24 h"],
-  ["36-48", "36 to 48 h"],
-];
 const SPD = ["0-5", "5-10", "10-15", "15-20", "20-25", "25+"];
 const spdLabel = (k: string) => (k === "25+" ? "25 kt or more" : k === "0-5" ? "under 5 kt" : `${k.replace("-", " to ")} kt`);
 let calBand = "18-24";
@@ -545,7 +659,7 @@ function drawCal(): void {
   });
   const box = $("cal-chart");
   const H = narrow() ? 280 : 300;
-  const { svg, W } = frame(box, H, "Observed wind against HRRR forecast wind, by forecast speed");
+  const { svg, W } = frame(box, H, `Observed wind against ${M.label} forecast wind, by forecast speed`);
   const m = { t: 22, r: 14, b: 34, l: 34 };
   const w = W - m.l - m.r;
   const h = H - m.t - m.b;
@@ -558,7 +672,7 @@ function drawCal(): void {
     text(svg, m.l - 5, y(v) + 3, tickText(v, tk.step), { "text-anchor": "end" });
     if (v > 0) text(svg, x(v), m.t + h + 13, tickText(v, tk.step), { "text-anchor": "middle" });
   }
-  text(svg, m.l + w, m.t + h + 28, "HRRR forecast, kt at 10 m", { "text-anchor": "end" });
+  text(svg, m.l + w, m.t + h + 28, `${M.label} forecast, kt at 10 m`, { "text-anchor": "end" });
   text(svg, m.l - 28, m.t - 9, "Observed at the buoys, kt at 10 m", { class: "lab" });
   // Perfect agreement, as a reference in the page's ink.
   line(svg, x(0), y(0), x(tk.hi), y(tk.hi), `stroke: ${C.ink}; stroke-opacity: 0.45; stroke-dasharray: 3 4`);
@@ -569,7 +683,7 @@ function drawCal(): void {
     const rad = 3 + 6 * Math.sqrt(r.s.n / maxN);
     const c = el("circle", { cx: x(r.f), cy: y(r.o), r: rad, style: `fill: ${C.now}; stroke: ${C.bg}; stroke-width: 1` });
     const tt = el("title", {});
-    tt.textContent = `HRRR ${spdLabel(r.k)} (mean ${r.f.toFixed(1)} kt): buoys ${r.o.toFixed(1)} kt at 10 m, ${r.s.n.toLocaleString("en-US")} hours`;
+    tt.textContent = `${M.label} ${spdLabel(r.k)} (mean ${r.f.toFixed(1)} kt): buoys ${r.o.toFixed(1)} kt at 10 m, ${r.s.n.toLocaleString("en-US")} hours`;
     c.append(tt);
     svg.append(c);
     // Above the diagonal (buoys saw more): the label over the dot; below it: to the right, clear of the stem.
@@ -584,14 +698,14 @@ function drawCal(): void {
   const hi = rows[rows.length - 1];
   const lo = rows[0];
   const more = (s: Stats) => `${Math.abs(s.bias).toFixed(1)} kt ${s.bias > 0 ? "less" : "more"}`;
-  const label = BANDS.find((d) => d[0] === calBand)![1];
-  // Does the overstatement of strong wind grow with lead time?
+  const label = M.bands.find((d) => d[0] === calBand)![1];
+  // Does the overstatement of strong wind grow with lead time (the model's shortest band to its longest)?
   const hiBias = (band: string) => V.bins[band]?.fspeed?.[hi.k]?.bias ?? NaN;
-  const grows = hiBias("36-48") > hiBias("1-3") + 0.3;
+  const grows = hiBias(M.bands[M.bands.length - 1][0]) > hiBias(M.bands[0][0]) + 0.3;
   let verdict = "";
   if (hi.s.bias > 0.5 && lo.s.bias < -0.5) verdict = grows ? " The gap grows with lead time." : "";
   $("cal-say").innerHTML =
-    `${label} ahead: HRRR <b>${spdLabel(hi.k)}</b>, buoys <b>${more(hi.s)}</b>; HRRR <b>${spdLabel(lo.k)}</b>, buoys <b>${more(lo.s)}</b>.${verdict}`;
+    `${label} ahead: ${M.label} <b>${spdLabel(hi.k)}</b>, buoys <b>${more(hi.s)}</b>; ${M.label} <b>${spdLabel(lo.k)}</b>, buoys <b>${more(lo.s)}</b>.${verdict}`;
 }
 
 // ---------- Section 5: error by lead time ----------
@@ -618,13 +732,14 @@ function leadRows(ver: Verification | null, mz: (typeof MEASURES)[string]): { L:
 
 function drawLead(): void {
   const mz = MEASURES[leadVar];
-  const rows = leadRows(V, mz);
-  // GFS scores wind only (speed and direction); for air and pressure its rows are empty and HRRR stands alone.
-  const gRows = leadRows(G, mz);
+  // Every loaded model, whatever the switch says. GFS scores wind only (speed and direction); for air and pressure
+  // its rows are empty and the models that score them stand alone.
+  const sets = loaded().map((md) => ({ md, rows: leadRows(VER[md.id]!, mz) }));
+  const all = sets.flatMap((s) => s.rows);
   const box = $("lead-chart");
   const H = narrow() ? 230 : 250;
   const { svg, W } = frame(box, H, `Typical error and bias by lead time: ${mz.label}`);
-  if (!rows.length && !gRows.length) {
+  if (!all.length) {
     text(svg, 10, 40, "No data for this choice", { class: "note" });
     return;
   }
@@ -633,10 +748,10 @@ function drawLead(): void {
   const h = H - m.t - m.b;
   const mae = (s: Stats) => s[mz.mae] as number;
   const bias = (s: Stats) => s[mz.bias] as number;
-  const vals = [...rows, ...gRows].flatMap((r) => [mae(r.s), bias(r.s)]);
+  const vals = all.flatMap((r) => [mae(r.s), bias(r.s)]);
   const tk = ticks(Math.min(0, ...vals), Math.max(...vals) * 1.08, 4);
   // Lead on a log axis: HRRR's first hours keep their room and GFS's week fits beside them.
-  const maxL = Math.max(48, ...rows.map((r) => r.L), ...gRows.map((r) => r.L));
+  const maxL = Math.max(48, ...all.map((r) => r.L));
   const pad = 8;
   const x = (L: number) => m.l + pad + (Math.log(L) / Math.log(maxL)) * (w - 2 * pad);
   const y = (v: number) => m.t + h - ((v - tk.lo) / (tk.hi - tk.lo)) * h;
@@ -644,7 +759,7 @@ function drawLead(): void {
     line(svg, m.l, y(v), m.l + w, y(v), Math.abs(v) < 1e-9 ? ZERO : GRID);
     text(svg, m.l - 5, y(v) + 3, tickText(v, tk.step), { "text-anchor": "end" });
   }
-  const leadTicks = maxL > 48 ? (narrow() ? [1, 3, 6, 12, 24, 48, 96, 168] : [1, 2, 3, 6, 12, 24, 48, 72, 120, 168]) : rows.map((r) => r.L);
+  const leadTicks = maxL > 48 ? (narrow() ? [1, 3, 6, 12, 24, 48, 96, 168] : [1, 2, 3, 6, 12, 24, 48, 72, 120, 168]) : [...new Set(all.map((r) => r.L))];
   for (const L of leadTicks.filter((L) => L <= maxL)) text(svg, x(L), m.t + h + 14, `${L}`, { "text-anchor": "middle" });
   text(svg, m.l + w, m.t + h + 28, maxL > 48 ? "hours ahead (log scale)" : "hours ahead", { "text-anchor": "end" });
   text(svg, m.l - 30, m.t - 10, `${mz.label}, ${mz.unit}`, { class: "lab" });
@@ -662,29 +777,27 @@ function drawLead(): void {
       svg.append(c);
     }
   };
-  series(rows, "HRRR", C.strong, C.mid, 1);
-  series(gRows, "GFS", C.gfs, C.gfs, 0.6);
+  for (const { md, rows } of sets) series(rows, md.label, cssVar(md.strong), cssVar(md.soft), md.softOpacity);
   $("lead-legend").innerHTML =
-    `<span><i style="background: var(--fc-strong)"></i>HRRR typical error</span>` +
-    `<span><i style="background: var(--fc-mid)"></i>HRRR bias (dashed)</span>` +
-    (gRows.length
-      ? `<span><i style="background: var(--fc-gfs)"></i>GFS typical error</span>` +
-        `<span><i style="background: var(--fc-gfs); opacity: 0.6"></i>GFS bias (dashed)</span>`
-      : "") +
-    `<span><i style="background: var(--chart-zero)"></i>zero</span>`;
+    sets
+      .filter((s) => s.rows.length)
+      .map(
+        ({ md }) =>
+          `<span><i style="background: var(${md.strong})"></i>${md.label} typical error</span>` +
+          `<span><i style="background: var(${md.soft}); opacity: ${md.softOpacity}"></i>${md.label} bias (dashed)</span>`,
+      )
+      .join("") + `<span><i style="background: var(--chart-zero)"></i>zero</span>`;
   const what = { speed: "speed", dir: "direction", air: "air temperature", pres: "pressure" }[leadVar];
   const span = (rs: { L: number; s: Stats }[]) =>
     `<b>${mae(rs[0].s).toFixed(1)} ${mz.unit}</b> at ${rs[0].L} h, <b>${mae(rs[rs.length - 1].s).toFixed(1)} ${mz.unit}</b> at ${rs[rs.length - 1].L} h`;
-  let gfs = "";
-  if (gRows.length) {
-    const bs = gRows.map((r) => bias(r.s));
-    // Say how far GFS reads low only when it does so at every lead (it does, for speed at all four buoys together).
+  const says = sets.map(({ md, rows }) => {
+    if (!rows.length) return `${md.label}: not scored.`;
+    const bs = rows.map((r) => bias(r.s));
+    // Say how far a model reads low only when it does so at every lead (GFS does, for speed at all four buoys together).
     const low = leadVar === "speed" && bs.every((b) => b < 0);
-    gfs = ` GFS: ${span(gRows)}` + (low ? `, reading ${Math.abs(Math.max(...bs)).toFixed(1)} to ${Math.abs(Math.min(...bs)).toFixed(1)} kt low.` : ".");
-  }
-  $("lead-say").innerHTML = rows.length
-    ? `${NAMES[leadBuoy]}, typical ${what} error: HRRR ${span(rows)}.${gfs}`
-    : `${NAMES[leadBuoy]}, typical ${what} error:${gfs}`;
+    return `${md.label}: ${span(rows)}` + (low ? `, reading ${Math.abs(Math.max(...bs)).toFixed(1)} to ${Math.abs(Math.min(...bs)).toFixed(1)} kt low.` : ".");
+  });
+  $("lead-say").innerHTML = `${NAMES[leadBuoy]}, typical ${what} error. ${says.join(" ")}`;
 }
 
 // ---------- Section 6: the last 30 days ----------
@@ -693,9 +806,8 @@ let cardBand = "1-3";
 const CARD_LO = 1.5;
 const CARD_HI = 5.5;
 
-/** A day counts in the report card once it holds this many forecast-observation pairs (about 6 hours at 3 leads),
- * so a day cut short by an outage does not stand as a bad day. */
-const CARD_MIN_PAIRS = 18;
+// A day counts in the report card once it holds the model's cardMin forecast-observation pairs (HRRR: about 6 hours
+// at 3 leads; GFS: half a day), so a day cut short by an outage does not stand as a bad day.
 
 function drawCard(): void {
   const days = V.recent.days;
@@ -715,7 +827,7 @@ function drawCard(): void {
     text(svg, m.l - 8, y0 + rowH / 2 + 3, nar ? b : NAMES[b], { "text-anchor": "end" });
     (band[b] ?? []).forEach((s, i) => {
       const x0 = m.l + i * cw;
-      const ok = !!s && s.n >= CARD_MIN_PAIRS;
+      const ok = !!s && s.n >= M.cardMin;
       const t = ok ? 0.12 + 0.88 * ((s!.mae - CARD_LO) / (CARD_HI - CARD_LO)) : 0;
       const r = el("rect", {
         x: x0 + gap / 2, y: y0 + 2, width: Math.max(1, cw - gap), height: rowH - 4, rx: 1.5,
@@ -743,7 +855,7 @@ function drawCard(): void {
       .map((v) => `<span><i class="sq" style="background:${mix(C.bg, C.strong, 0.12 + 0.88 * ((v - CARD_LO) / (CARD_HI - CARD_LO)))}"></i>${v === 5.5 ? "5.5+" : v.toFixed(1)}</span>`)
       .join("") +
     `<span><i class="sq" style="border: 1px solid var(--rule)"></i>no data</span>`;
-  const label = BANDS.find((d) => d[0] === cardBand)?.[1] ?? cardBand;
+  const label = M.bands.find((d) => d[0] === cardBand)?.[1] ?? cardBand;
   const w0 = worst as { b: string; d: string; s: Stats } | null;
   $("card-say").innerHTML =
     `Typical speed error per day, ${label.replace(" h", " hours")} ahead; stronger colour, worse day.` +
@@ -753,16 +865,20 @@ function drawCard(): void {
 // ---------- Section 7: method ----------
 
 function drawMethod(): void {
-  const from = fmtDate.format(new Date(V.first_valid));
-  const to = fmtDate.format(new Date(V.through));
+  const models = loaded();
+  const span = (v: Verification) => `${fmtDate.format(new Date(v.first_valid))} to ${fmtDate.format(new Date(v.through))}`;
+  const updated = Math.max(...models.map((md) => Date.parse(VER[md.id]!.generated_at)));
   const items: [string, string][] = [
-    ["Compared", `Every archived run, ${from} to ${to}, against the buoy's hourly mean. Error is forecast minus observed; typical error is the mean absolute error.`],
+    [
+      "Compared",
+      `Every archived run against the buoy's hourly mean (${models.map((md) => `${md.label} ${span(VER[md.id]!)}`).join("; ")}). Error is forecast minus observed; typical error is the mean absolute error.`,
+    ],
     ["Height", `Buoy wind raised to 10 m (x${FACTOR.toFixed(3)}: 3.8 m anemometer assumed, neutral profile). In stable air the true factor is larger.`],
     ["Direction", "Observed wind 6 kt or more; buoy directions turned to true north; positive is clockwise."],
-    ["Raw model", "As issued, uncorrected. A 3 km cell and a point buoy differ, which sets a floor on the error."],
-    ["Why HRRR", "Why not ECMWF or GFS? HRRR is NOAA's 3 km model, run every hour, for the next 18 to 48 hours. Global models such as ECMWF and GFS reach further ahead on coarser grids (about 9 to 25 km); across a Sound 5 to 34 km wide that is one or two cells. For the next day or two at the water's edge, the finer grid matters. Past HRRR's 48 hours, the station plots carry on with GFS, scored at the buoys the same way at its own lead times to 7 days (green, by lead time above); ECMWF will follow."],
-    ["Other models", `<a href="/long-island-sound/models/">Wind models compared</a>`],
-    ["Sources", `NOAA High-Resolution Rapid Refresh (HRRR) and Global Forecast System (GFS, 0.25 degree), read at the buoys with forcingkit; buoy observations from <a href="https://lisicos.uconn.edu/">LISICOS</a>, University of Connecticut. Times are Eastern. Verification updated ${fmtFull.format(new Date(V.generated_at))}.`],
+    ["Raw model", "As issued, uncorrected. A model cell (3 km for HRRR, about 25 km for GFS) and a point buoy differ, which sets a floor on the error."],
+    ...models.map((md): [string, string] => [md.label, md.note(VER[md.id]!)]),
+    ["Other models", `ECMWF will follow on the same terms. <a href="/long-island-sound/models/">Wind models compared</a>`],
+    ["Sources", `NOAA High-Resolution Rapid Refresh (HRRR) and Global Forecast System (GFS, 0.25 degree), read at the buoys with forcingkit; buoy observations from <a href="https://lisicos.uconn.edu/">LISICOS</a>, University of Connecticut. Times are Eastern. Verification updated ${fmtFull.format(new Date(updated))}.`],
   ];
   $("method").innerHTML = items.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
 }
@@ -815,31 +931,63 @@ function drawAll(): void {
   drawCard();
 }
 
+/** A model's recent runs, fetched once, when the model is first selected. */
+function runsOf(md: Model): Promise<Runs | null> {
+  return (RUNS[md.id] ??= getJson<Runs>(md.runs));
+}
+
+/** Select a model: its verification and runs drive every section but the lead chart. */
+async function selectModel(md: Model): Promise<void> {
+  M = md;
+  V = VER[md.id]!;
+  calBand = md.bands.some(([k]) => k === md.calBand) ? md.calBand : md.bands[0][0];
+  tabs($("cal-band"), md.bands, calBand, (k) => {
+    calBand = k;
+    drawCal();
+  });
+  const cardBands = md.bands.filter(([k]) => V.recent.bands[k]);
+  cardBand = cardBands[0]?.[0] ?? "";
+  tabs($("card-band"), cardBands, cardBand, (k) => {
+    cardBand = k;
+    drawCard();
+  });
+  drawIntro();
+  drawCal();
+  drawCard();
+  const runs = await runsOf(md);
+  if (M !== md) return; // another model was picked while these runs loaded
+  RUN = runs && Object.keys(runs.cycles).length ? runs : null;
+  loadConv();
+  drawConv();
+}
+
 async function main(): Promise<void> {
   readColours();
-  const [v, g, h, l] = await Promise.all([
-    getJson<Verification>("forecast-verification"),
-    getJson<Verification>("forecast-verification-gfs"),
-    getJson<Hrrr>("forecast-hrrr"),
-    getJson<Live>("live"),
-  ]);
-  if (!v) {
+  const want = MODELS.find((md) => md.id === new URLSearchParams(location.search).get("model")) ?? MODELS[0];
+  void runsOf(want);
+  const [vs, l] = await Promise.all([Promise.all(MODELS.map((md) => getJson<Verification>(md.ver))), getJson<Live>("live")]);
+  MODELS.forEach((md, i) => (VER[md.id] = vs[i] ?? undefined));
+  const models = loaded();
+  if (!models.length) {
     const e = $("load-error");
     e.hidden = false;
     e.innerHTML = "<b>The forecast archive could not be loaded.</b> Please try again in a few minutes.";
     $("lede").textContent = "";
     return;
   }
-  V = v;
-  G = g;
-  HR = h;
   LIVE = l;
-  const f = /x\s*([\d.]+)/.exec(V.method.speed_at_10m ?? "");
+  const f = /x\s*([\d.]+)/.exec(VER[models[0].id]!.method.speed_at_10m ?? "");
   if (f) FACTOR = Number(f[1]);
 
-  tabs($("cal-band"), BANDS, calBand, (k) => {
-    calBand = k;
-    drawCal();
+  // The model switch, kept in the URL (?model=gfs); the first model is the default and leaves the URL bare.
+  const start = VER[want.id] ? want : models[0];
+  tabs($("model"), models.map((md) => [md.id, md.label]), start.id, (k) => {
+    const md = MODELS.find((x) => x.id === k)!;
+    const u = new URL(location.href);
+    if (md === MODELS[0]) u.searchParams.delete("model");
+    else u.searchParams.set("model", md.id);
+    history.replaceState(null, "", u);
+    void selectModel(md);
   });
   tabs($("lead-var"), Object.entries(MEASURES).map(([k, m]) => [k, m.label]), leadVar, (k) => {
     leadVar = k;
@@ -849,15 +997,10 @@ async function main(): Promise<void> {
     leadBuoy = k;
     drawLead();
   });
-  const cardBands = BANDS.filter(([k]) => V.recent.bands[k]);
-  if (!cardBands.some(([k]) => k === cardBand) && cardBands.length) cardBand = cardBands[0][0];
-  tabs($("card-band"), cardBands, cardBand, (k) => {
-    cardBand = k;
-    drawCard();
-  });
   setupConv();
   drawMethod();
-  drawAll();
+  drawLead();
+  await selectModel(start);
   wireTheme(drawAll);
 
   let lastW = window.innerWidth;

@@ -6,7 +6,7 @@
   --fc-strong: #a9d6f0;
   --fc-mid: #6f9cc4;
   --fc-pale: #3b5f80;
-  /* GFS, by lead time beside HRRR: the station plots' green (waterway/page.ts, palette key gfs). */
+  /* GFS in the lead chart, beside HRRR's willow: the station plots' green (waterway/page.ts, palette key gfs). */
   --fc-gfs: #86d1ab;
 }
 :root[data-theme="light"] {
@@ -37,6 +37,8 @@
 
 /* One reading column, wide enough for the run chart and its panel side by side. */
 .fc-main { max-width: 1120px; }
+/* The model switch: drives every section except the lead chart, which overlays all models. */
+.fc-model { margin: 22px 0 -8px; }
 .fc-lede { margin: 22px 0 18px; max-width: 70ch; font: 400 15px/1.5 var(--sans); color: var(--dim); }
 .fc-lede b { font-weight: 600; color: var(--ink); }
 .fc-cards { margin-bottom: 8px; }

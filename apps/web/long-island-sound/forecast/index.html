@@ -13,7 +13,7 @@
       } catch (e) {}
     </script>
     <title>Forecast verification | Long Island Sound | longhorizon.blue</title>
-    <meta name="description" content="Every NOAA HRRR wind forecast archived at four Long Island Sound buoys since January 2024, compared with what the buoys measured: typical error by lead time, by forecast speed and by day." />
+    <meta name="description" content="NOAA HRRR and GFS wind forecasts archived at four Long Island Sound buoys since January 2024, compared with what the buoys measured: typical error by lead time, by forecast speed and by day." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -36,6 +36,7 @@
     </header>
 
     <main class="fc-main">
+      <div class="fc-controls fc-model"><span class="fc-ctl-label">Model</span><span class="fc-tabs" id="model" role="group" aria-label="Model"></span></div>
       <p class="fc-lede" id="lede">Reading the forecast archive.</p>
       <p class="outage" id="load-error" role="status" hidden></p>
 
@@ -43,13 +44,13 @@
 
       <section class="fc-sec" aria-labelledby="conv-title">
         <h2 class="fc-h" id="conv-title">How the forecast came in</h2>
-        <p class="prose fc-say">Every HRRR run for one buoy, and what the buoy measured. Pick an hour to see each run's forecast for it.</p>
+        <p class="prose fc-say" id="conv-intro">Every recent run for one buoy, and what the buoy measured. Pick an hour to see each run's forecast for it.</p>
         <div class="fc-controls"><span class="fc-ctl-label">Buoy</span><span class="fc-tabs" id="conv-buoy" role="group" aria-label="Buoy"></span></div>
         <p class="outage fc-obs-note" id="conv-note" role="status" hidden></p>
         <div class="fc-conv">
           <figure class="fc-conv-main">
             <figcaption><span class="cap-label" id="conv-cap">Wind at 10 m</span><span class="cap-sub">kt, Eastern time</span></figcaption>
-            <div class="plot fc-conv-plot" id="conv-plot"><svg role="img" aria-label="HRRR runs and the observed wind at the buoy"></svg><div class="plot-labels" aria-hidden="true"></div></div>
+            <div class="plot fc-conv-plot" id="conv-plot"><svg role="img" aria-label="Forecast runs and the observed wind at the buoy"></svg><div class="plot-labels" aria-hidden="true"></div></div>
             <div class="fc-slider">
               <label class="fc-ctl-label" for="conv-t">Hour</label>
               <input type="range" id="conv-t" min="0" max="1" step="1" value="0" />
@@ -57,7 +58,7 @@
             <p class="fc-read" id="conv-read" aria-live="polite"></p>
             <div class="legend">
               <span><i style="background: var(--now)"></i>observed</span>
-              <span><i style="background: var(--fc-mid)"></i>HRRR runs, paler older</span>
+              <span><i style="background: var(--fc-mid)"></i><span id="conv-runs-key">Runs, paler older</span></span>
               <span><i style="background: var(--ink)"></i>the panel's hour</span>
             </div>
           </figure>
@@ -70,7 +71,7 @@
       </section>
 
       <section class="fc-sec" aria-labelledby="cal-title">
-        <h2 class="fc-h" id="cal-title">HRRR says this: what do the buoys see?</h2>
+        <h2 class="fc-h" id="cal-title">The forecast says this: what do the buoys see?</h2>
         <p class="prose fc-say" id="cal-say"></p>
         <div class="fc-controls"><span class="fc-ctl-label">Hours ahead</span><span class="fc-tabs" id="cal-band" role="group" aria-label="Hours ahead"></span></div>
         <figure>
@@ -81,7 +82,7 @@
       </section>
 
       <section class="fc-sec" aria-labelledby="lead-title">
-        <h2 class="fc-h" id="lead-title">The error barely grows with lead time</h2>
+        <h2 class="fc-h" id="lead-title">How the error grows with lead time</h2>
         <p class="prose fc-say" id="lead-say"></p>
         <div class="fc-controls">
           <span class="fc-group"><span class="fc-ctl-label">Measure</span><span class="fc-tabs" id="lead-var" role="group" aria-label="Measure"></span></span>
@@ -91,6 +92,7 @@
           <div class="fc-svgbox" id="lead-chart"></div>
           <div class="legend" id="lead-legend"></div>
         </figure>
+        <p class="note fc-note">Every model on one lead axis; the model switch does not change this chart.</p>
       </section>
 
       <section class="fc-sec" aria-labelledby="card-title">
@@ -110,8 +112,8 @@
 
       <footer class="credits">
         <p>
-          <b>Data:</b> forecasts from NOAA's <a href="https://rapidrefresh.noaa.gov/hrrr/">High-Resolution Rapid Refresh</a> (HRRR), read at
-          the buoys with forcingkit; observations from <a href="https://lisicos.uconn.edu/">LISICOS</a>, Department of Marine Sciences,
+          <b>Data:</b> forecasts from NOAA's <a href="https://rapidrefresh.noaa.gov/hrrr/">High-Resolution Rapid Refresh</a> (HRRR) and
+          <a href="https://www.emc.ncep.noaa.gov/emc/pages/numerical_forecast_systems/gfs.php">Global Forecast System</a> (GFS), read at the buoys with forcingkit; observations from <a href="https://lisicos.uconn.edu/">LISICOS</a>, Department of Marine Sciences,
           University of Connecticut. Thank you to both.
         </p>
         <p><b>Provisional data.</b> Past forecast performance, not a forecast; not for navigation. <a href="/terms/">Terms</a>.</p>

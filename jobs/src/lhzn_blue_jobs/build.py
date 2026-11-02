@@ -97,6 +97,8 @@ WRITABLE = re.compile(
     r"|v1/fields/currents\.bin"
     r"|v1/fields/piscataqua-currents-history\.bin"
     r"|v1/piscataqua-pane/(window\.bin|mesh\.json|nodes\.f32|tri\.u16)"  # the 3D view's rolling window
+    r"|v1/lis-pane/(sound/)?(window\.bin|mesh\.json|nodes\.f32|tri\.u16)"  # the Sound's 3D view (lis_pane.py)
+    r"|v1/lis-pane/sound/section\.bin"
     r"|v1/hrrr-history/(WLIS|EXRX|ARTG|CLIS|KPTN|BRPT|NWHV|NLON|KBDR|KHVN)(-recent)?\.json"
     r"|v1/asos\.json"
     # The Piscataqua Region waterway (region.py): a few files under its own prefix.

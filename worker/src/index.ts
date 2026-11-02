@@ -84,6 +84,13 @@ const FILES: Record<string, number> = {
   ...Object.fromEntries(
     ["nodes.f32", "tri.u16", "zeta.i16", "u.i16", "v.i16", "profile.json", "tracks.f32", "tracks.json", "dem.bin", "dem.json", "buoy.json"].map((f) => [`v1/piscataqua-pane/${f}`, 86400]),
   ),
+  // The /long-island-sound/currents-3d/ page's 3D view, two places (the eastern Sound, and the whole Sound under
+  // sound/): the model's rolling windows, rewritten daily (jobs: lis_pane.py).
+  ...Object.fromEntries(
+    ["", "sound/"].flatMap((p) => [[`v1/lis-pane/${p}window.bin`, 3600], [`v1/lis-pane/${p}mesh.json`, 3600],
+      [`v1/lis-pane/${p}nodes.f32`, 86400], [`v1/lis-pane/${p}tri.u16`, 86400]]),
+  ),
+  "v1/lis-pane/sound/section.bin": 3600,
   // The /piscataqua-region/ waterway (jobs: region.py), under its own prefix.
   ...Object.fromEntries(
     ([["live.json", 300], ["history.json", 3600], ["fields/currents.bin", 3600], ["fields/currents-mesh.json", 86400],
@@ -140,7 +147,7 @@ const STATION_PATH = new RegExp(`^/([a-z0-9-]+)/([a-z0-9-]{2,20})(?:/(${Object.k
 
 /** Waterways kept out of search results: what the Worker serves under them carries the noindex that _headers gives
  * their static files. */
-const UNLISTED = ["/piscataqua-region/"];
+const UNLISTED = ["/piscataqua-region/", "/long-island-sound/currents-3d/"];
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {

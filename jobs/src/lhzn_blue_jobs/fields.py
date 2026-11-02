@@ -412,6 +412,12 @@ def publish(store: Store) -> list[str]:
         failed.extend(piscataqua(store, end))
     except Exception as exc:
         outages.record(failed, "piscataqua-currents", exc, log)
+    try:  # the Sound's 3D view, the whole Sound and its eastern end, around the Groton meter's latest record
+        from . import lis_pane
+
+        log.info("lis 3D window: %s", lis_pane.update(store, end))
+    except Exception as exc:
+        outages.record(failed, "lis-pane", exc, log)
     for name in RASTERS:
         try:
             store.write_json(f"v1/fields/{name}.json", raster(name, end, water), max_age=3600)

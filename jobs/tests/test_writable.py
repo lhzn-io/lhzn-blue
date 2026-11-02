@@ -18,7 +18,7 @@ SOUND = [
         "nwps-waves", "wind-against-tide", "rips", "piscataqua-currents", "piscataqua-currents-mesh",
     )),
     "v1/forecast-gfs.json", "v1/forecast-verification-gfs.json", "v1/archive/forecast-verification-gfs-sums.json", "v1/fields/currents.bin", "v1/piscataqua-pane/window.bin", "v1/piscataqua-pane/mesh.json",
-    "v1/piscataqua-pane/nodes.f32", "v1/piscataqua-pane/tri.u16", "v1/fields/sst-90d.bin", "v1/fields/chl-90d.bin", "v1/fields/kd490-90d.bin", "v1/fields/piscataqua-currents-history.bin",
+    "v1/piscataqua-pane/nodes.f32", "v1/piscataqua-pane/tri.u16", "v1/lis-pane/window.bin", "v1/lis-pane/mesh.json", "v1/lis-pane/nodes.f32", "v1/lis-pane/tri.u16", "v1/lis-pane/sound/window.bin", "v1/lis-pane/sound/section.bin", "v1/lis-pane/sound/mesh.json", "v1/lis-pane/sound/nodes.f32", "v1/lis-pane/sound/tri.u16", "v1/fields/sst-90d.bin", "v1/fields/chl-90d.bin", "v1/fields/kd490-90d.bin", "v1/fields/piscataqua-currents-history.bin",
     "v1/hrrr-history/WLIS.json", "v1/hrrr-history/KHVN-recent.json",
 ]
 REGION = [
@@ -32,6 +32,7 @@ REFUSED = [
     "v1/other-region/live.json", "v1/piscataqua-region/live.json.bak", "v1/live2.json", "v2/live.json",
     "v1/fields/currents.json", "v1/piscataqua-region/fields/currents.json",  # retired for currents.bin
     "v1/piscataqua-pane/dem.bin", "v1/piscataqua-pane/tracks.f32",  # uploaded by hand, not by the jobs
+    "v1/lis-pane/dem.bin", "v1/lis-pane/section.bin",  # no seabed file yet; the section is the whole Sound's
 ]
 
 

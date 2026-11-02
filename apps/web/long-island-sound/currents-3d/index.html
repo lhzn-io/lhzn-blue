@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Light by default; a saved choice of dark is applied before first paint so the page never flashes.
+      document.documentElement.dataset.theme = "light";
+      try {
+        if (localStorage.getItem("lhzn-blue-theme") === "dark") delete document.documentElement.dataset.theme;
+      } catch (e) {}
+    </script>
+    <title>Currents in 3D, Long Island Sound (alpha) | longhorizon.blue</title>
+    <meta name="description" content="The NECOFS model's currents over Long Island Sound in 3D, hourly over a rolling week: the whole Sound's surface, bottom and axis, and all 45 layers in the eastern Sound." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Josefin+Sans:wght@300;400;600;700&family=Martian+Mono:wght@300;400;500&display=swap"
+    />
+  </head>
+  <body class="mg">
+    <header class="mast mg-mast">
+      <div class="mast-id">
+        <a class="mg-eyebrow" href="/long-island-sound/">Long Island Sound</a>
+        <h1 class="mg-title">Currents in 3D</h1>
+        <p class="mast-by"><a class="lho" href="https://longhorizon.eco/observatory">Long Horizon Observatory</a> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span></p>
+      </div>
+      <nav class="mg-nav" aria-label="Page">
+        <a class="mg-back" href="/long-island-sound/">Back to the Sound</a>
+        <button class="theme-icon" id="theme-toggle" type="button" aria-pressed="false"></button>
+      </nav>
+    </header>
+
+    <main class="mg-main">
+      <div class="l3-places" role="group" aria-label="Place">
+        <button type="button" class="l3-place" data-place="sound" aria-pressed="true">Whole Sound</button><button type="button" class="l3-place" data-place="east" aria-pressed="false">Eastern Sound</button>
+      </div>
+      <p class="mg-lede" id="lede">Long Island Sound from Throgs Neck to Block Island Sound: the NECOFS model's surface and bottom currents, and its full depth along the Sound's axis, hourly, from five days back to two days ahead.</p>
+      <p class="outage" id="load-error" role="status" hidden></p>
+
+      <div class="mg-controls" id="controls">
+        <button class="tl-play mg-play" id="play" type="button" aria-pressed="false" aria-label="Play"></button>
+        <input type="range" id="slider" min="0" max="0" step="1" value="0" aria-label="Model hour" />
+        <span class="mg-time" id="tlabel" aria-live="polite"></span>
+      </div>
+
+      <div class="l3-pane" id="pane3d" role="region" aria-label="3D view of the model's currents"></div>
+
+      <div class="note l3-notes">
+        <p>Drag to turn the view, scroll or pinch to zoom. The layers button (top right) shows the curtains (along the Sound's axis; in the eastern Sound, across The Race or along the Thames) and, in the eastern Sound, every layer; the legend and the notes are at the bottom left.</p>
+        <p>The whole Sound shows the surface layer, the bottom layer's speed on the model's bed, and every layer only along its axis; the eastern Sound shows every layer. The model's mesh is coarser here than in its harbour grids: element sides of about 160 m in the Thames and at the Race's edges, 1 to 1.5 km in open water. The seabed is the model's own. The model's profile is drawn at the Groton current meter (NOAA CO-OPS nl0101).</p>
+      </div>
+
+      <footer class="credits">
+        <p>
+          <b>Data:</b> currents from the <a href="https://fvcom.smast.umassd.edu/necofs/">NECOFS</a> FVCOM model (GOM7 mesh), University of Massachusetts
+          Dartmouth (SMAST): its daily archive, then its rolling forecast.
+        </p>
+        <p>Model output as published; not for navigation. See the <a href="/terms/">terms</a> for use and credit.</p>
+        <p>
+          A <a href="/">longhorizon.blue</a> page by <a href="https://longhorizon.eco/observatory">Long Horizon Observatory</a>. Open source under the MIT license:
+          <a href="https://github.com/lhzn-io/lhzn-blue">code</a>. Back to <a href="/long-island-sound/">Long Island Sound</a>.
+        </p>
+      </footer>
+    </main>
+
+    <script type="module" src="../../src/lis-3d-page.ts"></script>
+  </body>
+</html>

@@ -281,12 +281,12 @@ export function virtualReadouts(t: number): string {
     const u = r.u[k] ?? NaN, v = r.v[k] ?? NaN, g = r.gust[k] ?? NaN;
     const from = ((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360;
     out.push(readout(windFmt(Math.hypot(u, v) * MS_KT), WIND_UNITS[WU].label, `Wind from ${compass(from)}`, `HRRR${Number.isFinite(g) ? `, gusts ${windFmt(g * MS_KT)}` : ""}`));
-  } else out.push(readout("--", WIND_UNITS[WU].label, "Wind", VB.wind === null ? "no HRRR cell here" : "HRRR loading"));
+  } else out.push(readout("--", WIND_UNITS[WU].label, "Wind", VB.wind === null ? "no HRRR cell" : "loading"));
   const wv = VB.waves;
   const hs = wv ? linear(wv.at, h, (x) => x.hs) : NaN;
   const tp = wv ? linear(wv.at, h, (x) => x.tp) : NaN;
   const to = wv?.at.find((x) => Math.abs(x.t - h) < HOUR)?.to;
-  out.push(readout(Number.isFinite(hs) ? (hs * waveUnit().factor).toFixed(waveUnit().digits) : "--", waveUnit().label, to != null ? `Waves from ${compass((to + 180) % 360)}` : "Waves", wv === null ? "no NWPS water cell within 2 km" : `NWPS${Number.isFinite(tp) ? `, ${tp.toFixed(1)} s` : ""}`));
+  out.push(readout(Number.isFinite(hs) ? (hs * waveUnit().factor).toFixed(waveUnit().digits) : "--", waveUnit().label, to != null ? `Waves from ${compass((to + 180) % 360)}` : "Waves", wv === null ? "no NWPS cell" : `NWPS${Number.isFinite(tp) ? `, ${tp.toFixed(1)} s` : ""}`));
   const cu = VB.current;
   const cs = currentSpeed();
   const cuU = cu ? linear(cu.at, h, (x) => x.u) : NaN;
@@ -294,7 +294,7 @@ export function virtualReadouts(t: number): string {
   const slack = cu?.slack.find((s) => s > h);
   out.push(readout(Number.isFinite(cuU) ? (Math.hypot(cuU, cuV) * cs.perCms).toFixed(cs.digits) : "--", cs.label, Number.isFinite(cuU) ? `Current toward ${compass(((Math.atan2(cuU, cuV) * 180) / Math.PI + 360) % 360)}` : "Current", cu === null ? "outside the NECOFS mesh" : `NECOFS${slack ? `, slack ${fmtWhen.format(new Date(slack * 1000))}` : ""}`));
   const s = VB.sst?.at[VB.sst.at.length - 1];
-  out.push(readout(s ? cToF(s[1]).toFixed(1) : "--", "°F", "Water temperature", VB.sst === null ? "no satellite pixel here" : s ? `satellite, ${fmtDay.format(new Date(s[0] * 1000))}` : "satellite"));
+  out.push(readout(s ? cToF(s[1]).toFixed(1) : "--", "°F", "Water temperature", VB.sst === null ? "no satellite pixel" : s ? `satellite, ${fmtDay.format(new Date(s[0] * 1000))}` : "satellite"));
   return out.join("");
 }
 
@@ -305,13 +305,11 @@ export function virtualIntro(d: StationData): { sid: string; links: string; note
     .sort((a, b) => a.km - b.km)
     .slice(0, 3);
   const land = VB.wind?.land && VB.waves === null && VB.current === null;
-  const shore = land
-    ? " This point is on land: only HRRR's land cell reaches it (no wave, current or satellite water value), and its wind is the land's."
-    : VB.wind && VB.wind.shoreKm <= SHORE_KM ? ` Within ${SHORE_KM} km of HRRR's land cells the wind's real miss is larger than the buoys' (land slows it).` : "";
+  const shore = land ? " On land: HRRR wind only." : VB.wind && VB.wind.shoreKm <= SHORE_KM ? " Near shore: the wind's real miss is larger." : "";
   return {
-    sid: `Virtual buoy &middot; models only`,
-    links: `<span>Nearest stations:</span>${near.map((p) => `<a href="${stationUrl(p.id)}">${p.name} (${fmtKm(p.km)})</a>`).join("")}`,
-    note: `Model values at this point; nothing is measured here.${shore}`,
+    sid: "Virtual buoy",
+    links: `<span>Nearest:</span>${near.map((p) => `<a href="${stationUrl(p.id)}">${p.name} (${fmtKm(p.km)})</a>`).join("")}`,
+    note: `Models only; nothing is measured here.${shore}`,
   };
 }
 
@@ -323,13 +321,13 @@ export function virtualSources(): string {
   const wait = "loading";
   return `<section class="outlook vb-sources" aria-label="Where this point's values come from">
     <p class="ol-title">At this point</p>
-    ${row("Wind", VB.wind === undefined ? wait : VB.wind ? `NOAA HRRR, its 3 km ${VB.wind.land ? "land " : ""}cell${VB.wind.shoreKm <= SHORE_KM ? `, ${fmtKm(VB.wind.shoreKm)} from a land cell` : ""}` : "no HRRR cell within 3 km")}
-    ${row("Miss", s === undefined ? wait : s && s.km <= SCORED_KM ? `borrowed from ${s.name}, ${fmtKm(s.km)} away` : `the scored buoys together${s ? `; nearest ${fmtKm(s.km)}` : ""}`)}
-    ${row("Past 48 h", g === undefined ? wait : g && g.km <= GFS_KM ? `NOAA GFS at ${g.name}, ${fmtKm(g.km)} away` : `none: no GFS point within ${GFS_KM} km`)}
-    ${row("Waves", VB.waves === undefined ? wait : VB.waves ? `NWS NWPS, its 1.8 km cell, ${fmtKm(VB.waves.km)} away` : "no NWPS water cell within 2 km")}
-    ${row("Current", VB.current === undefined ? wait : VB.current ? "NECOFS FVCOM, the triangle holding the point" : "outside the NECOFS mesh")}
-    ${row("Water", VB.sst === undefined ? wait : VB.sst ? "NASA MUR satellite analysis, its 1 km pixel" : "no satellite pixel here")}
-    <p class="status-key">A click anywhere on the map reads the models there; its readout opens that point's page.</p>
+    ${row("Wind", VB.wind === undefined ? wait : VB.wind ? `HRRR, 3 km ${VB.wind.land ? "land " : ""}cell` : "no HRRR cell")}
+    ${row("Miss", s === undefined ? wait : s && s.km <= SCORED_KM ? `${s.name}, ${fmtKm(s.km)}` : "the 4 scored buoys")}
+    ${row("Past 48 h", g === undefined ? wait : g && g.km <= GFS_KM ? `GFS at ${g.name}, ${fmtKm(g.km)}` : `no GFS within ${GFS_KM} km`)}
+    ${row("Waves", VB.waves === undefined ? wait : VB.waves ? "NWPS, 1.8 km cell" : "no NWPS cell")}
+    ${row("Current", VB.current === undefined ? wait : VB.current ? "NECOFS triangle" : "outside NECOFS")}
+    ${row("Water", VB.sst === undefined ? wait : VB.sst ? "MUR satellite, 1 km" : "no satellite pixel")}
+    <p class="status-key">Click the map to read another point.</p>
   </section>`;
 }
 
@@ -338,15 +336,12 @@ export function virtualMiss(): { label: string; note: string } {
   const s = VB.scored;
   const near = s && s.km <= SCORED_KM;
   const g = VB.gfs;
-  const gNote = !g ? "" : g.km <= GFS_KM
-    ? ` &middot; past 48 h, NOAA GFS at ${g.name} (${fmtKm(g.km)} away; GFS is published at the stations only), shaded with its miss there`
-    : ` &middot; no GFS past 48 h: the nearest GFS point (${g.name}) is ${fmtKm(g.km)} away`;
+  const gNote = !g ? "" : g.km <= GFS_KM ? ` &middot; past 48 h: GFS at ${g.name}` : ` &middot; no GFS within ${GFS_KM} km`;
   return {
-    label: near ? `Typical miss at ${s.name}` : "Typical miss over the scored buoys",
+    label: near ? `Typical miss at ${s.name}` : "Typical miss, 4 scored buoys",
     note:
-      `NOAA HRRR, raw, its 3 km cell at this point; before now, each hour's newest run &middot; the shading is HRRR's ` +
-      `<a class="ver-tag" href="${FORECAST_PAGE}">typical miss</a> ${near ? `at ${s.name}, ${fmtKm(s.km)} away` : `over the scored buoys${s ? `, the nearest (${s.name}) ${fmtKm(s.km)} away` : ""}`}: ` +
-      `not scored at this point${gNote}`,
+      `NOAA HRRR, raw, 3 km cell &middot; <a class="ver-tag" href="${FORECAST_PAGE}">typical miss</a> ` +
+      `${near ? `from ${s.name}, ${fmtKm(s.km)} away` : "from the 4 scored buoys"}; not scored here${gNote}`,
   };
 }
 
@@ -360,7 +355,7 @@ const isVirtual = (d: StationData) => d.kind === "virtual";
 
 export const VWAVES: Fig = {
   title: "Waves, next 72 hours",
-  sub: "NWS wave model at this point",
+  sub: "NWPS model",
   varies: false,
   in: (k) => k === "wind",
   depthTabs: false,
@@ -384,14 +379,14 @@ export const VWAVES: Fig = {
     return {
       opts: { xs, lines, glyphs, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, marker: { x: Date.now() / 1000, label: "now" }, empty: VB.waves === null ? "No NWPS water cell within 2 km of this point." : "The wave model is loading." },
       legend: [["NWS wave model (NWPS)", M.palette().line, 1, "NWPS model"]],
-      note: `NWS NWPS (SWAN), raw, its 1.8 km cell ${VB.waves ? `${fmtKm(VB.waves.km)} from this point` : "nearest this point"}; arrows show where the waves travel &middot; not scored on this site, so no miss is shaded`,
+      note: "NWS NWPS, raw, 1.8 km cell &middot; not scored",
     };
   },
 };
 
 export const VCURRENT: Fig = {
   title: "Surface current, next 72 hours",
-  sub: "NECOFS model at this point",
+  sub: "NECOFS model",
   varies: false,
   in: (k) => k === "wind",
   depthTabs: false,
@@ -407,21 +402,31 @@ export const VCURRENT: Fig = {
     const lines: Line[] = [
       { ys: xs.map((t) => Math.hypot(linear(at, t, (x) => x.u), linear(at, t, (x) => x.v)) * cs.perCms), color: M.palette().line, width: 2, dash: "6 3", label: "NECOFS surface current", fmt: (v) => `${v.toFixed(cs.digits)} ${cs.label}` },
     ];
+    const toward = (t: number) => ((Math.atan2(linear(at, t, (x) => x.u), linear(at, t, (x) => x.v)) * 180) / Math.PI + 360) % 360;
+    lines.push({ ys: xs.map((t) => (at.length ? toward(t) : NaN)), color: M.palette().line, label: "Toward", hidden: true, fmt: (v) => compass(v) });
     if (!VB.current) lines.length = 0;
-    const glyphs = at.filter((x) => x.t >= x0 && x.t <= x1 && Math.hypot(x.u, x.v) >= 5).map((x) => ({ x: x.t, deg: ((Math.atan2(x.u, x.v) * 180) / Math.PI + 360) % 360, color: M.palette().line }));
+    // Arrows on whole hours, between the model's 2 h steps (which fall on odd hours, where the row's thinning to
+    // every 2, 3 or 6 hours would drop them all); faint under 10 cm/s (0.2 kt), near slack, where the direction turns.
+    const glyphs = [];
+    for (let t = Math.ceil(x0 / HOUR) * HOUR; t <= x1; t += HOUR) {
+      const u = linear(at, t, (x) => x.u), v = linear(at, t, (x) => x.v);
+      if (!Number.isFinite(u) || !Number.isFinite(v)) continue;
+      const deg = toward(t);
+      glyphs.push({ x: t, deg, color: M.palette().line, faint: Math.hypot(u, v) < 10, title: `toward ${compass(deg)}` });
+    }
     const now = Date.now() / 1000;
     const slack = (VB.current?.slack ?? []).filter((s) => s > now).slice(0, 4).map((s) => fmtWhen.format(new Date(s * 1000)));
     return {
-      opts: { xs, lines, glyphs, unit: ` ${cs.label}`, zero: true, hoverDigits: cs.digits, marker: { x: now, label: "now" }, empty: VB.current === null ? "This point is outside the NECOFS model's mesh." : "The current model is loading." },
+      opts: { xs, lines, glyphs, unit: ` ${cs.label}`, zero: true, minPad: 0.1, hoverDigits: cs.digits, marker: { x: now, label: "now" }, empty: VB.current === null ? "This point is outside the NECOFS model's mesh." : "The current model is loading." },
       legend: [["NECOFS surface current", M.palette().line, 1, "NECOFS model"]],
-      note: `NECOFS FVCOM, top layer, raw, the triangle holding this point, every 2 h; arrows show where the water goes${slack.length ? ` &middot; slack about ${slack.join(", ")}` : ""} &middot; not scored on this site`,
+      note: `NECOFS, raw, surface, every 2 h${slack.length ? ` &middot; slack about ${slack.join(", ")}` : ""} &middot; not scored`,
     };
   },
 };
 
 export const VSST: Fig = {
   title: "Water temperature, last 90 days",
-  sub: "satellite analysis at this point",
+  sub: "MUR satellite",
   varies: false,
   in: (k) => k === "wind",
   depthTabs: false,
@@ -436,7 +441,7 @@ export const VSST: Fig = {
     return {
       opts: { xs: xs.length ? xs : grid(x0, x1, 90), lines: xs.length ? [{ ys: at.map(([, c]) => cToF(c)), color: M.palette().line, width: 1.8, label: "Satellite (MUR)", fmt: (v) => `${v.toFixed(1)} °F` }] : [], unit: "°F", empty: VB.sst === null ? "No satellite pixel at this point." : "The satellite analysis is loading." },
       legend: [["Satellite (MUR)", M.palette().line, 1]],
-      note: `NASA MUR SST analysis (gap-free, about 1 km): the skin of the water, where buoy sensors sit about 1 m down${VB.sst ? `; newest day ${fmtDay.format(new Date(`${VB.sst.newest}T12:00:00Z`))} (MUR runs 1 to 3 days behind)` : ""}`,
+      note: `MUR satellite, 1 km, the skin of the water${VB.sst ? ` &middot; latest ${fmtDay.format(new Date(`${VB.sst.newest}T12:00:00Z`))}` : ""}`,
     };
   },
 };

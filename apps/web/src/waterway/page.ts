@@ -1400,9 +1400,9 @@ async function overviewMap(stations: StationData[]): Promise<void> {
   }
 }
 
-/** A virtual buoy's pin: its point, marked as a model point (no state of its own). */
+/** A virtual buoy's pin: its point, as a hollow ring named HERE (no readings, so no state of its own). */
 function virtualPins(): import("../map").Pin[] {
-  return VIRTUAL ? [{ id: VIRTUAL_ID, name: `${VIRTUAL.meta.name} (virtual buoy)`, lat: VIRTUAL.meta.lat, lon: VIRTUAL.meta.lon, state: "live", kind: "buoy", label: "Virtual buoy: model values only" }] : [];
+  return VIRTUAL ? [{ id: VIRTUAL_ID, name: `${VIRTUAL.meta.name} (virtual buoy)`, lat: VIRTUAL.meta.lat, lon: VIRTUAL.meta.lon, state: "virtual", kind: "buoy", code: "HERE", label: "Virtual buoy: model values only" }] : [];
 }
 
 /* ---------- Station sections ---------- */

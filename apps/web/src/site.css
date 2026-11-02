@@ -376,7 +376,7 @@ main { padding: 0 var(--gutter) 40px; }
 /* Partial: half lit (weather reporting), half dark (water sensors offline). */
 .dot.partial { background: linear-gradient(90deg, var(--now) 50%, transparent 50%); border: 1px solid var(--now); }
 /* Virtual: a point read from the models only (no readings, so no state): a hollow ring in the forecast's ink. */
-.dot.virtual { background: transparent; border: 1.5px dashed var(--accent); }
+.dot.virtual { background: transparent; border: 1.5px dashed var(--ink); }
 
 /* Map pins */
 .pin { display: flex; align-items: center; gap: 5px; padding: 0; border: 0; background: none; cursor: pointer; }
@@ -390,6 +390,9 @@ main { padding: 0 var(--gutter) 40px; }
 :root[data-theme="light"] .pin-partial .pin-dot { border-color: #1c2a48; }
 .pin-delayed .pin-dot { background: var(--delayed); box-shadow: 0 0 0 3px rgba(240, 177, 53, 0.3); }
 .pin-offline .pin-dot { background: var(--pin-offline); border-color: var(--faint); }
+/* A virtual buoy: a hollow dashed ring in the page's ink, no fill and no glow, so it never reads as a buoy reporting
+   (the same mark as the dot by its heading); a thin outline in the pins' ring colour keeps it clear of the layers. */
+.pin-virtual .pin-dot { background: transparent; border: 2px dashed var(--ink); box-shadow: 0 0 0 1px var(--pin-ring), inset 0 0 0 1px var(--pin-ring); }
 /* River gauges (Rivers view): small triangles in the basin color. */
 .pin-gauge .pin-dot, .pin-gauge.pin-live .pin-dot, .pin-gauge.pin-delayed .pin-dot {
   width: 12px; height: 11px; border: 0; border-radius: 0; box-shadow: none; background: #7fb8d8; clip-path: polygon(50% 0, 100% 100%, 0 100%);
@@ -1513,4 +1516,5 @@ body.plot-page .embed-credit a { color: inherit; text-underline-offset: 2px; }
 
 /* A legend entry with no line of its own ("earlier years"), and a plot's note at the top of its (i). */
 .legend .lg-static { padding: 1px 3px; cursor: default; }
-.about-plot-note { margin: 0 0 12px; padding-left: 10px; border-left: 2px solid var(--accent-line); color: var(--ink-soft); }
+.about-plot-note { margin: 0 0 12px; padding-left: 10px; border-left: 2px solid var(--accent-line); color: var(--ink-soft); font-size: 13.5px; line-height: 1.5; }
+.about-plot-note .ver-tag { padding: 0; border: 0; font: inherit; white-space: normal; text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 2px; }

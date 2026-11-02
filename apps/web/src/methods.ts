@@ -241,64 +241,37 @@ export const METHODS: Record<string, Method> = {
       "drops it back in one step. The fouling flag is a provisional rule and has not been reconciled with LISICOS servicing records. Turbidity " +
       "in the Sound's bays and harbors is measured by Save the Sound's Unified Water Study [[sts_monitoring]].",
   },
-  // A virtual buoy's plots (waterway/virtual.ts): one point read from the models only. "virtual-next48" stands in for
-  // next48 on such a page (see about.ts).
+  // A virtual buoy's plots (waterway/virtual.ts): one point, models only. "virtual-next48" stands in for next48 there
+  // (see about.ts).
   "virtual-next48": {
     title: "The next 48 hours",
     shows:
-      "Wind and gusts at this point from NOAA's HRRR model: before now, each hour's newest run (nothing is measured here); " +
-      "ahead, the stitched forecast (the bold dashed line), each hour from the newest run that reaches it, with dots for " +
-      "gusts. The lavender band either side shows how far HRRR typically misses at that lead time, borrowed from a buoy " +
-      "where it is scored. \"7 days\", a switch on the plot, carries the forecast on with NOAA's GFS model in green, where " +
-      "a GFS point is near enough.",
+      "HRRR wind and gusts (dots) at this point: before now, each hour's newest run; ahead, the stitched forecast. The " +
+      "band is HRRR's typical miss, borrowed from a scored buoy. \"7 days\" adds GFS (green) where a GFS point is near.",
     method:
-      "HRRR (3 km, run every hour) is read at the water cell nearest the point, within 3 km (the nearest cell of any kind " +
-      "where no water cell is that close) [[dowell2022hrrr]], from the same file as the map's wind layer: 24 hours back " +
-      "to 48 ahead. The typical miss is the mean absolute difference between HRRR and the buoy at each lead time since " +
-      "January 2024, from the nearest of the four scored buoys within 25 km; farther out, the four buoys together. GFS " +
-      "[[noaa2026gfs]] is published here at the stations only, so past 48 hours the page uses the nearest station's GFS " +
-      "within 20 km, with that station's GFS miss, and none beyond.",
-    caveats:
-      "A model forecast, not a measurement, and not scored at this point: the borrowed miss is a guide to how the model " +
-      "does over open water. Within about 2 km of the shore the wind's real miss is larger, as land cells run slow. " +
-      "Earlier runs and the run slider are left out: the map's file keeps only the newest run for each hour. Speeds follow the Units switch.",
+      "HRRR's nearest water cell within 3 km [[dowell2022hrrr]]. The miss is the nearest scored buoy's within 25 km, " +
+      "else the four buoys' together. GFS [[noaa2026gfs]] is published at the stations only: the nearest within 20 km.",
+    caveats: "Not scored at this point. Near the shore the real miss is larger.",
   },
   vwaves: {
     title: "Waves, next 72 hours",
-    shows:
-      "Forecast significant wave height at this point, 24 hours back to 72 ahead; arrows show where the waves travel. " +
-      "Hovering gives the peak period and the direction the waves come from.",
-    method:
-      "The NWS Nearshore Wave Prediction System, which runs the SWAN spectral wave model [[booij1999swan]], at the water " +
-      "cell (1.8 km) nearest the point, within 2 km, each hour from the newest run that covers it: the same file as the " +
-      "map's wave layer.",
-    caveats:
-      "A model forecast, not a measurement, and not scored on this site, so no miss is shaded. The runs exclude currents; " +
-      "steepening where the tide opposes the waves is not represented. Heights follow the Units switch.",
+    shows: "NWPS significant wave height at this point; arrows show where the waves travel.",
+    method: "The NWS wave model (SWAN) [[booij1999swan]], nearest water cell within 2 km, newest run each hour.",
+    caveats: "Not scored on this site. Excludes currents, so wind against tide is not represented.",
   },
   vcur: {
     title: "Surface current, next 72 hours",
-    shows:
-      "Modelled current speed in the top layer at this point, 24 hours back to 72 ahead; arrows show where the water goes. " +
-      "The plot's note lists the next slack water times.",
+    shows: "NECOFS surface current speed at this point; arrows show where the water goes. The note lists slack times.",
     method:
-      "The NECOFS FVCOM forecast (UMass Dartmouth) on the model triangle holding the point, every 2 hours " +
-      "[[chen2003fvcom]] [[chen2006fvcom]], from the same file as the map's currents layer. Slack is where the current " +
-      "along its strongest direction in the forecast changes sign, timed linearly between the 2 hour steps; a current " +
-      "under 10 cm/s (0.2 kt) at its strongest has none.",
-    caveats:
-      "A model forecast, not a measurement, and not scored on this site. Slack times between 2 hour steps are " +
-      "approximate. Speeds follow the Units switch.",
+      "NECOFS FVCOM [[chen2003fvcom]] [[chen2006fvcom]], the triangle holding the point, every 2 hours. Slack: where the " +
+      "current along its main axis changes sign.",
+    caveats: "Not scored on this site. Slack times are approximate (2 hour steps).",
   },
   vsst: {
     title: "Water temperature, last 90 days",
-    shows: "Satellite sea surface temperature at this point, one value a day for the last 90 days.",
-    method:
-      "The MUR multi-sensor analysis, which fills gaps between satellite passes [[chin2017mur]] [[jpl2015mur]], at the " +
-      "0.01 degree (about 1 km) pixel holding the point: the same file as the map's sea surface temperature history.",
-    caveats:
-      "The skin of the water; buoy sensors sit about 1 m down. MUR posts each day 1 to 3 days late, so the newest value " +
-      "is not today's. Shore pixels are cut to the currents model's water.",
+    shows: "Satellite sea surface temperature at this point, daily.",
+    method: "The MUR analysis [[chin2017mur]] [[jpl2015mur]], the 1 km pixel holding the point.",
+    caveats: "The skin of the water, not 1 m down as at the buoys. Posted 1 to 3 days late.",
   },
   "map-sst": {
     title: "Sea surface temperature",

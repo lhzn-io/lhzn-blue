@@ -8,7 +8,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import maplibregl from "maplibre-gl";
 
 // partial: weather live, water sensors offline; asof: observed at the timeline cursor's time
-type PinState = "live" | "delayed" | "offline" | "partial" | "asof";
+type PinState = "live" | "delayed" | "offline" | "partial" | "asof" | "virtual"; // virtual: a point read from the models, with no readings of its own
 
 export interface Pin {
   id: string;
@@ -18,6 +18,7 @@ export interface Pin {
   state: PinState;
   kind?: "buoy" | "shore" | "gauge";
   label: string; // short reading for the popup, e.g. "Surface 66.3 F, 1h ago"
+  code?: string; // the word beside the pin, where not its id (a virtual buoy's "HERE")
   bar?: number | null; // Tides view: the departure from the prediction, ft, drawn as a line up or down from the pin
 }
 
@@ -215,7 +216,7 @@ function marker(map: maplibregl.Map, p: Pin, go: string): maplibregl.Marker {
   el.type = "button";
   el.className = pinClass(p);
   el.setAttribute("aria-label", labelText(p));
-  el.innerHTML = `<span class="pin-bar" hidden></span><span class="pin-dot"></span><span class="pin-id">${p.id}</span>`;
+  el.innerHTML = `<span class="pin-bar" hidden></span><span class="pin-dot"></span><span class="pin-id">${p.code ?? p.id}</span>`;
   setBar(el, p.bar);
   const popup = new maplibregl.Popup({ offset: 14, closeButton: false, className: "pin-pop" }).setHTML(
     `<b>${p.name}</b><br>${p.label}<br><span class="pin-go">${go}</span>`,

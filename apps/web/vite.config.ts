@@ -16,7 +16,7 @@ function localData(stationPages: string[]): Plugin {
       // page, as the Worker serves them; a path with a page of its own (the Sound's forecast, tides and models) stays
       // that page. A page's address without its trailing slash is redirected to it, as in production.
       const hasPage = (path: string) => existsSync(resolve(import.meta.dirname, `.${path}`, "index.html"));
-      const station = new RegExp(`^[a-z0-9-]{2,20}/(?:(?:${Object.keys(plotPages).join("|")})/)?$`);
+      const station = new RegExp(`^(?:[a-z0-9-]{2,20}/(?:(?:${Object.keys(plotPages).join("|")})/)?|at/-?[0-9.]+,-?[0-9.]+/)$`);
       const stationBase = (path: string) => !hasPage(path) && stationPages.find((b) => path.startsWith(b) && station.test(path.slice(b.length)));
       server.middlewares.use((req, res, next) => {
         const [path, query] = (req.url ?? "").split("?");

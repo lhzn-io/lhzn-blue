@@ -241,6 +241,38 @@ export const METHODS: Record<string, Method> = {
       "drops it back in one step. The fouling flag is a provisional rule and has not been reconciled with LISICOS servicing records. Turbidity " +
       "in the Sound's bays and harbors is measured by Save the Sound's Unified Water Study [[sts_monitoring]].",
   },
+  // A virtual buoy's plots (waterway/virtual.ts): one point, models only. "virtual-next48" stands in for next48 there
+  // (see about.ts).
+  "virtual-next48": {
+    title: "The next 48 hours",
+    shows:
+      "HRRR wind and gusts (dots) at this point: before now, each hour's newest run; ahead, the stitched forecast. The " +
+      "band is HRRR's typical miss, borrowed from a scored buoy. \"7 days\" adds GFS (green) where a GFS point is near.",
+    method:
+      "HRRR's nearest water cell within 3 km [[dowell2022hrrr]]. The miss is the nearest scored buoy's within 25 km, " +
+      "else the four buoys' together. GFS [[noaa2026gfs]] is published at the stations only: the nearest within 20 km.",
+    caveats: "Not scored at this point. Near the shore the real miss is larger.",
+  },
+  vwaves: {
+    title: "Waves, next 72 hours",
+    shows: "NWPS significant wave height at this point; arrows show where the waves travel.",
+    method: "The NWS wave model (SWAN) [[booij1999swan]], nearest water cell within 2 km, newest run each hour.",
+    caveats: "Not scored on this site. Excludes currents, so wind against tide is not represented.",
+  },
+  vcur: {
+    title: "Surface current, next 72 hours",
+    shows: "NECOFS surface current speed at this point; arrows show where the water goes. The note lists slack times.",
+    method:
+      "NECOFS FVCOM [[chen2003fvcom]] [[chen2006fvcom]], the triangle holding the point, every 2 hours. Slack: where the " +
+      "current along its main axis changes sign.",
+    caveats: "Not scored on this site. Slack times are approximate (2 hour steps).",
+  },
+  vsst: {
+    title: "Water temperature, last 90 days",
+    shows: "Satellite sea surface temperature at this point, daily.",
+    method: "The MUR analysis [[chin2017mur]] [[jpl2015mur]], the 1 km pixel holding the point.",
+    caveats: "The skin of the water, not 1 m down as at the buoys. Posted 1 to 3 days late.",
+  },
   "map-sst": {
     title: "Sea surface temperature",
     shows: "Sea surface temperature at 0.01° (about 1 km), for the day shown.",

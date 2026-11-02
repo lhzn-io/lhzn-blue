@@ -62,6 +62,9 @@ export interface StationDataWaterway {
    * default; a kind not listed has no page), the kinds shown as their own links after Overview, and the menu for the
    * rest, in groups. */
   stationPages?: { views: Partial<Record<string, VarKey[]>>; chips: string[]; menu: { title: string; kinds: string[] }[] };
+  /** Virtual buoys (<base>at/<lat>,<lon>/, waterway/virtual.ts): the box a point must be in, west-south to east-north
+   * (the HRRR grid file's); none where the page has none. */
+  virtual?: { box: [[number, number], [number, number]] };
   /** Our own photos of its stations, by id: the image (under public/), what it shows, and when it was taken. */
   photos?: Record<string, { src: string; alt: string; when: string }>;
 }

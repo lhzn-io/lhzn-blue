@@ -286,7 +286,8 @@ const VER: Record<string, Verification | undefined> = {};
 const RUNS: Record<string, Promise<Runs | null> | undefined> = {};
 let RUN: Runs | null = null; // the selected model's runs
 let LIVE: Live | null = null;
-let FACTOR = 1.098;
+let FACTOR = 1.107;
+let ANEMOMETER_M = 3.5;
 const loaded = () => MODELS.filter((m) => VER[m.id]);
 
 // ---------- Observations ----------
@@ -650,16 +651,24 @@ function drawPanel(): void {
 const SPD = ["0-5", "5-10", "10-15", "15-20", "20-25", "25+"];
 const spdLabel = (k: string) => (k === "25+" ? "25 kt or more" : k === "0-5" ? "under 5 kt" : `${k.replace("-", " to ")} kt`);
 let calBand = "18-24";
+/* Grouped by the forecast (HRRR says 20 kt: what happens?) or by the observation (the buoys saw 20 kt: what was
+   forecast?). Either way the extremes look damped, partly from regression to the mean, which any imperfect forecast
+   shows when sorted by one side; land studies sort by the observation, so both are shown. */
+let calBy: "fspeed" | "speed" = "fspeed";
 
 function drawCal(): void {
-  const bins = V.bins[calBand]?.fspeed ?? {};
+  const byObs = calBy === "speed";
+  const bins = V.bins[calBand]?.[calBy] ?? {};
+  // x: the speed the hours are grouped by; y: the other side's mean in that group.
   const rows = SPD.filter((k) => bins[k] && bins[k]!.n > 0).map((k) => {
     const s = bins[k]!;
-    return { k, s, f: s.forecast_mean, o: s.forecast_mean - s.bias };
+    const f = s.forecast_mean;
+    const o = s.forecast_mean - s.bias;
+    return { k, s, f: byObs ? o : f, o: byObs ? f : o };
   });
   const box = $("cal-chart");
   const H = narrow() ? 280 : 300;
-  const { svg, W } = frame(box, H, `Observed wind against ${M.label} forecast wind, by forecast speed`);
+  const { svg, W } = frame(box, H, byObs ? `${M.label} forecast wind against observed wind, by observed speed` : `Observed wind against ${M.label} forecast wind, by forecast speed`);
   const m = { t: 22, r: 14, b: 34, l: 34 };
   const w = W - m.l - m.r;
   const h = H - m.t - m.b;
@@ -672,8 +681,8 @@ function drawCal(): void {
     text(svg, m.l - 5, y(v) + 3, tickText(v, tk.step), { "text-anchor": "end" });
     if (v > 0) text(svg, x(v), m.t + h + 13, tickText(v, tk.step), { "text-anchor": "middle" });
   }
-  text(svg, m.l + w, m.t + h + 28, `${M.label} forecast, kt at 10 m`, { "text-anchor": "end" });
-  text(svg, m.l - 28, m.t - 9, "Observed at the buoys, kt at 10 m", { class: "lab" });
+  text(svg, m.l + w, m.t + h + 28, byObs ? "Observed at the buoys, kt at 10 m" : `${M.label} forecast, kt at 10 m`, { "text-anchor": "end" });
+  text(svg, m.l - 28, m.t - 9, byObs ? `${M.label} forecast, kt at 10 m` : "Observed at the buoys, kt at 10 m", { class: "lab" });
   // Perfect agreement, as a reference in the page's ink.
   line(svg, x(0), y(0), x(tk.hi), y(tk.hi), `stroke: ${C.ink}; stroke-opacity: 0.45; stroke-dasharray: 3 4`);
   text(svg, x(tk.hi * 0.9) - 6, y(tk.hi * 0.9) - 6, "forecast = observed", { "text-anchor": "end" });
@@ -683,29 +692,38 @@ function drawCal(): void {
     const rad = 3 + 6 * Math.sqrt(r.s.n / maxN);
     const c = el("circle", { cx: x(r.f), cy: y(r.o), r: rad, style: `fill: ${C.now}; stroke: ${C.bg}; stroke-width: 1` });
     const tt = el("title", {});
-    tt.textContent = `${M.label} ${spdLabel(r.k)} (mean ${r.f.toFixed(1)} kt): buoys ${r.o.toFixed(1)} kt at 10 m, ${r.s.n.toLocaleString("en-US")} hours`;
+    tt.textContent = byObs
+      ? `Buoys ${spdLabel(r.k)} at 10 m (mean ${r.f.toFixed(1)} kt): ${M.label} ${r.o.toFixed(1)} kt, ${r.s.n.toLocaleString("en-US")} hours`
+      : `${M.label} ${spdLabel(r.k)} (mean ${r.f.toFixed(1)} kt): buoys ${r.o.toFixed(1)} kt at 10 m, ${r.s.n.toLocaleString("en-US")} hours`;
     c.append(tt);
     svg.append(c);
-    // Above the diagonal (buoys saw more): the label over the dot; below it: to the right, clear of the stem.
-    if (r.o >= r.f) text(svg, x(r.f), y(r.o) - rad - 5, `${signed(-r.s.bias)} kt`, { class: "val", "text-anchor": "middle" });
-    else text(svg, x(r.f) + rad + 4, y(r.o) + 4, `${signed(-r.s.bias)} kt`, { class: "val" });
+    // The dot's side minus the grouped side. Above the diagonal: the label over the dot; below it: to the right,
+    // clear of the stem.
+    const gap = `${signed(r.o - r.f)} kt`;
+    if (r.o >= r.f) text(svg, x(r.f), y(r.o) - rad - 5, gap, { class: "val", "text-anchor": "middle" });
+    else text(svg, x(r.f) + rad + 4, y(r.o) + 4, gap, { class: "val" });
   }
   $("cal-legend").innerHTML =
-    `<span><i style="background: var(--now)"></i>buoys' mean (size: hours)</span>` +
-    `<span><i style="background: var(--fc-mid)"></i>gap from the forecast</span>` +
+    `<span><i style="background: var(--now)"></i>${byObs ? `${M.label}'s` : "buoys'"} mean (size: hours)</span>` +
+    `<span><i style="background: var(--fc-mid)"></i>gap from the ${byObs ? "observation" : "forecast"}</span>` +
     `<span><i style="background: var(--ink); opacity: 0.45"></i>forecast = observed</span>`;
 
   const hi = rows[rows.length - 1];
   const lo = rows[0];
   const more = (s: Stats) => `${Math.abs(s.bias).toFixed(1)} kt ${s.bias > 0 ? "less" : "more"}`;
+  const said = (s: Stats) => `${Math.abs(s.bias).toFixed(1)} kt ${s.bias > 0 ? "more" : "less"}`;
   const label = M.bands.find((d) => d[0] === calBand)![1];
   // Does the overstatement of strong wind grow with lead time (the model's shortest band to its longest)?
-  const hiBias = (band: string) => V.bins[band]?.fspeed?.[hi.k]?.bias ?? NaN;
+  const hiBias = (band: string) => V.bins[band]?.[calBy]?.[hi.k]?.bias ?? NaN;
   const grows = hiBias(M.bands[M.bands.length - 1][0]) > hiBias(M.bands[0][0]) + 0.3;
   let verdict = "";
-  if (hi.s.bias > 0.5 && lo.s.bias < -0.5) verdict = grows ? " The gap grows with lead time." : "";
-  $("cal-say").innerHTML =
-    `${label} ahead: ${M.label} <b>${spdLabel(hi.k)}</b>, buoys <b>${more(hi.s)}</b>; ${M.label} <b>${spdLabel(lo.k)}</b>, buoys <b>${more(lo.s)}</b>.${verdict}`;
+  if (!byObs && hi.s.bias > 0.5 && lo.s.bias < -0.5) verdict = grows ? " The gap grows with lead time." : "";
+  $("cal-say").innerHTML = byObs
+    ? `${label} ahead: buoys <b>${spdLabel(hi.k)}</b>, ${M.label} <b>${said(hi.s)}</b>; buoys <b>${spdLabel(lo.k)}</b>, ${M.label} <b>${said(lo.s)}</b>.`
+    : `${label} ahead: ${M.label} <b>${spdLabel(hi.k)}</b>, buoys <b>${more(hi.s)}</b>; ${M.label} <b>${spdLabel(lo.k)}</b>, buoys <b>${more(lo.s)}</b>.${verdict}`;
+  $("cal-note").textContent = byObs
+    ? "Grouped by the observation, as land studies do. Sorted by either side the extremes look damped, partly from regression to the mean, which any imperfect forecast shows; reading both groupings together separates that from the model's own bias."
+    : "Grouped by the forecast: what to expect when the model says a speed. Sorted by either side the extremes look damped, partly from regression to the mean; Observed shows the other grouping.";
 }
 
 // ---------- Section 5: error by lead time ----------
@@ -873,7 +891,7 @@ function drawMethod(): void {
       "Compared",
       `Every archived run against the buoy's hourly mean (${models.map((md) => `${md.label} ${span(VER[md.id]!)}`).join("; ")}). Error is forecast minus observed; typical error is the mean absolute error.`,
     ],
-    ["Height", `Buoy wind raised to 10 m (x${FACTOR.toFixed(3)}: 3.8 m anemometer assumed, neutral profile). In stable air the true factor is larger.`],
+    ["Height", `Buoy wind raised to 10 m (x${FACTOR.toFixed(3)}: anemometers ${ANEMOMETER_M} m above the water, neutral profile). In stable air the true factor is larger.`],
     ["Direction", "Observed wind 6 kt or more; buoy directions turned to true north; positive is clockwise."],
     ["Raw model", "As issued, uncorrected. A model cell (3 km for HRRR, about 25 km for GFS) and a point buoy differ, which sets a floor on the error."],
     ...models.map((md): [string, string] => [md.label, md.note(VER[md.id]!)]),
@@ -945,6 +963,10 @@ async function selectModel(md: Model): Promise<void> {
     calBand = k;
     drawCal();
   });
+  tabs($("cal-by"), [["fspeed", "Forecast"], ["speed", "Observed"]], calBy, (k) => {
+    calBy = k === "speed" ? "speed" : "fspeed";
+    drawCal();
+  });
   const cardBands = md.bands.filter(([k]) => V.recent.bands[k]);
   cardBand = cardBands[0]?.[0] ?? "";
   tabs($("card-band"), cardBands, cardBand, (k) => {
@@ -978,6 +1000,8 @@ async function main(): Promise<void> {
   LIVE = l;
   const f = /x\s*([\d.]+)/.exec(VER[models[0].id]!.method.speed_at_10m ?? "");
   if (f) FACTOR = Number(f[1]);
+  const z = /anemometer at ([\d.]+) m/.exec(VER[models[0].id]!.method.speed_at_10m ?? "");
+  if (z) ANEMOMETER_M = Number(z[1]);
 
   // The model switch, kept in the URL (?model=gfs); the first model is the default and leaves the URL bare.
   const start = VER[want.id] ? want : models[0];

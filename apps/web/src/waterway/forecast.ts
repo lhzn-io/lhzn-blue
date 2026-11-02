@@ -15,11 +15,19 @@ export let FCST: { runs: Record<string, FcRun[]>; ver: Verification | null; gene
 /** NOAA GFS at the stations, for the hours past HRRR's reach (the jobs' gfs.py: leads every 3 h to 168 h), with its
  * own verification at the buoys. Loaded with HRRR; null where either file is missing. */
 export interface GfsRun { issue: number; leads: number[]; u: (number | null)[]; v: (number | null)[]; gust: (number | null)[] }
-export let GFS: { runs: Record<string, GfsRun[]>; ver: Verification | null } | null = null;
+/** GFS's water cells over the map's box for the newest cycles (gfs.py's ``grid``): per lead, each field as int8
+ * base64 in steps of `step` m/s, one value per cell in the order of lat and lon. Newest first; empty where the file
+ * has none. */
+export interface GfsGrid { issue: number; leads: number[]; lat: number[]; lon: number[]; u10: string[]; v10: string[]; gust?: string[]; step: number }
+export let GFS: { runs: Record<string, GfsRun[]>; ver: Verification | null; grids: GfsGrid[] } | null = null;
 let fcstLoading: Promise<void> | null = null;
 export const MS_KT = 1.943844;
 
-type ModelPage = { generated_at: string; cycles: Record<string, { leads: number[]; points: Record<string, Record<string, (number | null)[]>> }> };
+type ModelPage = {
+  generated_at: string;
+  grid_encoding?: { step: number };
+  cycles: Record<string, { leads: number[]; points: Record<string, Record<string, (number | null)[]>>; grid?: Omit<GfsGrid, "issue" | "step"> }>;
+};
 
 export function loadForecast(): Promise<void> {
   fcstLoading ??= Promise.all([
@@ -41,15 +49,17 @@ export function loadForecast(): Promise<void> {
       FCST = { runs, ver, generated: Date.parse(page.generated_at) / 1000 };
       if (gfsPage) {
         const g: Record<string, GfsRun[]> = {};
+        const grids: GfsGrid[] = [];
         for (const [key, c] of Object.entries(gfsPage.cycles)) {
           const issue = Date.parse(key.replace(/Z$/, ":00Z")) / 1000;
           for (const [id, f] of Object.entries(c.points)) {
             const none = c.leads.map(() => null);
             (g[id] ??= []).push({ issue, leads: c.leads, u: f.u10 ?? none, v: f.v10 ?? none, gust: f.gust ?? none });
           }
+          if (c.grid && gfsPage.grid_encoding) grids.push({ ...c.grid, issue, step: gfsPage.grid_encoding.step });
         }
         Object.values(g).forEach((r) => r.sort((a, b) => b.issue - a.issue));
-        GFS = { runs: g, ver: gfsVer };
+        GFS = { runs: g, ver: gfsVer, grids: grids.sort((a, b) => b.issue - a.issue) };
       }
       requestRedraw();
     })

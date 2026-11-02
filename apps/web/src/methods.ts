@@ -247,10 +247,11 @@ export const METHODS: Record<string, Method> = {
     title: "The next 48 hours",
     shows:
       "HRRR wind and gusts (dots) at this point: before now, each hour's newest run; ahead, the stitched forecast. The " +
-      "band is HRRR's typical miss, borrowed from a scored buoy. \"7 days\" adds GFS (green) where a GFS point is near.",
+      "band is HRRR's typical miss, borrowed from a scored buoy. \"7 days\" adds GFS (green) past HRRR's 48 hours.",
     method:
       "HRRR's nearest water cell within 3 km [[dowell2022hrrr]]. The miss is the nearest scored buoy's within 25 km, " +
-      "else the four buoys' together. GFS [[noaa2026gfs]] is published at the stations only: the nearest within 20 km.",
+      "else the four buoys' together, for GFS too. GFS [[noaa2026gfs]] at this point: the mean of its four nearest " +
+      "0.25 degree water cells within 40 km, weighted by inverse distance squared, as at the stations.",
     caveats: "Not scored at this point. Near the shore the real miss is larger.",
   },
   vwaves: {

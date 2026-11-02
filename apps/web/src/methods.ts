@@ -15,6 +15,8 @@ export interface Method {
   caveats?: string;
   /** Variable-specific additions, appended to the caveats in that view. */
   byVariable?: Partial<Record<"temp" | "salinity" | "oxygen", string>>;
+  /** A link to a page that goes further, shown under the entry on pages whose address starts with one of `on`. */
+  more?: { href: string; text: string; on: string[] };
 }
 
 const QC =
@@ -314,6 +316,7 @@ export const METHODS: Record<string, Method> = {
       "cmocean [[thyng2016cmocean]], so faster water is darker; its hues stay clear of a chart's buff land and green drying " +
       "ground. The dark theme uses a twin scale on the same speeds, deep blue-teal to pale seafoam, so faster water is lighter there.",
     caveats: "A model forecast, not a measurement. Speeds follow the Units switch.",
+    more: { href: "/long-island-sound/currents-3d/", text: "The same model in 3D, below the surface", on: ["/long-island-sound/", "/about/"] },
   },
   "map-waves": {
     title: "Waves (NWS model)",
@@ -609,5 +612,9 @@ export function methodHtml(key: string, ctx: { variable: string; varKey: string;
   const refList = refs.length
     ? `<ol class="about-refs">${refs.map((k) => `<li><a href="/references/#${k}">${esc(REF_LABELS[k] ?? k)}</a></li>`).join("")}</ol>`
     : "";
-  return `<dl class="about-list">${html}</dl>${refList}<p class="about-foot">Times are stored in UTC and labelled in New York time. All data are provisional and may be revised.</p>`;
+  const more =
+    m.more && m.more.on.some((p) => location.pathname.startsWith(p))
+      ? `<p class="about-more"><a href="${esc(m.more.href)}">${esc(m.more.text)}</a></p>`
+      : "";
+  return `<dl class="about-list">${html}</dl>${more}${refList}<p class="about-foot">Times are stored in UTC and labelled in New York time. All data are provisional and may be revised.</p>`;
 }

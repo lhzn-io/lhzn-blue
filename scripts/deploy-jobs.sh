@@ -21,10 +21,11 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 set -a; . "$HOME/.config/lhzn-blue/env"; set +a
 : "${GCP_PROJECT:?}" "${GCP_REGION:?}" "${DATA_STORE:?}" "${JOB_SA:?}" "${CF_TOKEN_SECRET:?}" "${SNAPSHOT_STORE:?}" "${FORECAST_STORE:?}"
 
-# Stage a build context with the Dockerfile at its root, plus the station registry.
+# Stage a build context with the Dockerfile at its root, plus the station registry and the shared kit.
 CTX="$(mktemp -d)"
 trap 'rm -rf "$CTX"' EXIT
-mkdir -p "$CTX/jobs" "$CTX/stations"
+mkdir -p "$CTX/jobs" "$CTX/stations" "$CTX/packages/lhzn-blue-kit"
+cp -R "$REPO/packages/lhzn-blue-kit/pyproject.toml" "$REPO/packages/lhzn-blue-kit/src" "$CTX/packages/lhzn-blue-kit/"
 cp -R "$REPO/jobs/pyproject.toml" "$REPO/jobs/src" "$CTX/jobs/"
 [ -f "$REPO/jobs/README.md" ] && cp "$REPO/jobs/README.md" "$CTX/jobs/"
 cp "$REPO"/stations/*.json "$CTX/stations/"  # every registry file; a file left out fails its job only in the cloud

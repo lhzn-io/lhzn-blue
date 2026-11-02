@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import requests
 
-from .merlin import USER_AGENT
+from .coops import USER_AGENT
 
 log = logging.getLogger(__name__)
 

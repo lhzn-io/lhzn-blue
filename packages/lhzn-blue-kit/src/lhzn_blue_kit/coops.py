@@ -169,6 +169,22 @@ def tide_events(station: str, start: datetime, end: datetime, datum: str = "MLLW
     return out
 
 
+def predictions(station: str, start: datetime, end: datetime, datum: str = "MLLW") -> pd.Series:
+    """6-minute tide predictions (m above ``datum``) in ``[start, end)``, indexed by UTC time. A station's own
+    predictions taken from its observed water level give the surge without the phase shift of a nearby station's."""
+    vals: dict[pd.Timestamp, float] = {}
+    for lo, hi in spans(start, end, hourly=False):
+        body = _get({"product": "predictions", "station": station, "datum": datum, "interval": "6",
+                     "begin_date": _stamp(lo), "end_date": _stamp(hi - timedelta(minutes=1))}) or {}
+        for row in body.get("predictions") or []:
+            try:
+                vals[pd.Timestamp(row["t"], tz="UTC")] = float(row["v"])
+            except (KeyError, TypeError, ValueError):
+                continue
+    s = pd.Series(vals, dtype=float).sort_index()
+    return s[(s.index >= pd.Timestamp(start)) & (s.index < pd.Timestamp(end))]
+
+
 def metadata(station: str) -> dict:
     """Station metadata with details and sensors (name, lat, lng, established, sensor list)."""
     global request_count

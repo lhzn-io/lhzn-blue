@@ -1,7 +1,7 @@
 /** The Long Island Sound's own parts of its page: each station's About (its operator's sensors and panels, the rivers'
  * gauges and where they reach the Sound), and the USGS water-quality table under the overview (the shore sondes in
  * harbors, a pond and river mouths). The page includes them; another waterway brings its own. */
-import { DO_LEVELS, Hourly, oxygenStatus, type MetaSeries } from "../series";
+import { DO_LEVELS, Hourly, oxygenStatus, type MetaSeries } from "@lhzn-io/viz/series";
 import { BUOY_SENSORS } from "../methods";
 import { ago, escHtml, fmtDate, hourOf, hoursOld, sqmi } from "../waterway/format";
 import { AT, atLabel, sparklineOf } from "../waterway/cursor";

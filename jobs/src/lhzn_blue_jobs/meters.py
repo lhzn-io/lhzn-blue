@@ -22,7 +22,8 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
-from . import coops
+from lhzn_blue_kit import coops
+
 from .build import iso
 
 log = logging.getLogger(__name__)

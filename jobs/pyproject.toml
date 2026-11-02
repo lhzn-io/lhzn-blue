@@ -14,6 +14,8 @@ dependencies = [
     "forcingkit @ https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.13.0.tar.gz",
     "matplotlib>=3.8",  # point location on the model mesh (the shared coastline)
     "utide>=0.3",  # harmonic tide fits for the USGS tidal gauges (Codiga 2011)
+    # The CO-OPS and ERDDAP clients and the JSON store, also used by other sites; from packages/ in this repo.
+    "lhzn-blue-kit",
 ]
 
 [project.optional-dependencies]
@@ -37,3 +39,6 @@ packages = ["src/lhzn_blue_jobs"]
 dev = [
     "pytest>=8",
 ]
+
+[tool.uv.sources]
+lhzn-blue-kit = { path = "../packages/lhzn-blue-kit", editable = true }

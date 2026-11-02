@@ -3,8 +3,8 @@
  * of" then), so a line rising to the right is the model raising that hour's wind as the hour drew nearer; where the
  * hour has passed, the wind measured then is a gold dot. The hour is the one under the pointer, else the page's time.
  * Off until the reader turns it on ("Revisions", top right of the plot), remembered in this browser. */
-import { renderLines, type Line } from "../chart";
-import { HOUR } from "../series";
+import { renderLines, type Line } from "@lhzn-io/viz/chart";
+import { HOUR } from "@lhzn-io/viz/series";
 import { fmtRun, fmtWhen } from "./format";
 import { WIND_UNITS, windFmt, windVal, WU } from "./units";
 import { FCST, MS_KT, type FcRun } from "./forecast";

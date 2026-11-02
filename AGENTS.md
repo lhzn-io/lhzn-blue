@@ -7,11 +7,20 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
 - `stations/`: the registries. `stations.json` (buoys: datasets per depth, archive sources), `shore.json` (NOAA
   CO-OPS stations and their products), `rivers.json` (USGS gauges). Both the jobs and the page read them; add a
   station or a series here first.
+- `packages/`: code other sites reuse, released together on a `kit-v*` tag (`scripts/release-kit.sh`).
+  - `lhzn-blue-kit/` (Python, `lhzn_blue_kit`): `coops.py` (NOAA CO-OPS; an HTTP 200 with an error body or "No
+    data was found" is an empty result; tide predictions), `erddap.py` (a budgeted ERDDAP client for servers other
+    than Merlin, first NERACOOS), `store.py` (local, KV or gs:// storage with a caller's allow-list and size cap),
+    `stats.py` (daily means with a coverage rule, exceedance, joint histograms, Hobday climatology). The jobs
+    depend on it by path (`[tool.uv.sources]`); the image installs it first.
+  - `viz/` (`@lhzn-io/viz`, TypeScript source for Vite): `chart.ts`, `time-axis.ts`, `series.ts`, `dst.ts`,
+    `wind-dir.ts`, `moon.ts`, the currents and measured ramps, and `tokens.css` (the theme tokens). `apps/web`
+    depends on it as `file:../../packages/viz`.
+  - Keep both free of anything specific to one waterway or site: those stay in `jobs/` and `apps/web/`.
 - `jobs/src/lhzn_blue_jobs/`:
   - `merlin.py` (LISICOS ERDDAP client with retries; a 404 with "no matching results" is an empty window),
-    `coops.py` (NOAA CO-OPS; an HTTP 200 with an error body or "No data was found" is an empty result),
-    `rivers.py` (USGS Water Data APIs; `USGS_API_KEY` optional).
-  - `build.py` (QC, UTC hourly means, the buoy files, storage backends and the `WRITABLE` allow-list),
+    `rivers.py` (USGS Water Data APIs; `USGS_API_KEY` optional); CO-OPS and NERACOOS come from the kit.
+  - `build.py` (QC, UTC hourly means, the buoy files, the `WRITABLE` allow-list for the kit's store),
     `shore.py`, `waves.py`, `weather.py` (buoy weather history for the seasonal %iles), `turbidity.py` (with
     fouling flags).
   - `fields.py` (satellite rasters and NECOFS surface currents via forcingkit), `forecast.py` (HRRR at the buoys
@@ -29,13 +38,14 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
   - `lis.ts`: the page. Views (`WATER_VARS`: temp, salinity, oxygen, wind, turbidity, rivers), the overview table
     and pins, readouts per station, one builder per chart in `FIGS` used both inline and in the zoom dialog, and
     the prompt (`promptData`).
-  - `series.ts` (all derived values: rolling means, change, year mapping, coverage rule, stratification),
-    `trends.ts` (direction and seasonal percentile of a readout), `chart.ts` (SVG line charts with tooltips).
+  - `@lhzn-io/viz/series` (all derived values: rolling means, change, year mapping, coverage rule,
+    stratification), `trends.ts` (direction and seasonal percentile of a readout), `@lhzn-io/viz/chart` (SVG line
+    charts with tooltips).
   - `map.ts` (MapLibre locator map, pins, river basins; loaded on demand), `fields.ts` (map layers: colour bar,
     rasters, currents), `timeline.ts` (the one time cursor for the map, the charts, the table and the pins).
   - `methods.ts` (the text behind every (i) and the method notes in the prompt; `[[key]]` cites
     `docs/references.bib`), `collect.ts` and `snapshot.ts` (Collect: the tray, the "Ask your AI" prompt, one PNG
-    of the collected items), `hints.ts`, `suggest.ts`, `site.css` (design tokens).
+    of the collected items), `hints.ts`, `suggest.ts`, `site.css` (layout; imports the tokens from the package).
 - `apps/web/` pages: `/` (landing), `/long-island-sound/` with `forecast/`, `models/` and `tides/`, `/about/`,
   `/references/`, `/terms/`, and unlisted pages (any page not in `public/sitemap.xml`). `public/` holds
   `basins.geojson`, `references.bib`, `_headers`, `robots.txt` and `sitemap.xml`.
@@ -51,7 +61,8 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
   ids beyond what `wrangler.toml` needs, and tokens belong in `~/.config/lhzn-blue/env` or Secret Manager.
 - **Unlisted pages** stay out of the sitemap, the navigation, the README and the roadmap, and send
   `X-Robots-Tag: noindex` (`public/_headers`).
-- **Cost guards.** `build.Store.write_json` writes only the allow-listed object names (`WRITABLE`) under a size cap.
+- **Cost guards.** `build.Store.write_json` (the kit's store, held to `WRITABLE`) writes only the allow-listed object
+  names under a size cap.
   Keep it that way: no per-run or timestamped object names in KV. (The forecast archive's per-cycle files go to its
   own create-only store, not KV.)
 - **Numbers as text.** The AI prompt is built from the same values the charts use (`lis.ts`, `promptData`, and the
@@ -76,4 +87,6 @@ uv run lhzn-blue-jobs forecast --out ../out --forecasts ../out/hrrr             
 scripts/seed-kv.sh out                                           # push local output to KV (wrangler login)
 scripts/deploy-web.sh                                            # build site and deploy the Worker
 scripts/setup-gcp.sh && scripts/deploy-jobs.sh && scripts/schedule-jobs.sh
+jobs/.venv/bin/python -m pytest jobs/tests packages/lhzn-blue-kit/tests          # job and kit tests
+scripts/release-kit.sh 0.1.0                                     # build both packages; --publish to release them
 ```

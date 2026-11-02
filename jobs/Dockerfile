@@ -1,12 +1,14 @@
 # Ingest jobs for Cloud Run. Built by scripts/deploy-jobs.sh from a staging directory that holds
-# jobs/ and stations/ (so the station registry ships with the image).
+# jobs/, stations/ (so the station registry ships with the image) and packages/lhzn-blue-kit.
 FROM python:3.12-slim
 WORKDIR /app
+COPY packages/lhzn-blue-kit/ /app/packages/lhzn-blue-kit/
 COPY jobs/ /app/jobs/
 COPY stations/ /app/stations/
 # Tesseract (with English) reads the LISICOS station panels in the `panels` job.
 RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir /app/jobs
+# The kit first, so the jobs' "lhzn-blue-kit" requirement is already met (pip does not read uv's path source).
+RUN pip install --no-cache-dir /app/packages/lhzn-blue-kit /app/jobs
 ENV LHZN_BLUE_STATIONS=/app/stations/stations.json \
     LHZN_BLUE_SHORE_STATIONS=/app/stations/shore.json \
     LHZN_BLUE_RIVERS=/app/stations/rivers.json \

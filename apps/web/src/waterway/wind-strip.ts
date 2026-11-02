@@ -2,9 +2,9 @@
  * grouped by NWS zone; each hour coloured by speed on the map's wind scale. Measured hours first; where a buoy is out,
  * the newest HRRR run fills in, hatched as a model; the next 48 h are HRRR's forecast. A red ribbon over each zone marks
  * the NWS advisories; a rule marks the page's time. */
-import { ARROW_PATH, compass, LIGHT_KT, windArrow } from "../wind-dir";
+import { ARROW_PATH, compass, LIGHT_KT, windArrow } from "@lhzn-io/viz/wind-dir";
 import { WIND_STRIP_HASH } from "../advisory";
-import { DAY, HOUR } from "../series";
+import { DAY, HOUR } from "@lhzn-io/viz/series";
 import { fmtWhenMin, hourOf } from "./format";
 import { AT } from "./cursor";
 import { WIND_UNITS, windFmt, WU } from "./units";
@@ -12,7 +12,7 @@ import type { StationData } from "./station-data";
 import { FCST, forecastAt, hrrrAsOf, loadForecast } from "./forecast";
 import { ADV, ADV_WIND, advisoriesFor, loadAdvisories, zoneOf } from "./advisories";
 import { M } from "./models";
-import { axisHtml, pct, thinDates } from "../time-axis";
+import { axisHtml, pct, thinDates } from "@lhzn-io/viz/time-axis";
 
 type Theme = "dark" | "light";
 const currentTheme = (): Theme => (document.documentElement.dataset.theme === "light" ? "light" : "dark");

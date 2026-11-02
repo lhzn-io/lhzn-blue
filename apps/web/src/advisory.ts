@@ -3,7 +3,7 @@
  * it switches to the Wind view (without scrolling), where the advisories run along "Wind across the Sound". Shown
  * only while one is in force; the file is refreshed hourly from api.weather.gov. */
 
-import { getJson } from "./series";
+import { getJson } from "@lhzn-io/viz/series";
 
 interface ZoneSpan { issued: string | null; from: string | null; until: string | null }
 export interface Alert {

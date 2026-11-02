@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 import pandas as pd
 import pytest
 
-from lhzn_blue_jobs import coops, meters
+from lhzn_blue_kit import coops
+
+from lhzn_blue_jobs import meters
 
 FLOOD = 310
 METER = {"id": "GRTN", "coops_id": "nl0101", "flood_dir": FLOOD, "realtime_bin": 2, "bins_m": [6.0, 10.0]}

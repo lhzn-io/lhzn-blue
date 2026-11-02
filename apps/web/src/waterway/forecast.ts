@@ -2,8 +2,8 @@
  * at the buoys, loaded when a reader first looks ahead or opens the weather; HRRR's last forecast before each hour,
  * the record's stand-in where a station is out; and the run slider that picks which run a plot emphasises. Values are
  * raw HRRR, never blended with observations: a time before now shows only what was measured. */
-import { emphasise } from "../chart";
-import { DAY, getJson, HOUR, Hourly } from "../series";
+import { emphasise } from "@lhzn-io/viz/chart";
+import { DAY, getJson, HOUR, Hourly } from "@lhzn-io/viz/series";
 import { fmtRun, fmtWhenMin, hourOf } from "./format";
 import { WIND_UNITS, windFmt, WU } from "./units";
 import type { FcStats, FcValue, Met, StationData } from "./station-data";

@@ -1799,6 +1799,7 @@ source = { editable = "." }
 dependencies = [
     { name = "forcingkit" },
     { name = "google-cloud-storage" },
+    { name = "lhzn-blue-kit" },
     { name = "matplotlib" },
     { name = "pandas" },
     { name = "requests" },
@@ -1819,6 +1820,7 @@ dev = [
 requires-dist = [
     { name = "forcingkit", url = "https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.13.0.tar.gz" },
     { name = "google-cloud-storage", specifier = ">=2.18" },
+    { name = "lhzn-blue-kit", editable = "../packages/lhzn-blue-kit" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "requests", specifier = ">=2.32" },
@@ -1826,6 +1828,29 @@ requires-dist = [
     { name = "utide", specifier = ">=0.3" },
 ]
 provides-extras = ["archive"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8" }]
+
+[[package]]
+name = "lhzn-blue-kit"
+version = "0.1.0"
+source = { editable = "../packages/lhzn-blue-kit" }
+dependencies = [
+    { name = "google-cloud-storage" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pandas" },
+    { name = "requests" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "google-cloud-storage", specifier = ">=2.18" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "pandas", specifier = ">=2.2" },
+    { name = "requests", specifier = ">=2.32" },
+]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8" }]

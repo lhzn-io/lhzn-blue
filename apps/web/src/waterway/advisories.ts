@@ -2,7 +2,7 @@
  * zones under a wind advisory at a time (NWS's active alerts for the present). A zone retired in a split (on the Sound,
  * ANZ330 before April 2021) stands for the zones it became, up to the split. */
 import { alertsNow } from "../advisory";
-import { getJson } from "../series";
+import { getJson } from "@lhzn-io/viz/series";
 import { fmtWhenMin } from "./format";
 import { DATA, requestRedraw } from "./data";
 

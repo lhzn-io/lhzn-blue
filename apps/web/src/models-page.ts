@@ -11,7 +11,7 @@ import "./site.css";
 import "./away-links";
 import { mountAdvisories } from "./advisory";
 import "./models-page.css";
-import { setPlayButton, timeTrack } from "./time-axis";
+import { setPlayButton, timeTrack } from "@lhzn-io/viz/time-axis";
 import "maplibre-gl/dist/maplibre-gl.css";
 import maplibregl from "maplibre-gl";
 import type { Feature, FeatureCollection } from "geojson"; // types that come with maplibre-gl

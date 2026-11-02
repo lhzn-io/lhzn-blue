@@ -10,7 +10,7 @@ import {
   type Encoded, type History, type LastObs, type Live, type Meta, type MetaSeries, type MetaStation, type MetHistory, type MetWindow,
   type RiverHistory, type RiverLive, type ShoreFrame, type ShoreHistory, type ShoreLive, type ShoreMetaStation, type TideEvent, type TurbFrame, type TurbHistory, type VarHistory,
   type WaveFrame, type WaveHistory, type WaveLive, type WaveObs,
-} from "../series";
+} from "@lhzn-io/viz/series";
 import { fmtDate, hoursOld } from "../waterway/format";
 import { DEPTHS, OFFLINE_HOURS, WATER_VARS, type Met, type MeterData, type StationData, type TurbData, type VarKey, type VarView, type Waves } from "../waterway/station-data";
 import { DATA } from "../waterway/data";

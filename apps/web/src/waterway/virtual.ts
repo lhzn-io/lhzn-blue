@@ -1,7 +1,7 @@
 /** A virtual buoy: any point on a waterway (/long-island-sound/at/41.050,-72.900/), shown as a station page from the
- * models the map already holds, read at that point in the browser: HRRR wind and gusts on its 3 km cell (and the
- * nearest GFS point past 48 h), NWPS waves on its 1.8 km cell, the NECOFS surface current on its triangle, and the
- * satellite water temperature on its pixel. Nothing is measured there; HRRR's and GFS's typical miss is borrowed from
+ * models the map already holds, read at that point in the browser: HRRR wind and gusts on its 3 km cell (and GFS
+ * past 48 h, from its water cells near the point), NWPS waves on its 1.8 km cell, the NECOFS surface current on its
+ * triangle, and the satellite water temperature on its pixel. Nothing is measured there; HRRR's and GFS's typical miss is borrowed from
  * the nearest buoy they are scored at (or the scored buoys together, where none is near), and named as such. */
 import type { CurrentsField, CurrentsMesh, RasterHistory, WindField } from "../fields";
 import type { Line } from "../chart";
@@ -9,14 +9,16 @@ import { DAY, getJson, grid, HOUR } from "../series";
 import { compass } from "../wind-dir";
 import { DATA, FORECAST_PAGE, requestRedraw } from "./data";
 import type { Fig } from "./figures";
-import { FCST, GFS, loadForecast, MS_KT, VER_AS, type FcRun } from "./forecast";
+import { FCST, GFS, loadForecast, MS_KT, VER_AS, type FcRun, type GfsGrid, type GfsRun } from "./forecast";
 import { M } from "./models";
 import type { StationData } from "./station-data";
 import { currentSpeed, waveUnit, WIND_UNITS, windFmt, WU } from "./units";
 
 export const VIRTUAL_ID = "AT";
 const SCORED_KM = 25; // the nearest scored buoy's miss within this distance; the scored buoys together beyond
-const GFS_KM = 20; // the nearest GFS point within this distance; no GFS beyond (it is published at the stations only)
+const GFS_KM = 20; // without GFS's grid in the file: the nearest station's GFS within this distance, none beyond
+const GFS_CELLS = 4; // with it: GFS's nearest water cells averaged at the point, within GFS_CELL_KM (the jobs' gfs.NEAREST, MAX_KM)
+const GFS_CELL_KM = 40;
 const SHORE_KM = 2; // a point this close to an HRRR land cell reads a wind slowed by the land
 
 type Place = { id: string; name: string; lat: number; lon: number };
@@ -93,7 +95,9 @@ interface Wind { cell: number; land: boolean; shoreKm: number; cycles: number }
 interface Waves { cell: number; km: number; at: { t: number; hs: number; tp: number; to: number }[] }
 interface Current { element: number; at: { t: number; u: number; v: number }[]; slack: number[] }
 interface Sst { at: [number, number][]; newest: string }
-export const VB: { wind?: Wind | null; waves?: Waves | null; current?: Current | null; sst?: Sst | null; scored?: { id: string; name: string; km: number } | null; gfs?: { id: string; name: string; km: number } | null } = {};
+/** Where the point's GFS comes from: its own water cells (cells: how many, km: the nearest), or a station's point. */
+type GfsFrom = { cells: number; km: number } | { id: string; name: string; km: number };
+export const VB: { wind?: Wind | null; waves?: Waves | null; current?: Current | null; sst?: Sst | null; scored?: { id: string; name: string; km: number } | null; gfs?: GfsFrom | null } = {};
 const loading = new Set<string>();
 const once = (key: string, run: () => Promise<void>) => {
   if (loading.has(key)) return;
@@ -105,8 +109,9 @@ const once = (key: string, run: () => Promise<void>) => {
 
 /** HRRR at the point: the nearest water cell within 3 km (the nearest cell of any kind where none is, as the map's
  * readout), one run per HRRR cycle in the grid file (each hour from the newest cycle that reaches it), in FCST under
- * the virtual id so the next-48-hours plot draws it as a station's; the nearest GFS point within GFS_KM likewise;
- * the nearest scored buoy within SCORED_KM lends its typical miss. */
+ * the virtual id so the next-48-hours plot draws it as a station's; GFS at the point likewise (`gfsAtPoint`; the
+ * nearest station's within GFS_KM while the file has no grid); the nearest scored buoy within SCORED_KM lends its
+ * typical miss. */
 export function loadVirtualWind(): void {
   once("wind", async () => {
     const [w] = await Promise.all([getJson<WindField>(`${DATA}/fields/hrrr-wind.json`), loadForecast()]);
@@ -144,6 +149,12 @@ export function loadVirtualWind(): void {
       .sort((a, b) => a.km - b.km);
     VB.scored = scored[0] ?? null;
     if (VB.scored && VB.scored.km <= SCORED_KM) VER_AS[VIRTUAL_ID] = VB.scored.id;
+    if (GFS?.grids.length) {
+      const own = gfsAtPoint(GFS.grids);
+      VB.gfs = own && { cells: own.cells, km: own.km };
+      if (own) GFS.runs[VIRTUAL_ID] = own.runs;
+      return;
+    }
     const gfs = Object.keys(GFS?.runs ?? {})
       .filter((id) => id !== VIRTUAL_ID)
       .map((id) => pl.find((p) => p.id === id))
@@ -153,6 +164,32 @@ export function loadVirtualWind(): void {
     VB.gfs = gfs ?? null;
     if (GFS && gfs && gfs.km <= GFS_KM) GFS.runs[VIRTUAL_ID] = GFS.runs[gfs.id];
   });
+}
+
+/** GFS at the point, one run per gridded cycle: the inverse-distance-squared mean of its GFS_CELLS nearest water
+ * cells within GFS_CELL_KM, as the jobs read GFS at the stations (gfs.weights, with its distances), so a point on a
+ * station reads that station's values. Null where no water cell is in reach. */
+function gfsAtPoint(grids: GfsGrid[]): { runs: GfsRun[]; cells: number; km: number } | null {
+  const runs: GfsRun[] = [];
+  let used = { cells: 0, km: Infinity };
+  for (const g of grids) {
+    const near = g.lat
+      .map((lat, i) => ({ i, km: Math.hypot((g.lon[i] - P!.lon) * 111.32 * Math.cos((P!.lat * Math.PI) / 180), (lat - P!.lat) * 110.95) }))
+      .sort((a, b) => a.km - b.km)
+      .slice(0, GFS_CELLS)
+      .filter((c) => c.km <= GFS_CELL_KM);
+    if (!near.length) continue;
+    const w = near.map((c) => 1 / Math.max(c.km, 0.5) ** 2);
+    const sum = w.reduce((a, b) => a + b, 0);
+    const at = (s: string | undefined) => {
+      if (!s) return null;
+      const raw = atob(s);
+      return near.reduce((a, c, k) => a + b64int8(raw, c.i) * g.step * w[k], 0) / sum;
+    };
+    runs.push({ issue: g.issue, leads: g.leads, u: g.u10.map(at), v: g.v10.map(at), gust: g.leads.map((_, j) => at(g.gust?.[j])) });
+    if (!used.cells) used = { cells: near.length, km: near[0].km };
+  }
+  return runs.length ? { runs, ...used } : null;
 }
 
 /** NWPS at the point: the nearest water cell within 2 km, every frame (24 h back to 72 h ahead). */
@@ -313,6 +350,13 @@ export function virtualIntro(d: StationData): { sid: string; links: string; note
   };
 }
 
+/** Where the point's GFS comes from, in a few words. */
+function gfsSource(g: GfsFrom | null): string {
+  if (g && "cells" in g) return `GFS, ${g.cells} water cell${g.cells === 1 ? "" : "s"}, nearest ${fmtKm(g.km)}`;
+  if (g && g.km <= GFS_KM) return `GFS at ${g.name}, ${fmtKm(g.km)}`;
+  return GFS?.grids.length ? `no GFS water cell within ${GFS_CELL_KM} km` : `no GFS within ${GFS_KM} km`;
+}
+
 /** The status column on a virtual buoy's page: where each value at this point comes from, and how far away. */
 export function virtualSources(): string {
   const s = VB.scored;
@@ -323,7 +367,7 @@ export function virtualSources(): string {
     <p class="ol-title">At this point</p>
     ${row("Wind", VB.wind === undefined ? wait : VB.wind ? `HRRR, 3 km ${VB.wind.land ? "land " : ""}cell` : "no HRRR cell")}
     ${row("Miss", s === undefined ? wait : s && s.km <= SCORED_KM ? `${s.name}, ${fmtKm(s.km)}` : "the 4 scored buoys")}
-    ${row("Past 48 h", g === undefined ? wait : g && g.km <= GFS_KM ? `GFS at ${g.name}, ${fmtKm(g.km)}` : `no GFS within ${GFS_KM} km`)}
+    ${row("Past 48 h", g === undefined ? wait : gfsSource(g))}
     ${row("Waves", VB.waves === undefined ? wait : VB.waves ? "NWPS, 1.8 km cell" : "no NWPS cell")}
     ${row("Current", VB.current === undefined ? wait : VB.current ? "NECOFS triangle" : "outside NECOFS")}
     ${row("Water", VB.sst === undefined ? wait : VB.sst ? "MUR satellite, 1 km" : "no satellite pixel")}
@@ -336,7 +380,8 @@ export function virtualMiss(): { label: string; note: string } {
   const s = VB.scored;
   const near = s && s.km <= SCORED_KM;
   const g = VB.gfs;
-  const gNote = !g ? "" : g.km <= GFS_KM ? ` &middot; past 48 h: GFS at ${g.name}` : ` &middot; no GFS within ${GFS_KM} km`;
+  const gNote =
+    g === undefined ? "" : g && "cells" in g ? " &middot; past 48 h: GFS at this point (0.25&deg;)" : g && g.km <= GFS_KM ? ` &middot; past 48 h: GFS at ${g.name}` : ` &middot; ${gfsSource(g)}`;
   return {
     label: near ? `Typical miss at ${s.name}` : "Typical miss, 4 scored buoys",
     note:

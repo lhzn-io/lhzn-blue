@@ -145,6 +145,11 @@ const PLOT_ONLY: Record<string, Set<string>> = {
  * the page's own list. */
 const STATION_PATH = new RegExp(`^/([a-z0-9-]+)/([a-z0-9-]{2,20})(?:/(${Object.keys(plotPages).join("|")}))?/?$`, "i");
 
+/** A virtual buoy's page (/long-island-sound/at/41.050,-72.900/: the point read from the models only, see the page's
+ * waterway/virtual.ts): the waterway's page, kept out of search results, with the waterway as its canonical address. */
+const POINT_PATH = /^\/([a-z0-9-]+)\/at\/(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)\/?$/;
+const POINT_PAGES = new Set(["long-island-sound"]);
+
 /** Waterways kept out of search results: what the Worker serves under them carries the noindex that _headers gives
  * their static files. */
 const UNLISTED = ["/piscataqua-region/", "/long-island-sound/currents-3d/"];
@@ -172,6 +177,16 @@ async function page(req: Request, env: Env, url: URL): Promise<Response> {
     const home = new URL(url);
     home.pathname = SAME_PAGE[same];
     return env.ASSETS.fetch(new Request(home, req));
+  }
+  const pt = POINT_PATH.exec(url.pathname);
+  if (pt && POINT_PAGES.has(pt[1])) {
+    if (!url.pathname.endsWith("/")) return Response.redirect(`${url.origin}${url.pathname}/${url.search}`, 301);
+    const home = new URL(url);
+    home.pathname = `/${pt[1]}/`;
+    const res = await env.ASSETS.fetch(new Request(home, req));
+    const out = new Response(res.body, res);
+    out.headers.set("X-Robots-Tag", "noindex, nofollow");
+    return out;
   }
   const m = STATION_PATH.exec(url.pathname);
   const stations = m && Object.hasOwn(WATERWAYS, m[1]) ? WATERWAYS[m[1]] : undefined;

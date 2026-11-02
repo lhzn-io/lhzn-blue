@@ -26,7 +26,9 @@ export function openAbout(key: string, d: StationData | null): void {
     if (!dialog.open) dialog.showModal();
     return;
   }
-  const m = METHODS[key];
+  // A virtual buoy's plot reads its own entry where the station plot's words do not fit ("virtual-next48").
+  const mk = d?.kind === "virtual" && METHODS[`virtual-${key}`] ? `virtual-${key}` : key;
+  const m = METHODS[mk];
   if (!m) return;
   const dialog = $("about-dialog") as HTMLDialogElement;
   aboutLink = A.link(key, d);
@@ -34,7 +36,7 @@ export function openAbout(key: string, d: StationData | null): void {
   linkBtn.hidden = !aboutLink;
   linkBtn.textContent = "Copy link";
   $("about-dialog-title").textContent = d && !key.startsWith("map-") ? `${m.title}: ${d.meta.name}` : m.title;
-  $("about-dialog-body").innerHTML = methodHtml(key, A.method(d));
+  $("about-dialog-body").innerHTML = methodHtml(mk, A.method(d));
   A.extend?.(key, $("about-dialog-body"), d);
   if (!dialog.open) dialog.showModal();
 }

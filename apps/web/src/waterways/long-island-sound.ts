@@ -51,6 +51,7 @@ export const LONG_ISLAND_SOUND: StationDataWaterway = {
     credit: "Long Horizon Observatory \u00b7 longhorizon.blue \u00b7 CC BY-NC 4.0 \u00b7 data: LISICOS (UConn), NOAA, USGS, NASA; map \u00a9 OpenStreetMap contributors",
     mailTo: "long-island-sound@longhorizon.blue",
   },
+  virtual: { box: [[-74.4, 40.3], [-71.4, 41.7]] },
   stationPages: {
     views: { buoy: ["temp", "salinity", "oxygen", "wind"], shore: ["tides", "temp", "wind"], airport: ["wind"], meter: ["tides"] },
     chips: ["buoy"],

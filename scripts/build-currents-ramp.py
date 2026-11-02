@@ -1,6 +1,6 @@
-"""Write packages/viz/src/currents-ramp.ts from the currents colour tables (speed_m_s,r,g,b rows).
+"""Write packages/timecharts/src/currents-ramp.ts from the currents colour tables (speed_m_s,r,g,b rows).
 
-The tables are forcingkit's packaged ramps, copied into packages/viz/src: currents_lis.csv as
+The tables are forcingkit's packaged ramps, copied into packages/timecharts/src: currents_lis.csv as
 currents-ramp.csv (light basemap) and currents_lis_dark.csv as currents-ramp-dark.csv (dark
 basemap). Rerun after updating either copy:
 
@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WEB = ROOT / "packages/viz/src"
+WEB = ROOT / "packages/timecharts/src"
 SRC_LIGHT = Path(sys.argv[1]) if len(sys.argv) > 1 else WEB / "currents-ramp.csv"
 SRC_DARK = Path(sys.argv[2]) if len(sys.argv) > 2 else WEB / "currents-ramp-dark.csv"
 OUT = WEB / "currents-ramp.ts"

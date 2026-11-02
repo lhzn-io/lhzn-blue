@@ -26,8 +26,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from lhzn_blue_kit import coops
-from lhzn_blue_kit.erddap import NERACOOS_URL, Erddap
+from insitukit import coops
+from insitukit.erddap import NERACOOS_URL, Erddap
 
 from . import asos, fields, hrrr_grid, outages, piscataqua, rivers, shore
 from .build import Store, decode_frame, encode_frame, iso, now_utc

@@ -27,7 +27,7 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
-from lhzn_blue_kit import coops
+from insitukit import coops
 
 from .build import iso, now_utc
 

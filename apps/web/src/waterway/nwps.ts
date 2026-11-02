@@ -1,7 +1,7 @@
 /** The NWS nearshore wave model (NWPS: SWAN, about 1.8 km) at a waterway's buoys: the newest run covering each hour,
  * shown under a wave sensor's fault (never in its place, and labelled as a model), ahead in the outlook, and on the
  * waves plot with its own run slider. */
-import { getJson, HOUR } from "@lhzn-io/viz/series";
+import { getJson, HOUR } from "@lhzn-io/timecharts/series";
 import { fmtRun } from "./format";
 import type { StationData } from "./station-data";
 import { DATA, requestRedraw } from "./data";

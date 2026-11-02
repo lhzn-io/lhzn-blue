@@ -2,11 +2,11 @@
  * predicts, beside NOAA's prediction and the NECOFS model, the three compared over the plot's window; and every bin
  * across the channel. Data: the meter's bins (shore.json, the jobs' meters.py) and the prediction and model at the
  * meter (current-phase.json, the jobs' phase.py, which pairs the two at its reference points). */
-import type { Glyph } from "@lhzn-io/viz/chart";
+import type { Glyph } from "@lhzn-io/timecharts/chart";
 import type { Pin } from "../map";
-import { getJson, grid, HOUR, type Hourly, type LastObs } from "@lhzn-io/viz/series";
+import { getJson, grid, HOUR, type Hourly, type LastObs } from "@lhzn-io/timecharts/series";
 import type { PhaseFile } from "../phase";
-import { compass } from "@lhzn-io/viz/wind-dir";
+import { compass } from "@lhzn-io/timecharts/wind-dir";
 import type { Built } from "./figures";
 import { ago, fmtDate } from "./format";
 import { AT, atLabel } from "./cursor";

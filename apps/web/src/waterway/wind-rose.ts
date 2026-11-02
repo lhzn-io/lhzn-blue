@@ -4,7 +4,7 @@
  * by speed on the map's wind scale; calm hours (under 3 kt) have no direction and are the share in the centre. The
  * roses share one radial scale, so their shapes compare directly; the radius goes with the square root of the share,
  * so a spoke's area follows its hours and one strong direction over a few days does not shrink the rest. */
-import { DAY, HOUR } from "@lhzn-io/viz/series";
+import { DAY, HOUR } from "@lhzn-io/timecharts/series";
 import { AT } from "./cursor";
 import { hourOf } from "./format";
 import { forecastAt } from "./forecast";

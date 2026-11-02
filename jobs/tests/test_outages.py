@@ -5,7 +5,7 @@ import logging
 import pytest
 import requests
 
-from lhzn_blue_kit import coops, erddap
+from insitukit import coops, erddap
 
 from lhzn_blue_jobs import merlin
 from lhzn_blue_jobs.outages import is_outage, record

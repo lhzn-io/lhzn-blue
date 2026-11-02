@@ -1,7 +1,7 @@
 /** The Rivers view: the gauges table (flow, its class for the date, river turbidity), the gauges' pins, the watershed
  * shown when a row is pointed at, and the readouts at the top of each river section. */
 import type { Pin } from "../map";
-import type { LastObs } from "@lhzn-io/viz/series";
+import type { LastObs } from "@lhzn-io/timecharts/series";
 import { ago } from "./format";
 import { AT, atFuture, atLabel, sparklineOf } from "./cursor";
 import { obsState, type StationData } from "./station-data";

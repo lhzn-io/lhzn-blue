@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import requests
 
-from lhzn_blue_kit import coops
+from insitukit import coops
 
 from .build import iso, now_utc
 from .shore import load_shore

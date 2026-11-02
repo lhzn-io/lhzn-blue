@@ -1633,6 +1633,21 @@ wheels = [
 ]
 
 [[package]]
+name = "insitukit"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pandas" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/74/a4/f498f028e6778652597c50e87870660c5a6bec6f1d299d3070d1cb9166ad/insitukit-0.1.0.tar.gz", hash = "sha256:2bc0dd3296cdd6d30741cab24c82525294642eaa1984d0ee84d8b1a5df43a8f4", size = 85012, upload-time = "2026-11-02T16:53:21.053Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/b2/f0311d722789e595758ee13d8aec02d000de8575c5e9664918588206aaac/insitukit-0.1.0-py3-none-any.whl", hash = "sha256:003ee1d2bdafc35853583a49b2b105724ce63c06b6391f4169f8d98a433a4143", size = 16358, upload-time = "2026-11-02T16:53:19.73Z" },
+]
+
+[[package]]
 name = "jinja2"
 version = "3.1.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1799,7 +1814,7 @@ source = { editable = "." }
 dependencies = [
     { name = "forcingkit" },
     { name = "google-cloud-storage" },
-    { name = "lhzn-blue-kit" },
+    { name = "insitukit" },
     { name = "matplotlib" },
     { name = "pandas" },
     { name = "requests" },
@@ -1820,7 +1835,7 @@ dev = [
 requires-dist = [
     { name = "forcingkit", url = "https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.13.0.tar.gz" },
     { name = "google-cloud-storage", specifier = ">=2.18" },
-    { name = "lhzn-blue-kit", editable = "../packages/lhzn-blue-kit" },
+    { name = "insitukit", specifier = ">=0.1,<0.2" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "requests", specifier = ">=2.32" },
@@ -1828,29 +1843,6 @@ requires-dist = [
     { name = "utide", specifier = ">=0.3" },
 ]
 provides-extras = ["archive"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8" }]
-
-[[package]]
-name = "lhzn-blue-kit"
-version = "0.1.0"
-source = { editable = "../packages/lhzn-blue-kit" }
-dependencies = [
-    { name = "google-cloud-storage" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "pandas" },
-    { name = "requests" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "google-cloud-storage", specifier = ">=2.18" },
-    { name = "numpy", specifier = ">=1.26" },
-    { name = "pandas", specifier = ">=2.2" },
-    { name = "requests", specifier = ">=2.32" },
-]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8" }]

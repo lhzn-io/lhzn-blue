@@ -1,6 +1,6 @@
 /* The site's layout and components. The theme tokens (dark "chart room" and light "gilded china") are in
-   @lhzn-io/viz/tokens.css, which other sites reuse. */
-@import "@lhzn-io/viz/tokens.css";
+   @lhzn-io/timecharts/tokens.css, which other sites reuse. */
+@import "@lhzn-io/timecharts/tokens.css";
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }

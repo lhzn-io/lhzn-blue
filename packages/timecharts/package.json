@@ -1,7 +1,7 @@
 {
-  "name": "@lhzn-io/viz",
+  "name": "@lhzn-io/timecharts",
   "version": "0.1.0",
-  "description": "The longhorizon.blue charts, time axis, series helpers, ramps and theme tokens, for reuse by other sites",
+  "description": "Time-series charts on one shared time axis, with the series helpers, ramps and theme tokens of longhorizon.blue",
   "license": "MIT",
   "author": "Long Horizon Observatory",
   "type": "module",

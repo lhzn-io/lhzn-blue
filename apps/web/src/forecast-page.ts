@@ -13,9 +13,9 @@ import "./site.css";
 import "./away-links";
 import { mountAdvisories } from "./advisory";
 import "./forecast-page.css";
-import { cssVar, el, niceStep, renderLines, type Line } from "@lhzn-io/viz/chart";
-import { measuredOr, windGlyphs } from "@lhzn-io/viz/wind-dir";
-import { timeTrack } from "@lhzn-io/viz/time-axis";
+import { cssVar, el, niceStep, renderLines, type Line } from "@lhzn-io/timecharts/chart";
+import { measuredOr, windGlyphs } from "@lhzn-io/timecharts/wind-dir";
+import { timeTrack } from "@lhzn-io/timecharts/time-axis";
 
 const DATA = "/data/v1";
 const $ = (id: string) => document.getElementById(id)!;

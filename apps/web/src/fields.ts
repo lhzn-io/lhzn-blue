@@ -13,9 +13,9 @@ import type maplibregl from "maplibre-gl";
 import { alertsNow, zoneForecastUrl } from "./advisory";
 import { BOATS, COMFORT_WORDS, boatIcon, type Boat } from "./comfort-thresholds";
 import { SST_STOPS, SST_STOPS_DARK, isothermStep, isotherms, stopColour } from "./sst-scale";
-import { CURRENTS_FLOOR, CURRENTS_KNOTS, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURRENTS_TOP } from "@lhzn-io/viz/currents-ramp";
+import { CURRENTS_FLOOR, CURRENTS_KNOTS, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURRENTS_TOP } from "@lhzn-io/timecharts/currents-ramp";
 import { mapReady, mapTheme, onStyle } from "./map";
-import { compass as compass16, LIGHT_KT, windArrow } from "@lhzn-io/viz/wind-dir";
+import { compass as compass16, LIGHT_KT, windArrow } from "@lhzn-io/timecharts/wind-dir";
 
 export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind" | "waves" | "wat" | "comfort";
 

@@ -1,7 +1,7 @@
 /** The Sound's station model: what one buoy, shore station, airport or river section holds once loaded, the water
  * variables a reader picks between, and a station's state from the age of its readings. The engine's cells, pins and
  * (later) figures read this; the Sound's loaders fill it. */
-import { Daily, Hourly, type LastObs, type MetaStation, type MetObs, type RiverHistory, type TideEvent } from "@lhzn-io/viz/series";
+import { Daily, Hourly, type LastObs, type MetaStation, type MetObs, type RiverHistory, type TideEvent } from "@lhzn-io/timecharts/series";
 import { cToF, hoursOld } from "./format";
 
 export const DEPTHS = ["SFC", "MID", "BTM"] as const;

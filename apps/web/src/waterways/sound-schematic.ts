@@ -1,5 +1,5 @@
 /** The schematic Sound (the Sound's tides view): a Sound-only module, which the Sound's page includes. */
-import { getJson, HOUR } from "@lhzn-io/viz/series";
+import { getJson, HOUR } from "@lhzn-io/timecharts/series";
 import { AT, atLabel } from "../waterway/cursor";
 import { feet, lastValue, signedFt } from "../waterway/format";
 import type { StationData } from "../waterway/station-data";

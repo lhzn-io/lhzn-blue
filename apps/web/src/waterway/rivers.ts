@@ -1,6 +1,6 @@
 /** A waterway's rivers: USGS stream gauges, their flow (hourly recent, daily from 1990), where a flow sits among the
  * date's percentiles and USGS's classes, and the Rivers view's sections (an all-rivers summary, then each gauge). */
-import { Daily, HOUR, Hourly, type LastObs, type RiverHistory, type RiverLive } from "@lhzn-io/viz/series";
+import { Daily, HOUR, Hourly, type LastObs, type RiverHistory, type RiverLive } from "@lhzn-io/timecharts/series";
 import type { Gauge, RiverData, StationData } from "./station-data";
 
 /** Index of a time's Eastern calendar date in a leap year (0 to 365), for the day-of-year percentiles. */

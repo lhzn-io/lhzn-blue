@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from lhzn_blue_kit import store as kit_store
+from insitukit import store as kit_store
 
 from . import merlin
 
@@ -113,7 +113,7 @@ STATIONS_FILE = Path(
 
 
 # ---------------------------------------------------------------------------------------------
-# Storage: a local directory, Cloudflare Workers KV or a gs:// prefix (lhzn_blue_kit.store), held to WRITABLE.
+# Storage: a local directory, Cloudflare Workers KV or a gs:// prefix (insitukit.store), held to WRITABLE.
 
 
 class Store(kit_store.Store):

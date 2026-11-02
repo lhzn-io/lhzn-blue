@@ -7,8 +7,8 @@
  * (time-axis.ts, shared with the other pages' sliders). Past solid, forecast dotted; no accent colour.
  * The cursor is kept as hours from now, so "+5h" stays five hours ahead as the clock moves; 0 is live now. */
 
-import { axisHtml, pct, setPlayButton } from "@lhzn-io/viz/time-axis";
-import { zoned } from "@lhzn-io/viz/dst";
+import { axisHtml, pct, setPlayButton } from "@lhzn-io/timecharts/time-axis";
+import { zoned } from "@lhzn-io/timecharts/dst";
 
 export type ScaleKind = "hours" | "days";
 

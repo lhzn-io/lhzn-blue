@@ -1,8 +1,8 @@
 /** A waterway page's figures: what a figure is (its title, the views and stations that show it, its window, and a
  * builder for the chart), its legend, and the zoom view any figure opens into (wheel or pinch to zoom, drag to pan,
  * the full record a click away). The page keeps its registry of figures and hands the zoom view a host. */
-import { highlight, renderLines, type ChartOptions } from "@lhzn-io/viz/chart";
-import { COVERAGE_MIN, DAY, type Hourly, type YearLine } from "@lhzn-io/viz/series";
+import { highlight, renderLines, type ChartOptions } from "@lhzn-io/timecharts/chart";
+import { COVERAGE_MIN, DAY, type Hourly, type YearLine } from "@lhzn-io/timecharts/series";
 import type { StationData, VarKey } from "./station-data";
 
 const $ = (id: string) => document.getElementById(id)!;

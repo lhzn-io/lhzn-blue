@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import pytest
 
-from lhzn_blue_kit import coops
+from insitukit import coops
 
 from lhzn_blue_jobs import meters
 

@@ -12,10 +12,10 @@ import "./away-links";
 import "./forecast-page.css";
 import "./region.css";
 import registry from "../../../stations/piscataqua-region.json";
-import { cssVar, markAsOf, renderLines, type Area, type Line } from "@lhzn-io/viz/chart";
+import { cssVar, markAsOf, renderLines, type Area, type Line } from "@lhzn-io/timecharts/chart";
 import type { Pin } from "./map";
 import type { FieldControls, FieldData, FieldKind, RasterHistory } from "./fields";
-import { compass, LIGHT_KT, windArrow, windGlyphs } from "@lhzn-io/viz/wind-dir";
+import { compass, LIGHT_KT, windArrow, windGlyphs } from "@lhzn-io/timecharts/wind-dir";
 import { chainButton, navigateTo, revealLinked, wireLinks } from "./links";
 import { BUOY_VIEWS, buoyCardsHtml, buoyViewSwitchHtml, drawBuoyFigures, type BuoyCtx, type BuoyView } from "./buoy-views";
 import { PISCATAQUA_REGION as CFG, type Theme } from "./waterways/piscataqua-region";
@@ -639,7 +639,7 @@ async function drawMap(): Promise<void> {
   };
   map.drawMap($("map"), pins(), select, light() ? "light" : "dark");
   if (STATION) void map.focusOn({ lon: STATION.lon, lat: STATION.lat });
-  const [tl, chart] = await Promise.all([import("./timeline"), import("@lhzn-io/viz/chart")]);
+  const [tl, chart] = await Promise.all([import("./timeline"), import("@lhzn-io/timecharts/chart")]);
   tl.mountTimeline($("map-foot"));
   TL = tl;
   tl.onAsOf((t) => {

@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
-from lhzn_blue_kit import coops
+from insitukit import coops
 
 from .build import iso
 

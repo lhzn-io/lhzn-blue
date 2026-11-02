@@ -109,12 +109,16 @@ export function hrrrHist(id: string, x0: number, x1: number, observed: (t: numbe
 }
 export const HRRR_HIST_LABEL = "HRRR, last forecast before each hour"; // drawn only where the station has no reading
 
+/** A place scored as another (a virtual buoy, as the nearest buoy the models are scored at): its id to that buoy's. */
+export const VER_AS: Record<string, string> = {};
+
 /** The typical error (mean absolute, verified at the buoys) at a lead, between the verified leads: HRRR's, or the
  * given model's verification. */
 export function typicalError(id: string, lead: number, key: keyof FcStats, ver: Verification | null | undefined = FCST?.ver): number {
   const v = ver;
   if (!v || !v.leads.length) return NaN;
-  const at = (L: number) => (v.by_lead[L]?.buoys[id]?.[key] ?? v.by_lead[L]?.all[key] ?? NaN) as number;
+  const as = VER_AS[id] ?? id;
+  const at = (L: number) => (v.by_lead[L]?.buoys[as]?.[key] ?? v.by_lead[L]?.all[key] ?? NaN) as number;
   const ls = v.leads;
   if (lead <= ls[0]) return at(ls[0]);
   for (let i = 1; i < ls.length; i++) {

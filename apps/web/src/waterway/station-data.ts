@@ -52,7 +52,7 @@ export interface VarView {
 }
 
 export interface StationData {
-  kind: "buoy" | "shore" | "airport" | "meter" | "rivers" | "river" | "turbidity"; // rivers: the all-rivers summary; river: one gauge; airport: coastal ASOS weather; meter: a current meter
+  kind: "buoy" | "shore" | "airport" | "meter" | "rivers" | "river" | "turbidity" | "virtual"; // rivers: the all-rivers summary; river: one gauge; airport: coastal ASOS weather; meter: a current meter; virtual: a point read from the models only (waterway/virtual.ts)
   meta: MetaStation;
   depths: string[]; // depths this station has, top to bottom
   // The selected variable's views (see useVar); `temp` always holds temperature, for stratification and air.

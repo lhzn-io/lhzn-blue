@@ -49,6 +49,7 @@ import { wireLocate } from "./locate";
 import { embedMode, PLOT_PAGES, plotSlug, type PlotPage } from "./embed";
 import { wireCollect } from "./prompt";
 import { currentSpeed, setUnit, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./units";
+import { configureVirtual, loadVirtual, makeVirtual, VCURRENT, virtualFromPath, VIRTUAL_ID, virtualIntro, virtualPath, virtualReadouts, virtualSources, VSST, VWAVES } from "./virtual";
 
 /** The waterway this page is mounted for (mountWaterwayPage), and its parts. */
 let CFG: StationDataWaterway;
@@ -60,6 +61,9 @@ let A: Adapter;
  * overview). */
 let PAGES: { base: string } | null = null;
 let STATION_ID: string | null = null;
+/** A virtual buoy's page (<base>at/<lat>,<lon>/): the point read from the models only (waterway/virtual.ts); its
+ * station id is VIRTUAL_ID. */
+let VIRTUAL: StationData | null = null;
 const onStation = (d: StationData) => !STATION_ID || d.meta.id === STATION_ID;
 /** Move to a station's page (or the overview, null) within the page; null until the page has loaded. */
 let goToPlace: ((id: string | null, push: boolean) => Promise<void>) | null = null;
@@ -243,7 +247,7 @@ function yearStyle(offset: number, maxOffset: number): Pick<Line, "color" | "wid
 
 /* ---------- Figures: one builder per view, used inline and in the zoom view ---------- */
 
-type Kind = "yoy" | "chg" | "col" | "sb" | "next48" | "hilo" | "dep" | "mflow" | "mfan" | "mbins" | "wind" | "air" | "tide" | "waves" | "pressure" | "flow" | "share" | "rturb" | "ryoy" | "rpct" | "bturb";
+type Kind = "yoy" | "chg" | "col" | "sb" | "next48" | "vwaves" | "vcur" | "vsst" | "hilo" | "dep" | "mflow" | "mfan" | "mbins" | "wind" | "air" | "tide" | "waves" | "pressure" | "flow" | "share" | "rturb" | "ryoy" | "rpct" | "bturb";
 
 /**
  * Charts sit in two columns, and a chart shares its time axis with the ones above and below it: the left
@@ -535,6 +539,9 @@ const FIGS: Record<Kind, Fig> = {
     },
   },
   next48: NEXT48,
+  vwaves: VWAVES,
+  vcur: VCURRENT,
+  vsst: VSST,
   wind: {
     title: "Wind",
     varies: false,
@@ -1005,7 +1012,7 @@ const FIGS: Record<Kind, Fig> = {
 };
 
 /** Figure order in a section, left column then right, row by row. */
-const ORDER: Kind[] = ["yoy", "chg", "col", "sb", "next48", "hilo", "dep", "mflow", "mfan", "mbins", "wind", "tide", "waves", "pressure", "share", "bturb", "flow", "rpct", "ryoy", "rturb", "air"];
+const ORDER: Kind[] = ["yoy", "chg", "col", "sb", "next48", "vwaves", "vcur", "vsst", "hilo", "dep", "mflow", "mfan", "mbins", "wind", "tide", "waves", "pressure", "share", "bturb", "flow", "rpct", "ryoy", "rturb", "air"];
 
 /** A figure's name with the variable it shows, for the zoom title and screen readers. */
 const figName = (f: Fig) => (f.varies && VK !== "temp" ? `${V().label}: ${f.title.charAt(0).toLowerCase()}${f.title.slice(1)}` : f.title);
@@ -1176,6 +1183,7 @@ function turbTable(): string {
 /** The status column at the cursor's time, for the view on screen. `survey` leaves out the wind across the waterway (by
  * far the costliest part to draw; its height is held from the column as drawn). */
 function statusHtml(all: StationData[], survey = false): string {
+  if (VIRTUAL) return virtualSources(); // a virtual buoy has no row in the tables: where its values come from instead
   const stations = all.filter(onStation);
   if (VK === "turbidity") return turbTable() + PARTS.shoreTable() + outlookHtml(STATIONS);
   if (VK === "rivers") return riverTable(A.RIVER_SECTIONS[0]) + outlookHtml(STATIONS);
@@ -1367,7 +1375,7 @@ async function showAt(t: number | null): Promise<void> {
   void syncZones();
   if (EMBED) return;
   try {
-    (await import("../map")).updatePins([...STATIONS.map(stationPin), ...(VK === "rivers" ? gaugePins(A.RIVER_SECTIONS) : [])]);
+    (await import("../map")).updatePins([...STATIONS.map(stationPin), ...virtualPins(), ...(VK === "rivers" ? gaugePins(A.RIVER_SECTIONS) : [])]);
   } catch {
     /* map not loaded */
   }
@@ -1380,16 +1388,21 @@ async function overviewMap(stations: StationData[]): Promise<void> {
     const { drawMap } = await import("../map");
     drawMap(
       box,
-      stations.map(stationPin),
+      [...stations.map(stationPin), ...virtualPins()],
       // With station pages a pin opens its station's page; without them it goes to the station's section.
       (id) => (PAGES ? void (id !== STATION_ID && hasPage(id) && goToPlace?.(id, true)) : navigateTo(id)),
       currentTheme(),
-      meterPlace() ?? STATIONS.find((d) => d.meta.id === STATION_ID)?.meta,
+      meterPlace() ?? (VIRTUAL ?? STATIONS.find((d) => d.meta.id === STATION_ID))?.meta,
     );
     void syncMap();
   } catch {
     box.innerHTML = `<p class="note">The map could not load.</p>`;
   }
+}
+
+/** A virtual buoy's pin: its point, marked as a model point (no state of its own). */
+function virtualPins(): import("../map").Pin[] {
+  return VIRTUAL ? [{ id: VIRTUAL_ID, name: `${VIRTUAL.meta.name} (virtual buoy)`, lat: VIRTUAL.meta.lat, lon: VIRTUAL.meta.lon, state: "live", kind: "buoy", label: "Virtual buoy: model values only" }] : [];
 }
 
 /* ---------- Station sections ---------- */
@@ -1441,7 +1454,7 @@ function sectionHtml(d: StationData): string {
     return `
     <figure${f.wide ? ' class="wide"' : ""}>
       <figcaption><span class="cap-label">${STATION_ID ? "" : `<span class="cap-code">${id}</span>: `}${f.label?.(d) ?? f.title}</span>${f.sub ? `<span class="cap-sub">${f.sub}</span>` : ""}${PLOT_PAGE && key === EMBED ? plotViewTabs(d) : ""}${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, ((PLOT_PAGE && key === EMBED) || LINKED_PLOT === `${id}-${key}`) && d.depths.includes(PLOT_DEPTH) ? PLOT_DEPTH : d.depths[0]) : ""}
-        <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" || key === "mfan" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}${key === "mfan" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button>`}</span></figcaption>
+        <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" || key === "mfan" || d.kind === "virtual" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}${key === "mfan" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button>`}</span></figcaption>
       <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}"${PLOT_PAGE || key === "mfan" ? "" : ' title="Click to expand"'}><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
     </figure>`;
@@ -1449,6 +1462,20 @@ function sectionHtml(d: StationData): string {
   // Under the heading only a one-line status, and only for a gap in the data (a quiet station, a dataset the server
   // no longer publishes, a discontinued gauge); the explanations are in the section's About (the (i) by its name).
   const notes = statusLines(d);
+  if (d.kind === "virtual") {
+    const v = virtualIntro(d);
+    return `
+    <section class="station virtual" id="${id}" aria-labelledby="${id}-title">
+      <div class="station-head">
+        <h2 id="${id}-title"><i class="dot virtual"></i>${st.name}</h2>
+        <span class="sid">${v.sid}</span>
+      </div>
+      <p class="station-links">${v.links}</p>
+      <p class="station-note">${v.note}</p>
+      <div class="band" id="${id}-readouts"></div>
+      <div class="figs">${kinds.map(fig).join("")}</div>
+    </section>`;
+  }
   return `
     <section class="station" id="${id}" aria-labelledby="${id}-title">
       <div class="station-head">
@@ -1497,6 +1524,14 @@ function embedHtml(d: StationData | undefined): string {
 }
 
 function readouts(d: StationData): void {
+  if (d.kind === "virtual") {
+    $(`${d.meta.id}-readouts`).innerHTML = virtualReadouts(AT ?? Date.now() / 1000);
+    $(`${d.meta.id}-readouts`).classList.add("readouts-row");
+    $("status").innerHTML = virtualSources(); // the column beside the map: where each value comes from
+    const note = document.querySelector(`#${d.meta.id} .station-note`);
+    if (note) note.innerHTML = virtualIntro(d).note; // its shore and land words wait for the models
+    return;
+  }
   if (d.kind === "turbidity") {
     const t = d.turb!;
     $(`${d.meta.id}-readouts`).innerHTML = t.buoys
@@ -1558,11 +1593,11 @@ function drawInline(d: StationData, key: Kind): void {
   renderLines($(`${d.meta.id}-${key}`), b.opts);
   $(`${d.meta.id}-${key}-legend`).innerHTML = legendHtml(b);
   PLOT_NOTES.set(`${d.meta.id}-${key}`, b.note ?? "");
-  if (key === "next48") {
+  if (key === "next48" && d.kind !== "virtual") {
     mountVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
     mountRevisions(d, $(`${d.meta.id}-${key}`), x0, x1);
-    mountLongRange($(`${d.meta.id}-${key}`));
   }
+  if (key === "next48") mountLongRange($(`${d.meta.id}-${key}`)); // a virtual buoy's runs are pieces of one file: no run slider
   if (key === "waves") mountNwpsVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
 }
 
@@ -1974,6 +2009,7 @@ function fieldControls(): import("../fields").FieldControls {
     })(),
     chosen: fieldPick,
     boat: BOAT,
+    pointPage: PAGES && CFG.virtual ? (lng, lat) => virtualPath(PAGES!.base, lat, lng) : undefined,
     // Wind & waves: a click reads wind, waves and wind against tide at its point, whatever layer shows.
     point: VIEW_LAYERS[VK].overlay
       ? async () => {
@@ -2128,7 +2164,14 @@ async function main(): Promise<void> {
     const { meta, live, stations } = await A.load();
     STATIONS = stations;
     // A station's page: only its views (the first is its default), and the outlook on it.
-    if (STATION_ID) {
+    if (VIRTUAL) {
+      // A virtual buoy: the Wind and waves view only, with the HRRR wind layer unless the link names another.
+      VK = "wind";
+      if (!LINK.get("layer")) fieldPick = "wind";
+      showViews(["wind"]);
+      OUTLOOK.pin = VIRTUAL_ID;
+      loadVirtual();
+    } else if (STATION_ID) {
       const kind = stations.find((d) => d.meta.id === STATION_ID)?.kind ?? (A.SHORE.some((s) => s.id === STATION_ID) ? "shore" : A.METERS.some((m) => m.id === STATION_ID) ? "meter" : "airport");
       const views: VarKey[] = isGauge(STATION_ID) ? ["rivers"] : (CFG.stationPages?.views[kind] ?? []);
       if (!views.includes(VK)) {
@@ -2138,11 +2181,11 @@ async function main(): Promise<void> {
       showViews(views);
       OUTLOOK.pin = STATION_ID;
     }
-    const byId = (id: string) => [...stations, ...A.RIVER_SECTIONS, ...(A.TURB_SECTION ? [A.TURB_SECTION] : [])].find((d) => d.meta.id === id)!;
+    const byId = (id: string) => [...(VIRTUAL ? [VIRTUAL] : []), ...stations, ...A.RIVER_SECTIONS, ...(A.TURB_SECTION ? [A.TURB_SECTION] : [])].find((d) => d.meta.id === id)!;
     // A remembered salinity or oxygen choice loads its history first; if that fails, show temperature.
     if (VK !== "temp") await A.ensureVar(VK, live, stations, addSources).catch(() => (VK = "temp"));
     /** The stations on screen: the rivers section in the Rivers view, the buoys and shore stations otherwise. */
-    const shown = () => (EMBED ? [...stations, ...A.RIVER_SECTIONS].filter((d) => d.meta.id === EMBED_STATION) : VK === "rivers" ? A.RIVER_SECTIONS : VK === "turbidity" ? (A.TURB_SECTION ? [A.TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore" || d.kind === "meter") : stations.filter((d) => (d.kind !== "airport" || VK === "wind") && d.kind !== "meter")).filter(onStation);
+    const shown = () => (VIRTUAL ? [VIRTUAL] : EMBED ? [...stations, ...A.RIVER_SECTIONS].filter((d) => d.meta.id === EMBED_STATION) : VK === "rivers" ? A.RIVER_SECTIONS : VK === "turbidity" ? (A.TURB_SECTION ? [A.TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore" || d.kind === "meter") : stations.filter((d) => (d.kind !== "airport" || VK === "wind") && d.kind !== "meter")).filter(onStation);
     const drawAll = () => {
       for (const d of shown()) {
         readouts(d);
@@ -2219,6 +2262,7 @@ async function main(): Promise<void> {
     // opens on its first one (loaded first, if it has not been).
     goToPlace = async (id, push) => {
       if (id === STATION_ID) return;
+      if (VIRTUAL) return location.assign(placeUrl(id)); // a virtual buoy's page holds no other place's data
       const d = id ? stations.find((s) => s.meta.id === id) : undefined;
       if (id && !d) return;
       const views = d ? (CFG.stationPages?.views[d.kind] ?? []) : null;
@@ -2740,7 +2784,7 @@ function drawPlaces(): void {
   const panel = document.getElementById("place-panel");
   if (!pick || !panel) return;
   pick.hidden = false;
-  pick.querySelector(".vm-current")!.textContent = STATION_ID ? ([...STATIONS, ...A.RIVER_SECTIONS].find((d) => d.meta.id === STATION_ID)?.meta.name ?? STATION_ID) : "Overview";
+  pick.querySelector(".vm-current")!.textContent = STATION_ID ? ([...STATIONS, ...A.RIVER_SECTIONS].find((d) => d.meta.id === STATION_ID)?.meta.name ?? VIRTUAL?.meta.name ?? STATION_ID) : "Overview";
   const item = (id: string | null, label: string) => `<a href="${placeUrl(id)}" data-place="${id ?? ""}"${here(id)}>${escHtml(label)}</a>`;
   const chips = withPage.filter((d) => sp.chips.includes(d.kind));
   panel.innerHTML =
@@ -2842,6 +2886,14 @@ function markStationPage(): void {
     if (canonical) canonical.href = MAST.canonical;
     return;
   }
+  if (VIRTUAL) {
+    // A virtual buoy: kept out of search results (as the Worker's header says), its canonical address the waterway's.
+    if (top) top.textContent = CFG.name.toUpperCase();
+    if (bottom) bottom.textContent = VIRTUAL.meta.name.replace(/°/g, "").toUpperCase();
+    document.title = `${VIRTUAL.meta.name} (virtual buoy) | ${CFG.name} (alpha) | longhorizon.blue`;
+    if (!document.querySelector('meta[name="robots"]')) document.head.insertAdjacentHTML("beforeend", '<meta name="robots" content="noindex, nofollow">');
+    return;
+  }
   // A gauge has plot pages only, which keep the waterway's canonical address.
   const gauge = PLOT_PAGE && isGauge(STATION_ID);
   const d = [...STATIONS, ...(gauge ? A.RIVER_SECTIONS : [])].find((s) => s.meta.id === STATION_ID);
@@ -2909,11 +2961,25 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   A = parts.adapter;
   PAGES = opts.stationPages ?? null;
   STATION_ID = placeFromPath();
+  // A point's address (<base>at/<lat>,<lon>/): its virtual buoy, at the rounded address; outside the waterway's box,
+  // the overview.
+  if (PAGES && CFG.virtual && location.pathname.startsWith(`${PAGES.base}at/`)) {
+    const at = virtualFromPath(location.pathname, PAGES.base, CFG.virtual.box);
+    if (!at) {
+      location.replace(PAGES.base);
+      return;
+    }
+    VIRTUAL = makeVirtual(at.lat, at.lon);
+    STATION_ID = VIRTUAL_ID;
+    const path = virtualPath(PAGES.base, at.lat, at.lon);
+    if (location.pathname !== path) history.replaceState(null, "", `${path}${location.search}${location.hash}`);
+  }
+  configureVirtual({ places: () => STATIONS.map((d) => d.meta), stationUrl: (id) => placeUrl(id) });
   if (PAGES) wirePlaces();
   wireMast();
   DATA = CFG.data;
   // A plot page's address names its plot after the station (/long-island-sound/exrx/next-48h/).
-  const slug = PAGES && STATION_ID ? location.pathname.slice(PAGES.base.length).split("/")[1]?.toLowerCase() : "";
+  const slug = PAGES && STATION_ID && !VIRTUAL ? location.pathname.slice(PAGES.base.length).split("/")[1]?.toLowerCase() : "";
   PLOT = slug ? PLOT_PAGES[slug] ?? null : null;
   PLOT_DEPTH = (LINK.get("depth") ?? "").toUpperCase();
   // A river gauge's plot page (/long-island-sound/conn/flow/): the gauge's figure, in the Rivers view.

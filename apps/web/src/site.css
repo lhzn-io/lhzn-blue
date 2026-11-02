@@ -375,6 +375,8 @@ main { padding: 0 var(--gutter) 40px; }
 .dot.offline { background: transparent; border: 1px solid var(--faint); }
 /* Partial: half lit (weather reporting), half dark (water sensors offline). */
 .dot.partial { background: linear-gradient(90deg, var(--now) 50%, transparent 50%); border: 1px solid var(--now); }
+/* Virtual: a point read from the models only (no readings, so no state): a hollow ring in the forecast's ink. */
+.dot.virtual { background: transparent; border: 1.5px dashed var(--accent); }
 
 /* Map pins */
 .pin { display: flex; align-items: center; gap: 5px; padding: 0; border: 0; background: none; cursor: pointer; }
@@ -1205,6 +1207,9 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 /* The popup's link to the cell view, and the cell view: one cell's models on one time axis (fixed scales, midnight
    ticks, the value at the cursor at the right). */
 .pin-pop .pop-detail { font: 10px/1.2 var(--mono); color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.pin-pop .pop-point { display: inline-block; margin-left: 12px; }
+/* A virtual buoy's status column: where each value at its point comes from (two columns: no sparkline). */
+.vb-sources .vb-row { grid-template-columns: 84px minmax(0, 1fr); }
 .cell-dialog { width: min(94vw, 760px); padding: 14px 16px 10px; border: 1px solid var(--rule); border-left: 3px solid var(--accent); background: var(--bg); color: var(--ink); }
 .cell-dialog::backdrop { background: var(--backdrop); }
 .cell-head { margin: 0 0 8px; font: 11px/1.4 var(--mono); color: var(--dim); }

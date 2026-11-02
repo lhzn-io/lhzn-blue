@@ -11,6 +11,7 @@ import type { Fig } from "./figures";
 import { FCST, forecastAt, gfsAt, gfsTag, loadForecast, MS_KT, verTag, vintageLabel, vintageRuns, type FcRun } from "./forecast";
 import type { FcValue } from "./station-data";
 import { M } from "./models";
+import { loadVirtualWind, virtualMiss } from "./virtual";
 
 const GFS_AHEAD = 168 * HOUR; // GFS's last lead here (the jobs' gfs.LAST_LEAD)
 const LONG_KEY = "lhzn-blue-7days";
@@ -59,7 +60,7 @@ export const NEXT48: Fig = {
   sub: "",
   depthTabs: false,
   seasonal: false,
-  available: (d) => d.kind === "buoy" || d.kind === "shore" || d.kind === "airport", // every station has HRRR runs; drawn once they load
+  available: (d) => d.kind === "buoy" || d.kind === "shore" || d.kind === "airport" || d.kind === "virtual", // every station has HRRR runs (a virtual buoy, its HRRR cell's); drawn once they load
   window: () => {
     const now = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
     return [now - 36 * HOUR, now + (long ? GFS_AHEAD : 48 * HOUR)];
@@ -68,6 +69,8 @@ export const NEXT48: Fig = {
   maxSpan: 9 * DAY,
   build: (d, _depth, x0, x1) => {
     if (!FCST) void loadForecast();
+    const virtual = d.kind === "virtual";
+    if (virtual) loadVirtualWind();
     const xs = grid(x0, x1, 400).map((t) => Math.round(t / HOUR) * HOUR);
     const u = WIND_UNITS[WU];
     const fmtU = (v: number) => `${v.toFixed(u.digits)} ${u.label}`;
@@ -80,7 +83,8 @@ export const NEXT48: Fig = {
       return i < 0 || uu == null || vv == null ? NaN : Math.hypot(uu, vv) * MS_KT;
     };
     // Earlier runs, faint and fainter with age: where they agree the forecast is settled; where they fan out it is not.
-    const older = vintageRuns(d.meta.id, x0, x1).filter((r) => r !== newest).reverse();
+    // A virtual buoy's runs are pieces of the map's grid file (each hour from its newest run), so none is drawn alone.
+    const older = virtual ? [] : vintageRuns(d.meta.id, x0, x1).filter((r) => r !== newest).reverse();
     const runLines: Line[] = older.map((r, i) => ({
       ys: xs.map((t) => windVal(at(r, t))),
       color: M.palette().line,
@@ -103,9 +107,13 @@ export const NEXT48: Fig = {
     const gErr = gAhead.map((f) => f?.err ?? NaN);
     const hasGfs = g.some(Number.isFinite);
     const m = d.met;
+    const vm = virtual ? virtualMiss() : null;
+    // A virtual buoy has no measurement: before now, HRRR's newest run for each hour stands in its place, labelled.
+    const past = virtual ? xs.map((t) => (t < nowH0 ? (forecastAt(d.meta.id, t)?.spd ?? NaN) : NaN)) : [];
     const lines: Line[] = [
       ...runLines,
-      { ys: fc.map((_, i) => err(xs[i])), color: M.palette().miss, label: "Typical miss at the buoys", hidden: true, tip: false, fmt: (v) => `&plusmn;${windFmt(v)} ${u.label}` },
+      ...(virtual ? [{ ys: past.map((v) => windVal(v)), color: M.palette().line, width: 1.4, opacity: 0.7, label: "HRRR before now", fmt: fmtU }] : []),
+      { ys: fc.map((_, i) => err(xs[i])), color: M.palette().miss, label: vm?.label ?? "Typical miss at the buoys", hidden: true, tip: false, fmt: (v) => `&plusmn;${windFmt(v)} ${u.label}` },
       { ys: gErr, color: M.palette().gfs, label: "GFS typical miss", hidden: true, tip: false, fmt: (v) => `&plusmn;${windFmt(v)} ${u.label}` },
       { ys: ahead.map((f, i) => windVal(f ? f.gust : (gAhead[i]?.gust ?? NaN))), color: M.palette().contrast, opacity: 0.5, label: "Forecast gust", dots: true, fmt: fmtU },
       { ys: fc.map((v) => windVal(v)), color: M.palette().line, width: 2, dash: "6 3", label: "Stitched forecast", fmt: fmtU },
@@ -133,18 +141,19 @@ export const NEXT48: Fig = {
     const glyphs = windGlyphs(x0, x1, windAt);
     return {
       opts: {
-        xs, lines, glyphs, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" }, empty: "No forecast or measurement in this window.", pick,
+        xs, lines, glyphs, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" }, empty: virtual ? "HRRR at this point is loading." : "No forecast or measurement in this window.", pick: virtual ? undefined : pick,
         areas: [
           { lo: fc.map((v, i) => windVal(Math.max(0, v - err(xs[i])))), hi: fc.map((v, i) => windVal(v + err(xs[i]))), fill: M.palette().miss, opacity: 0.22 },
           ...(hasGfs ? [{ lo: g.map((v, i) => windVal(Math.max(0, v - gErr[i]))), hi: g.map((v, i) => windVal(v + gErr[i])), fill: M.palette().gfs, opacity: 0.18 }] : []),
         ],
       },
       legend: [
-        ["Measured", M.palette().now, 1], ["Stitched forecast", M.palette().line, 1, "Forecast"], ["", M.palette().miss, 0.5, "Typical miss"],
+        ...(virtual ? ([["HRRR before now", M.palette().line, 0.7, "Before now"]] as [string, string, number, string][]) : ([["Measured", M.palette().now, 1]] as [string, string, number][])),
+        ["Stitched forecast", M.palette().line, 1, "Forecast"], ["", M.palette().miss, 0.5, vm?.label ?? "Typical miss"],
         ...(hasGfs ? ([["GFS forecast", M.palette().gfs, 1, "GFS"], ["", M.palette().gfs, 0.4, "GFS typical miss"]] as [string, string, number, string][]) : []),
-        ["Gusts", M.palette().contrast, 0.55], ["Earlier forecasts", M.palette().line, 0.3, "Earlier runs"],
+        ["Gusts", M.palette().contrast, 0.55], ...(virtual ? [] : ([["Earlier forecasts", M.palette().line, 0.3, "Earlier runs"]] as [string, string, number, string][])),
       ],
-      note: `NOAA HRRR, raw &middot; the shading is HRRR's typical miss at each lead, ${verTag()}` +
+      note: vm ? vm.note : `NOAA HRRR, raw &middot; the shading is HRRR's typical miss at each lead, ${verTag()}` +
         (hasGfs ? ` &middot; past HRRR's 48 hours, NOAA GFS (0.25&deg;, raw), shaded with its own typical miss, ${gfsTag()}` : ""),
     };
   },

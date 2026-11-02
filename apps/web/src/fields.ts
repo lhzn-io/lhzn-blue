@@ -183,6 +183,9 @@ export interface FieldControls {
   boat?: Boat;
   /** The overlays the view offers (wind against tide; discomfort zones), whether each is on, and its switch. */
   overlays?: { key: string; label: string; on: boolean; onToggle: (on: boolean) => void }[];
+  /** A point's own page (a virtual buoy, waterway/virtual.ts), linked from a click's readout; none where the page has
+   * none. */
+  pointPage?: (lng: number, lat: number) => string;
   /** The reader's speed unit (from the page's Units switch), for the currents key and values. */
   speed: { label: string; perCms: number; digits: number };
 }
@@ -1830,7 +1833,9 @@ function pointText(lng: number, lat: number): string {
     src.wat ? watLine(src.wat, lng, lat, !!overlay || !!data.wat, headingsAt(src, lng, lat)) : null,
   ].filter((l): l is string => !!l);
   if (!lines.length) return "No model cell here";
-  return lines.join('<hr class="pop-rule">') + '<hr class="pop-rule"><button type="button" class="pop-detail">Cell detail</button>';
+  const page = controls?.pointPage?.(lng, lat);
+  const open = page ? `<a class="pop-detail pop-point" href="${page}" rel="nofollow">Open as a virtual buoy</a>` : "";
+  return lines.join('<hr class="pop-rule">') + `<hr class="pop-rule"><button type="button" class="pop-detail">Cell detail</button>${open}`;
 }
 
 

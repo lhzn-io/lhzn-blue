@@ -65,6 +65,13 @@ let STATION_ID: string | null = null;
  * station id is VIRTUAL_ID. */
 let VIRTUAL: StationData | null = null;
 const onStation = (d: StationData) => !STATION_ID || d.meta.id === STATION_ID;
+/** Whether a shore station has anything to show in a view: a tide gauge with no weather sensors stays out of Wind &
+ * waves, and one with no thermometer out of Temperature (USGS Rye reports water level only). */
+const hasView = (d: StationData, v: VarKey) =>
+  d.kind !== "shore" ||
+  (v === "wind" ? !!(d.met?.wind || d.met?.air || d.met?.pressure)
+    : v === "temp" ? !!d.temp.hourly.SFC || d.meta.series.some((s) => s.hours > 0)
+    : true);
 /** Move to a station's page (or the overview, null) within the page; null until the page has loaded. */
 let goToPlace: ((id: string | null, push: boolean) => Promise<void>) | null = null;
 /** The masthead and title as the page has them, for the way back to the overview. */
@@ -2185,7 +2192,7 @@ async function main(): Promise<void> {
     // A remembered salinity or oxygen choice loads its history first; if that fails, show temperature.
     if (VK !== "temp") await A.ensureVar(VK, live, stations, addSources).catch(() => (VK = "temp"));
     /** The stations on screen: the rivers section in the Rivers view, the buoys and shore stations otherwise. */
-    const shown = () => (VIRTUAL ? [VIRTUAL] : EMBED ? [...stations, ...A.RIVER_SECTIONS].filter((d) => d.meta.id === EMBED_STATION) : VK === "rivers" ? A.RIVER_SECTIONS : VK === "turbidity" ? (A.TURB_SECTION ? [A.TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore" || d.kind === "meter") : stations.filter((d) => (d.kind !== "airport" || VK === "wind") && d.kind !== "meter")).filter(onStation);
+    const shown = () => (VIRTUAL ? [VIRTUAL] : EMBED ? [...stations, ...A.RIVER_SECTIONS].filter((d) => d.meta.id === EMBED_STATION) : VK === "rivers" ? A.RIVER_SECTIONS : VK === "turbidity" ? (A.TURB_SECTION ? [A.TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore" || d.kind === "meter") : stations.filter((d) => (d.kind !== "airport" || VK === "wind") && d.kind !== "meter" && hasView(d, VK))).filter(onStation);
     const drawAll = () => {
       for (const d of shown()) {
         readouts(d);
@@ -2200,7 +2207,7 @@ async function main(): Promise<void> {
       if (isWater(VK)) A.wantShoreHistory(); // the shore stations' water records, for the views that show them
       stations.forEach((d) => A.useVar(d, VK));
       const group = (kind: StationData["kind"], title: string) => {
-        const list = stations.filter((d) => d.kind === kind);
+        const list = stations.filter((d) => d.kind === kind && hasView(d, VK));
         const grouped = stations.some((d) => d.kind === "shore");
         return list.length ? (grouped ? `<h2 class="station-group">${title}</h2>` : "") + list.map(sectionHtml).join("") : "";
       };

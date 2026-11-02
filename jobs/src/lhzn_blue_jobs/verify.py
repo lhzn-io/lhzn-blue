@@ -4,8 +4,8 @@ Each archived HRRR forecast at a buoy (issue time, valid time, lead) is paired w
 for the hour that starts at the valid time: the same hourly means the page shows (wind and air temperature means,
 pressure mean, speed-weighted direction turned to true north). Errors are forecast minus observed:
 
-- wind speed (kt) at 10 m: the buoy's speed raised from the anemometer's height (ANEMOMETER_M, assumed until the
-  LISICOS buoy configuration confirms it) with a neutral log profile over open water (roughness Z0_M);
+- wind speed (kt) at 10 m: the buoy's speed raised from the anemometer's height (ANEMOMETER_M, 3.5 m as NDBC lists
+  for 44039 and the LISICOS station pages give) with a neutral log profile over open water (roughness Z0_M);
 - direction, where the observed wind is DIR_MIN_KT or more: degrees clockwise, -180 to 180;
 - air temperature (C), HRRR's 2 m against the buoy's sensor;
 - sea-level pressure (mb), HRRR's MSLMA against the buoy's barometer.
@@ -55,7 +55,7 @@ STABILITY_BINS = [-30, -4, -1, 1, 4, 30]  # HRRR air minus buoy water temperatur
 BINNED_BY = ("fspeed", "speed", "month", "stability", "sector")
 SECTORS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 HIST_HALF = 16  # speed error histogram: 1 kt bins from -16 to 16, the ends holding everything beyond
-ANEMOMETER_M = 3.8
+ANEMOMETER_M = 3.5  # NDBC 44039 (Central Long Island Sound) and the LISICOS station pages
 Z0_M = 0.0002
 HEIGHT_FACTOR = float(np.log(10 / Z0_M) / np.log(ANEMOMETER_M / Z0_M))
 DIR_MIN_KT = 6.0
@@ -309,7 +309,7 @@ def public(sums: dict, end: datetime, model: Model | None = None) -> dict:
         "source": model.source,
         "method": {
             "observed": "the buoy's hourly mean for the hour starting at the forecast's valid time",
-            "speed_at_10m": f"buoy speed x {HEIGHT_FACTOR:.3f}: from an anemometer at {ANEMOMETER_M} m (assumed), "
+            "speed_at_10m": f"buoy speed x {HEIGHT_FACTOR:.3f}: from an anemometer at {ANEMOMETER_M} m, "
             f"neutral log profile, roughness {Z0_M} m",
             "direction": f"forecast minus observed, degrees clockwise; observed wind {DIR_MIN_KT:g} kt or more; "
             "buoy directions turned to true north",

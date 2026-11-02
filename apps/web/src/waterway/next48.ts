@@ -26,6 +26,16 @@ const longListeners = new Set<(on: boolean) => void>();
 /** Whether the plot shows 7 days ahead (GFS's reach) rather than 48 h; remembered in this browser. */
 export const longRange = (): boolean => long;
 export const onLongRange = (fn: (on: boolean) => void): void => void longListeners.add(fn);
+/** The plot's name, which follows the switch. */
+const rangeTitle = (on = long) => (on ? "The next 7 days" : "The next 48 hours");
+/** The name where it is already written (captions, the expanded plot's title, a plot page's tab) when the switch turns. */
+function renameRange(): void {
+  const was = new RegExp(rangeTitle(!long), "i");
+  document.querySelectorAll("[data-range-title]").forEach((e) => (e.textContent = rangeTitle()));
+  const zoom = document.getElementById("zoom-title");
+  if (zoom?.textContent && was.test(zoom.textContent)) zoom.textContent = zoom.textContent.replace(was, rangeTitle());
+  if (was.test(document.title)) document.title = document.title.replace(was, rangeTitle().toLowerCase());
+}
 
 /** The "7 days" switch on a next 48 hours plot (inline or expanded). */
 export function mountLongRange(plot: HTMLElement): void {
@@ -47,13 +57,17 @@ export function mountLongRange(plot: HTMLElement): void {
       /* private mode: for this page only */
     }
     document.querySelectorAll(".range-switch").forEach((b) => b.setAttribute("aria-pressed", String(long)));
+    renameRange();
     longListeners.forEach((fn) => fn(long));
     requestRedraw();
   });
 }
 
 export const NEXT48: Fig = {
-  title: "The next 48 hours",
+  get title() {
+    return rangeTitle();
+  },
+  label: () => `<span data-range-title>${rangeTitle()}</span>`,
   varies: false,
   wide: true, // the plot a reader looks ahead with: the full width, like the map and table above
   in: (k) => k === "wind",
@@ -98,11 +112,11 @@ export const NEXT48: Fig = {
     const ahead = xs.map((t) => (t >= Math.floor(now / HOUR) * HOUR ? forecastAt(d.meta.id, t) : null));
     const fc = ahead.map((f) => (f ? f.spd : NaN));
     const err = (t: number) => ahead[xs.indexOf(t)]?.err ?? NaN;
-    // Past HRRR's last hour: GFS, newest run, with GFS's own typical miss (once HRRR has loaded, so the two never
-    // overlap while one is still on its way).
+    // From HRRR's last hour: GFS, newest run, with GFS's own typical miss (once HRRR has loaded, so the two never
+    // overlap while one is still on its way). GFS starts on that hour, so the two lines meet rather than leave a gap.
     const hrrrEnd = ahead.reduce((e, f, i) => (f ? xs[i] : e), -Infinity);
     const nowH0 = Math.floor(now / HOUR) * HOUR;
-    const gAhead: (FcValue | null)[] = xs.map((t) => (FCST && t > hrrrEnd && t >= nowH0 ? gfsAt(d.meta.id, t) : null));
+    const gAhead: (FcValue | null)[] = xs.map((t) => (FCST && t >= hrrrEnd && t >= nowH0 ? gfsAt(d.meta.id, t) : null));
     const g = gAhead.map((f) => (f ? f.spd : NaN));
     const gErr = gAhead.map((f) => f?.err ?? NaN);
     const hasGfs = g.some(Number.isFinite);

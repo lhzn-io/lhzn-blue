@@ -73,12 +73,15 @@
       <section class="fc-sec" aria-labelledby="cal-title">
         <h2 class="fc-h" id="cal-title">The forecast says this: what do the buoys see?</h2>
         <p class="prose fc-say" id="cal-say"></p>
-        <div class="fc-controls"><span class="fc-ctl-label">Hours ahead</span><span class="fc-tabs" id="cal-band" role="group" aria-label="Hours ahead"></span></div>
+        <div class="fc-controls">
+          <span class="fc-group"><span class="fc-ctl-label">Hours ahead</span><span class="fc-tabs" id="cal-band" role="group" aria-label="Hours ahead"></span></span>
+          <span class="fc-group"><span class="fc-ctl-label">Grouped by</span><span class="fc-tabs" id="cal-by" role="group" aria-label="Grouped by"></span></span>
+        </div>
         <figure>
           <div class="fc-svgbox" id="cal-chart"></div>
           <div class="legend" id="cal-legend"></div>
         </figure>
-        <p class="note fc-note">Grouped by the forecast, not by the observation, which would show regression to the mean.</p>
+        <p class="note fc-note" id="cal-note"></p>
       </section>
 
       <section class="fc-sec" aria-labelledby="lead-title">

@@ -23,7 +23,7 @@ fixed-window files instead (`zeta.i16`, `u.i16`, `v.i16`, with `profile.json`), 
 
 | File | Contents |
 | :--- | :--- |
-| `pane.js` | the module (ES module; lazy-loads three.js r170, camera-controls 3.1.2 and [vantagekit](https://github.com/lhzn-io/vantagekit) 0.3.1 from jsDelivr) |
+| `pane.js` | the module (ES module; lazy-loads three.js r170, camera-controls 3.1.2 and [vantagekit](https://github.com/lhzn-io/vantagekit) 0.3.2 from jsDelivr) |
 | `ramp.js` | the teal currents speed ramps (light and dark), generated from the site's ramp CSVs |
 | `data/mesh.json` | NECOFS mesh counts, record times (epoch s), sigma levels, file layout, statistics |
 | `data/nodes.f32` | per node: east, north (m from the buoy), h (m, positive down), float32 |

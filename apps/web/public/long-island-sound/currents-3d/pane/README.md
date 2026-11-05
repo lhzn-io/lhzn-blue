@@ -15,7 +15,7 @@ KV:
 
 | File | Contents |
 | :--- | :--- |
-| `pane.js` | the module (ES module; lazy-loads three.js r170, camera-controls 3.1.2 and [vantagekit](https://github.com/lhzn-io/vantagekit) 0.3.1 from jsDelivr) |
+| `pane.js` | the module (ES module; lazy-loads three.js r170, camera-controls 3.1.2 and [vantagekit](https://github.com/lhzn-io/vantagekit) 0.3.2 from jsDelivr) |
 | `ramp.js` | the teal currents speed ramps (light and dark), generated from the site's ramp CSVs |
 | `mesh.json` | counts, record times (epoch s), sigma levels (`siglev` for drawing, `model_siglev` the model's, `layer_index` the layers held), the element holding the meter (`buoy_element`), the section's geometry, file names, statistics |
 | `nodes.f32` | per node: east, north (m from the meter), h (m, positive down), float32 |

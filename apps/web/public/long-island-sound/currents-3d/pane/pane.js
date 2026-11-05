@@ -21,7 +21,7 @@ const THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.170.0/+esm';
 // Navigation: vantagekit (Long Horizon Observatory's shared viewer navigation) on camera-controls; it imports neither
 // three.js nor camera-controls, so the pane passes both.
 const CC_URL = 'https://cdn.jsdelivr.net/npm/camera-controls@3.1.2/dist/camera-controls.module.min.js';
-const VK_URL = 'https://cdn.jsdelivr.net/gh/lhzn-io/vantagekit@v0.3.1/vantagekit-three.js';
+const VK_URL = 'https://cdn.jsdelivr.net/gh/lhzn-io/vantagekit@v0.3.2/vantagekit-three.js';
 let threeLoad = null;
 function loadThree() {
     if (!threeLoad) {

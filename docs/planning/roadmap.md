@@ -1,6 +1,6 @@
 # Roadmap
 
-What `longhorizon.blue` builds next, in rough order. Last revised 2026-10-30.
+What `longhorizon.blue` builds next, in rough order. Last revised 2026-11-05.
 
 ## Principles
 
@@ -32,8 +32,9 @@ Long Island Sound page:
       zones
 - [x] One timeline that sets the time for the map, the charts, the overview table and the pins, with the tidal
       current's phase beneath it
-- [x] Forecast verification: HRRR wind at the buoys since January 2024, scored by lead time, with the typical error
-      shown on every forecast plot
+- [x] Forecast verification: HRRR and GFS wind at the buoys since January 2024, scored by lead time and grouped by
+      forecast or observed speed, with the typical error shown on every forecast plot
+- [x] GFS past HRRR's 48 hours: the next 48 hours plot reaches 7 days ahead on a switch, with GFS's own typical miss
 - [x] Wind models compared: four models' 10 m wind for the next 48 hours on their own grids
 - [x] Reading the tides: predictions, datums and the moon for the shore stations
 - [x] About, References and Terms pages, including the use of AI
@@ -51,10 +52,18 @@ Long Island Sound page:
 - [x] Forecast revisions: on the next 48 hours plot, how HRRR's wind for one hour changed from run to run, with
       what was measured once the hour has passed
 - [x] The model currents in a compact binary file, in steps of 2 cm/s: 0.85 MB to load instead of 1.4 MB
+- [x] A virtual buoy for any point on the Sound (`/long-island-sound/at/<lat>,<lon>/`): HRRR wind (GFS past 48
+      hours), NWPS waves, the NECOFS surface current and slack times, and sea surface temperature, read from the
+      models at that point and labelled as model output
+- [x] Currents in 3D: NECOFS at every model layer, hourly from five days back to two days ahead, for the whole Sound
+      and, layer by layer, the eastern Sound, linked from the currents layer
+- [x] Shared 3D navigation: the site's 3D views move with [vantagekit](https://github.com/lhzn-io/vantagekit), with
+      touch, keyboard (once the view has focus) and gamepad
+- [x] Continuous integration: the web app type-checked and built, and the jobs' tests run, on every push
 
 ## Next
 
-1. **Global models at longer leads.** ECMWF and GFS wind at the buoys, scored the same way as HRRR.
+1. **ECMWF at longer leads.** ECMWF wind at the buoys, scored the same way as HRRR and GFS.
 2. **Design notes.** The palette and the plot grammar documented, with their licence.
 3. **Anomaly contours on the year comparison (prototype).** On the water "This year" plot, curved reference lines for
    the normal value on each date and set steps either side (1 and 2 °F for temperature), drawn from the earlier years

@@ -142,6 +142,7 @@ function buildTray(): HTMLElement {
       <textarea id="ct-note" rows="3"></textarea>
       <div class="ct-buttons"><button type="button" class="button" data-act="mail">Copy image and open email</button></div>
       <p class="ct-note">Your mail app opens with your note and a link to each collected item; the image is on your clipboard, so paste it into the body. Nothing is sent to this site.</p>
+      <p class="ct-note">To ask or suggest in public, post in the project's <a href="https://github.com/lhzn-io/lhzn-blue/discussions" target="_blank" rel="noopener">GitHub Discussions</a>.</p>
       <p class="ct-status" aria-live="polite"></p>
     </div>`;
   el.addEventListener("click", async (e) => {

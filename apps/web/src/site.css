@@ -761,6 +761,11 @@ figure.linked, .station.linked { outline: 2px solid var(--accent-line); outline-
 .terms .prose a { color: var(--link, var(--accent)); }
 .terms .prose + .prose { margin-top: 10px; }
 .terms-list { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+/* The navigation notice set off; warranty and liability in the ink colour, as conspicuous terms. */
+.terms-notice { padding: 10px 14px; border: 1px solid var(--accent-line, var(--rule)); border-left: 3px solid var(--accent); }
+.terms-notice p { margin: 0; }
+.terms-notice p + p { margin-top: 8px; }
+.terms .terms-strong { color: var(--ink); font-weight: 600; }
 /* References page (generated from docs/references.bib) */
 .terms h3 { margin: 22px 0 8px; font: 700 10px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
 .refs-waterway { margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--rule); }

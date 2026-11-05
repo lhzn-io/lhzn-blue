@@ -731,7 +731,7 @@ function redraw(): void {
 
 function drawMethod(): void {
   $("method").innerHTML = CFG.method.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
-  $("credits").innerHTML = `<p><b>Data:</b> ${CFG.credits.map(esc).join("; ")}. Thank you to all of them.</p><p><b>Provisional data.</b> Not for navigation. <a href="/terms/">Terms</a>.</p><p>A <a href="/">longhorizon.blue</a> page by <a href="https://longhorizon.eco/observatory">Long Horizon Observatory</a>.</p>`;
+  $("credits").innerHTML = `<p><b>Data:</b> ${CFG.credits.map(esc).join("; ")}. Thank you to all of them.</p><p><b>Provisional data, not for navigation.</b> Use of this site is subject to the <a href="/terms/">Terms</a>.</p><p>A <a href="/">longhorizon.blue</a> page by <a href="https://longhorizon.eco/observatory">Long Horizon Observatory</a>.</p>`;
 }
 
 // ---------- Boot ----------

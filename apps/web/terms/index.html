@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="canonical" href="https://longhorizon.blue/terms/" />
-    <title>Terms | longhorizon.blue</title>
-    <meta name="description" content="Terms of use for longhorizon.blue: provisional public data, credit for figures, use of the site's data files, and how AI is used." />
+    <title>Terms of use | longhorizon.blue</title>
+    <meta name="description" content="Terms of use for longhorizon.blue: not for navigation, provisional public data and their providers, credit for figures, the site's data files, AI, privacy, warranty and liability." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -19,31 +19,48 @@
       <a class="wordmark wm-one" href="/" aria-label="longhorizon.blue home">LONGHORIZON.BLUE</a>
     </header>
     <main>
-      <h1>Terms</h1>
+      <h1>Terms of use</h1>
       <p class="prose">
-        longhorizon.blue gathers public observations of coastal waters and presents them with their age, their source and their recent
-        history. These terms cover the data, our figures and text, the files behind the pages, and how we use AI. Last updated October 12,
-        2026.
+        These terms govern your use of longhorizon.blue (the site), which gathers public observations of coastal waters and presents
+        them with their age, their source and their recent history. The site is operated by Long Horizon Holdings, LLC, a New York
+        limited liability company doing business as Long Horizon Observatory ("we", "us"). By using
+        the site you agree to these terms; if you do not agree, please do not use it. Last updated November 5, 2026.
       </p>
 
-      <h2>The data</h2>
+      <h2 id="navigation">Not for navigation or safety</h2>
+      <div class="prose terms-notice">
+        <p>
+          <b>The site is not a navigation aid.</b> Do not rely on it for navigation, safety-of-life, operational or legal decisions.
+          Observations can be late, missing or wrong, and forecasts and model output are estimates, labeled as such.
+        </p>
+        <p>
+          On or before going on the water, use official sources: NOAA nautical charts, National Weather Service marine forecasts and
+          warnings, and U.S. Coast Guard broadcasts and Local Notices to Mariners. The decision to go out, and how, rests with you and
+          the vessel's operator. You use the site at your own risk.
+        </p>
+      </div>
+
+      <h2 id="data">The data</h2>
       <p class="prose">
-        The observations come from public agencies and university observing systems, listed below. They are free to use under each
-        provider's terms; please credit the provider. All data are provisional, may contain errors, and may be revised. They are provided
-        as is, without warranty of any kind, and are not intended for navigation, safety-of-life or legal decisions. Long Horizon
-        Observatory is not liable for decisions made using this site.
+        The observations, forecasts and model output come from the public agencies and university observing systems below. Each
+        provider's own terms apply to its data; please credit the provider when you use it. The providers do not operate, review or
+        endorse this site. All data are provisional, may contain errors, and may be revised.
       </p>
       <ul class="prose terms-list">
         <li><a href="https://lisicos.uconn.edu/">LISICOS</a>, Department of Marine Sciences, University of Connecticut: buoy observations</li>
-        <li><a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a>: shore stations, water levels and tide predictions</li>
+        <li><a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a>: shore stations, water levels, current meters, and tide and tidal current predictions</li>
+        <li><a href="https://www.weather.gov/">NOAA National Weather Service</a>: HRRR and GFS forecasts, NWPS wave forecasts and marine advisory zones</li>
+        <li><a href="https://mesonet.agron.iastate.edu/">Iowa Environmental Mesonet</a>: National Weather Service airport weather (ASOS)</li>
         <li><a href="https://waterdata.usgs.gov/">U.S. Geological Survey</a>: river flow, river turbidity and watershed boundaries</li>
         <li><a href="https://coastwatch.noaa.gov/">NOAA NESDIS CoastWatch</a>: chlorophyll-a and water clarity (VIIRS)</li>
         <li><a href="https://podaac.jpl.nasa.gov/">NASA JPL</a> (MUR, via PO.DAAC and CoastWatch): sea surface temperature</li>
-        <li><a href="https://fvcom.smast.umassd.edu/">NECOFS</a>, UMass Dartmouth (SMAST), credited as NECOFS/UMASSD: modelled surface currents</li>
+        <li><a href="https://fvcom.smast.umassd.edu/">NECOFS</a>, UMass Dartmouth (SMAST), credited as NECOFS/UMASSD: modeled currents</li>
+        <li><a href="https://nauticalcharts.noaa.gov/">NOAA Office of Coast Survey</a>: electronic navigational chart features (shown for reference, not for navigation)</li>
+        <li><a href="https://aa.usno.navy.mil/">U.S. Naval Observatory</a>: moon phases</li>
         <li><a href="https://openfreemap.org/">OpenFreeMap</a> and <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>: basemap</li>
       </ul>
 
-      <h2>Plots and text</h2>
+      <h2 id="figures">Plots and text</h2>
       <p class="prose">
         The plots, maps and writing on this site are by <a href="https://longhorizon.eco/observatory">Long Horizon Observatory</a> and are licensed under
         <a href="https://creativecommons.org/licenses/by-nc/4.0/">Creative Commons Attribution-NonCommercial 4.0</a>. You are welcome to
@@ -51,14 +68,20 @@
         Commercial use needs our permission.
       </p>
 
-      <h2>Data files</h2>
+      <h2 id="files">Data files</h2>
       <p class="prose">
         The processed data files behind these pages serve this site and are not yet a public API. Automated or bulk collection of them, or
         redistribution of the processed data, needs our permission. Requests for research, education and other uses are welcome. For the
         original observations, use the providers above directly.
       </p>
 
-      <h2>Code</h2>
+      <h2 id="use">Using the site</h2>
+      <p class="prose">
+        Please do not disrupt or overload the site, try to reach parts of it that are not offered to the public, or present its figures
+        as official products or as the providers' own.
+      </p>
+
+      <h2 id="code">Code</h2>
       <p class="prose">
         The software that builds this site is open source under the MIT license:
         <a href="https://github.com/lhzn-io/lhzn-blue">github.com/lhzn-io/lhzn-blue</a>.
@@ -89,10 +112,58 @@
         <a href="mailto:hello@longhorizon.blue">hello@longhorizon.blue</a> or use "Send us a suggestion" under Collect.
       </p>
 
-      <h2>Contact</h2>
+      <h2 id="contributions">Your suggestions and posts</h2>
       <p class="prose">
-        Questions, permissions and corrections:
-        <a href="mailto:hello@longhorizon.blue">hello@longhorizon.blue</a>.
+        We may use suggestions and corrections you send us to improve the site, without obligation or payment. Posts in the project's
+        <a href="https://github.com/lhzn-io/lhzn-blue/discussions">GitHub Discussions</a> and
+        <a href="https://github.com/lhzn-io/lhzn-blue/issues">Issues</a> are public and are governed by
+        <a href="https://docs.github.com/en/site-policy/github-terms/github-terms-of-service">GitHub's terms</a>.
+      </p>
+
+      <h2 id="privacy">Privacy</h2>
+      <p class="prose">
+        We collect no data about you. The site has no accounts, advertising, analytics or cookies. It keeps your display choices (such as the theme, units, boat and
+        chosen views) in your browser's local storage, on your device. "Use my location" is off unless you turn it on; your browser then
+        gives your position to the page only, to center the map on your part of the waterway, and it is not sent to us.
+      </p>
+      <p class="prose">
+        Our host, Cloudflare, processes each request, including your IP address, to serve and protect the site. Pages load fonts from
+        Google Fonts, map tiles from OpenFreeMap and, for the 3D views, code from jsDelivr; those services receive your IP address under
+        their own policies. "Send us a suggestion" opens your own email program, and we receive only what you choose to send.
+      </p>
+
+      <h2 id="warranty">No warranty</h2>
+      <p class="prose terms-strong">
+        The site and its data are provided as is and as available, without warranty of any kind, express or implied, including
+        warranties of accuracy, completeness, timeliness, availability, merchantability, fitness for a particular purpose and
+        non-infringement.
+      </p>
+
+      <h2 id="liability">Limitation of liability</h2>
+      <p class="prose terms-strong">
+        To the fullest extent permitted by law, we are not liable for any loss or damage arising from your use of the site or its data,
+        or from your reliance on them, including indirect, incidental, special or consequential loss, whatever the cause.
+        Where liability cannot be excluded, our total liability is limited to US$100. Some jurisdictions do not allow these limits, so they may not apply to you in full.
+      </p>
+
+      <h2 id="changes">Changes</h2>
+      <p class="prose">
+        We may change, pause or stop any part of the site at any time, including during data outages. We may also update these terms;
+        the date at the top shows the current version, and using the site after an update means you accept it.
+      </p>
+
+      <h2 id="law">Disputes and governing law</h2>
+      <p class="prose">
+        If you have a dispute with us, please write to <a href="mailto:hello@longhorizon.blue">hello@longhorizon.blue</a> first and
+        allow us 30 days to resolve it before starting any proceeding. These terms are governed by the laws of the State of New York,
+        without regard to its conflict-of-law rules, and any proceeding is to be brought in the state or federal courts located in New
+        York State. If any part of these terms is found unenforceable, the rest remains in effect.
+      </p>
+
+      <h2 id="contact">Contact</h2>
+      <p class="prose">
+        Questions, permissions and corrections: <a href="mailto:hello@longhorizon.blue">hello@longhorizon.blue</a>, or in public in the
+        project's <a href="https://github.com/lhzn-io/lhzn-blue/discussions">GitHub Discussions</a>.
       </p>
 
       <footer class="credits">

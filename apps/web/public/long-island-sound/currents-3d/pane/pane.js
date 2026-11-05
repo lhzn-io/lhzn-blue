@@ -18,13 +18,17 @@
 import { RAMP_LIGHT, RAMP_DARK } from './ramp.js';
 
 const THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.170.0/+esm';
-const ORBIT_URL = 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/controls/OrbitControls.js/+esm';
+// Navigation: vantagekit (Long Horizon Observatory's shared viewer navigation) on camera-controls; it imports neither
+// three.js nor camera-controls, so the pane passes both.
+const CC_URL = 'https://cdn.jsdelivr.net/npm/camera-controls@3.1.2/dist/camera-controls.module.min.js';
+const VK_URL = 'https://cdn.jsdelivr.net/gh/lhzn-io/vantagekit@v0.3.1/vantagekit-three.js';
 let threeLoad = null;
 function loadThree() {
     if (!threeLoad) {
-        threeLoad = Promise.all([import(THREE_URL), import(ORBIT_URL)]).then(([T, O]) => ({
+        threeLoad = Promise.all([import(THREE_URL), import(CC_URL), import(VK_URL)]).then(([T, C, V]) => ({
             THREE: T,
-            OrbitControls: O.OrbitControls,
+            CameraControls: C.default,
+            createVantage: V.createVantage,
         }));
     }
     return threeLoad;
@@ -201,6 +205,7 @@ const CSS = `
   color: var(--pqp-ink); font-family: "Josefin Sans", "Futura", "Century Gothic", sans-serif; font-size: 13px;
   line-height: 1.35; -webkit-tap-highlight-color: transparent; }
 .pqp canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+.pqp canvas:focus-visible:not(.pqp-pointer-focus) { outline: 2px solid var(--pqp-accent); outline-offset: -2px; }
 .pqp-hud { position: absolute; pointer-events: none; }
 .pqp-hud > * { pointer-events: auto; }
 .pqp-top { left: 10px; top: 8px; right: 10px; display: flex; flex-direction: column; gap: 2px; pointer-events: none; }
@@ -494,7 +499,7 @@ export function mountPane(el, opts = {}) {
     applyUnits();
 
     // Scene objects, filled in by init().
-    let THREE = null, renderer = null, scene = null, camera = null, controls = null, world = null;
+    let THREE = null, renderer = null, scene = null, camera = null, nav = null, world = null;
     let raf = 0, needsRender = true, ro = null;
     let mesh = null, nec = null, dem = null, trk = null, buoy = null, profile = null;
     const objs = {};
@@ -525,9 +530,7 @@ export function mountPane(el, opts = {}) {
     let camMoved = false; // the camera is in a link only once moved from the default (orbit, Focus buoy, a link)
     function applyCam(c) {
         camMoved = true;
-        camera.position.set(c[0], c[1], c[2]);
-        controls.target.set(c[3], c[4], c[5]);
-        controls.update();
+        nav.setLookAt([c[0], c[1], c[2]], [c[3], c[4], c[5]]);
         needsRender = true;
     }
     root.querySelector('[data-act="reset"]').addEventListener('click', () => { resetView(); camMoved = false; if (onChange) onChange(); });
@@ -603,7 +606,7 @@ export function mountPane(el, opts = {}) {
             setupData(meshJ, nodesB, triB, fields, sigB, demJ, demB, buoyJ, trkJ, trkB);
             if (secF) setupSection(meshJ, secF);
             profile = profJ || windowProfile(meshJ);
-            setupScene(lib.OrbitControls);
+            setupScene(lib);
             state.ready = true;
             showMsg('');
             onControl('');
@@ -704,22 +707,31 @@ export function mountPane(el, opts = {}) {
     }
 
     // ---- scene ----
-    function setupScene(OrbitControls) {
+    function setupScene(lib) {
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         root.insertBefore(renderer.domElement, root.firstChild);
         renderer.domElement.setAttribute('aria-label', '3D view of model currents in the eastern end of Long Island Sound');
         scene = new THREE.Scene();
         camera = new THREE.PerspectiveCamera(40, 1, 20, VIEW.far);
-        controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.12;
-        controls.maxPolarAngle = Math.PI * 0.495;
-        controls.minDistance = 400;
-        controls.maxDistance = VIEW.far / 2;
-        controls.screenSpacePanning = false;
-        controls.addEventListener('start', () => { camMoved = true; });
-        controls.addEventListener('change', () => { needsRender = true; if (onChange) onChange(); });
+        // Orbit only (fly mode would take a public page under the water); pans along the ground, as before. The keyboard
+        // moves the camera only while the view has focus (a click, a tap or Tab), so the arrows still scroll the page.
+        nav = lib.createVantage({
+            THREE, CameraControls: lib.CameraControls, camera, dom: renderer.domElement,
+            metresPerUnit: 1, exaggeration: () => state.exag, modes: ['orbit'], mouse: 'rotate-left', pan: 'ground',
+            keys: 'focus', maxPolarAngle: Math.PI * 0.495, minDistance: 400, maxDistance: VIEW.far / 2,
+        });
+        // Moved by the viewer (not by Reset or Focus): a drag or pinch, a key on the focused view, or the gamepad.
+        nav.controls.addEventListener('controlstart', () => { camMoved = true; });
+        renderer.domElement.addEventListener('keydown', () => { camMoved = true; });
+        nav.addEventListener('input', (e) => { if (e.detail && e.detail.kind === 'gamepad') camMoved = true; });
+        // The focus ring for Tab only: a click or tap focuses the view too, from vantagekit's pointerdown handler.
+        const cv = renderer.domElement;
+        let byPointer = false;
+        cv.addEventListener('pointerdown', () => { byPointer = true; }, { capture: true });
+        cv.addEventListener('focus', () => { cv.classList.toggle('pqp-pointer-focus', byPointer); byPointer = false; });
+        cv.addEventListener('blur', () => { cv.classList.remove('pqp-pointer-focus'); });
+        nav.addEventListener('move', () => { needsRender = true; if (onChange) onChange(); });
         world = new THREE.Group();
         world.scale.y = state.exag;
         scene.add(world);
@@ -739,6 +751,7 @@ export function mountPane(el, opts = {}) {
         ro = new ResizeObserver(() => { resize(); });
         ro.observe(root);
         resetView();
+        nav.saveHome(); // the gamepad's A button returns here
         if (pendingCam) { applyCam(pendingCam); pendingCam = null; }
     }
 
@@ -748,9 +761,7 @@ export function mountPane(el, opts = {}) {
         // across the Race's line, so its curtain faces the camera; for the whole Sound, steeply from the south-south-east.
         const b = mesh.box, cx = (b.x0 + b.x1) / 2, cn = (b.y0 + b.y1) / 2, d = narrow() ? VIEW.narrow : 1.0;
         const az = (VIEW.bearing * Math.PI) / 180, horiz = VIEW.horiz * d;
-        camera.position.set(cx + Math.sin(az) * horiz, VIEW.height * d, -(cn + Math.cos(az) * horiz));
-        controls.target.set(cx, -200, -cn);
-        controls.update();
+        nav.setLookAt([cx + Math.sin(az) * horiz, VIEW.height * d, -(cn + Math.cos(az) * horiz)], [cx, -200, -cn]);
         needsRender = true;
     }
 
@@ -763,9 +774,12 @@ export function mountPane(el, opts = {}) {
         needsRender = true;
     }
 
-    function loop() {
+    let lastFrame = 0;
+    function loop(now = performance.now()) {
         raf = requestAnimationFrame(loop);
-        const moved = controls.update();
+        const dt = lastFrame ? (now - lastFrame) / 1000 : 0;
+        lastFrame = now;
+        const moved = nav.update(dt);
         if (moved || needsRender) {
             renderer.render(scene, camera);
             needsRender = false;
@@ -1464,9 +1478,7 @@ export function mountPane(el, opts = {}) {
         const s = state.exag;
         const tgt = new THREE.Vector3(0, -5 * s, 0);
         const b = (250 * Math.PI) / 180, dist = narrow() ? 5200 : 3200, el = (18 * Math.PI) / 180;
-        camera.position.set(tgt.x + Math.sin(b) * dist * Math.cos(el), tgt.y + dist * Math.sin(el), tgt.z - Math.cos(b) * dist * Math.cos(el));
-        controls.target.copy(tgt);
-        controls.update();
+        nav.setLookAt([tgt.x + Math.sin(b) * dist * Math.cos(el), tgt.y + dist * Math.sin(el), tgt.z - Math.cos(b) * dist * Math.cos(el)], tgt);
         needsRender = true;
     }
 
@@ -1553,7 +1565,7 @@ export function mountPane(el, opts = {}) {
             const s = {};
             for (const k of PANEL_KEYS) s[k] = state[k];
             const c = !camera ? pendingCam
-                : camMoved ? [camera.position.x, camera.position.y, camera.position.z, controls.target.x, controls.target.y, controls.target.z] : null;
+                : camMoved ? [...nav.getPosition().toArray(), ...nav.getTarget().toArray()] : null;
             if (c) s.cam = c.map((v) => Math.round(v));
             return s;
         },
@@ -1601,7 +1613,7 @@ export function mountPane(el, opts = {}) {
             state.disposed = true;
             cancelAnimationFrame(raf);
             if (ro) ro.disconnect();
-            if (controls) controls.dispose();
+            if (nav) nav.dispose();
             if (scene) {
                 scene.traverse((o) => {
                     if (o.geometry) o.geometry.dispose();

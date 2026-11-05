@@ -15,7 +15,7 @@ KV:
 
 | File | Contents |
 | :--- | :--- |
-| `pane.js` | the module (ES module; lazy-loads three.js r170 and OrbitControls from jsDelivr) |
+| `pane.js` | the module (ES module; lazy-loads three.js r170, camera-controls 3.1.2 and [vantagekit](https://github.com/lhzn-io/vantagekit) 0.3.1 from jsDelivr) |
 | `ramp.js` | the teal currents speed ramps (light and dark), generated from the site's ramp CSVs |
 | `mesh.json` | counts, record times (epoch s), sigma levels (`siglev` for drawing, `model_siglev` the model's, `layer_index` the layers held), the element holding the meter (`buoy_element`), the section's geometry, file names, statistics |
 | `nodes.f32` | per node: east, north (m from the meter), h (m, positive down), float32 |
@@ -75,4 +75,4 @@ within 400 m of the line; its maximum 2.25 m/s); along the whole axis the 99th p
   for the eastern Sound. An hour without a section (a read that failed, filled on a later run) draws no curtain.
 - Velocities are stored in steps of 2 cm/s and stop at 2.54 m/s; `mesh.json`'s `stats` gives each window's maximum.
 - NECOFS bed and surface are relative to the model's own mean sea level.
-- three.js loads from jsDelivr's `+esm` builds, so a site Content Security Policy must allow cdn.jsdelivr.net.
+- three.js (jsDelivr's `+esm` build), camera-controls and vantagekit load from jsDelivr, so a site Content Security Policy must allow cdn.jsdelivr.net.

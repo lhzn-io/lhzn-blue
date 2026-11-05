@@ -23,7 +23,7 @@ fixed-window files instead (`zeta.i16`, `u.i16`, `v.i16`, with `profile.json`), 
 
 | File | Contents |
 | :--- | :--- |
-| `pane.js` | the module (ES module; lazy-loads three.js r170 and OrbitControls from jsDelivr) |
+| `pane.js` | the module (ES module; lazy-loads three.js r170, camera-controls 3.1.2 and [vantagekit](https://github.com/lhzn-io/vantagekit) 0.3.1 from jsDelivr) |
 | `ramp.js` | the teal currents speed ramps (light and dark), generated from the site's ramp CSVs |
 | `data/mesh.json` | NECOFS mesh counts, record times (epoch s), sigma levels, file layout, statistics |
 | `data/nodes.f32` | per node: east, north (m from the buoy), h (m, positive down), float32 |
@@ -101,4 +101,4 @@ pane's credit line credits NECOFS as NECOFS/UMASSD, the UMass Dartmouth SMAST se
 - The curtain is coloured by the velocity component along its line on a fixed scale of +-0.8 m/s
   (just above the 0.73 m/s along-channel 99th percentile; stronger flow, mostly on the cross-channel
   line, clamps to the end colours). The curtain is drawn at 0.8 opacity.
-- three.js loads from jsDelivr's `+esm` builds, so a site Content Security Policy must allow cdn.jsdelivr.net.
+- three.js (jsDelivr's `+esm` build), camera-controls and vantagekit load from jsDelivr, so a site Content Security Policy must allow cdn.jsdelivr.net.

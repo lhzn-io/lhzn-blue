@@ -50,7 +50,7 @@ WINDOW_AHEAD_HOURS = 48
 FORECAST_HOURS_PER_READ = 24  # as an archive day, which the server reads well within its timeout
 UV_STEP_MM = 20  # 2 cm/s: within 1 cm/s of the model, to 2.54 m/s (the harbour peaks near 1.6 m/s)
 MAGIC = b"LHZF"
-SOURCE = "NECOFS FVCOM GOM7, UMass Dartmouth SMAST"
+SOURCE = "NECOFS/UMASSD (FVCOM GOM7, UMass Dartmouth SMAST)"
 
 
 def bbox() -> list[float]:

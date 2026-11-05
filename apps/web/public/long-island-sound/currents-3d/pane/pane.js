@@ -406,7 +406,7 @@ export function mountPane(el, opts = {}) {
         <p>Water and seabed at <span data-v="exag2">${EXAG}</span>x<span${HAS.dem ? '' : ' hidden'}>, land above 2.5 m MSL at <span data-v="landx2">4</span>x</span>.
         ${place.boxNote || ''}</p>
       </div>
-      <div class="pqp-hud pqp-credits">Currents model: NECOFS (FVCOM GOM7), UMass Dartmouth SMAST.</div>
+      <div class="pqp-hud pqp-credits">Currents model: NECOFS/UMASSD (FVCOM GOM7, UMass Dartmouth SMAST).</div>
       <div class="pqp-hud pqp-msg" hidden></div>`;
     el.appendChild(root);
     const $ = (s) => root.querySelector(s);

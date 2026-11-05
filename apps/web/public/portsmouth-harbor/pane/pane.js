@@ -398,7 +398,7 @@ export function mountPane(el, opts = {}) {
         <p>Water and seabed at <span data-v="exag2">10</span>x, land above 2.5 m MSL at <span data-v="landx2">1</span>x.
         Box 4.4 km, centred on the buoy.</p>
       </div>
-      <div class="pqp-hud pqp-credits">Currents model: NECOFS (FVCOM GOM7), UMass Dartmouth SMAST. Buoy data: UNH. Bathymetry: NOAA, USACE, USGS.</div>
+      <div class="pqp-hud pqp-credits">Currents model: NECOFS/UMASSD (FVCOM GOM7, UMass Dartmouth SMAST). Buoy data: UNH. Bathymetry: NOAA, USACE, USGS.</div>
       <div class="pqp-hud pqp-msg" hidden></div>`;
     el.appendChild(root);
     const $ = (s) => root.querySelector(s);

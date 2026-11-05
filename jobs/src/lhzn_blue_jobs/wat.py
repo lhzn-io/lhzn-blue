@@ -211,8 +211,8 @@ def build(prev: dict | None, runs: dict[str, dict], currents: dict, mesh: dict, 
         "version": VERSION,
         "label": "model-derived index",
         "source": "NWS NWPS waves (SWAN, WFO New York grid CG1, 1.8 km) with NECOFS FVCOM surface currents "
-        "(UMass Dartmouth, SMAST), averaged over each NWPS cell",
-        "attribution": "NWS NWPS (NOAA NOMADS); NECOFS FVCOM (UMass Dartmouth SMAST)",
+        "(NECOFS/UMASSD: UMass Dartmouth SMAST), averaged over each NWPS cell",
+        "attribution": "NWS NWPS (NOAA NOMADS); NECOFS/UMASSD (FVCOM, UMass Dartmouth SMAST)",
         "method": "r = current along the wave direction / deep-water phase speed (g T / 2 pi); steepness ratio S from "
         "wave action conservation (Longuet-Higgins and Stewart 1961); blocking at r <= -0.25",
         "levels": {

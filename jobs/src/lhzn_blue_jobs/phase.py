@@ -144,7 +144,7 @@ def publish(store: Store) -> list[str]:
     store.write_json(KEY, {
         "schema": SCHEMA,
         "generated_at": iso(end),
-        "source": "NOAA CO-OPS tidal current predictions (harmonic stations, bin nearest the surface); NECOFS FVCOM "
+        "source": "NOAA CO-OPS tidal current predictions (harmonic stations, bin nearest the surface); NECOFS/UMASSD (FVCOM) "
         "surface current at the nearest element, along the station's flood direction",
         "units": {"kt": "knots along the flood direction (positive flood, negative ebb)"},
         "points": out,

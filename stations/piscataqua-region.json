@@ -57,7 +57,7 @@
     "NOAA CO-OPS water level, tide and current predictions, and PORTS currents",
     "USGS streamflow",
     "NWS ASOS through the Iowa Environmental Mesonet",
-    "NECOFS FVCOM GOM7, University of Massachusetts Dartmouth (SMAST)",
+    "NECOFS/UMASSD: FVCOM GOM7, University of Massachusetts Dartmouth (SMAST)",
     "NOAA HRRR; NASA JPL MUR SST"
   ]
 }

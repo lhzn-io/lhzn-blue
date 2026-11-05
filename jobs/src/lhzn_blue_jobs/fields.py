@@ -338,7 +338,7 @@ def currents(end: datetime | None = None, bbox: list[float] = BBOX, step_hours: 
     lonc, latc = ds["lonc"].values.astype(np.float64), ds["latc"].values.astype(np.float64)
     mesh = {
         "schema": SCHEMA,
-        "source": "NECOFS FVCOM GOM7, UMass Dartmouth (SMAST)",
+        "source": "NECOFS/UMASSD (FVCOM GOM7, UMass Dartmouth SMAST)",
         "bbox": bbox,
         "nodes": [[round(float(x), 5), round(float(y), 5)] for x, y in zip(ds["node_lon"].values, ds["node_lat"].values)],
         "triangles": ds["triangles"].values.astype(int).tolist(),
@@ -352,7 +352,7 @@ def currents(end: datetime | None = None, bbox: list[float] = BBOX, step_hours: 
         "schema": SCHEMA,
         "kind": "currents",
         "label": "model forecast",
-        "source": "NECOFS FVCOM GOM7, UMass Dartmouth (SMAST)",
+        "source": "NECOFS/UMASSD (FVCOM GOM7, UMass Dartmouth SMAST)",
         "url": ds.attrs.get("url"),
         "layer": "surface (top sigma layer)",
         "units": "cm/s",

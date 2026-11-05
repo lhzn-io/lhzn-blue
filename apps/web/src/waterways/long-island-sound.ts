@@ -48,7 +48,7 @@ export const LONG_ISLAND_SOUND: StationDataWaterway = {
     transcribed: "Readings since then are transcribed from the LISICOS station panels (provisional).",
   },
   collect: {
-    credit: "Long Horizon Observatory \u00b7 longhorizon.blue \u00b7 CC BY-NC 4.0 \u00b7 data: LISICOS (UConn), NOAA, USGS, NASA; map \u00a9 OpenStreetMap contributors",
+    credit: "Long Horizon Observatory \u00b7 longhorizon.blue \u00b7 CC BY-NC 4.0 \u00b7 data: LISICOS (UConn), NOAA, USGS, NASA, NECOFS/UMASSD; map \u00a9 OpenStreetMap contributors",
     mailTo: "long-island-sound@longhorizon.blue",
   },
   virtual: { box: [[-74.4, 40.3], [-71.4, 41.7]] },

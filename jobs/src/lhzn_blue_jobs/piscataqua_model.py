@@ -67,7 +67,7 @@ def _encode(hours: dict[pd.Timestamp, tuple[np.ndarray, np.ndarray]], elements: 
         body[k, 1] = v
     head = {
         "schema": SCHEMA, "t0": _iso(t0), "step": 3600, "hours": n, "elements": elements, "scale": SCALE,
-        "missing": MISSING, "mesh_check": mesh_check, "source": "NECOFS FVCOM GOM7 daily history (hindcast), UMass Dartmouth (SMAST)",
+        "missing": MISSING, "mesh_check": mesh_check, "source": "NECOFS/UMASSD (FVCOM GOM7 daily history, the hindcast; UMass Dartmouth SMAST)",
     }
     h = json.dumps(head, separators=(",", ":")).encode()
     return struct.pack("<I", len(h)) + h + body.tobytes()

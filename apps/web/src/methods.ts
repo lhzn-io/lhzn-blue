@@ -309,7 +309,7 @@ export const METHODS: Record<string, Method> = {
       "Modelled currents in the top layer, on the model's own triangles, shaded by speed, with arrows in the direction of flow; " +
       "24 hours back to 72 hours ahead.",
     method:
-      "The NECOFS FVCOM forecast (UMass Dartmouth), every 2 hours [[chen2003fvcom]] [[chen2006fvcom]]. Colours follow one " +
+      "The NECOFS FVCOM forecast (NECOFS/UMASSD), every 2 hours [[chen2003fvcom]] [[chen2006fvcom]]. Colours follow one " +
       "fixed scale on a logarithmic speed axis, from 0.02 to 3.1 m/s, with knots from 2026 NOAA CO-OPS current predictions " +
       "(0.494 m/s, the median daily maximum across Long Island and Block Island Sound; 2.418 and 3.097 m/s, the median and " +
       "annual daily maxima at Little Gull Island in the Race). The scale runs pale aqua to teal to deep blue-green, after " +
@@ -384,7 +384,7 @@ METHODS.mflow = {
     "current's size each way, the estimate's over the meter's; and slack timing as the mean time from each of the meter's " +
     "slacks to the estimate's nearest slack of the same turn (within 3 hours, interpolated between hours). The plot's note " +
     "scores the hours on screen; the readouts score the last 14 days.",
-  sources: "NOAA CO-OPS: New London PORTS current meter nl0101 and NOAA's tidal current predictions for it. NECOFS FVCOM, UMass Dartmouth [[chen2006fvcom]].",
+  sources: "NOAA CO-OPS: New London PORTS current meter nl0101 and NOAA's tidal current predictions for it. NECOFS/UMASSD: FVCOM, UMass Dartmouth [[chen2006fvcom]].",
   caveats:
     "A river mouth: the current is weak (about half a knot at most) and the river's flow adds to the ebb, and NOAA notes that " +
     "its predictions err more where currents are weak and during high runoff. The meter reads 5.2 m below the surface; the " +

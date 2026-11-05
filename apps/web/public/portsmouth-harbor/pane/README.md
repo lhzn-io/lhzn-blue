@@ -71,12 +71,12 @@ pane.dispose();        // frees GPU resources and removes the pane's DOM
 
 ## Sources and credits
 
-Currents model: NECOFS (FVCOM GOM7), UMass Dartmouth SMAST. Buoy data: UNH. Bathymetry: NOAA,
+Currents model: NECOFS/UMASSD (FVCOM GOM7, UMass Dartmouth SMAST). Buoy data: UNH. Bathymetry: NOAA,
 USACE, USGS. Datums: NOAA CO-OPS. Magnetic declination: NOAA/BGS World Magnetic Model 2025.
 
 The NECOFS files here (`mesh.json`, `nodes.f32`, `tri.u16`, `zeta.i16`, `u.i16`, `v.i16`,
 `profile.json`, and the tracks computed from NECOFS) are a subset of the SMAST NECOFS archive. The
-pane's credit line credits NECOFS to UMass Dartmouth SMAST.
+pane's credit line credits NECOFS as NECOFS/UMASSD, the UMass Dartmouth SMAST server the files come from.
 
 ## Caveats (also shown in the pane's collapsed notes)
 

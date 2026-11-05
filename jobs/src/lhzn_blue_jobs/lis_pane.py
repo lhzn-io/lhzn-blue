@@ -58,7 +58,7 @@ FORECAST_HOURS_PER_READ = 24  # as an archive day, which the server reads well w
 UV_STEP_MM = 20  # 2 cm/s: within 1 cm/s of the model, to 2.54 m/s (see stats: the Race in the model stays below)
 VARIABLES = ("u", "v", "zeta")  # what the view draws; forcingkit reads nothing else
 MAGIC = b"LHZF"
-SOURCE = "NECOFS FVCOM GOM7, UMass Dartmouth SMAST"
+SOURCE = "NECOFS/UMASSD (FVCOM GOM7, UMass Dartmouth SMAST)"
 # The Sound's axis, west to east (lon, lat): Throgs Neck, Execution Rocks, the western, central and eastern basins,
 # The Race. The section follows it through the deep water.
 AXIS = ((-73.79, 40.805), (-73.73, 40.88), (-73.55, 40.975), (-73.25, 41.03), (-72.95, 41.08), (-72.66, 41.13),

@@ -174,9 +174,12 @@ export function wavesCell(d: StationData): string {
     const spark = d.waves?.hs ? sparklineOf(d.waves.hs, M.palette().line, "m significant height", 2) : "";
     return `<td class="${state}" title="Significant wave height ${waveFmt(last.hs_m)} ${waveUnit().label}, highest ${waveFmt(last.hmax_m)}, period ${last.tp_s ?? "--"} s; ${ago(last.time)}${panelTitle(last)}">${spark}<b>${waveFmt(last.hs_m)}<small class="g"> ${waveUnit().label}</small></b><small>${last.tp_s != null ? last.tp_s.toFixed(0) + " s &middot; " : ""}${age(last.time)}</small></td>`;
   }
-  const mc = waveModel(Date.now() / 1000, M.wavesText(d.meta.id, true).replace("offline, last reading", "out since"), M.wavesText(d.meta.id));
+  // "out since Nov 2", as short as the other offline cells (their text does not wrap, so rows keep their height); the
+  // full text is the cell's title.
+  const outSince = M.wavesText(d.meta.id, true).replace("offline, last reading", "out since");
+  const mc = waveModel(Date.now() / 1000, outSince, M.wavesText(d.meta.id));
   if (mc) return mc;
-  const inner = `<b>--</b><small>${M.wavesText(d.meta.id, true)}</small>`;
+  const inner = `<b>--</b><small>${outSince}</small>`;
   return `<td class="offline waves" title="${M.wavesText(d.meta.id)}">${panel ? `<a href="${panel}">${inner}</a>` : inner}</td>`;
 }
 

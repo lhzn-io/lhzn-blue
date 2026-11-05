@@ -67,7 +67,8 @@ The registries in `stations/` list the stations each page uses.
 Views: water temperature, salinity, dissolved oxygen, wind and waves, turbidity, rivers and tides. The map carries
 the satellite fields with 90 days of history, the NECOFS surface currents, HRRR wind, NWPS waves and a small-craft
 comfort index. One timeline below the map sets the time for the map layers, the charts, the overview table and the
-pins.
+pins. The Sound's NECOFS currents are also shown
+in 3D, at every model layer: [longhorizon.blue/long-island-sound/currents-3d/](https://longhorizon.blue/long-island-sound/currents-3d/).
 
 Readings pass gross-range, spike and placeholder checks before hourly averaging. A dataset the server stops
 publishing is retried every hour, and the daily build keeps every hour it already holds. Saved copies of the source

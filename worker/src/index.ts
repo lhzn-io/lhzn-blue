@@ -152,7 +152,7 @@ const POINT_PAGES = new Set(["long-island-sound"]);
 
 /** Waterways kept out of search results: what the Worker serves under them carries the noindex that _headers gives
  * their static files. */
-const UNLISTED = ["/piscataqua-region/", "/long-island-sound/currents-3d/"];
+const UNLISTED = ["/piscataqua-region/"];
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {

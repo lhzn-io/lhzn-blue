@@ -2335,8 +2335,11 @@ function renderPanel(fallback: HTMLElement): void {
     const credit = cm ? [cm.wind?.attribution, cm.waves?.attribution].filter(Boolean).join(" ") : wt ? wt.attribution : r ? r.attribution : c ? c.source : w ? w.attribution : "";
     const boat = controls?.boat ?? "console";
     const name = cm ? `${boatIcon(boat, 10)} ${meta.short}, ${BOATS[boat].name.toLowerCase()}` : meta.short;
+    // The Sound's currents layer links to the same model in 3D (/long-island-sound/currents-3d/).
+    const in3d = c && !cm && !wt && !r && location.pathname.startsWith("/long-island-sound/")
+      ? `<a class="field-3d" href="/long-island-sound/currents-3d/" title="The same model in 3D, below the surface">In 3D</a>` : "";
     body = `<div class="field-key"><span class="field-name" title="${meta.title}">${name}</span><span class="field-when">${when}</span>
-      <button type="button" class="field-info" aria-haspopup="dialog" aria-label="About this layer" title="About this layer">i</button></div>
+      <button type="button" class="field-info" aria-haspopup="dialog" aria-label="About this layer" title="About this layer">i</button>${in3d}</div>
       ${scaleHtml(meta)}
       <p class="field-note" hidden><b>${meta.title}.</b> ${meta.note}${span}${run} <span class="field-credit">${credit}</span></p>`;
     if (overlay && !wt) {

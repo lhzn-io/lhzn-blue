@@ -199,6 +199,7 @@ figure.wide { grid-column: 1 / -1; }
 .cur-ticks span:first-child::before { left: 0; }
 .cur-scale > span { line-height: 5px; } /* centred on the bar */
 .field-info { margin-left: 0; }
+.field-3d { font: 700 9px/1.2 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
 .field-note { flex-basis: 100%; }
 /* The time row across the page (above the map and the table, which it moves alike): the time and its steps on their
    own line, then play | track. Hairlines in the page's greys, no accent; past solid, forecast dotted. Its place holds

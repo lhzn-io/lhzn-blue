@@ -4,9 +4,9 @@
  * triangle, and the satellite water temperature on its pixel. Nothing is measured there; HRRR's and GFS's typical miss is borrowed from
  * the nearest buoy they are scored at (or the scored buoys together, where none is near), and named as such. */
 import type { CurrentsField, CurrentsMesh, RasterHistory, WindField } from "../fields";
-import type { Line } from "../chart";
-import { DAY, getJson, grid, HOUR } from "../series";
-import { compass } from "../wind-dir";
+import type { Line } from "@lhzn-io/timecharts/chart";
+import { DAY, getJson, grid, HOUR } from "@lhzn-io/timecharts/series";
+import { compass } from "@lhzn-io/timecharts/wind-dir";
 import { DATA, FORECAST_PAGE, requestRedraw } from "./data";
 import type { Fig } from "./figures";
 import { FCST, GFS, loadForecast, MS_KT, VER_AS, type FcRun, type GfsGrid, type GfsRun } from "./forecast";

@@ -1,8 +1,8 @@
 /** The readouts at the top of a station's section: the big figures for the view (water at each depth, surface minus
  * bottom, wind, waves, pressure, air, the water level against the tide), each with its trend and seasonal %ile, the
  * reading's age, and a model's value under a fault, marked as a model. */
-import { compass, LIGHT_KT, windArrow } from "../wind-dir";
-import { HOUR, oxygenStatus, stratStatus, type Hourly, type LastObs } from "../series";
+import { compass, LIGHT_KT, windArrow } from "@lhzn-io/timecharts/wind-dir";
+import { HOUR, oxygenStatus, stratStatus, type Hourly, type LastObs } from "@lhzn-io/timecharts/series";
 import { classify, percentileText, SEASONS, seasonalPercentile, trend, trendText, TRENDS, veerText } from "../trends";
 import { ago, cToF, f1, fmtDate, fmtWhenMin, hourOf, lastValue, signed, signedFt, tideText } from "./format";
 import { waveFmt, waveUnit, WIND_UNITS, windFmt, WU } from "./units";

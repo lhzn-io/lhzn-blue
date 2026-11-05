@@ -2,8 +2,8 @@
  * the latest readings at now, observations at a past hour, the forecast ahead, and a model's value under a fault,
  * marked as a model. The page supplies its models (forecast, wave model, tide predictions) and its view through
  * configureModels (waterway/models.ts). */
-import { compass, LIGHT_KT, windArrow } from "../wind-dir";
-import { DO_LEVELS, HOUR, oxygenStatus, type LastObs } from "../series";
+import { compass, LIGHT_KT, windArrow } from "@lhzn-io/timecharts/wind-dir";
+import { DO_LEVELS, HOUR, oxygenStatus, type LastObs } from "@lhzn-io/timecharts/series";
 import type { Pin } from "../map";
 import { ago, f1, feet, fmtClock, fmtDate, fmtRun, fmtUtc, fmtWhenMin, hourOf, lastValue, signed, signedFt, tideText } from "./format";
 import { AT, atFuture, atLabel, sparklineOf } from "./cursor";

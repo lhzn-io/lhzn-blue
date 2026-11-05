@@ -6,7 +6,7 @@
  * the recent value against the same dates (plus or minus a week) in every earlier year on record ("%ile"). The
  * windows and dead bands live here, in one place, to tune on the water.
  */
-import { DAY, HOUR, Hourly } from "./series";
+import { DAY, HOUR, Hourly } from "@lhzn-io/timecharts/series";
 
 export interface TrendSpec {
   /** Hours in each compared window (the latest window against the one before it). */

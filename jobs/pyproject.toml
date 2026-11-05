@@ -14,6 +14,8 @@ dependencies = [
     "forcingkit @ https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.13.0.tar.gz",
     "matplotlib>=3.8",  # point location on the model mesh (the shared coastline)
     "utide>=0.3",  # harmonic tide fits for the USGS tidal gauges (Codiga 2011)
+    # The CO-OPS and ERDDAP clients and the guarded store (lhzn-io/insitukit; identified as this site in __init__.py).
+    "insitukit>=0.1,<0.2",
 ]
 
 [project.optional-dependencies]

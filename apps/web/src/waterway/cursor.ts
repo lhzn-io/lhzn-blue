@@ -1,8 +1,8 @@
 /** The time a waterway page shows: null for now (the latest readings), else the time bar's time (epoch seconds). The
  * table, the pins and the readouts all read it, so they agree. Read `AT` live; the time bar's listener sets it. */
-import { DAY, grid, type Hourly } from "../series";
+import { DAY, grid, type Hourly } from "@lhzn-io/timecharts/series";
 import { span } from "./format";
-import { zoned } from "../dst";
+import { zoned } from "@lhzn-io/timecharts/dst";
 
 export let AT: number | null = null;
 export function setAt(t: number | null): void {

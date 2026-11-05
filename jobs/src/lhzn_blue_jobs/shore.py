@@ -27,7 +27,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import coops
+from insitukit import coops
+
 from .build import c_to_f, decode, decode_frame, encode, encode_frame, iso, now_utc
 
 log = logging.getLogger(__name__)

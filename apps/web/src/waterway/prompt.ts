@@ -3,8 +3,8 @@
  * The page supplies its template, its map layer, its links and its credit. */
 import { mountCollect } from "../collect";
 import { METHODS, REF_LABELS } from "../methods";
-import { compass } from "../wind-dir";
-import { COVERAGE_MIN, DAY, fToC, grid, oxygenStatus, STRAT, yearLines, type Live, type Meta } from "../series";
+import { compass } from "@lhzn-io/timecharts/wind-dir";
+import { COVERAGE_MIN, DAY, fToC, grid, oxygenStatus, STRAT, yearLines, type Live, type Meta } from "@lhzn-io/timecharts/series";
 import { ago, cToF, f1, fmtEt, fmtUtc, signed, tideText } from "./format";
 import { AT, atLabel } from "./cursor";
 import { WIND_UNITS, windFmt, WU } from "./units";

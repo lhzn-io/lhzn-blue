@@ -1,5 +1,5 @@
 /** How fresh the page's data is, and the outage note when the buoys' server cannot be reached. */
-import type { Live, Meta } from "../series";
+import type { Live, Meta } from "@lhzn-io/timecharts/series";
 import { fmtEt, span } from "./format";
 import { dropDown } from "./phone-bar";
 

@@ -10,8 +10,8 @@
 import "./site.css";
 import "./away-links";
 import "./water-page.css";
-import { el, niceStep } from "./chart";
-import { setPlayButton, timeTrack } from "./time-axis";
+import { el, niceStep } from "@lhzn-io/timecharts/chart";
+import { setPlayButton, timeTrack } from "@lhzn-io/timecharts/time-axis";
 
 const DATA = "/data/v1";
 const HOUR = 3600_000;

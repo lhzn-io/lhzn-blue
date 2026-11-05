@@ -11,10 +11,10 @@ import "./site.css";
 import "./away-links";
 import "./forecast-page.css";
 import "./piscataqua-page.css";
-import { cssVar, el, markAsOf, renderLines, type Line } from "./chart";
-import { CURRENTS_FLOOR, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURRENTS_TOP } from "./currents-ramp";
-import { MEASURED_TOP, measuredColour } from "./measured-ramp";
-import { setPlayButton, timeTrack } from "./time-axis";
+import { cssVar, el, markAsOf, renderLines, type Line } from "@lhzn-io/timecharts/chart";
+import { CURRENTS_FLOOR, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURRENTS_TOP } from "@lhzn-io/timecharts/currents-ramp";
+import { MEASURED_TOP, measuredColour } from "@lhzn-io/timecharts/measured-ramp";
+import { setPlayButton, timeTrack } from "@lhzn-io/timecharts/time-axis";
 import type { Map as MapLibreMap, ExpressionSpecification, GeoJSONSource } from "maplibre-gl";
 
 interface Series { t0: string; step: number; v: (number | null)[] }

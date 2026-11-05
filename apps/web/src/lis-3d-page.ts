@@ -12,7 +12,7 @@ import "./site.css";
 import "./away-links";
 import "./models-page.css";
 import "./lis-3d-page.css";
-import { setPlayButton, timeTrack } from "./time-axis";
+import { setPlayButton, timeTrack } from "@lhzn-io/timecharts/time-axis";
 
 const PANE_BASE = "/long-island-sound/currents-3d/pane/"; // the module; its data come from the Worker (Workers KV)
 const $ = (id: string) => document.getElementById(id)!;

@@ -3,10 +3,10 @@
  * prompt. Everything particular to a waterway comes in through mountWaterwayPage: its config (waterways/<id>.ts), its
  * data adapter (adapters/<id>.ts) and its own parts (each station's About, its shore table, its tides diagram). */
 import "./places.css";
-import { renderLines, YELLOW, type ChartOptions, type Line } from "../chart";
+import { renderLines, YELLOW, type ChartOptions, type Line } from "@lhzn-io/timecharts/chart";
 import { wireHints } from "../hints";
 import { chainButton, navigateTo, revealLinked, wireLinks } from "../links";
-import { compass, windArrow, windGlyphs } from "../wind-dir";
+import { compass, windArrow, windGlyphs } from "@lhzn-io/timecharts/wind-dir";
 import { comfortTableHtml } from "../comfort-thresholds";
 import { smoothByAge } from "../trends";
 import type { FieldData, FieldKind, RasterHistory } from "../fields";
@@ -14,10 +14,10 @@ import { wireSuggest } from "../suggest";
 import {
   COVERAGE_MIN, DAY, DO_LEVELS, HOUR, Hourly, STRAT, dF, getJson, grid, yearLines, type LastObs,
   type Live, type Meta, type MetaSeries,
-} from "../series";
+} from "@lhzn-io/timecharts/series";
 import { mountAdvisories } from "../advisory";
 import { ago, escHtml, fmtClock, fmtDate, fmtRun, fmtWhenMin, signed } from "./format";
-import { zoned } from "../dst";
+import { zoned } from "@lhzn-io/timecharts/dst";
 import { AT, atFuture, atLabel, setAt, sparklineOf } from "./cursor";
 import { holdRoom } from "./room";
 import { pinTimeline } from "./pin-time";
@@ -1338,7 +1338,7 @@ let timelineWired = false;
 async function wireTimeline(box: HTMLElement): Promise<void> {
   if (timelineWired) return;
   timelineWired = true;
-  const [tl, chart] = await Promise.all([import("../timeline"), import("../chart")]);
+  const [tl, chart] = await Promise.all([import("../timeline"), import("@lhzn-io/timecharts/chart")]);
   tl.mountTimeline(document.getElementById("timebar") ?? document.getElementById("map-foot") ?? box);
   const root = tl.timelineRoot();
   if (root && !EMBED) pinTimeline(root); // in reach while the page scrolls

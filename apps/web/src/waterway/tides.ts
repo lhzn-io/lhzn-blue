@@ -1,6 +1,6 @@
 /** The tide at a waterway's shore stations: NOAA's predictions (hourly levels and the highs and lows), datums and NWS
  * flood levels, the moon's phases, and what the weather adds to the tide (observed minus predicted, hourly). */
-import { getJson, HOUR, Hourly } from "../series";
+import { getJson, HOUR, Hourly } from "@lhzn-io/timecharts/series";
 import type { StationData } from "./station-data";
 import { DATA } from "./data";
 

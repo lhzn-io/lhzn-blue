@@ -1,7 +1,7 @@
 /** The tides view: the departure from the prediction and the highs and lows at a shore station (the ladder), the
  * departure at every shore station on one axis, the highest tide each day ahead, and the view's table. */
-import type { Line } from "../chart";
-import { DAY, grid, HOUR, type Hourly, type TideEvent } from "../series";
+import type { Line } from "@lhzn-io/timecharts/chart";
+import { DAY, grid, HOUR, type Hourly, type TideEvent } from "@lhzn-io/timecharts/series";
 import { fmtDate, fmtWhen, fmtWhenMin, lastValue, signedFt } from "./format";
 import { AT, atLabel } from "./cursor";
 import { overallState, type StationData } from "./station-data";

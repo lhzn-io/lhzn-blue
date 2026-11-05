@@ -5,8 +5,8 @@
  * arguments. Data: the buoy's hourly window (live.json, the last 30 days) and its daily record (history.json).
  */
 import { chainButton } from "./links";
-import { renderLines, type Area, type Line } from "./chart";
-import { Daily, Hourly, yearLines } from "./series";
+import { renderLines, type Area, type Line } from "@lhzn-io/timecharts/chart";
+import { Daily, Hourly, yearLines } from "@lhzn-io/timecharts/series";
 import { percentileText, seasonalPercentile, SEASONS } from "./trends";
 
 const HOUR = 3600;

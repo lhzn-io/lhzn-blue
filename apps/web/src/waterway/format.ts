@@ -1,6 +1,6 @@
 /** Times and numbers as the waterway pages write them (New York time). */
-import { HOUR, type Hourly, type TideEvent } from "../series";
-import { zoned } from "../dst";
+import { HOUR, type Hourly, type TideEvent } from "@lhzn-io/timecharts/series";
+import { zoned } from "@lhzn-io/timecharts/dst";
 
 export const fmtUtc = (iso: string) => iso.slice(0, 16).replace("T", " ") + " UTC";
 export const fmtDate = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "short", day: "numeric" });

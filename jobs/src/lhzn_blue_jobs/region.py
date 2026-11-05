@@ -26,9 +26,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import asos, coops, fields, hrrr_grid, outages, piscataqua, rivers, shore
+from insitukit import coops
+from insitukit.erddap import NERACOOS_URL, Erddap
+
+from . import asos, fields, hrrr_grid, outages, piscataqua, rivers, shore
 from .build import Store, decode_frame, encode_frame, iso, now_utc
-from .erddap import NERACOOS_URL, Erddap
 
 log = logging.getLogger(__name__)
 

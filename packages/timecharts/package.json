@@ -1,0 +1,20 @@
+{
+  "name": "@lhzn-io/timecharts",
+  "version": "0.1.0",
+  "description": "Time-series charts on one shared time axis, with the series helpers, ramps and theme tokens of longhorizon.blue",
+  "license": "MIT",
+  "author": "Long Horizon Observatory",
+  "type": "module",
+  "exports": {
+    "./chart": "./src/chart.ts",
+    "./time-axis": "./src/time-axis.ts",
+    "./series": "./src/series.ts",
+    "./dst": "./src/dst.ts",
+    "./wind-dir": "./src/wind-dir.ts",
+    "./moon": "./src/moon.ts",
+    "./currents-ramp": "./src/currents-ramp.ts",
+    "./measured-ramp": "./src/measured-ramp.ts",
+    "./tokens.css": "./tokens.css"
+  },
+  "files": ["src", "tokens.css", "README.md"]
+}

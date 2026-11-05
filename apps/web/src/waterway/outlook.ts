@@ -1,8 +1,8 @@
 /** The outlook under the status table (the weather view): the next 48 hours at one station, every row on the same time
  * axis (wind, gusts, pressure, air, then the wave model at a buoy or the tide at the nearest gauge). Empty until the
  * forecast has loaded. */
-import { compass } from "../wind-dir";
-import { HOUR } from "../series";
+import { compass } from "@lhzn-io/timecharts/wind-dir";
+import { HOUR } from "@lhzn-io/timecharts/series";
 import { fmtWhen, fmtWhenMin } from "./format";
 import { waveFmt, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./units";
 import type { FcValue, StationData } from "./station-data";

@@ -11,7 +11,9 @@ import logging
 
 import requests
 
-from . import coops, erddap, merlin
+from insitukit import coops, erddap
+
+from . import merlin
 
 # Messages the sources' clients (and forcingkit's fetchers) use when the data are simply not there.
 OUTAGE_PHRASES = (

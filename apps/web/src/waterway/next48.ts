@@ -1,9 +1,9 @@
 /** The next 48 hours at a station: wind and gusts measured for the last day and a half, then HRRR's stitched forecast
  * with its typical miss at each lead, the earlier runs faint behind it, and the wind's direction along the top. Past
  * HRRR's reach, GFS in its own colour with its own typical miss; "7 days" on the plot widens the window to GFS's. */
-import type { Line } from "../chart";
-import { DAY, grid, HOUR } from "../series";
-import { compass, measuredOr, windGlyphs, type WindAt } from "../wind-dir";
+import type { Line } from "@lhzn-io/timecharts/chart";
+import { DAY, grid, HOUR } from "@lhzn-io/timecharts/series";
+import { compass, measuredOr, windGlyphs, type WindAt } from "@lhzn-io/timecharts/wind-dir";
 import { requestRedraw } from "./data";
 import { fmtRun } from "./format";
 import { WIND_UNITS, windFmt, windVal, WU } from "./units";

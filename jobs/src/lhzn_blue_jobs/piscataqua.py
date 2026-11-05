@@ -27,7 +27,8 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
-from . import coops
+from insitukit import coops
+
 from .build import iso, now_utc
 
 log = logging.getLogger(__name__)

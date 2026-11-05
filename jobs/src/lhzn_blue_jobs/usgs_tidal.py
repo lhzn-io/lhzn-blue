@@ -34,7 +34,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import coops
+from insitukit import coops
+
 from .build import decode_frame, encode_frame, iso, now_utc
 from .rivers import continuous
 

@@ -26,10 +26,10 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import quote
 
 import numpy as np
 import pandas as pd
+from insitukit import store as kit_store
 
 from . import merlin
 
@@ -113,88 +113,12 @@ STATIONS_FILE = Path(
 
 
 # ---------------------------------------------------------------------------------------------
-# Storage: a local directory, Cloudflare Workers KV (kv://<account_id>/<namespace_id>, token in
-# CLOUDFLARE_API_TOKEN), or a gs:// prefix.
-
-KV_API = "https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{ns}/values/{key}"
+# Storage: a local directory, Cloudflare Workers KV or a gs:// prefix (insitukit.store), held to WRITABLE.
 
 
-class Store:
+class Store(kit_store.Store):
     def __init__(self, root: str):
-        self.root = root.rstrip("/")
-        self._bucket = None
-        self._kv = None
-        if self.root.startswith("kv://"):
-            import requests
-
-            account, _, ns = self.root[5:].partition("/")
-            token = os.environ["CLOUDFLARE_API_TOKEN"].strip()
-            self._kv = (account, ns, requests.Session())
-            self._kv[2].headers["Authorization"] = f"Bearer {token}"
-        elif self.root.startswith("gs://"):
-            from google.cloud import storage
-
-            bucket, _, prefix = self.root[5:].partition("/")
-            self._bucket = storage.Client().bucket(bucket)
-            self._prefix = prefix
-
-    def _blob(self, rel: str):
-        name = f"{self._prefix}/{rel}" if self._prefix else rel
-        return self._bucket.blob(name)
-
-    def _kv_url(self, rel: str) -> str:
-        account, ns, _ = self._kv
-        return KV_API.format(account=account, ns=ns, key=quote(rel, safe=""))
-
-    def read_json(self, rel: str) -> dict | None:
-        if self._kv is not None:
-            resp = self._kv[2].get(self._kv_url(rel), timeout=60)
-            if resp.status_code == 404:
-                return None
-            resp.raise_for_status()
-            return resp.json()
-        if self._bucket is not None:
-            blob = self._blob(rel)
-            return json.loads(blob.download_as_text()) if blob.exists() else None
-        path = Path(self.root) / rel
-        return json.loads(path.read_text()) if path.exists() else None
-
-    def read_bytes(self, rel: str) -> bytes | None:
-        if self._kv is not None:
-            resp = self._kv[2].get(self._kv_url(rel), timeout=60)
-            if resp.status_code == 404:
-                return None
-            resp.raise_for_status()
-            return resp.content
-        if self._bucket is not None:
-            blob = self._blob(rel)
-            return blob.download_as_bytes() if blob.exists() else None
-        path = Path(self.root) / rel
-        return path.read_bytes() if path.exists() else None
-
-    def write_json(self, rel: str, obj: dict, max_age: int) -> None:
-        text = json.dumps(obj, separators=(",", ":"), allow_nan=False)
-        self.write_bytes(rel, text.encode(), max_age, content_type="application/json")
-
-    def write_bytes(self, rel: str, data: bytes, max_age: int, content_type: str = "application/octet-stream") -> None:
-        # Cost guard: only a fixed set of object names, each bounded in size, so a misbehaving loop can
-        # rewrite the same few objects but never multiply them.
-        if not WRITABLE.fullmatch(rel):
-            raise ValueError(f"refusing to write unexpected object name: {rel}")
-        if len(data) > MAX_OBJECT_BYTES:
-            raise ValueError(f"refusing to write {rel}: {len(data)} bytes exceeds {MAX_OBJECT_BYTES}")
-        if self._kv is not None:
-            resp = self._kv[2].put(self._kv_url(rel), data=data, headers={"Content-Type": content_type}, timeout=120)
-            resp.raise_for_status()
-        elif self._bucket is not None:
-            blob = self._blob(rel)
-            blob.cache_control = f"public, max-age={max_age}"
-            blob.upload_from_string(data, content_type=content_type)
-        else:
-            path = Path(self.root) / rel
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(data)
-        log.info("wrote %s/%s (%d bytes)", self.root, rel, len(data))
+        super().__init__(root, WRITABLE, MAX_OBJECT_BYTES)
 
 
 # ---------------------------------------------------------------------------------------------

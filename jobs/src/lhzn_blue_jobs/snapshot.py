@@ -53,7 +53,7 @@ def named_datasets() -> set[str]:
 
 def server_datasets() -> list[dict]:
     """The server's list: id, title and time range of every dataset it publishes."""
-    resp = merlin._get(f"{merlin.BASE_URL}/tabledap/allDatasets.csv?datasetID,title,minTime,maxTime")
+    resp = merlin.get(f"{merlin.BASE_URL}/tabledap/allDatasets.csv?datasetID,title,minTime,maxTime")
     df = pd.read_csv(io.StringIO(resp.text), skiprows=[1])
     return [r for r in json.loads(df.to_json(orient="records")) if r["datasetID"] != "allDatasets"]
 
@@ -94,7 +94,7 @@ class Sink:
 def _csv(ds: str, columns: list[str] | None, start: datetime, stop: datetime) -> str | None:
     query = ",".join(columns) if columns else ""
     url = f"{merlin.BASE_URL}/tabledap/{ds}.csv?{query}&time%3E={start:%Y-%m-%dT%H:%M:%SZ}&time%3C{stop:%Y-%m-%dT%H:%M:%SZ}"
-    resp = merlin._get(url, retries=2)
+    resp = merlin.get(url, retries=2)
     return resp.text if resp is not None else None
 
 
@@ -124,7 +124,7 @@ def _year_bounds(listed: dict | None, end: datetime) -> range:
 
 def save_dataset(sink: Sink, ds: str, listed: dict | None, end: datetime) -> dict:
     try:
-        info = merlin._get(f"{merlin.BASE_URL}/info/{ds}/index.csv")
+        info = merlin.get(f"{merlin.BASE_URL}/info/{ds}/index.csv")
     except merlin.DatasetMissing:
         info = None
     if info is None:

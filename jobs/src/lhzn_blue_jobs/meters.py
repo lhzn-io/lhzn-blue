@@ -48,6 +48,14 @@ def _frame(obj: dict | None) -> pd.DataFrame:
     return pd.DataFrame(cols, index=idx, dtype=float).dropna(how="all")
 
 
+def readings(station: str, start: datetime, end: datetime, bin: int | None = None) -> list[dict]:
+    """A current meter's 6-minute readings in ``[start, end)`` as ``{t, s, d}``: speed in cm/s as NOAA publishes it
+    (insitukit returns m/s) and direction toward, degrees true; a missing value is None."""
+    df = coops.fetch("currents", station, start, end, bin=bin)
+    return [{"t": t, "s": None if pd.isna(s) else round(float(s) * 100, 2), "d": None if pd.isna(d) else float(d)}
+            for t, s, d in zip(df["time"], df["speed"], df["direction"])]
+
+
 def parts_hourly(rows: list[dict], flood_dir: float) -> tuple[pd.DataFrame, dict | None]:
     """6-minute readings ({t, s cm/s, d toward}) as hourly means along and across the flood direction, in knots; and
     the last reading that passed the range check."""
@@ -97,11 +105,7 @@ def live(prev: dict | None, end: datetime, meters: list[dict]) -> dict:
             else:
                 start = max(window_start, min(pd.Timestamp(end) - pd.Timedelta(hours=FETCH_HOURS), held.index[-1]))
             try:
-                vals = []
-                for lo, hi in coops.spans(start.to_pydatetime(), end + timedelta(minutes=1), hourly=False):
-                    body = coops._get({"product": "currents", "station": m["coops_id"], "bin": n,
-                                       "begin_date": coops._stamp(lo), "end_date": coops._stamp(hi - timedelta(minutes=1))}) or {}
-                    vals += body.get("data") or []
+                vals = readings(m["coops_id"], start.to_pydatetime(), end + timedelta(minutes=1), bin=n)
                 rows += len(vals)
                 fresh, last = parts_hourly(vals, m["flood_dir"])
                 held = fresh.combine_first(held) if not held.empty else fresh

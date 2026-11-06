@@ -99,24 +99,13 @@ def regional_offset(start: datetime, end: datetime) -> dict:
     per = {}
     for s in json.loads(SHORE_FILE.read_text())["stations"]:
         obs = coops.fetch("hourly_height", s["coops_id"], start, end).set_index("time").iloc[:, 0].dropna()
-        preds = {}
-        for lo, hi in coops.spans(start, end, hourly=False):
-            body = coops._get({"product": "predictions", "station": s["coops_id"], "begin_date": coops._stamp(lo),
-                               "end_date": coops._stamp(hi - timedelta(minutes=1)), "interval": "h", "datum": "MLLW"}) or {}
-            for row in body.get("predictions") or []:
-                try:
-                    preds[pd.Timestamp(row["t"], tz="UTC")] = float(row["v"])
-                except (KeyError, TypeError, ValueError):
-                    continue
-        both = pd.concat({"obs": obs, "pred": pd.Series(preds)}, axis=1).dropna()
+        preds = coops.predictions(s["coops_id"], start, end, interval="h")
+        both = pd.concat({"obs": obs, "pred": preds}, axis=1).dropna()
         if len(both) > 24 * 60:
             per[s["id"]] = round(float((both["obs"] - both["pred"]).mean() * M_FT), 3)
     if not per:
         raise RuntimeError("no NOAA gauge gave a regional offset")
     return {"per_gauge_ft": per, "mean_ft": round(float(np.mean(list(per.values()))), 3)}
-
-
-HARCON = "https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations/{}/harcon.json?units=english"
 
 
 def _sun_longitude(t: pd.DatetimeIndex) -> np.ndarray:
@@ -127,11 +116,7 @@ def _sun_longitude(t: pd.DatetimeIndex) -> np.ndarray:
 
 def seasonal(noaa_id: str, t: pd.DatetimeIndex) -> np.ndarray:
     """NOAA's long-term annual and semi-annual tide (SA, SSA) at a NOAA gauge, in feet, at times ``t``."""
-    import requests
-
-    resp = requests.get(HARCON.format(noaa_id), timeout=60, headers={"User-Agent": "lhzn-blue-ingest/0.2 (+https://longhorizon.blue)"})
-    resp.raise_for_status()
-    con = {c["name"]: c for c in resp.json().get("HarmonicConstituents", [])}
+    con = {c["name"]: c for c in coops.harcon(noaa_id, units="english")}
     h = _sun_longitude(t)
     out = np.zeros(len(t))
     for name, mult in (("SA", 1), ("SSA", 2)):

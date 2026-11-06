@@ -26,10 +26,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from insitukit import coops
 from insitukit.erddap import NERACOOS_URL, Erddap
 
-from . import asos, fields, hrrr_grid, outages, piscataqua, rivers, shore
+from . import asos, fields, hrrr_grid, meters, outages, piscataqua, rivers, shore
 from .build import Store, decode_frame, encode_frame, iso, now_utc
 
 log = logging.getLogger(__name__)
@@ -197,11 +196,7 @@ def current_meters(prev: dict, end: datetime, reg: dict) -> dict:
         held = _held(before, ["spd_cms", "dir_deg"])
         last_obs, error, rows = before.get("last_obs"), None, 0
         try:
-            vals = []
-            for lo, hi in coops.spans(_fetch_start(held, end), end + timedelta(minutes=1), hourly=False):
-                body = coops._get({"product": "currents", "station": m["coops_id"], "begin_date": coops._stamp(lo),
-                                   "end_date": coops._stamp(hi - timedelta(minutes=1))}) or {}
-                vals += body.get("data") or []
+            vals = meters.readings(m["coops_id"], _fetch_start(held, end), end + timedelta(minutes=1))
             rows = len(vals)
             if vals:
                 df = pd.DataFrame(vals)

@@ -13,9 +13,11 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
   `timecharts-v*` release (`scripts/release-timecharts.sh`). Keep it free of anything specific to one waterway.
 - The jobs' NOAA CO-OPS and NERACOOS ERDDAP clients and the guarded store come from `insitukit` (PyPI,
   `lhzn-io/insitukit`); `lhzn_blue_jobs/__init__.py` identifies every request as this site. A change to those
-  belongs in insitukit, released, then the pin here raised.
+  belongs in insitukit, released, then the pin here raised. Use insitukit's public functions only (no `coops._get`,
+  `_stamp` or `_pace`); CO-OPS current speeds come back in m/s, and the files that publish cm/s convert back.
 - `jobs/src/lhzn_blue_jobs/`:
-  - `merlin.py` (LISICOS ERDDAP client with retries; a 404 with "no matching results" is an empty window),
+  - `merlin.py` (the LISICOS server through one insitukit `Erddap` client: per-job budget, retries, unreachable
+    flag; a 404 with "no matching results" is an empty window),
     `rivers.py` (USGS Water Data APIs; `USGS_API_KEY` optional).
   - `build.py` (QC, UTC hourly means, the buoy files, the `WRITABLE` allow-list for insitukit's store),
     `shore.py`, `waves.py`, `weather.py` (buoy weather history for the seasonal %iles), `turbidity.py` (with

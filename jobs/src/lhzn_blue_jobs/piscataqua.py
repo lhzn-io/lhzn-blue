@@ -183,10 +183,6 @@ def _grid(s: pd.Series, start: pd.Timestamp, step_s: int, digits: int) -> dict:
     return {"t0": iso(idx[0]), "step": step_s, "v": [None if pd.isna(v) else round(float(v), digits) for v in full]}
 
 
-def _windows(start: datetime, end: datetime) -> list[tuple[datetime, datetime]]:
-    return coops.spans(start, end, hourly=False)
-
-
 def water_level_part(start: datetime, end: datetime) -> dict:
     df = coops.fetch("water_level", WL["id"], start, end)
     s = pd.Series(df["water_level"].to_numpy(), index=df["time"])
@@ -194,13 +190,7 @@ def water_level_part(start: datetime, end: datetime) -> dict:
 
 
 def tide_part(start: datetime, end: datetime) -> dict:
-    vals: dict[pd.Timestamp, float] = {}
-    for lo, hi in _windows(start, end):
-        body = coops._get({"product": "predictions", "station": TIDE["id"], "datum": "MLLW", "interval": "6",
-                           "begin_date": coops._stamp(lo), "end_date": coops._stamp(hi - timedelta(minutes=1))}) or {}
-        for r in body.get("predictions") or []:
-            vals[pd.Timestamp(r["t"], tz="UTC")] = float(r["v"])
-    s = pd.Series(vals).sort_index()
+    s = coops.predictions(TIDE["id"], start, end)
     events = coops.tide_events(TIDE["id"], start, end)
     return {
         **TIDE, "datum": "MLLW", "units": "m", **_grid(s, pd.Timestamp(start), 360, 3),
@@ -210,20 +200,23 @@ def tide_part(start: datetime, end: datetime) -> dict:
 
 def current_part(start: datetime, end: datetime, station: dict = CURRENT) -> dict:
     """NOAA's tidal current predictions for ``station`` (PIR0701 by default; the region page passes others)."""
-    vals: dict[pd.Timestamp, float] = {}
-    events: list[dict] = []
+    # insitukit gives m/s; this file keeps NOAA's cm/s (rounded back to the 0.1 cm/s NOAA publishes).
+    pred = coops.current_predictions(station["id"], start, end, interval=30)
+    s = pd.Series((pred["velocity_major"] * 100).round(4).to_numpy(), index=pred["time"])
     meta: dict = {}
-    for lo, hi in _windows(start, end):
-        span = {"station": station["id"], "begin_date": coops._stamp(lo), "end_date": coops._stamp(hi - timedelta(minutes=1))}
-        body = coops._get({"product": "currents_predictions", "interval": "30", **span}) or {}
-        for r in (body.get("current_predictions") or {}).get("cp") or []:
-            vals[pd.Timestamp(r["Time"], tz="UTC")] = float(r["Velocity_Major"])
-            meta = {"flood_dir": r.get("meanFloodDir"), "ebb_dir": r.get("meanEbbDir"), "depth_m": float(r.get("Depth") or "nan")}
-        body = coops._get({"product": "currents_predictions", "interval": "MAX_SLACK", **span}) or {}
-        for r in (body.get("current_predictions") or {}).get("cp") or []:
-            events.append({"t": iso(pd.Timestamp(r["Time"], tz="UTC")), "type": r.get("Type"), "v": float(r["Velocity_Major"])})
-    s = pd.Series(vals).sort_index()
+    if not pred.empty:
+        a = pred.attrs
+        meta = {"flood_dir": _whole(a.get("flood_dir_deg")), "ebb_dir": _whole(a.get("ebb_dir_deg")),
+                "depth_m": float("nan") if a.get("depth_m") is None else a["depth_m"]}
+    ev = coops.current_predictions(station["id"], start, end, interval="MAX_SLACK")
+    events = [{"t": iso(t), "type": k, "v": round(float(v) * 100, 4)}
+              for t, k, v in zip(ev["time"], ev["type"], ev["velocity_major"])]
     return {**station, "units": "cm/s", "positive": "flood", **meta, **_grid(s, pd.Timestamp(start), 1800, 1), "events": events}
+
+
+def _whole(x: float | None) -> int | float | None:
+    """A direction as NOAA writes it: whole degrees as an integer."""
+    return int(x) if x is not None and float(x).is_integer() else x
 
 
 # ---------------------------------------------------------------------------------------------

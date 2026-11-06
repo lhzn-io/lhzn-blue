@@ -30,7 +30,7 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
     advisories), `verify.py` (HRRR scored against the buoys).
   - More stations: `asos.py` (airport weather), `usgs_tidal.py` (USGS tidal gauges), `tides.py` (tide predictions,
     datums and moon phases), `panels.py` (a transcribed record from the LISICOS station panels during outages).
-  - `piscataqua.py` and `piscataqua_model.py` (an unlisted page's buoy, NOAA and model data).
+  - `piscataqua.py` (NOAA's tidal current predictions for the Piscataqua Region page).
   - `snapshot.py` (saved copies of the server's datasets), `archive.py` (reads saved downloads for the imports),
     `cli.py`.
 - `apps/web/src/`:

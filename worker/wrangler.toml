@@ -20,8 +20,8 @@ directory = "../apps/web/dist"
 binding = "ASSETS"
 # The waterways' paths too: a station's page (/long-island-sound/exrx/) has no file of its own, and a path with no file
 # would get the 404 page without reaching the Worker. Their other pages pass straight through to the assets. The
-# Portsmouth currents' page has no file of its own either (the Worker's SAME_PAGE).
-run_worker_first = ["/data/*", "/long-island-sound/*", "/piscataqua-region/*", "/portsmouth-harbor/currents", "/portsmouth-harbor/currents/*"]
+# UNH buoy page's old addresses too, which the Worker redirects to its own site (MOVED).
+run_worker_first = ["/data/*", "/long-island-sound/*", "/piscataqua-region/*", "/piscataqua", "/piscataqua/", "/portsmouth-harbor", "/portsmouth-harbor/*"]
 html_handling = "auto-trailing-slash"
 not_found_handling = "404-page"
 

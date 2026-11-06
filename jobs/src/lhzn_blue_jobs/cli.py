@@ -18,7 +18,7 @@ from . import build, merlin, outages, rivers, shore, tides, turbidity, usgs_tida
 
 def _main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "gfs-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "piscataqua-history", "panels", "region-live", "region-daily", "region-wind", "import-verification", "import-archive", "import-waves", "import-weather"])
+    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "gfs-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "panels", "region-live", "region-daily", "region-wind", "import-verification", "import-archive", "import-waves", "import-weather"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
@@ -94,7 +94,6 @@ def _main() -> None:
         _shore(lambda: store.write_json(
             "v1/advisories-now.json", __import__("lhzn_blue_jobs.advisories", fromlist=["now"]).now(), max_age=300
         ), "advisories-now")
-        _shore(lambda: __import__("lhzn_blue_jobs.piscataqua", fromlist=["publish"]).publish(store), "piscataqua")
     elif args.command == "latest":
         # The 15-minute refresh between hourly runs: the buoys' water and weather only.
         build.live(store, quick=True)
@@ -128,11 +127,6 @@ def _main() -> None:
 
         # Once, after the first deploy: the map's wind history (hrrr-wind-history.json); hours present are skipped.
         hrrr_grid.backfill(store, days=args.days)
-    elif args.command == "piscataqua-history":
-        from . import fields
-
-        # Once (or to catch up): up to --days archive days of the Piscataqua model's past hours, then the forecast file.
-        _failed.extend(fields.piscataqua(store, build.now_utc(), new_days=args.days))
     elif args.command.startswith("region-"):
         # The Piscataqua Region waterway (region.py), run as its own jobs so the Sound's are never held up by it:
         # region-live hourly; region-daily (the rivers' record, then the currents and SST); region-wind every 3 hours.

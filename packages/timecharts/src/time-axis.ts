@@ -1,5 +1,5 @@
 /** The site's time track: the line, ticks, dates and moon phases of the time bar (timeline.ts), shared with the
- * sliders on the forecast, models, tides and Portsmouth Harbor pages, so every time control reads the same way.
+ * sliders on the forecast, models and tides pages, so every time control reads the same way.
  *
  * Past solid, ahead dotted, with a mark at now. Ticks at each local midnight, with finer ones every 6 hours, over a
  * month or less; a tick a week (taller on each 1st) over a season; one a month over a longer record. Under the ticks,

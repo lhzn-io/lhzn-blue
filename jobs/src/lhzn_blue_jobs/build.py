@@ -89,14 +89,12 @@ MET_RANGES = {
 }
 # Every object the jobs may write. Anything else is refused (see Store.write_json).
 WRITABLE = re.compile(
-    r"v1/(history|history-salinity|history-oxygen|history-waves|history-turbidity|history-met|live|shore|shore-history|shore-tides|rivers|rivers-history|usgs-tidal|forecast-hrrr|waves-nwps|advisories|advisories-now|panels|forecast-verification|current-phase|piscataqua|forecast-gfs|forecast-verification-gfs)\.json"
+    r"v1/(history|history-salinity|history-oxygen|history-waves|history-turbidity|history-met|live|shore|shore-history|shore-tides|rivers|rivers-history|usgs-tidal|forecast-hrrr|waves-nwps|advisories|advisories-now|panels|forecast-verification|current-phase|forecast-gfs|forecast-verification-gfs)\.json"
     r"|v1/archive/[A-Z]{3,5}_(SFC|MID|BTM|WAVE|MET)\.json"
     r"|v1/archive/(forecast-verification-sums|forecast-verification-gfs-sums|usgs-tidal-pred)\.json"
-    r"|v1/fields/(sst|chl|kd490|currents-mesh|hrrr-wind|hrrr-wind-history|model-grids|nwps-waves|wind-against-tide|rips|piscataqua-currents|piscataqua-currents-mesh)\.json"
+    r"|v1/fields/(sst|chl|kd490|currents-mesh|hrrr-wind|hrrr-wind-history|model-grids|nwps-waves|wind-against-tide|rips)\.json"
     r"|v1/fields/(sst|chl|kd490)-90d\.bin"
     r"|v1/fields/currents\.bin"
-    r"|v1/fields/piscataqua-currents-history\.bin"
-    r"|v1/piscataqua-pane/(window\.bin|mesh\.json|nodes\.f32|tri\.u16)"  # the 3D view's rolling window
     r"|v1/lis-pane/(sound/)?(window\.bin|mesh\.json|nodes\.f32|tri\.u16)"  # the Sound's 3D view (lis_pane.py)
     r"|v1/lis-pane/sound/section\.bin"
     r"|v1/hrrr-history/(WLIS|EXRX|ARTG|CLIS|KPTN|BRPT|NWHV|NLON|KBDR|KHVN)(-recent)?\.json"

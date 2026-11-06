@@ -52,15 +52,11 @@ const FILES: Record<string, number> = {
   "v1/waves-nwps.json": 1800,
   "v1/advisories.json": 3600,
   "v1/advisories-now.json": 300,
-  "v1/piscataqua.json": 300, // the unlisted /portsmouth-harbor/ page
   "v1/panels.json": 300,
   "v1/fields/sst.json": 3600,
   "v1/fields/chl.json": 3600,
   "v1/fields/kd490.json": 3600,
   "v1/fields/currents.bin": 3600,
-  "v1/fields/piscataqua-currents.json": 3600, // the unlisted /portsmouth-harbor/ page's own box
-  "v1/fields/piscataqua-currents-mesh.json": 86400,
-  "v1/fields/piscataqua-currents-history.bin": 3600, // the model's past hours, loaded when the time goes back
   "v1/fields/hrrr-wind.json": 600,
   "v1/fields/hrrr-wind-history.json": 3600, // the hours before hrrr-wind.json, loaded when the time bar goes back past it
   "v1/fields/nwps-waves.json": 1800,
@@ -77,13 +73,6 @@ const FILES: Record<string, number> = {
   "v1/fields/sst-90d.bin": 3600,
   "v1/fields/chl-90d.bin": 3600,
   "v1/fields/kd490-90d.bin": 3600,
-  // The /portsmouth-harbor/ page's 3D view: the model's rolling window, rewritten daily by the jobs (piscataqua_pane.py);
-  // the seabed and the particle tracks, uploaded by hand; and the files of the first fixed window, until it is retired.
-  "v1/piscataqua-pane/window.bin": 3600,
-  "v1/piscataqua-pane/mesh.json": 3600,
-  ...Object.fromEntries(
-    ["nodes.f32", "tri.u16", "zeta.i16", "u.i16", "v.i16", "profile.json", "tracks.f32", "tracks.json", "dem.bin", "dem.json", "buoy.json"].map((f) => [`v1/piscataqua-pane/${f}`, 86400]),
-  ),
   // The /long-island-sound/currents-3d/ page's 3D view, two places (the eastern Sound, and the whole Sound under
   // sound/): the model's rolling windows, rewritten daily (jobs: lis_pane.py).
   ...Object.fromEntries(
@@ -166,18 +155,15 @@ export default {
   },
 };
 
-/** Pages that are another page shown another way (the page reads its own address): served from that page's file. */
-const SAME_PAGE: Record<string, string> = { "/portsmouth-harbor/currents/": "/portsmouth-harbor/" };
+/** The UNH buoy page's old addresses (/piscataqua/, /portsmouth-harbor/ and its currents page): the buoy has its own
+ * site now. The query (a time and view) goes along, and the browser keeps a #map hash. */
+const MOVED = "https://aquafort.longhorizon.blue";
+const MOVED_PATH = /^\/(?:piscataqua|portsmouth-harbor)(\/currents)?(?:\/.*)?$/;
 
 /** A page: a station's address serves its waterway's page; anything else, the static assets. */
 async function page(req: Request, env: Env, url: URL): Promise<Response> {
-  const same = url.pathname.toLowerCase().replace(/\/?$/, "/");
-  if (Object.hasOwn(SAME_PAGE, same)) {
-    if (url.pathname !== same) return Response.redirect(`${url.origin}${same}${url.search}`, 301);
-    const home = new URL(url);
-    home.pathname = SAME_PAGE[same];
-    return env.ASSETS.fetch(new Request(home, req));
-  }
+  const moved = MOVED_PATH.exec(url.pathname.toLowerCase());
+  if (moved) return Response.redirect(`${MOVED}${moved[1] ? "/currents/" : "/"}${url.search}`, 301);
   const pt = POINT_PATH.exec(url.pathname);
   if (pt && POINT_PAGES.has(pt[1])) {
     if (!url.pathname.endsWith("/")) return Response.redirect(`${url.origin}${url.pathname}/${url.search}`, 301);

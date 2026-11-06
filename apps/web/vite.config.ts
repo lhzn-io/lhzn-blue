@@ -25,7 +25,7 @@ function localData(stationPages: string[]): Plugin {
           res.end();
           return;
         }
-        const base = stationBase(path) || (path.replace(/\/?$/, "/") === "/portsmouth-harbor/currents/" && "/portsmouth-harbor/"); // as the Worker's SAME_PAGE
+        const base = stationBase(path);
         if (base) req.url = base + (query ? `?${query}` : "");
         next();
       });
@@ -96,8 +96,7 @@ export default defineConfig(({ mode }) => ({
         tides: resolve(import.meta.dirname, "long-island-sound/tides/index.html"),
         models: resolve(import.meta.dirname, "long-island-sound/models/index.html"),
         "currents-3d": resolve(import.meta.dirname, "long-island-sound/currents-3d/index.html"),
-        "portsmouth-harbor": resolve(import.meta.dirname, "portsmouth-harbor/index.html"), // unlisted: noindex, kept out of the sitemap and the nav
-        "piscataqua-region": resolve(import.meta.dirname, "piscataqua-region/index.html"), // as above
+        "piscataqua-region": resolve(import.meta.dirname, "piscataqua-region/index.html"), // unlisted: noindex, kept out of the sitemap and the nav
       },
     },
   },

@@ -2,13 +2,7 @@
 /references.bib
   Content-Type: text/plain; charset=utf-8
 
-# The unlisted Portsmouth Harbor buoy page: kept out of search results (and out of the sitemap and the nav).
-/portsmouth-harbor/*
-  X-Robots-Tag: noindex, nofollow
-/portsmouth-harbor/
-  X-Robots-Tag: noindex, nofollow
-
-# The Piscataqua Region waterway page, the same way.
+# The unlisted Piscataqua Region waterway page: kept out of search results (and out of the sitemap and the nav).
 /piscataqua-region/*
   X-Robots-Tag: noindex, nofollow
 /piscataqua-region/

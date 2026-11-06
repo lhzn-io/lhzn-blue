@@ -5,7 +5,7 @@
 :root { --rg-time: #c4a1ff; }
 :root[data-theme="light"] { --rg-time: #5e2b8f; }
 
-/* Buttons as on the Portsmouth Harbor page: boxed, the pressed one filled. */
+/* Buttons: boxed, the pressed one filled. */
 .rg-btn { cursor: pointer; white-space: nowrap; min-height: 26px; padding: 0 7px; font: 600 9.5px/1 var(--sans); letter-spacing: 0.06em;
   color: var(--ink-soft); background: var(--bg); border: 1px solid var(--rule); border-radius: 0; }
 .rg-btn:hover { color: var(--ink); border-color: var(--accent-line); }

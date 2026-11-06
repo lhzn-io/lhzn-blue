@@ -148,7 +148,7 @@ figure.wide { grid-column: 1 / -1; }
   border: 1.5px solid var(--tl-ink, var(--ink)); border-radius: 50%; background: var(--bg); pointer-events: none; transition: background 0.12s; }
 .tl-track:hover .tl-knob, .tl-track:has(.tl-range:active) .tl-knob, .tl-track:has(.tl-range:focus-visible) .tl-knob {
   background: color-mix(in srgb, var(--tl-ink, var(--ink)) 22%, var(--bg)); }
-/* The same track under a page's own slider (time-axis.ts timeTrack): the forecast, models, tides and Portsmouth Harbor
+/* The same track under a page's own slider (time-axis.ts timeTrack): the forecast, models and tides
    pages. Its height holds the moons above the line and the dates below it. */
 .time-track { height: 30px; min-width: 0; color: var(--dim); }
 /* Day labels under the ticks, in the track's lower half. */

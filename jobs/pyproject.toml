@@ -15,7 +15,7 @@ dependencies = [
     "matplotlib>=3.8",  # point location on the model mesh (the shared coastline)
     "utide>=0.3",  # harmonic tide fits for the USGS tidal gauges (Codiga 2011)
     # The CO-OPS and ERDDAP clients and the guarded store (lhzn-io/insitukit; identified as this site in __init__.py).
-    "insitukit>=0.1,<0.2",
+    "insitukit>=0.2,<0.3",
 ]
 
 [project.optional-dependencies]

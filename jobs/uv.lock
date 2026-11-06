@@ -1634,7 +1634,7 @@ wheels = [
 
 [[package]]
 name = "insitukit"
-version = "0.1.0"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -1642,9 +1642,9 @@ dependencies = [
     { name = "pandas" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/74/a4/f498f028e6778652597c50e87870660c5a6bec6f1d299d3070d1cb9166ad/insitukit-0.1.0.tar.gz", hash = "sha256:2bc0dd3296cdd6d30741cab24c82525294642eaa1984d0ee84d8b1a5df43a8f4", size = 85012, upload-time = "2026-11-02T16:53:21.053Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/61/423e9c96684ca33c2b68c4bd397f0c04c56ceb7f46bebbb3d885f97a8f1f/insitukit-0.2.0.tar.gz", hash = "sha256:4512cf3e7d829de87da305c4f19a78cca711a64c4f04c7d47a7960f9bd168045", size = 91954, upload-time = "2026-11-05T22:59:29.034Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/b2/f0311d722789e595758ee13d8aec02d000de8575c5e9664918588206aaac/insitukit-0.1.0-py3-none-any.whl", hash = "sha256:003ee1d2bdafc35853583a49b2b105724ce63c06b6391f4169f8d98a433a4143", size = 16358, upload-time = "2026-11-02T16:53:19.73Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/c1/909423b4f2f428e7ca2f6e49228a0585637b921d7c569f4f9fbdb3896ac8/insitukit-0.2.0-py3-none-any.whl", hash = "sha256:e081b5996096b7e70ff37594e244dedff4d6345a4a8c4d72c0ec8036f3f09959", size = 19523, upload-time = "2026-11-05T22:59:27.469Z" },
 ]
 
 [[package]]
@@ -1835,7 +1835,7 @@ dev = [
 requires-dist = [
     { name = "forcingkit", url = "https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.13.0.tar.gz" },
     { name = "google-cloud-storage", specifier = ">=2.18" },
-    { name = "insitukit", specifier = ">=0.1,<0.2" },
+    { name = "insitukit", specifier = ">=0.2,<0.3" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "requests", specifier = ">=2.32" },

@@ -35,8 +35,6 @@ from .shore import load_shore
 log = logging.getLogger(__name__)
 
 SCHEMA = 1
-DATA_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
-MD_URL = "https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations/{station}/{what}.json"
 DAYS_BACK = 45
 DAYS_AHEAD = 35
 TIMEOUT = (10, 60)
@@ -55,25 +53,17 @@ _session.headers["User-Agent"] = coops.USER_AGENT
 
 
 def _get(url: str, params: dict | None = None) -> dict:
-    """GET JSON one request at a time (paced with the other CO-OPS requests), retried with backoff."""
+    """GET JSON from the US Naval Observatory, retried with backoff (CO-OPS requests go through insitukit)."""
     delay = 5.0
     last: Exception | None = None
     for attempt in range(1, RETRIES + 1):
-        coops.request_count += 1
-        coops._pace()
         try:
             resp = _session.get(url, params=params, timeout=TIMEOUT)
             if resp.status_code == 200:
-                body = resp.json()
-                err = body.get("error") if isinstance(body, dict) else None
-                if err:
-                    raise coops.CoopsError(f"{(err.get('message') if isinstance(err, dict) else err)!s} ({params})")
-                return body
-            if resp.status_code < 500 and resp.status_code not in coops.THROTTLED:
-                raise coops.CoopsError(f"HTTP {resp.status_code} ({url})")
+                return resp.json()
+            if resp.status_code < 500 and resp.status_code != 429:
+                raise RuntimeError(f"HTTP {resp.status_code} ({url})")
             last = RuntimeError(f"HTTP {resp.status_code}")
-        except coops.CoopsError:
-            raise
         except (requests.RequestException, ValueError) as exc:
             last = exc
         log.warning("%s attempt %d failed: %s", url, attempt, last)
@@ -83,47 +73,32 @@ def _get(url: str, params: dict | None = None) -> dict:
     raise RuntimeError(f"giving up after {RETRIES} attempts: {url} {params}: {last}")
 
 
-def _predictions(station: str, start: datetime, end: datetime, interval: str) -> list[dict]:
-    params = {
-        "product": "predictions",
-        "station": station,
-        "begin_date": start.strftime("%Y%m%d %H:%M"),
-        "end_date": end.strftime("%Y%m%d %H:%M"),
-        "interval": interval,
-        "datum": "MLLW",
-        "units": "english",
-        "time_zone": "gmt",
-        "format": "json",
-        "application": coops.APPLICATION,
-    }
-    return _get(DATA_URL, params).get("predictions") or []
-
-
-def _hourly(rows: list[dict]) -> dict:
-    s = pd.Series({pd.Timestamp(r["t"], tz="UTC"): float(r["v"]) for r in rows}).sort_index()
+def _hourly(s: pd.Series) -> dict:
     s = s[s.index == s.index.floor("h")]
     full = s.reindex(pd.date_range(s.index[0], s.index[-1], freq="h"))
     return {"t0": iso(full.index[0]), "step": 3600, "ft": [None if pd.isna(v) else round(float(v), 2) for v in full]}
 
 
 def _datums(station: str) -> tuple[dict, dict, str | None]:
-    body = _get(MD_URL.format(station=station, what="datums"), {"units": "english"})
-    raw = {d["name"]: d["value"] for d in body.get("datums") or [] if isinstance(d.get("value"), (int, float))}
+    published = coops.datums(station, units="english")
+    raw = published["datums"]
     if "MLLW" not in raw:
         raise ValueError(f"{station}: no MLLW datum")
     mllw = float(raw["MLLW"])
     datums = {k: round(float(raw[k]) - mllw, 2) for k in DATUMS if k in raw}
-    flood = _get(MD_URL.format(station=station, what="floodlevels"), {"units": "english"})
-    floods = {k: (round(float(flood[k]) - mllw, 2) if isinstance(flood.get(k), (int, float)) else None) for k in FLOODS}
-    return datums, floods, body.get("epoch")
+    flood = coops.flood_levels(station, units="english")
+    floods = {k: (None if flood.get(k) is None else round(flood[k] - mllw, 2)) for k in FLOODS}
+    return datums, floods, published["epoch"]
 
 
 def station(st: dict, start: datetime, end: datetime) -> dict:
+    """``end`` is included, as the API's own end_date is."""
     noaa = st["coops_id"]
-    hourly = _predictions(noaa, start, end, "h")
-    hilo = _predictions(noaa, start, end, "hilo")
+    through = end + timedelta(minutes=1)
+    hourly = coops.predictions(noaa, start, through, interval="h", units="english")
+    hilo = coops.tide_events(noaa, start, through, units="english")
     datums, floods, epoch = _datums(noaa)
-    if not hourly:
+    if hourly.empty:
         raise ValueError(f"{noaa}: no hourly predictions")
     return {
         "noaa": noaa,
@@ -132,7 +107,7 @@ def station(st: dict, start: datetime, end: datetime) -> dict:
         "lat": st.get("lat"),
         "lon": st.get("lon"),
         "pred": _hourly(hourly),
-        "hilo": [{"t": iso(pd.Timestamp(r["t"], tz="UTC")), "ft": round(float(r["v"]), 2), "type": r["type"]} for r in hilo],
+        "hilo": [{"t": iso(e["time"]), "ft": round(e["m"], 2), "type": e["type"]} for e in hilo],
         "datums_ft": datums,
         "flood_ft": floods,
         "epoch": epoch,

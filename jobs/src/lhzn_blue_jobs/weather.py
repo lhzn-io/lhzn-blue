@@ -22,15 +22,12 @@ Directions are not kept: the daily means serve the %iles only.
 
 from __future__ import annotations
 
-import gzip
-import io
 import logging
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from insitukit import ndbc
 
 from . import merlin
 from .build import MET_COLUMNS, SCHEMA, Store, iso, load_stations, met_hourly, now_utc
@@ -41,7 +38,6 @@ COLUMNS = ["wind_kt", "air_f", "pressure_mb"]
 MIN_HOURS = 16
 FIRST_NDBC_YEAR = 2002
 FIRST_SERVER_YEAR = 2021  # the earliest year any *_MET dataset still holds on the server
-NDBC_URL = "https://www.ndbc.noaa.gov/data/historical/stdmet/{id}h{year}.txt.gz"
 MS_TO_KT = 1.943844
 QC_DESCRIPTION = (
     "Weather history: daily means of hourly means (at least 16 hours a day) of wind, air temperature and pressure, "
@@ -92,28 +88,17 @@ def decode_daily(obj: dict | None) -> pd.DataFrame:
 
 
 def ndbc_year(ndbc_id: str, year: int) -> pd.DataFrame | None:
-    """One year of an NDBC standard meteorological archive, as rows in the server's columns and units;
-    None when NDBC has no file for that year."""
-    try:
-        req = urllib.request.Request(NDBC_URL.format(id=ndbc_id, year=year), headers={"User-Agent": merlin.USER_AGENT})
-        raw = urllib.request.urlopen(req, timeout=120).read()
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None
-        raise
-    text = gzip.decompress(raw).decode("ascii", "replace")
-    lines = text.splitlines()
-    header = lines[0].lstrip("#").split()
-    body = [ln for ln in lines[1:] if not ln.startswith("#")]  # files from 2007 on carry a units line
-    df = pd.read_csv(io.StringIO("\n".join(body)), sep=r"\s+", header=None, names=header)
-    df = df.rename(columns={"YYYY": "YY", "WD": "WDIR", "BAR": "PRES"})
-    minute = df["mm"] if "mm" in df.columns else 0
-    df["time"] = pd.to_datetime(dict(year=df["YY"], month=df["MM"], day=df["DD"], hour=df["hh"], minute=minute), utc=True)
+    """One year of an NDBC standard meteorological archive (insitukit's NDBC client, which reads files of every era
+    and turns NDBC's sentinels into NaN), as rows in the server's columns and units; None when NDBC has no file for
+    that year."""
+    df = ndbc.year(ndbc_id, year)
+    if df is None:
+        return None
+    # The gross bounds the jobs have always applied: values at or above NDBC's sentinels are not measurements.
     missing = {"WSPD": 99, "GST": 99, "WDIR": 999, "PRES": 9999, "ATMP": 999}
     for col, bad in missing.items():
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-            df.loc[df[col] >= bad, col] = np.nan
+            df[col] = df[col].where(df[col] < bad)
         else:
             df[col] = np.nan
     return pd.DataFrame(

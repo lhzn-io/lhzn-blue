@@ -2515,10 +2515,66 @@ const plotPageUrl = (id: string, fig: string): string | null => {
   return slug && PAGES && (hasPage(id) || isGauge(id)) ? plotUrl(id, slug, d && depth !== d.depths[0] ? depth : "") : null;
 };
 
+/** The plot page's chooser: the station's plots, by view, in the order of the view tabs. Each view leads with the
+ * station's page in that view ("All plots"), then its plots there, at the page's time and units; the plot shown is
+ * marked. A plot in two views (air and water) is listed under each, as it differs between them. A gauge has no page
+ * of its own: its river plots, led by the overview's Rivers view. */
+function plotMenu(): string {
+  if (!STATION_ID || !PAGES) return "";
+  const id = STATION_ID;
+  const base = PAGES.base;
+  const gauge = isGauge(id);
+  const d = [...STATIONS, ...(gauge ? A.RIVER_SECTIONS : [])].find((s) => s.meta.id === id);
+  const views: VarKey[] = gauge ? ["rivers"] : ((d && CFG.stationPages?.views[d.kind]) ?? []);
+  const here = location.pathname.split("/").filter(Boolean).pop();
+  const label = (v: string) => document.querySelector(`.var-switch [data-var="${v}"]`)?.textContent?.trim() || v;
+  const withView = (url: string, v: VarKey) => {
+    const u = new URL(url, location.origin);
+    u.searchParams.set("view", v);
+    return `${u.pathname}${u.search}${u.hash}`;
+  };
+  const viewUrl = (v: VarKey) => {
+    const q = new URLSearchParams(location.search);
+    q.delete("depth");
+    q.delete("run");
+    return withView(gauge ? `${base}?${q}#${id}` : `${base}${id.toLowerCase()}/?${q}`, v);
+  };
+  const fits = (fig: Kind, v: VarKey) =>
+    !!FIGS[fig] && (!d || (FIGS[fig].available(d) && (gauge || (FIGS[fig].in(v) && !(FIGS[fig].varies && d.kind === "shore" && (v !== "temp" || noWaterSensor(d)))))));
+  return views
+    .map((v) => {
+      const plots = Object.entries(PLOT_PAGES)
+        .filter(([, p]) => (gauge ? !!p.river || p.views.includes("rivers") : p.views.includes(v)))
+        .filter(([, p]) => fits(((gauge && p.river) || p.fig) as Kind, v));
+      if (!plots.length) return "";
+      const current = (slug: string) => (slug === here && (gauge || v === VK) ? ' aria-current="page"' : "");
+      return (
+        `<p class="place-group">${escHtml(label(v))}</p><a class="plot-all" href="${escHtml(viewUrl(v))}">All plots</a>` +
+        plots.map(([slug, p]) => `<a href="${escHtml(withView(plotUrl(id, slug), v))}"${current(slug)}>${escHtml(p.name)}</a>`).join("")
+      );
+    })
+    .join("");
+}
+
 /** A plot page: the top bar names the plot beside the place; a tap or drag on the plot moves the page's time; the
  * run slider's choice goes into the address. The reading follows each. */
 function wirePlotPage(): void {
-  document.getElementById("place-panel")?.insertAdjacentHTML("afterend", `<span class="plot-name">${escHtml(PLOT?.name ?? "")}</span>`);
+  // The plot's name opens the station's other plots and views (plotMenu), filled each time it opens.
+  document.getElementById("place-panel")?.insertAdjacentHTML(
+    "afterend",
+    `<button class="plot-name drop-btn" id="plot-pick" type="button" aria-expanded="false" aria-controls="plot-panel" title="Other plots and views"><span class="vm-current">${escHtml(PLOT?.name ?? "")}</span><span class="vm-caret" aria-hidden="true"></span></button><div class="place-panel plot-panel" id="plot-panel" aria-label="Plots and views"></div>`,
+  );
+  const plotPick = document.getElementById("plot-pick");
+  const plotPanel = document.getElementById("plot-panel");
+  if (plotPick && plotPanel) {
+    plotPick.addEventListener("click", () => {
+      if (plotPanel.classList.contains("open")) return;
+      plotPanel.innerHTML = plotMenu(); // before dropDown opens it
+      // The plot shown in view once open: on a phone the list runs past the screen.
+      requestAnimationFrame(() => plotPanel.querySelector("[aria-current]")?.scrollIntoView({ block: "nearest" }));
+    }, true);
+    dropDown(plotPick, plotPanel);
+  }
   // The way back: to the overview when the reader came from it, else to the station's page (a gauge's plots are in the
   // overview's Rivers view), at the page's time and view when followed.
   const fromOverview = (() => {

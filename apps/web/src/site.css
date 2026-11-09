@@ -1371,6 +1371,8 @@ body.plot-page .topbar .plot-name { display: inline-flex; align-items: center; g
 body.plot-page .topbar .plot-back { order: -1; flex: none; padding: 0 8px 2px 2px; font: 400 22px/1 var(--sans); color: var(--ink); text-decoration: none; }
 body.plot-page .topbar .plot-back:hover, body.plot-page .topbar .plot-back:focus-visible { color: var(--accent); }
 body.plot-page .topbar .plot-name::before { content: "\00b7"; color: var(--faint); }
+body.plot-page .topbar .plot-name .vm-current { padding-bottom: 3px; border-bottom: 1px solid var(--accent-line); white-space: nowrap; }
+.plot-panel .plot-all { font-style: italic; color: var(--dim); }
 body.plot-page .station { margin: 0; padding: 0; border: 0; }
 body.plot-page .figs { display: block; margin: 0; }
 /* The plot's title is the top bar's; its caption keeps the link and the (i), and on an upright phone a hint to turn it. */

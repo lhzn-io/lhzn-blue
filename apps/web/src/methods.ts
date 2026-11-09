@@ -89,7 +89,7 @@ export const METHODS: Record<string, Method> = {
       "of runs. Revisions, a switch on the plot, opens a small chart of how the forecast for one hour, the one under the pointer or " +
       "the page's time, changed from run to run: along its bottom is the time each run was issued, so a line rising to " +
       "the right is the model raising that hour's wind as it drew nearer; once the hour has passed, a gold dot is the " +
-      "wind measured then. Past the last hour HRRR reaches, NOAA's GFS model carries the forecast on in green, with its " +
+      "wind measured then; past HRRR's reach the chart is GFS's, its runs of the last 30 hours, 6 hours apart. Past the last hour HRRR reaches, NOAA's GFS model carries the forecast on in green, with its " +
       "own typical miss shaded in a paler green; \"7 days\", a switch on the plot, widens it to a week ahead.",
     method:
       "HRRR (3 km, run every hour) is read at the station's nearest water cells [[dowell2022hrrr]]. Hourly runs reach 18 " +

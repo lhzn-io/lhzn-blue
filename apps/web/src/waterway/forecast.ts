@@ -173,19 +173,14 @@ export function gfsAt(id: string, t: number): FcValue | null {
   const now = Date.now() / 1000;
   for (const r of GFS?.runs[id] ?? []) {
     if (r.issue > now) continue;
-    const h = (t - r.issue) / HOUR;
-    const b = r.leads.findIndex((L) => L >= h);
-    if (b < 0 || h < r.leads[0]) continue;
-    const a = r.leads[b] > h ? b - 1 : b;
-    const w = a === b ? 0 : (h - r.leads[a]) / (r.leads[b] - r.leads[a]);
-    const at = (s: (number | null)[]) => (s[a] == null || s[b] == null ? NaN : s[a]! + (s[b]! - s[a]!) * w);
-    const u = at(r.u), v = at(r.v);
-    if (!Number.isFinite(u) || !Number.isFinite(v)) continue;
+    const g = gfsRunWind(r, t);
+    if (!g) continue;
+    const { u, v, h } = g;
     const lead = Math.round(h);
     return {
       spd: Math.hypot(u, v) * MS_KT,
       dir: ((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360,
-      gust: at(r.gust) * MS_KT,
+      gust: g.gust * MS_KT,
       air: NaN,
       pres: NaN,
       lead,
@@ -195,6 +190,21 @@ export function gfsAt(id: string, t: number): FcValue | null {
     };
   }
   return null;
+}
+
+/** One GFS run's wind (m/s) for an hour, linear between the leads around it, and the lead in hours; null where the
+ * run does not reach the hour, or where those leads are more than `maxGap` hours apart (the page's file keeps every
+ * lead of the last 30 hours of cycles, and only the verification leads of older ones). */
+export function gfsRunWind(r: GfsRun, t: number, maxGap = Infinity): { u: number; v: number; gust: number; h: number } | null {
+  const h = (t - r.issue) / HOUR;
+  const b = r.leads.findIndex((L) => L >= h);
+  if (b < 0 || h < r.leads[0]) return null;
+  const a = r.leads[b] > h ? b - 1 : b;
+  if (r.leads[b] - r.leads[a] > maxGap) return null;
+  const w = a === b ? 0 : (h - r.leads[a]) / (r.leads[b] - r.leads[a]);
+  const at = (s: (number | null)[]) => (s[a] == null || s[b] == null ? NaN : s[a]! + (s[b]! - s[a]!) * w);
+  const u = at(r.u), v = at(r.v);
+  return Number.isFinite(u) && Number.isFinite(v) ? { u, v, gust: at(r.gust), h } : null;
 }
 
 /** The verification tag for GFS: its typical miss at the buoys at a lead, linked to the page. */

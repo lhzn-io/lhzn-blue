@@ -2,12 +2,14 @@
  * HRRR's wind for one hour changed from run to run. Its time axis is the time each run was issued (the forecast "as
  * of" then), so a line rising to the right is the model raising that hour's wind as the hour drew nearer; where the
  * hour has passed, the wind measured then is a gold dot. The hour is the one under the pointer, else the page's time.
+ * Past HRRR's reach the chart is GFS's, in its green: its runs of the last 30 hours (6 hours apart), the ones whose
+ * every lead the page's file keeps.
  * Off until the reader turns it on ("Revisions", top right of the plot), remembered in this browser. */
 import { renderLines, type Line } from "@lhzn-io/timecharts/chart";
 import { HOUR } from "@lhzn-io/timecharts/series";
 import { fmtRun, fmtWhen } from "./format";
 import { WIND_UNITS, windFmt, windVal, WU } from "./units";
-import { FCST, MS_KT, type FcRun } from "./forecast";
+import { FCST, GFS, gfsRunWind, MS_KT, type FcRun } from "./forecast";
 import { M } from "./models";
 import type { StationData } from "./station-data";
 
@@ -26,18 +28,29 @@ const MOUNTED = new Map<HTMLElement, { d: StationData; x0: number; x1: number; h
 const hourOf = (t: number) => Math.round(t / HOUR) * HOUR;
 const nowHour = () => Math.floor(Date.now() / 1000 / HOUR) * HOUR;
 
-/** The runs issued before now (and before the hour), newest first, with each one's wind for the hour in knots. */
-function revisionsFor(id: string, t: number): { issue: number; kt: number }[] {
+/** The runs issued before now (and before the hour), newest first, with each one's wind for the hour in knots: HRRR's
+ * where an HRRR run reaches the hour, else GFS's runs kept at every lead (3-hourly; the older ones keep only a few). */
+function revisionsFor(id: string, t: number): { gfs: boolean; runs: { issue: number; kt: number }[] } {
   const now = Date.now() / 1000;
   const wind = (r: FcRun) => {
     const i = r.leads.indexOf(Math.round((t - r.issue) / HOUR));
     const u = r.u[i], v = r.v[i];
     return i < 0 || u == null || v == null ? NaN : Math.hypot(u, v) * MS_KT;
   };
-  return (FCST?.runs[id] ?? [])
+  const hrrr = (FCST?.runs[id] ?? [])
     .filter((r) => r.issue <= now && r.issue < t)
     .map((r) => ({ issue: r.issue, kt: wind(r) }))
     .filter((x) => Number.isFinite(x.kt));
+  if (hrrr.length) return { gfs: false, runs: hrrr };
+  const gfs = (GFS?.runs[id] ?? [])
+    .filter((r) => r.issue <= now && r.issue < t && r.leads[1] - r.leads[0] <= 3) // kept at every lead (3-hourly)
+    .map((r) => {
+      const g = gfsRunWind(r, t, 3);
+      return { issue: r.issue, kt: g ? Math.hypot(g.u, g.v) * MS_KT : NaN };
+    })
+    .filter((x) => Number.isFinite(x.kt))
+    .sort((a, b) => b.issue - a.issue);
+  return { gfs: true, runs: gfs };
 }
 
 /** The page's time (null: now), as the time bar moves: each inset not under the pointer follows it. */
@@ -106,19 +119,20 @@ function draw(plot: HTMLElement): void {
     plot.append(pop);
   }
   const u = WIND_UNITS[WU];
-  const runs = revisionsFor(m.d.meta.id, t);
+  const { gfs, runs } = revisionsFor(m.d.meta.id, t);
   const measured = t <= nowHour() ? (m.d.met?.wind?.at(t) ?? NaN) : NaN;
   const head = pop.querySelector<HTMLElement>(".rev-h")!;
   const when = fmtWhen.format(new Date(t * 1000));
   if (!runs.length) {
-    head.textContent = `${when}: no HRRR run reaches this hour`;
+    head.textContent = `${when}: no HRRR or GFS run reaches this hour`;
     pop.querySelector<HTMLElement>(".rev-plot")!.hidden = true;
     return;
   }
   pop.querySelector<HTMLElement>(".rev-plot")!.hidden = false;
   // Its runs, from the first that reached the hour (48 hours before) to the newest, or to the hour itself once it has
-  // passed; the 6-hourly long runs first, then a run an hour from 18 hours out, joined straight.
-  const x0 = t - 48 * HOUR;
+  // passed; the 6-hourly long runs first, then a run an hour from 18 hours out, joined straight. GFS's from 6 hours
+  // before its oldest run kept in full.
+  const x0 = gfs ? Math.min(...runs.map((r) => r.issue)) - 6 * HOUR : t - 48 * HOUR;
   const x1 = Math.min(t, nowHour());
   const xs: number[] = [];
   for (let x = x0; x <= x1; x += HOUR) xs.push(x);
@@ -132,10 +146,11 @@ function draw(plot: HTMLElement): void {
     a = i;
   });
   const P = M.palette();
+  const color = gfs ? P.gfs : P.line;
   const fmtU = (v: number) => `${v.toFixed(u.digits)} ${u.label}`;
   const lines: Line[] = [
-    { ys: joined, color: P.line, width: 1.6, label: "Forecast", tip: false },
-    { ys: dots, color: P.line, width: 3.5, dots: true, label: "Forecast, by the run then", fmt: fmtU },
+    { ys: joined, color, width: 1.6, label: "Forecast", tip: false },
+    { ys: dots, color, width: 3.5, dots: true, label: gfs ? "GFS, by the run then" : "Forecast, by the run then", fmt: fmtU },
     ...(Number.isFinite(measured) ? [{ ys: xs.map((x) => (x === t ? windVal(measured) : NaN)), color: P.now, width: 7, dots: true, label: "Measured", fmt: fmtU }] : []),
   ];
   renderLines(pop.querySelector<HTMLElement>(".rev-plot")!, { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, minPad: 1 });
@@ -144,6 +159,6 @@ function draw(plot: HTMLElement): void {
   const before = runs.find((r) => r.issue <= latest.issue - 6 * HOUR);
   const delta = before ? windVal(latest.kt) - windVal(before.kt) : NaN;
   const change = !Number.isFinite(delta) ? "" : Math.abs(delta) < 0.5 * 10 ** -u.digits ? ", unchanged over 6 h of runs" : `, ${delta > 0 ? "up" : "down"} ${windFmt(Math.abs(latest.kt - before!.kt))} over 6 h of runs`;
-  head.innerHTML = `<b>${when}</b> ${windFmt(latest.kt)} ${u.label} as of ${fmtRun.format(new Date(latest.issue * 1000))}${change}` +
+  head.innerHTML = `<b>${when}</b> ${gfs ? `<span class="rev-gfs" style="color: ${P.gfs}">GFS</span> ` : ""}${windFmt(latest.kt)} ${u.label} as of ${fmtRun.format(new Date(latest.issue * 1000))}${change}` +
     (Number.isFinite(measured) ? `; measured <span class="rev-m">${windFmt(measured)}</span>` : "");
 }

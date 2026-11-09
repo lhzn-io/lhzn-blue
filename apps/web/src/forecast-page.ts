@@ -1,6 +1,6 @@
 /**
- * "Forecast verification" (/long-island-sound/forecast/): NOAA wind forecasts (HRRR and GFS) at the four Long Island
- * Sound buoys, compared with what the buoys measured.
+ * "Forecast verification" (/long-island-sound/forecast/): wind forecasts (NOAA's HRRR and GFS, and ECCC's HRDPS) at the
+ * four Long Island Sound buoys, compared with what the buoys measured.
  *
  * Each model in MODELS has a verification file (the archive's statistics since January 2024) and a runs file (every
  * recent run at the buoys); live.json holds the buoys' recent hourly means. The error-by-lead chart overlays every
@@ -211,6 +211,7 @@ function tabs(host: HTMLElement, items: [string, string][], current: string, pic
 interface Model {
   id: string; // the ?model= value
   label: string;
+  org: string; // who runs it, for the lede ("NOAA", "ECCC")
   ver: string; // verification file, under /data/v1
   runs: string; // recent runs file
   strong: string; // lead chart: typical error colour (CSS token)
@@ -227,6 +228,7 @@ const MODELS: Model[] = [
   {
     id: "hrrr",
     label: "HRRR",
+    org: "NOAA",
     ver: "forecast-verification",
     runs: "forecast-hrrr",
     strong: "--fc-strong",
@@ -248,6 +250,7 @@ const MODELS: Model[] = [
   {
     id: "gfs",
     label: "GFS",
+    org: "NOAA",
     ver: "forecast-verification-gfs",
     runs: "forecast-gfs",
     strong: "--fc-gfs",
@@ -267,6 +270,35 @@ const MODELS: Model[] = [
       return (
         "NOAA's Global Forecast System: a 0.25 degree grid (about 25 km), run every 6 hours, scored 6 to 168 hours ahead. Across the Sound that is one or two cells." +
         (low ? ` Its speed reads low at every lead, by ${low}. Air temperature and pressure are not scored.` : " Air temperature and pressure are not scored.")
+      );
+    },
+  },
+  {
+    id: "hrdps",
+    label: "HRDPS",
+    org: "ECCC",
+    ver: "forecast-verification-hrdps",
+    runs: "forecast-hrdps",
+    strong: "--fc-hrdps",
+    soft: "--fc-hrdps",
+    softOpacity: 0.6,
+    bands: [
+      ["1-3", "1 to 3 h"],
+      ["6-12", "6 to 12 h"],
+      ["18-24", "18 to 24 h"],
+      ["36-48", "36 to 48 h"],
+    ],
+    calBand: "18-24",
+    dirLead: 18,
+    panelTicks: [48, 36, 24, 12, 1],
+    cardMin: 4, // a full day: 4 runs at 3 leads (1 to 3 h) or 2 (18 to 24 h), per buoy
+    note: (v) => {
+      const low = lowRange(v);
+      return (
+        "Environment and Climate Change Canada's High Resolution Deterministic Prediction System: a 2.5 km grid, run every 6 hours, scored 1 to 48 hours ahead at HRRR's leads. Across the Sound that is 2 to 14 cells. " +
+        `Its record starts ${fmtDate.format(new Date(v.first_valid))}: the 30 days ECCC's Datamart still held when collection began, so it is short beside HRRR's.` +
+        (low ? ` Its speed reads low at every lead, by ${low}.` : "") +
+        " Air temperature and pressure are not scored."
       );
     },
   },
@@ -326,7 +358,7 @@ function drawIntro(): void {
   const total = V.leads.reduce((s, L) => s + (V.by_lead[String(L)]?.all.n ?? 0), 0);
   const since = fmtMonthYear.format(new Date(V.first_valid));
   const [l0, l1] = [V.leads[0], V.leads[V.leads.length - 1]];
-  $("lede").innerHTML = `NOAA ${M.label} at four buoys since ${since}: <b>${total.toLocaleString("en-US")}</b> forecast hours, ${l0} to ${l1} hours ahead.`;
+  $("lede").innerHTML = `${M.org} ${M.label} at four buoys since ${since}: <b>${total.toLocaleString("en-US")}</b> forecast hours, ${l0} to ${l1} hours ahead.`;
 
   const first = V.by_lead[String(l0)].all;
   const last = V.by_lead[String(l1)].all;
@@ -748,6 +780,47 @@ function leadRows(ver: Verification | null, mz: (typeof MEASURES)[string]): { L:
     .filter((r): r is { L: number; s: Stats } => !!r.s && (r.s[mz.n] as number) > 0);
 }
 
+/**
+ * When the loaded models' records start on different days, the lead chart's lines span different weather (HRRR's
+ * since 2024, HRDPS's a few weeks). Each model's typical speed error over the same days instead: the days every model
+ * with a band has scored, from the verification files' per-day statistics (the last 30 days), for the chosen buoy or
+ * all four. Empty for other measures, or when the records start together.
+ */
+function samePeriod(): string {
+  if (leadVar !== "speed") return "";
+  const parts: string[] = [];
+  let span = "";
+  for (const [band, label] of [["1-3", "1 to 3 h"], ["18-24", "18 to 24 h"]]) {
+    const ms = loaded().filter((md) => VER[md.id]!.recent.bands[band]);
+    if (ms.length < 2) continue;
+    const starts = ms.map((md) => VER[md.id]!.first_valid.slice(0, 10));
+    if (new Set(starts).size < 2) continue;
+    const from = [...starts].sort().at(-1)!;
+    const common = VER[ms[0].id]!.recent.days.filter((d) => d >= from && ms.every((md) => VER[md.id]!.recent.days.includes(d)));
+    if (!common.length) continue;
+    const vals = ms.map((md) => {
+      const v = VER[md.id]!;
+      let n = 0;
+      let sum = 0;
+      for (const [buoy, series] of Object.entries(v.recent.bands[band])) {
+        if (leadBuoy !== "all" && buoy !== leadBuoy) continue;
+        series.forEach((st, i) => {
+          if (st && common.includes(v.recent.days[i])) {
+            n += st.n;
+            sum += st.mae * st.n;
+          }
+        });
+      }
+      return n ? `${md.label} <b>${(sum / n).toFixed(1)} kt</b>` : "";
+    });
+    if (vals.some((x) => !x)) continue;
+    const day = (d: string) => fmtDayUtc.format(new Date(`${d}T00:00:00Z`));
+    span = `${day(common[0])} to ${day(common[common.length - 1])}`;
+    parts.push(`${label} ahead, ${vals.join(", ")}`);
+  }
+  return parts.length ? ` The lines above cover different periods; over the same days (${span}), the typical speed error was ${parts.join("; ")}.` : "";
+}
+
 function drawLead(): void {
   const mz = MEASURES[leadVar];
   // Every loaded model, whatever the switch says. GFS scores wind only (speed and direction); for air and pressure
@@ -815,7 +888,7 @@ function drawLead(): void {
     const low = leadVar === "speed" && bs.every((b) => b < 0);
     return `${md.label}: ${span(rows)}` + (low ? `, reading ${Math.abs(Math.max(...bs)).toFixed(1)} to ${Math.abs(Math.min(...bs)).toFixed(1)} kt low.` : ".");
   });
-  $("lead-say").innerHTML = `${NAMES[leadBuoy]}, typical ${what} error. ${says.join(" ")}`;
+  $("lead-say").innerHTML = `${NAMES[leadBuoy]}, typical ${what} error. ${says.join(" ")}${samePeriod()}`;
 }
 
 // ---------- Section 6: the last 30 days ----------
@@ -893,10 +966,10 @@ function drawMethod(): void {
     ],
     ["Height", `Buoy wind raised to 10 m (x${FACTOR.toFixed(3)}: anemometers ${ANEMOMETER_M} m above the water, neutral profile). In stable air the true factor is larger.`],
     ["Direction", "Observed wind 6 kt or more; buoy directions turned to true north; positive is clockwise."],
-    ["Raw model", "As issued, uncorrected. A model cell (3 km for HRRR, about 25 km for GFS) and a point buoy differ, which sets a floor on the error."],
+    ["Raw model", "As issued, uncorrected. A model cell (3 km for HRRR, 2.5 km for HRDPS, about 25 km for GFS) and a point buoy differ, which sets a floor on the error."],
     ...models.map((md): [string, string] => [md.label, md.note(VER[md.id]!)]),
     ["Other models", `ECMWF will follow on the same terms. <a href="/long-island-sound/models/">Wind models compared</a>`],
-    ["Sources", `NOAA High-Resolution Rapid Refresh (HRRR) and Global Forecast System (GFS, 0.25 degree), read at the buoys with forcingkit; buoy observations from <a href="https://lisicos.uconn.edu/">LISICOS</a>, University of Connecticut. Times are Eastern. Verification updated ${fmtFull.format(new Date(updated))}.`],
+    ["Sources", `NOAA High-Resolution Rapid Refresh (HRRR) and Global Forecast System (GFS, 0.25 degree), and Environment and Climate Change Canada's High Resolution Deterministic Prediction System (HRDPS; Data Source: Environment and Climate Change Canada, under its <a href="https://eccc-msc.github.io/open-data/licence/readme_en/">Data Server End-use Licence</a>), read at the buoys with forcingkit; buoy observations from <a href="https://lisicos.uconn.edu/">LISICOS</a>, University of Connecticut. Times are Eastern. Verification updated ${fmtFull.format(new Date(updated))}.`],
   ];
   $("method").innerHTML = items.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
 }

@@ -68,6 +68,8 @@ const FILES: Record<string, number> = {
   "v1/current-phase.json": 1800,
   "v1/forecast-gfs.json": 1800, // GFS at the stations past HRRR's 48 h (jobs: gfs.py)
   "v1/forecast-verification-gfs.json": 3600, // GFS scored at the buoys (jobs: verify.py)
+  "v1/forecast-hrdps.json": 1800, // ECCC HRDPS at the stations (jobs: hrdps.py)
+  "v1/forecast-verification-hrdps.json": 3600, // HRDPS scored at the buoys (jobs: verify.py)
   // HRRR's last forecast before each hour, per station (from 2024).
   ...Object.fromEntries(["WLIS", "EXRX", "ARTG", "CLIS", "KPTN", "BRPT", "NWHV", "NLON", "KBDR", "KHVN"].flatMap((id) => [[`v1/hrrr-history/${id}.json`, 3600], [`v1/hrrr-history/${id}-recent.json`, 3600]])),
   "v1/fields/model-grids.json": 3600,

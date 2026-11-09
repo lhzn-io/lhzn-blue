@@ -541,7 +541,7 @@ function drawConv(): void {
     return {
       ys: convXs.map((t) => r.pts.get(t)?.v ?? NaN),
       color: ramp(age),
-      opacity: 0.85 - 0.55 * age,
+      opacity: 0.5 - 0.35 * age, // light enough that the overlap of many runs reads as density
       width: 1,
       label: `Run of ${fmtShort.format(atS(r.issue))}`,
       tip: false,

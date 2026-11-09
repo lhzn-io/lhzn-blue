@@ -26,6 +26,10 @@ the frames that leave the main file's window into it and drops those older than 
 history on the main file's mesh, and checks that these match). ``cycles`` lists the runs its frames come from.
 ``backfill`` fills the missing hours once, each from the cycle 1 hour before it (2 or 3 hours where that cycle is
 not published), as the main file fills its past hours.
+
+The hours around now (``v1/fields/hrrr-wind-near.json``, the Sound only): the main file's frames from ``NEAR_BACK``
+hours before the run to ``NEAR_AHEAD`` after, with its mesh and encoding, plus ``near`` (``from``, ``to``). The page
+draws its first view from it, then loads the main file for the rest of the time bar.
 """
 
 from __future__ import annotations
@@ -41,7 +45,7 @@ import numpy as np
 import pandas as pd
 
 from .build import SCHEMA, Store, iso, now_utc
-from .fields import arrow_levels
+from .fields import arrow_levels, near
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +61,8 @@ MESH_VERSION = 1  # bump when the mesh block changes form: the next run starts o
 SOURCE = "NOAA HRRR (noaa-hrrr-bdp-pds), 10 m wind on the native 3 km grid"
 ATTRIBUTION = "NOAA HRRR, read through forcingkit"
 HISTORY_KEY = "v1/fields/hrrr-wind-history.json"
+NEAR_KEY = "v1/fields/hrrr-wind-near.json"
+NEAR_BACK, NEAR_AHEAD = 2, 6  # hours around the run kept in the near file (written every hour)
 HISTORY_DAYS = 14  # the Wind & waves time bar reaches 14 days back
 BACKFILL_MAX_LEAD = 3  # hours: a past hour with no cycle in the 3 h before it stays empty
 BACKFILL_WORKERS = 6  # leads fetched at once
@@ -356,6 +362,9 @@ def publish(store: Store, key: str = KEY, box: tuple[float, ...] = BOX, with_his
     store.write_json(key, out, max_age=600)
     if not with_history:
         return
+    quick = near(out, None, NEAR_BACK, NEAR_AHEAD)
+    if quick is not None:
+        store.write_json(NEAR_KEY, quick, max_age=600)
     hist = history(store.read_json(HISTORY_KEY), prev, out)
     store.write_json(HISTORY_KEY, hist, max_age=3600)
     log.info("HRRR grid history: %d frames, %s to %s", len(hist["frames"]),

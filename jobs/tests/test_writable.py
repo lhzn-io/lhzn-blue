@@ -14,8 +14,8 @@ SOUND = [
     "v1/archive/WLIS_SFC.json", "v1/archive/EXRX_MET.json", "v1/archive/forecast-verification-sums.json",
     "v1/archive/usgs-tidal-pred.json",
     *(f"v1/fields/{n}.json" for n in (
-        "sst", "chl", "kd490", "currents-mesh", "hrrr-wind", "hrrr-wind-history", "model-grids",
-        "nwps-waves", "wind-against-tide", "rips",
+        "sst", "chl", "kd490", "currents-mesh", "hrrr-wind", "hrrr-wind-history", "hrrr-wind-near", "model-grids",
+        "nwps-waves", "nwps-waves-near", "wind-against-tide", "rips",
     )),
     "v1/forecast-gfs.json", "v1/forecast-verification-gfs.json", "v1/archive/forecast-verification-gfs-sums.json", "v1/fields/currents.bin",
     "v1/lis-pane/window.bin", "v1/lis-pane/mesh.json", "v1/lis-pane/nodes.f32", "v1/lis-pane/tri.u16", "v1/lis-pane/sound/window.bin", "v1/lis-pane/sound/section.bin", "v1/lis-pane/sound/mesh.json", "v1/lis-pane/sound/nodes.f32", "v1/lis-pane/sound/tri.u16", "v1/fields/sst-90d.bin", "v1/fields/chl-90d.bin", "v1/fields/kd490-90d.bin",

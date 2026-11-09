@@ -44,6 +44,10 @@ KV_KEY = "v1/waves-nwps.json"
 FIELD_KEY = "v1/fields/nwps-waves.json"
 FIELD_BOX = (-74.40, 40.30, -71.40, 41.70)  # the HRRR layer's box (NWPS CG1 ends at 41.40 N)
 FIELD_BACK, FIELD_AHEAD = 24, 72  # hours of frames kept around now
+# The hours around now for the map's first view, written with the map layer (after each new run, a few times a day),
+# so it reaches further ahead than HRRR's.
+FIELD_NEAR_KEY = "v1/fields/nwps-waves-near.json"
+FIELD_NEAR_BACK, FIELD_NEAR_AHEAD = 2, 12
 FIELD_STEP = 0.05  # m per int8 unit (to 6.35 m)
 FIELD_TP_STEP = 0.125  # s per int8 unit (to 15.9 s), for the peak period
 FIELD_MESH_VERSION = 1
@@ -308,6 +312,9 @@ def publish(store: Store, root: str | None) -> list[str]:
         field = field_file(prev_field, grids, end)
         if field is not None:
             store.write_json(FIELD_KEY, field, max_age=1800)
+            quick = fields.near(field, end, FIELD_NEAR_BACK, FIELD_NEAR_AHEAD)
+            if quick is not None:
+                store.write_json(FIELD_NEAR_KEY, quick, max_age=1800)
         if currents is not None and mesh is not None:
             layer = wat.build(prev_wat, grids, currents, mesh, end)
             if layer is not None:

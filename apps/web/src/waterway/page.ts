@@ -1904,7 +1904,7 @@ function fieldData(kind: FieldKind): Promise<FieldData> {
         : kind === "currents"
         ? Promise.all([getJson<FieldData["mesh"]>(`${DATA}/fields/currents-mesh.json`), import("../fields").then((f) => f.loadCurrents(`${DATA}/fields/`))]).then(([mesh, currents]) => ({ mesh, currents }))
         : kind === "wind" || kind === "waves"
-          ? getJson<FieldData["wind"]>(`${DATA}/fields/${kind === "wind" ? "hrrr-wind" : "nwps-waves"}.json`).then((wind) => ({ wind }))
+          ? nearThenWhole(kind)
           : getJson<FieldData["raster"]>(`${DATA}/fields/${kind}.json`).then((raster) => ({ raster }));
     fieldCache.set(kind, load.catch((err) => {
       fieldCache.delete(kind); // try again next time
@@ -1912,6 +1912,34 @@ function fieldData(kind: FieldKind): Promise<FieldData> {
     }));
   }
   return fieldCache.get(kind)!;
+}
+
+/** Wind and waves hold every forecast hour (over 0.7 MB each on the wire). The small file of the hours around now
+ * draws the first view; the whole file loads alongside it, then replaces it and the map redraws with every hour. The
+ * small file is passed over when it does not reach the current hour (a job that has not run), or fails to load. */
+function nearThenWhole(kind: "wind" | "waves"): Promise<FieldData> {
+  const name = kind === "wind" ? "hrrr-wind" : "nwps-waves";
+  const whole = getJson<FieldData["wind"]>(`${DATA}/fields/${name}.json`).then((wind): FieldData => ({ wind }));
+  const now = Date.now() / 1000;
+  const covers = (w: FieldData["wind"]) => !!w?.frames.some((f) => Math.abs(Date.parse(f.valid_time) / 1000 - now) <= 3600);
+  let drewNear = false;
+  const near = getJson<FieldData["wind"]>(`${DATA}/fields/${name}-near.json`)
+    .then((wind): FieldData | Promise<FieldData> => {
+      if (!covers(wind)) return whole;
+      drewNear = true;
+      return { wind };
+    })
+    .catch(() => whole);
+  void whole.then(
+    (d) => {
+      if (!drewNear) return;
+      fieldCache.set(kind, Promise.resolve(d));
+      comfortCache.clear();
+      void syncField();
+    },
+    () => undefined,
+  );
+  return Promise.race([near, whole]);
 }
 
 /** The map layer the page opens on, asked for before the map is drawn (alongside the shore and airport files). */

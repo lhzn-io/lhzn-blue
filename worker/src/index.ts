@@ -59,7 +59,9 @@ const FILES: Record<string, number> = {
   "v1/fields/currents.bin": 3600,
   "v1/fields/hrrr-wind.json": 600,
   "v1/fields/hrrr-wind-history.json": 3600, // the hours before hrrr-wind.json, loaded when the time bar goes back past it
+  "v1/fields/hrrr-wind-near.json": 600, // the hours around now from hrrr-wind.json, for the map's first view
   "v1/fields/nwps-waves.json": 1800,
+  "v1/fields/nwps-waves-near.json": 1800, // the hours around now from nwps-waves.json, for the map's first view
   "v1/fields/wind-against-tide.json": 1800,
   "v1/fields/rips.json": 3600,
   "v1/asos.json": 300,

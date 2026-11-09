@@ -72,6 +72,17 @@ AGE_STEP = 0.1  # days per age unit
 MAGIC = b"LHZF"
 
 
+def near(doc: dict, end: datetime | None, back: int, ahead: int) -> dict | None:
+    """The hours around now from a frame-per-hour map file (HRRR wind, NWPS waves): the frames from ``back`` hours
+    before the hour of ``end`` to ``ahead`` hours after it, with the file's mesh and encoding. The page draws its first
+    view from this small file and loads the whole one behind it for the time bar. None when no frame falls in the
+    window."""
+    now = (end or now_utc()).astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    lo, hi = (f"{t:%Y-%m-%dT%H:%MZ}" for t in (now - timedelta(hours=back), now + timedelta(hours=ahead)))
+    frames = [f for f in doc.get("frames", []) if lo <= f["valid_time"] <= hi]
+    return {**doc, "near": {"from": lo, "to": hi}, "frames": frames} if frames else None
+
+
 def water_mask(lon: np.ndarray, lat: np.ndarray, mesh: dict) -> np.ndarray:
     """(lat, lon) booleans: True where the pixel centre lies on the model's water mesh."""
     from matplotlib.tri import Triangulation

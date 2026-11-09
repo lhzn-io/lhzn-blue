@@ -64,8 +64,11 @@ Long Island Sound page:
 ## Next
 
 1. **ECMWF at longer leads.** ECMWF wind at the buoys, scored the same way as HRRR and GFS.
-2. **Design notes.** The palette and the plot grammar documented, with their licence.
-3. **Anomaly contours on the year comparison (prototype).** On the water "This year" plot, curved reference lines for
+2. **HRDPS at the buoys.** Environment and Climate Change Canada's 2.5 km model, collected at the stations from
+   2026-11-09 (with the MSC Datamart's 30 days before that) and scored as HRRR is; shown beside HRRR once its typical
+   miss is known.
+3. **Design notes.** The palette and the plot grammar documented, with their licence.
+4. **Anomaly contours on the year comparison (prototype).** On the water "This year" plot, curved reference lines for
    the normal value on each date and set steps either side (1 and 2 °F for temperature), drawn from the earlier years
    on record. This year then reads as an anomaly while staying in its own units, and the earlier years' lines can be
    drawn fainter or left out. After Toph Tucker's warped gridlines (Observable, 2022), which bend the grid rather than

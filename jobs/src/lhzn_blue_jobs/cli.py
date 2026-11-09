@@ -1,4 +1,4 @@
-"""Command line: ``lhzn-blue-jobs {history,live,latest,fields,snapshot,forecast,forecast-backfill,gfs-backfill,hrrr-wind-backfill,import-verification,import-archive,import-waves,import-weather} --out <store>``.
+"""Command line: ``lhzn-blue-jobs {history,live,latest,fields,snapshot,forecast,forecast-backfill,gfs-backfill,hrdps-backfill,hrrr-wind-backfill,import-verification,import-archive,import-waves,import-weather} --out <store>``.
 
 ``live`` and ``history`` also refresh the shore stations (``shore.json``, ``shore-history.json``) and the
 rivers (``rivers.json``, ``rivers-history.json``) after the buoys; a failure there is logged and never stops
@@ -18,7 +18,7 @@ from . import build, merlin, outages, rivers, shore, tides, turbidity, usgs_tida
 
 def _main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "gfs-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "panels", "region-live", "region-daily", "region-wind", "import-verification", "import-archive", "import-waves", "import-weather"])
+    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "gfs-backfill", "hrdps-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "panels", "region-live", "region-daily", "region-wind", "import-verification", "import-archive", "import-waves", "import-weather"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
@@ -50,9 +50,9 @@ def _main() -> None:
         default=os.environ.get("LHZN_BLUE_PANELS_ARCHIVE"),
         help="panels: local directory or gs://bucket/prefix for the panel images as fetched (env LHZN_BLUE_PANELS_ARCHIVE)",
     )
-    parser.add_argument("--start", help="forecast-backfill, gfs-backfill: first cycle, UTC (e.g. 2024-01-01T00)")
-    parser.add_argument("--end", help="forecast-backfill, gfs-backfill: last cycle, UTC")
-    parser.add_argument("--model", choices=["hrrr", "gfs"], default="hrrr", help="import-verification: the model to score (default hrrr)")
+    parser.add_argument("--start", help="forecast-backfill, gfs-backfill, hrdps-backfill: first cycle, UTC (e.g. 2024-01-01T00)")
+    parser.add_argument("--end", help="forecast-backfill, gfs-backfill, hrdps-backfill: last cycle, UTC")
+    parser.add_argument("--model", choices=["hrrr", "gfs", "hrdps"], default="hrrr", help="import-verification: the model to score (default hrrr)")
     parser.add_argument("--days", type=int, default=14, help="hrrr-wind-backfill: days back to fill (default 14)")
     parser.add_argument("--vintage", help="import-archive: fallback snapshot folder when stations.json names none")
     parser.add_argument("--full", action="store_true", help="live: refetch the whole 45-day window")
@@ -71,6 +71,7 @@ def _main() -> None:
         _shore(lambda: store.write_json("v1/history-met.json", weather.history(store), max_age=3600), "weather")
         _shore(lambda: _verify(store), "verification")
         _shore(lambda: _verify(store, "gfs"), "gfs verification")  # nothing until import-verification --model gfs
+        _shore(lambda: _verify(store, "hrdps"), "hrdps verification")  # nothing until import-verification --model hrdps
         _shore(lambda: store.write_json("v1/history-turbidity.json", turbidity.history(store), max_age=3600), "turbidity")
         _shore(lambda: store.write_json(
             "v1/shore-history.json", shore.history(store.read_json("v1/shore-history.json"), build.now_utc()), max_age=3600
@@ -110,6 +111,8 @@ def _main() -> None:
         logging.getLogger("lhzn_blue_jobs.forecast").info("cycles archived: %s", done or "none new")
         _shore(lambda: logging.getLogger("lhzn_blue_jobs.gfs").info(
             "GFS cycles archived: %s", __import__("lhzn_blue_jobs.gfs", fromlist=["archive"]).archive(store, args.forecasts) or "none new"), "gfs")
+        _shore(lambda: logging.getLogger("lhzn_blue_jobs.hrdps").info(
+            "HRDPS runs archived: %s", __import__("lhzn_blue_jobs.hrdps", fromlist=["archive"]).archive(store, args.forecasts) or "none new"), "hrdps")
         _shore(lambda: __import__("lhzn_blue_jobs.hrrr_grid", fromlist=["publish"]).publish(store), "hrrr grid")
         _shore(lambda: __import__("lhzn_blue_jobs.model_grids", fromlist=["publish"]).publish(store), "model grids")
         _shore(lambda: __import__("lhzn_blue_jobs.nwps", fromlist=["publish"]).publish(store, args.nwps), "nwps")
@@ -160,6 +163,14 @@ def _main() -> None:
         if not (args.forecasts and args.start and args.end):
             parser.error("gfs-backfill needs --forecasts, --start and --end")
         gfs.backfill(args.forecasts, args.start, args.end, int(os.environ.get("CLOUD_RUN_TASK_INDEX", 0)), int(os.environ.get("CLOUD_RUN_TASK_COUNT", 1)))
+    elif args.command == "hrdps-backfill":
+        from . import hrdps
+
+        # Past HRDPS runs at the verification leads while the Datamart keeps them (30 days), run on the
+        # forecast-backfill job with these args.
+        if not (args.forecasts and args.start and args.end):
+            parser.error("hrdps-backfill needs --forecasts, --start and --end")
+        hrdps.backfill(args.forecasts, args.start, args.end, int(os.environ.get("CLOUD_RUN_TASK_INDEX", 0)), int(os.environ.get("CLOUD_RUN_TASK_COUNT", 1)))
     elif args.command == "import-verification":
         from . import verify
 

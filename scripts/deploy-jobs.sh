@@ -71,6 +71,9 @@ done
 #     --args=forecast-backfill,-v,--start,2024-01-01T00,--end,2024-12-31T23
 # Each task takes every 250th cycle (about 100 cycles for 2024 to 2026, 20 minutes on one vCPU, inside the timeout);
 # create-only writes, so a rerun only fills gaps.
+# HRDPS's backfill runs on the same job while the MSC Datamart keeps the runs (30 days), e.g.
+#   gcloud run jobs execute lhzn-blue-forecast-backfill --tasks 8 \
+#     --args=hrdps-backfill,-v,--start,2026-10-11T00,--end,2026-11-09T18
 gcloud run jobs deploy "lhzn-blue-forecast-backfill" \
   --project "$GCP_PROJECT" --region "$GCP_REGION" --image "$IMAGE" \
   --service-account "$JOB_SA" --args "forecast-backfill" \

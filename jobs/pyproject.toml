@@ -9,13 +9,13 @@ dependencies = [
     "pandas>=2.2",
     "requests>=2.32",
     "google-cloud-storage>=2.18",
-    # Surface fields (the `fields` job): satellite fetches and the NECOFS surface and full-depth readers. A tag archive rather
-    # than git+https, so the slim image installs it with pip and no git.
-    "forcingkit @ https://github.com/lhzn-io/forcingkit/archive/refs/tags/v0.13.0.tar.gz",
+    # Surface fields (the `fields` job): satellite fetches and the NECOFS surface and full-depth readers; and HRDPS at
+    # the stations (the `forecast` job).
+    "forcingkit>=0.18,<0.19",
     "matplotlib>=3.8",  # point location on the model mesh (the shared coastline)
     "utide>=0.3",  # harmonic tide fits for the USGS tidal gauges (Codiga 2011)
     # The CO-OPS and ERDDAP clients and the guarded store (lhzn-io/insitukit; identified as this site in __init__.py).
-    "insitukit>=0.4,<0.5",
+    "insitukit>=0.5,<0.6",
 ]
 
 [project.optional-dependencies]
@@ -28,9 +28,6 @@ lhzn-blue-jobs = "lhzn_blue_jobs.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.hatch.metadata]
-allow-direct-references = true  # the forcingkit release archive above
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lhzn_blue_jobs"]

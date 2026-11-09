@@ -29,6 +29,11 @@ GFS (``gfs``) is scored the same way at its own leads (6 to 168 h) and bands, fr
 forecast archive, seeded with ``import-verification --model gfs``) and page file, into
 ``v1/archive/forecast-verification-gfs-sums.json`` and ``v1/forecast-verification-gfs.json``. GFS carries wind only
 here, so its air, pressure and stability groups stay empty.
+
+HRDPS (``hrdps``, ECCC's 2.5 km model) is scored at HRRR's leads and bands from its own archive (``hrdps/``,
+seeded with ``import-verification --model hrdps`` once ``hrdps-backfill`` has run) and file, into
+``v1/archive/forecast-verification-hrdps-sums.json`` and ``v1/forecast-verification-hrdps.json``. Like GFS it
+carries wind only here. The site does not serve its files yet.
 """
 
 from __future__ import annotations
@@ -41,7 +46,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import forecast, gfs
+from . import forecast, gfs, hrdps
 from .build import SCHEMA, Store, decode, decode_frame, iso, load_stations, met_hourly, now_utc
 
 log = logging.getLogger(__name__)
@@ -86,7 +91,11 @@ HRRR = Model("hrrr", forecast.KV_KEY, SUMS_KEY, PUBLIC_KEY, tuple(LEADS), BANDS,
 GFS = Model("gfs", gfs.KV_KEY, "v1/archive/forecast-verification-gfs-sums.json", "v1/forecast-verification-gfs.json",
             tuple(gfs.VERIFY_LEADS), {"6-24": (6, 24), "36-72": (36, 72), "96-168": (96, 168)}, ("6-24", "96-168"),
             ("u10", "v10"), "gfs", "NOAA GFS 0.25 degree at the buoys (our archive) against the buoys' hourly observations")
-MODELS = {m.name: m for m in (HRRR, GFS)}
+HRDPS = Model("hrdps", hrdps.KV_KEY, "v1/archive/forecast-verification-hrdps-sums.json",
+              "v1/forecast-verification-hrdps.json", tuple(LEADS), BANDS, ("1-3", "18-24"), ("u10", "v10"), "hrdps",
+              "ECCC HRDPS 2.5 km at the buoys (our archive; Data Source: Environment and Climate Change Canada) "
+              "against the buoys' hourly observations")
+MODELS = {m.name: m for m in (HRRR, GFS, HRDPS)}
 
 
 def buoys() -> list[dict]:

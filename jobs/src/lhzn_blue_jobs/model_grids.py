@@ -1,10 +1,15 @@
-"""10 m wind over the Sound for the next 48 hours on four models' own grids, for the "Wind models compared" page.
+"""10 m wind over the Sound for the next 48 hours on five models' own grids, for the "Wind models compared" page.
 
 Frames every ``FRAME_H`` hours from the next 3-hourly hour out to ``HOURS_AHEAD`` hours ahead. For each model, every
 frame comes from the newest run that reaches it, with no regridding:
 
 - HRRR (NOAA, 3 km Lambert grid): taken from ``v1/fields/hrrr-wind.json``, which the HRRR grid job writes just
   before this one in the same run (its cells, newest cycle per hour, and the same int8 encoding). No download here.
+- HRDPS (ECCC, 2.5 km rotated latitude-longitude grid): the ``UGRD``/``VGRD`` 10 m files of the newest complete run
+  (its 48 h files posted) from the MSC Datamart, about 2 MB each, through forcingkit's HRDPS reader. The cells kept
+  are the index rectangle around those whose centers fall in the box; their corners are the rotated grid's, turned
+  back to longitude and latitude, and the winds are turned from the grid's axes to east and north. Like HRRR, it
+  stops at 48 hours from its run, so the window's last frames have none.
 - ICON (DWD, global R03B07, about 13 km triangles; CC BY 4.0): the 10 m wind files from opendata.dwd.de, each a
   bzip2 GRIB2 of the whole globe on the unstructured grid. The cells over the box, and their triangles, come from
   ``stations/icon-lis-cells.json`` (cut once from DWD's grid file ``icon_grid_0026_R03B07_G.nc``).
@@ -12,7 +17,7 @@ frame comes from the newest run that reaches it, with no regridding:
   range from data.ecmwf.int.
 - GFS (NOAA, 0.25 degree): ``pgrb2.0p25`` from ``noaa-gfs-bdp-pds`` by byte range.
 
-Requests to data.ecmwf.int and opendata.dwd.de go one at a time, at least ``POLITE_GAP_S`` apart. The newest run of
+Requests to data.ecmwf.int, opendata.dwd.de and dd.weather.gc.ca go one at a time, at least ``POLITE_GAP_S`` apart. The newest run of
 a model is the newest whose file for the last frame is published (HEAD or exists checks only), so a run still being
 posted is not used. The previous file is read back: a frame is downloaded only when it is new to the window or a
 newer run is available. When nothing is new, nothing is downloaded or written.
@@ -83,8 +88,15 @@ META = {
         "source": "ECMWF IFS open data, 0.25 degree (data.ecmwf.int)",
     },
     "gfs": {"label": "GFS", "grid_label": "0.25° (27 km)", "spacing_km": 27, "attribution": "NOAA", "source": "NOAA GFS 0.25 degree (noaa-gfs-bdp-pds)"},
+    "hrdps": {
+        "label": "HRDPS",
+        "grid_label": "2.5 km",
+        "spacing_km": 2.5,
+        "attribution": "Data Source: Environment and Climate Change Canada",
+        "source": "ECCC HRDPS continental, native 2.5 km rotated latitude-longitude grid (MSC Datamart)",
+    },
 }
-ORDER = ["hrrr", "icon", "ecmwf", "gfs"]
+ORDER = ["hrdps", "hrrr", "icon", "ecmwf", "gfs"]  # finest to coarsest
 
 
 # ---------- Helpers ----------
@@ -275,6 +287,97 @@ def _gfs_frame(n: _Counter, run: pd.Timestamp, valid: pd.Timestamp, workdir: str
     return _regular(u["longitude"].values, u["latitude"].values, u.values, da["v"].values, 0.25)
 
 
+# ---------- HRDPS ----------
+
+
+def _hrdps_url(run: pd.Timestamp, lead: int, field: str) -> str:
+    from forcingkit.fetchers import hrdps
+
+    return hrdps.field_url(run, lead, field)
+
+
+_hrdps_box: dict = {}
+
+
+def hrdps_cells(lon2d, lat2d, sp_lat: float, sp_lon: float, spacing: float = 0.0225) -> dict:
+    """The cells of HRDPS's rotated grid over BOX: the index rectangle around those whose centers fall in it, with
+    rows running north and columns east. Returns {rows, cols (slices into the file's arrays), flip_r, flip_c, grid,
+    angle (each kept cell's grid x axis from east, radians, row-major as the grid)}."""
+    from forcingkit.fetchers.hrdps import geographic_to_rotated, grid_east_angle, rotated_to_geographic
+
+    lon = ((np.asarray(lon2d, dtype=float) + 180.0) % 360.0) - 180.0
+    lat = np.asarray(lat2d, dtype=float)
+    x0, y0, x1, y1 = BOX
+    r, c = np.nonzero((lon >= x0) & (lon <= x1) & (lat >= y0) & (lat <= y1))
+    if not len(r):
+        raise ValueError("HRDPS: no cell over the box")
+    rows, cols = slice(r.min(), r.max() + 1), slice(c.min(), c.max() + 1)
+    clon, clat = lon[rows, cols], lat[rows, cols]
+    flip_r = bool(clat[-1, 0] < clat[0, 0])
+    flip_c = bool(clon[0, -1] < clon[0, 0])
+    if flip_r:
+        clon, clat = clon[::-1], clat[::-1]
+    if flip_c:
+        clon, clat = clon[:, ::-1], clat[:, ::-1]
+    # On a rotated latitude-longitude grid each column has one rotated longitude and each row one rotated latitude.
+    rlon, rlat = geographic_to_rotated(clon, clat, sp_lat, sp_lon)
+    rx, ry = rlon[0, :], rlat[:, 0]
+    sx, sy = np.sign(rx[-1] - rx[0]) or 1.0, np.sign(ry[-1] - ry[0]) or 1.0
+    ex = np.concatenate([rx - sx * spacing / 2, [rx[-1] + sx * spacing / 2]])
+    ey = np.concatenate([ry - sy * spacing / 2, [ry[-1] + sy * spacing / 2]])
+    gx, gy = np.meshgrid(ex, ey)
+    glon, glat = rotated_to_geographic(gx, gy, sp_lat, sp_lon)
+    ny, nx = clon.shape
+    grid = {"type": "quads", "nx": nx, "ny": ny, "lon": _r4(glon), "lat": _r4(glat)}
+    return {"rows": rows, "cols": cols, "flip_r": flip_r, "flip_c": flip_c, "grid": grid, "angle": grid_east_angle(clon, clat, sp_lat, sp_lon)}
+
+
+def hrdps_winds(box: dict, u2d, v2d, grid_relative: bool = True) -> tuple[np.ndarray, np.ndarray]:
+    """The box's cells of one HRDPS u/v pair, rows north and columns east, turned to east and north."""
+    from forcingkit.fetchers.hrdps import earth_relative_winds
+
+    def cut(a):
+        a = np.asarray(a, dtype=float)[box["rows"], box["cols"]]
+        if box["flip_r"]:
+            a = a[::-1]
+        if box["flip_c"]:
+            a = a[:, ::-1]
+        return a
+
+    u, v = cut(u2d), cut(v2d)
+    if grid_relative:
+        u, v = earth_relative_winds(u, v, box["angle"])
+    return u, v
+
+
+def _hrdps_frame(md: "_Polite", run: pd.Timestamp, valid: pd.Timestamp, workdir: str):
+    from forcingkit.fetchers.hrdps import MAX_LEAD, _pole
+
+    lead = _hours(valid, run)
+    if lead > MAX_LEAD:
+        return None
+    da = {}
+    for f in ("u10", "v10"):
+        r = md.get(_hrdps_url(run, lead, f))
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        path = os.path.join(workdir, f"hrdps_{f}.grib2")
+        Path(path).write_bytes(r.content)
+        try:
+            da[f] = _read_grib(path)
+        finally:
+            os.remove(path)
+    u = da["u10"]
+    key = u.shape
+    if key not in _hrdps_box:
+        _hrdps_box[key] = hrdps_cells(u["longitude"].values, u["latitude"].values, *_pole(u.attrs))
+    box = _hrdps_box[key]
+    gr = int(u.attrs.get("GRIB_uvRelativeToGrid", 1)) == 1
+    uu, vv = hrdps_winds(box, u.values, da["v10"].values, gr)
+    return box["grid"], uu, vv
+
+
 # ---------- ICON ----------
 
 
@@ -348,7 +451,7 @@ def build(store: Store, prev: dict | None, end=None) -> tuple[dict | None, dict]
     last = times[-1]
     keys = [_key(t) for t in times]
     n = _Counter()
-    ec, dw = _Polite(n), _Polite(n)
+    ec, dw, md = _Polite(n), _Polite(n), _Polite(n)
     if prev and (prev.get("box") != list(BOX) or prev.get("encoding", {}).get("step") != STEP):
         prev = None
     old = {m["id"]: m for m in (prev or {}).get("models", [])}
@@ -365,11 +468,14 @@ def build(store: Store, prev: dict | None, end=None) -> tuple[dict | None, dict]
         "icon": _newest([now.floor("6h") - pd.Timedelta(hours=6 * i) for i in range(4)], lambda c: dw.exists(_icon_url(c, _hours(last, c), "u_10m"))),
         "ecmwf": _newest([now.floor("12h") - pd.Timedelta(hours=12 * i) for i in range(3)], lambda c: ec.exists(_ecmwf_url(c, _hours(last, c), "index"))),
         "gfs": _newest([now.floor("6h") - pd.Timedelta(hours=6 * i) for i in range(5)], gfs_ok),
+        # HRDPS reaches 48 hours, so never the window's last frame: its newest run with the 48 h file posted.
+        "hrdps": _newest([now.floor("6h") - pd.Timedelta(hours=6 * i) for i in range(5)], lambda c: md.exists(_hrdps_url(c, 48, "v10"))),
     }
     fetchers = {
         "icon": lambda r, t, w: _icon_frame(dw, r, t, w),
         "ecmwf": lambda r, t, w: _ecmwf_frame(ec, r, t, w),
         "gfs": lambda r, t, w: _gfs_frame(n, r, t, w),
+        "hrdps": lambda r, t, w: _hrdps_frame(md, r, t, w),
     }
 
     models, fetched = [], {}

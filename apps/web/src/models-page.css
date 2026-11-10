@@ -1,6 +1,6 @@
-/* "Wind models compared": four models' wind on their own grids, as four small synced maps with one time slider.
-   Built on site.css (tokens, masthead, legend, credits); this file adds the page's column, the slider and the 2x2
-   map grid. */
+/* "Wind models compared": five models' wind on their own grids, as five small synced maps with one time slider.
+   Built on site.css (tokens, masthead, legend, credits); this file adds the page's column, the slider and the
+   two-column map grid. */
 
 /* Masthead: the waterway as an eyebrow (a link back), the page title under it. */
 .mg-mast { align-items: flex-end; justify-content: space-between; }
@@ -34,7 +34,7 @@
 .mg-time { font: 10.5px/1.4 var(--mono); color: var(--dim); white-space: nowrap; }
 .mg-time b { font-weight: 500; color: var(--ink); }
 
-/* Four maps, two by two; stacked on phones. */
+/* Maps two to a row, all the same size (the fifth alone on the last row); stacked on phones. */
 .mg-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 24px; }
 .mg-panel { min-width: 0; margin: 0; }
 .mg-panel figcaption { margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

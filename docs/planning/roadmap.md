@@ -35,7 +35,7 @@ Long Island Sound page:
 - [x] Forecast verification: HRRR and GFS wind at the buoys since January 2024, scored by lead time and grouped by
       forecast or observed speed, with the typical error shown on every forecast plot
 - [x] GFS past HRRR's 48 hours: the next 48 hours plot reaches 7 days ahead on a switch, with GFS's own typical miss
-- [x] Wind models compared: four models' 10 m wind for the next 48 hours on their own grids
+- [x] Wind models compared: five models' 10 m wind for the next 48 hours on their own grids, HRDPS among them
 - [x] Reading the tides: predictions, datums and the moon for the shore stations
 - [x] About, References and Terms pages, including the use of AI
 - [x] Collect: gather plots, readouts and the map, then ask your own AI or send a suggestion

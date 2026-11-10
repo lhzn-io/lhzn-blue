@@ -1,9 +1,10 @@
 /**
- * "Wind models compared" (/long-island-sound/models/): 10 m wind over the Sound for the next 48 hours on four models'
- * own grids, finest to coarsest: HRRR (3 km), ICON (13 km triangles), ECMWF open data and GFS (0.25 degree). Each
+ * "Wind models compared" (/long-island-sound/models/): 10 m wind over the Sound for the next 48 hours on five models'
+ * own grids, finest to coarsest: HRDPS (2.5 km, rotated), HRRR (3 km), ICON (13 km triangles), ECMWF open data and
+ * GFS (0.25 degree). Each
  * panel is a small MapLibre map: the model's cells as a translucent fill under the basemap's labels, thin cell
  * outlines and an arrow per cell (thinned by MapLibre's symbol collision, the coarse lattice first). One slider (and
- * a play button) steps all four through the same 3-hourly frames; pan or zoom one map and the others follow.
+ * a play button) steps all five through the same 3-hourly frames; pan or zoom one map and the others follow.
  *
  * Data: v1/fields/model-grids.json, written by the jobs' model_grids module (a grid per model, frames of int8 u/v).
  */
@@ -221,7 +222,8 @@ function addLayers(p: Panel): void {
       source: "cells",
       paint: {
         "line-color": theme() === "light" ? "#1c2a48" : "#ffffff",
-        // HRRR's 3 km cells are a few pixels wide at the opening view: their outlines appear only as the map zooms in.
+        // HRRR's and HRDPS's cells are a few pixels wide at the opening view: their outlines appear only as the map
+        // zooms in.
         "line-opacity": fine ? ["interpolate", ["linear"], ["zoom"], 8, 0, 10, 0.22] : 0.25,
         "line-width": 0.5,
       },
@@ -365,6 +367,7 @@ function wireTheme(redraw: () => void): void {
 }
 
 const PANELS: [string, string, string][] = [
+  ["hrdps", "HRDPS", "2.5 km"],
   ["hrrr", "HRRR", "3 km"],
   ["icon", "ICON", "13 km (triangles)"],
   ["ecmwf", "ECMWF", "0.25° (open data)"],

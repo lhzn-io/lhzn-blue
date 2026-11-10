@@ -17,7 +17,9 @@ frame comes from the newest run that reaches it, with no regridding:
   range from data.ecmwf.int.
 - GFS (NOAA, 0.25 degree): ``pgrb2.0p25`` from ``noaa-gfs-bdp-pds`` by byte range.
 
-Requests to data.ecmwf.int, opendata.dwd.de and dd.weather.gc.ca go one at a time, at least ``POLITE_GAP_S`` apart. The newest run of
+Requests to data.ecmwf.int, opendata.dwd.de and dd.weather.gc.ca go one at a time, at least ``POLITE_GAP_S`` apart. When a
+connection to dd.weather.gc.ca fails (it has timed out from the job for an hour or more at a time while answering
+elsewhere), HRDPS's requests go to ECCC's mirror of the same files, hpfx.collab.science.gc.ca, for the rest of the run. The newest run of
 a model is the newest whose file for the last frame is published (HEAD or exists checks only), so a run still being
 posted is not used. The previous file is read back: a frame is downloaded only when it is new to the window or a
 newer run is available. When nothing is new, nothing is downloaded or written.
@@ -171,38 +173,57 @@ def _read_grib(path: str):
 
 
 class _Polite:
-    """One HTTP host, politely: one request at a time, at least POLITE_GAP_S apart."""
+    """One HTTP host, politely: one request at a time, at least POLITE_GAP_S apart.
 
-    def __init__(self, n: _Counter):
+    ``mirror`` is ``(primary, mirror)``, two base URLs serving the same paths: after a failed connection to the primary
+    (refused, unreachable or timed out; not an HTTP error), the request is made again on the mirror, and every later
+    request for the primary goes to the mirror too, so one run waits out the primary's timeout once.
+    """
+
+    def __init__(self, n: _Counter, mirror: tuple[str, str] | None = None):
         self.s = requests.Session()
         self.s.headers.update(UA)
         self.last = 0.0
         self.n = n
+        self.mirror = mirror
+        self.on_mirror = False
 
     def _wait(self):
         dt = time.monotonic() - self.last
         if dt < POLITE_GAP_S:
             time.sleep(POLITE_GAP_S - dt)
 
-    def get(self, url: str, **kw) -> requests.Response:
+    def _url(self, url: str) -> str:
+        if self.on_mirror and url.startswith(self.mirror[0]):
+            return self.mirror[1] + url[len(self.mirror[0]):]
+        return url
+
+    def _request(self, method: str, url: str, **kw) -> requests.Response:
         self._wait()
         try:
-            r = self.s.get(url, timeout=TIMEOUT, **kw)
+            try:
+                return self.s.request(method, self._url(url), timeout=TIMEOUT, **kw)
+            except requests.ConnectionError as exc:
+                if not self.mirror or self.on_mirror or not url.startswith(self.mirror[0]):
+                    raise
+                log.warning("model grids: %s failed (%s); using %s for the rest of this run", self.mirror[0], type(exc).__name__, self.mirror[1])
+                self.on_mirror = True
+                return self.s.request(method, self._url(url), timeout=TIMEOUT, **kw)
         finally:
             self.last = time.monotonic()
+
+    def get(self, url: str, **kw) -> requests.Response:
+        r = self._request("GET", url, **kw)
         if r.ok:
             self.n.bytes += len(r.content)
         return r
 
     def exists(self, url: str) -> bool:
-        self._wait()
         try:
-            r = self.s.head(url, timeout=TIMEOUT, allow_redirects=True)
+            r = self._request("HEAD", url, allow_redirects=True)
         except requests.RequestException as exc:
-            log.warning("model grids: HEAD %s failed: %s", url, exc)
+            log.warning("model grids: HEAD %s failed: %s", self._url(url), exc)
             return False
-        finally:
-            self.last = time.monotonic()
         return r.status_code == 200
 
 
@@ -451,7 +472,9 @@ def build(store: Store, prev: dict | None, end=None) -> tuple[dict | None, dict]
     last = times[-1]
     keys = [_key(t) for t in times]
     n = _Counter()
-    ec, dw, md = _Polite(n), _Polite(n), _Polite(n)
+    from forcingkit.fetchers.hrdps import BASE_URL, HPFX_URL
+
+    ec, dw, md = _Polite(n), _Polite(n), _Polite(n, mirror=(BASE_URL, HPFX_URL))
     if prev and (prev.get("box") != list(BOX) or prev.get("encoding", {}).get("step") != STEP):
         prev = None
     old = {m["id"]: m for m in (prev or {}).get("models", [])}

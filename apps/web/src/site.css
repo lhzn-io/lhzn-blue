@@ -94,6 +94,11 @@ figure.wide { grid-column: 1 / -1; }
 .field-info[aria-expanded="true"] { color: var(--accent); border-color: var(--accent-line); }
 .field-scale { display: flex; align-items: center; gap: 6px; font: 9.5px/1.2 var(--mono); color: var(--dim); white-space: nowrap; }
 .field-bar { width: clamp(80px, 22vw, 200px); height: 5px; }
+/* SST's colour range switch: the day shown, the time bar's days, or one scale all year. */
+.field-range { display: inline-flex; flex: none; margin-left: 6px; align-self: center; border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; }
+.field-range button { padding: 1px 6px; font: 9.5px/1.3 var(--mono); color: var(--dim); background: none; border: 0; cursor: pointer; }
+.field-range button + button { border-left: 1px solid var(--rule); }
+.field-range button[aria-pressed="true"] { color: var(--ink); background: var(--rule); }
 /* Currents: a log-speed bar with ticks at the ramp's knots; the last knot is the end label. */
 .field-scale.cur-scale { align-items: flex-start; }
 .cur-key { display: flex; flex-direction: column; gap: 3px; }

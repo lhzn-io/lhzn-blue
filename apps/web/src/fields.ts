@@ -248,7 +248,7 @@ interface Meta {
 const META: Record<FieldKind, Meta> = {
   // One scale all year: the deepest colour at seawater's freezing point (about -1.9 C), the brightest above the Sound's
   // summer highs (25 to 27 C at the western buoys), so a colour means the same temperature in February and August.
-  sst: { title: "Sea surface temperature", short: "SST", ramp: "thermal", stops: () => (mapTheme() === "dark" ? SST_STOPS_DARK : SST_STOPS), log: false, range: [-2, 28], fade: false, unit: "°C", digits: 1, note: "Satellite analysis (gap-free), the skin of the water; buoy sensors sit about 1 m down. One colour scale all year: even steps from 1.5 to 25.5 °C, the range the Sound's water spans, and compressed beyond, so the deepest and brightest colours mark unusual days. Lines every 1 °C (and fainter half degrees from April to November) show the day's fronts." },
+  sst: { title: "Sea surface temperature", short: "SST", ramp: "thermal", stops: () => (mapTheme() === "dark" ? SST_STOPS_DARK : SST_STOPS), log: false, range: [-2, 28], fade: false, unit: "°C", digits: 1, note: "Satellite analysis (gap-free), the skin of the water; buoy sensors sit about 1 m down. Colour range, switched in the key: day (the default) spans the day's lowest to highest temperature, the most detail across the water; 90 days spans the days the time bar covers, one scale as the time moves, so the season's change shows; year is one scale all year, even steps from 1.5 to 25.5 °C (the range the Sound's water spans) and compressed beyond, so the deepest and brightest colours mark unusual days. Lines every 1 °C (and fainter half degrees from April to November) show the day's fronts." },
   chl: { title: "Chlorophyll-a", short: "Chlorophyll-a", ramp: "algae", log: true, range: [0.5, 30], unit: "mg/m³", digits: 1, note: "Satellite estimate of the surface; biased high in turbid water and near the shore (a band along the coast is left out)." },
   kd490: { title: "Water clarity (Kd490)", short: "Clarity, Kd490", ramp: "turbid", log: true, range: [0.1, 2], unit: "m⁻¹", digits: 2, note: "Light attenuation at 490 nm, a satellite proxy for murkiness, not a turbidity reading in NTU. Higher is murkier." },
   currents: { title: "Surface currents", short: "Currents", ramp: "currents", log: true, range: [CURRENTS_FLOOR * 100, CURRENTS_TOP * 100], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
@@ -299,6 +299,71 @@ let clickBound = false;
 let shownRaster: RasterField | undefined; // the raster the page passed in (the newest), to tell a new layer from a refresh
 let histIndex = -1; // the history frame on the map
 const histRanges = new WeakMap<RasterHistory, [number, number]>();
+
+/* ---------- SST colour range: the day, the time bar's days, or the year ---------- */
+
+/** The SST scale's even core (sst-scale.ts): a local range is stretched over it, so the same hues span the range. */
+const SST_CORE: [number, number] = [1.5, 25.5];
+const SST_RANGE_KEY = "lhzn-blue-sst-range";
+type SstRange = "day" | "days" | "global";
+let sstRange: SstRange = (() => {
+  try {
+    const k = localStorage.getItem(SST_RANGE_KEY);
+    return k === "days" || k === "global" ? k : "day";
+  } catch {
+    return "day";
+  }
+})();
+const dayExtent = new WeakMap<RasterField, [number, number]>();
+const histExtent = new WeakMap<RasterHistory, [number, number]>();
+
+/** The local SST range: the lowest and highest on the day shown ("day"), or over every day the time bar covers
+ * ("days", one scale while the time moves, so the season's change shows). Null for the global range, another layer,
+ * or a range too flat to stretch. Without a history, "days" is the day. */
+function sstLocal(): [number, number] | null {
+  const f = data.raster;
+  if (sstRange === "global" || f?.kind !== "sst") return null;
+  const h = sstRange === "days" ? data.history : undefined;
+  let r = h ? histExtent.get(h) : dayExtent.get(f);
+  if (!r && h) {
+    let lo = 255;
+    let hi = 0;
+    const px = h.header.grid.nx * h.header.grid.ny;
+    const per = px * (h.header.age ? 2 : 1);
+    for (let k = 0; k < h.header.days.length; k++)
+      for (let i = k * per, end = k * per + px; i < end; i++) {
+        const q = h.body[i];
+        if (q === 0) continue;
+        if (q < lo) lo = q;
+        if (q > hi) hi = q;
+      }
+    r = lo <= hi ? [dequantise(h, lo), dequantise(h, hi)] : [NaN, NaN];
+    histExtent.set(h, r);
+  } else if (!r) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const x of f.values) {
+      if (x == null) continue;
+      const v = x * f.scale;
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    r = [lo, hi];
+    dayExtent.set(f, r);
+  }
+  return Number.isFinite(r[0]) && r[1] - r[0] >= 0.2 ? r : null;
+}
+
+/** The SST key's range switch: the day shown, the time bar's days ("90 days"), or one scale all year. */
+function rangeSwitch(): string {
+  const n = data.history?.header.days.length;
+  const pick = (k: SstRange, label: string, title: string) => `<button type="button" data-range="${k}" aria-pressed="${sstRange === k}" title="${title}">${label}</button>`;
+  return `<span class="field-range" role="group" aria-label="Colour range">${pick("day", "day", "Colours span the day shown: the most detail")}${
+    n ? pick("days", `${n} days`, `Colours span the ${n} days the time bar covers: one scale as the time moves`) : ""}${pick("global", "year", "One scale all year, -2 to 28 °C")}</span>`;
+}
+
+/** A temperature on the local range, carried onto the scale's core: its colour is the core's at the same fraction. */
+const sstStretch = ([lo, hi]: [number, number], v: number) => SST_CORE[0] + ((v - lo) / (hi - lo)) * (SST_CORE[1] - SST_CORE[0]);
 
 /* ---------- History frames ---------- */
 
@@ -397,11 +462,12 @@ function rasterImage(f: RasterField, meta: Meta): string {
   const img = ctx.createImageData(nx, ny);
   const ramp = RAMPS[meta.ramp];
   const stops = meta.stops?.();
+  const local = stops ? sstLocal() : null;
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
       const v = values[j * nx + i];
       if (!Number.isFinite(v)) continue;
-      const [r, g, b] = stops ? stopColour(stops, v) : colour(ramp, position(meta, range, v));
+      const [r, g, b] = stops ? stopColour(stops, local ? sstStretch(local, v) : v) : colour(ramp, position(meta, range, v));
       // Rows run from the south in the data and from the top on the canvas. Older pixels are fainter.
       const o = ((ny - 1 - j) * nx + i) * 4;
       const age = f.age_days[j * nx + i] ?? 0;
@@ -456,6 +522,12 @@ async function showHistoryFrame(k: number): Promise<void> {
   if (!h || k === histIndex) return;
   histIndex = k;
   data.raster = historyRaster(h, k);
+  await repaintRaster();
+}
+
+/** The raster drawn again where it is (another frame, or the SST range switched): the key, the image, an open value. */
+async function repaintRaster(): Promise<void> {
+  if (!data.raster) return;
   const box = document.getElementById("map");
   if (box) renderPanel(box);
   const map = await mapReady();
@@ -2254,9 +2326,14 @@ function scaleHtml(meta: Meta, ripKey = false): string {
   }
   const ramp = RAMPS[meta.ramp];
   if (meta.stops && meta.range) {
-    const [lo, hi] = meta.range;
-    const grad = meta.stops().map(([v, c]) => `${c} ${(((v - lo) / (hi - lo)) * 100).toFixed(1)}%`).join(",");
-    return `<div class="field-scale"><span>${lo}</span><i class="field-bar" style="background:linear-gradient(90deg,${grad})"></i><span>${hi} ${meta.unit}; lines every 1 °C, 0.5 °C Apr to Nov</span></div>`;
+    const local = sstLocal();
+    const [lo, hi] = local ?? meta.range;
+    // Day or the time bar's days: the core's colours over the lowest to highest; year: the whole scale.
+    const grad = local
+      ? meta.stops().filter(([v]) => v >= SST_CORE[0] && v <= SST_CORE[1]).map(([v, c]) => `${c} ${(((v - SST_CORE[0]) / (SST_CORE[1] - SST_CORE[0])) * 100).toFixed(1)}%`).join(",")
+      : meta.stops().map(([v, c]) => `${c} ${(((v - lo) / (hi - lo)) * 100).toFixed(1)}%`).join(",");
+    const fmt = (v: number) => (local ? v.toFixed(1) : String(v));
+    return `<div class="field-scale"><span>${fmt(lo)}</span><i class="field-bar" style="background:linear-gradient(90deg,${grad})"></i><span>${fmt(hi)} ${meta.unit}; lines every 1 °C, 0.5 °C Apr to Nov</span></div>`;
   }
   const fmt = (v: number) => (v === 0 ? "0" : meta.log && v < 1 ? v.toFixed(2) : v.toFixed(meta.digits));
   return `<div class="field-scale"><span>${fmt(range[0])}</span><i class="field-bar" style="background:linear-gradient(90deg,${ramp.join(",")})"></i><span>${fmt(range[1])} ${meta.unit}</span></div>`;
@@ -2339,7 +2416,7 @@ function renderPanel(fallback: HTMLElement): void {
     const in3d = c && !cm && !wt && !r && location.pathname.startsWith("/long-island-sound/")
       ? `<a class="field-3d" href="/long-island-sound/currents-3d/" title="The same model in 3D, below the surface">In 3D</a>` : "";
     body = `<div class="field-key"><span class="field-name" title="${meta.title}">${name}</span><span class="field-when">${when}</span>
-      <button type="button" class="field-info" aria-haspopup="dialog" aria-label="About this layer" title="About this layer">i</button>${in3d}</div>
+      ${active === "sst" && r ? rangeSwitch() : ""}<button type="button" class="field-info" aria-haspopup="dialog" aria-label="About this layer" title="About this layer">i</button>${in3d}</div>
       ${scaleHtml(meta)}
       <p class="field-note" hidden><b>${meta.title}.</b> ${meta.note}${span}${run} <span class="field-credit">${credit}</span></p>`;
     if (overlay && !wt) {
@@ -2356,6 +2433,19 @@ function renderPanel(fallback: HTMLElement): void {
   }
   panel.innerHTML = body;
   container.prepend(panel);
+  panel.querySelectorAll<HTMLButtonElement>(".field-range button").forEach((b) =>
+    b.addEventListener("click", () => {
+      const k: SstRange = b.dataset.range === "global" || b.dataset.range === "days" ? b.dataset.range : "day";
+      if (k === sstRange) return;
+      sstRange = k;
+      try {
+        localStorage.setItem(SST_RANGE_KEY, k);
+      } catch {
+        /* private mode: the switch holds for this page */
+      }
+      void repaintRaster();
+    }),
+  );
   panel.querySelectorAll<HTMLButtonElement>(".field-info").forEach((info) =>
     info.addEventListener("click", () => {
       if (!active) return;

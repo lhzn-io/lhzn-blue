@@ -290,9 +290,13 @@ export const METHODS: Record<string, Method> = {
       "The MUR multi-sensor analysis, which fills gaps between satellite passes [[chin2017mur]] [[jpl2015mur]]. Every layer " +
       "covers one box (40.45 to 41.45°N, 73.9 to 71.8°W) and is cut to the currents model's water, so all layers share one coastline.",
     caveats:
-      "The skin of the water; buoy sensors sit about 1 m down. One fixed colour scale all year: even steps from 1.5 to " +
+      "The skin of the water; buoy sensors sit about 1 m down. Three colour ranges, switched in the key under the map. " +
+      "Day (the default) spans the lowest to the highest temperature on the day shown, the most detail across the water. " +
+      "90 days spans the days the time bar covers, one scale as the time moves, so the season's change shows. In both, " +
+      "colours mean different temperatures from one range to the next. Year is one fixed scale all " +
+      "year: even steps from 1.5 to " +
       "25.5 °C (about the 0.5th to 99.5th percentile of 2022 to 2026 over this box), compressed beyond out to -2 and " +
-      "28 °C, in cmocean thermal hues [[thyng2016cmocean]]; on the dark theme the coldest colours are lifted so cold " +
+      "28 °C. Both use cmocean thermal hues [[thyng2016cmocean]]; on the dark theme the coldest colours are lifted so cold " +
       "water stays visible. A typical day spans only about 2 °C across the box, so lines every 1 °C mark the fronts that " +
       "colour alone would hide, with fainter half-degree lines from April to November, when the spread is narrowest.",
   },

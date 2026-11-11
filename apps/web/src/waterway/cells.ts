@@ -5,9 +5,9 @@
 import { compass, LIGHT_KT, windArrow } from "@lhzn-io/timecharts/wind-dir";
 import { DO_LEVELS, HOUR, oxygenStatus, type LastObs } from "@lhzn-io/timecharts/series";
 import type { Pin } from "../map";
-import { ago, f1, feet, fmtClock, fmtDate, fmtRun, fmtUtc, fmtWhenMin, hourOf, lastValue, signed, signedFt, tideText } from "./format";
+import { ago, feet, fmtClock, fmtDate, fmtRun, fmtUtc, fmtWhenMin, hourOf, lastValue, signed, signedFt, tideText } from "./format";
 import { AT, atFuture, atLabel, sparklineOf } from "./cursor";
-import { waveFmt, waveUnit, WIND_UNITS, windFmt, WU } from "./units";
+import { tempDeltaOfF, tempHtml, tempLetter, tempNum, tempOfF, tempUnit, waveFmt, waveUnit, WIND_UNITS, windFmt, WU } from "./units";
 import {
   DELAYED_HOURS, DEPTH_LABEL, DEPTHS, isWater, nextTide, obsState, OFFLINE_HOURS, overallState, unitName, WATER_VARS,
   type FcValue, type StationData, type VarKey,
@@ -52,7 +52,7 @@ export function valueAt(d: StationData, k: VarKey, depth: string, t: number): nu
 }
 
 /** A pin's water value: the view's variable with its unit. */
-export const pinValue = (k: VarKey, v: number) => (k === "temp" ? `${f1(v)}&deg;F` : k === "salinity" ? `salinity ${v.toFixed(2)}` : `oxygen ${v.toFixed(1)} mg/L`);
+export const pinValue = (k: VarKey, v: number) => (k === "temp" ? `${tempNum(v)}${tempHtml()}` : k === "salinity" ? `salinity ${v.toFixed(2)}` : `oxygen ${v.toFixed(1)} mg/L`);
 
 /** A reading transcribed from the LISICOS panel image (while their server is down): noted in the cell's tooltip and
  * the readout's. LISICOS's observation, read by us; provisional until the server's own record returns. */
@@ -81,12 +81,15 @@ export function windModelCell(d: StationData, t: number, fault: string, faultTit
   return standInCell(fault, faultTitle, `model ${compass(f.dir)} ${windFmt(f.spd)} ${u}`, `HRRR at the buoy: wind ${windFmt(f.spd)} ${u} from ${compass(f.dir)}, gusts ${windFmt(f.gust)} ${u}; ${runText(f.issue, f.lead)}, typically within ${windFmt(f.err)} ${u}`);
 }
 
+/** A water value as shown (temperature in the reader's unit) and its unit's name. */
+const shownV = (v: number) => (M.view() === "temp" ? tempOfF(v) : v);
+const shownUnit = () => (M.view() === "temp" ? tempUnit() : unitName(M.view()));
 export function cellHtml(d: StationData, depth: string): string {
   if (d.kind === "shore" && M.view() !== "temp") return `<td class="na" title="Not measured at this station">&middot;</td>`;
   if (!d.depths.includes(depth)) return `<td class="na" title="No ${DEPTH_LABEL[depth].toLowerCase()} sensor published">&middot;</td>`;
   if (AT != null) {
     const v = valueAt(d, M.view(), depth, AT);
-    return atCell(v, v.toFixed(V().digits) + (M.view() === "temp" ? "&deg;" : ""), `${DEPTH_LABEL[depth]}: ${v.toFixed(V().digits)} ${unitName(M.view())}`, sparkline(d, depth, M.palette().now));
+    return atCell(v, shownV(v).toFixed(V().digits) + (M.view() === "temp" ? "&deg;" : ""), `${DEPTH_LABEL[depth]}: ${shownV(v).toFixed(V().digits)} ${shownUnit()}`, sparkline(d, depth, M.palette().now));
   }
   const o = d.obs[depth];
   const state = obsState(o);
@@ -97,11 +100,11 @@ export function cellHtml(d: StationData, depth: string): string {
     const since = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", year: "numeric" }).format(new Date(o.time));
     return `<td class="offline" title="${DEPTH_LABEL[depth]}: last reading ${fmtUtc(o.time)}"><b>--</b><small>since ${since}</small></td>`;
   }
-  const shown = value.toFixed(V().digits) + (M.view() === "temp" ? "&deg;" : "");
+  const shown = shownV(value).toFixed(V().digits) + (M.view() === "temp" ? "&deg;" : "");
   // Oxygen under the hypoxia level is marked in the cell, not only by color.
   const low = M.view() === "oxygen" && value < DO_LEVELS.hypoxic;
   const status = M.view() === "oxygen" ? `, ${oxygenStatus(value)}` : "";
-  return `<td class="${state}${low ? " low" : ""}" title="${DEPTH_LABEL[depth]}: ${value.toFixed(V().digits)} ${unitName(M.view())}${status}, ${ago(o.time)}${panelTitle(o)}">${sparkline(d, depth, state === "live" ? M.palette().now : M.palette().delayed)}<b>${shown}</b><small>${low ? oxygenStatus(value) + " &middot; " : ""}${age(o.time)}</small></td>`;
+  return `<td class="${state}${low ? " low" : ""}" title="${DEPTH_LABEL[depth]}: ${shownV(value).toFixed(V().digits)} ${shownUnit()}${status}, ${ago(o.time)}${panelTitle(o)}">${sparkline(d, depth, state === "live" ? M.palette().now : M.palette().delayed)}<b>${shown}</b><small>${low ? oxygenStatus(value) + " &middot; " : ""}${age(o.time)}</small></td>`;
 }
 
 /** Latest buoy wind: mean and gust in the chosen unit, a downwind arrow with the compass point it comes
@@ -140,7 +143,7 @@ export function windCell(d: StationData): string {
   if (state === "offline") return `<td class="offline"><b>--</b><small>no recent wind</small></td>`;
   const u = WIND_UNITS[WU].label;
   const dir = o.dir_deg != null ? compass(o.dir_deg) : "";
-  const title = `Wind ${windFmt(o.wind_kt)} ${u}, gusts ${windFmt(o.gust_kt)} ${u}, from ${dir || "--"}; air ${f1(o.air_f ?? NaN)} F; ${ago(o.time)}${panelTitle(o)}`;
+  const title = `Wind ${windFmt(o.wind_kt)} ${u}, gusts ${windFmt(o.gust_kt)} ${u}, from ${dir || "--"}; air ${tempNum(o.air_f)} ${tempLetter()}; ${ago(o.time)}${panelTitle(o)}`;
   const spark = d.met?.wind ? sparklineOf(d.met.wind, M.palette().line, "kt") : "";
   return `<td class="${state} wind" title="${title}">${spark}<b>${o.dir_deg != null ? windArrow(o.dir_deg) : ""}${dir} ${windFmt(o.wind_kt)}<small class="g">${u}</small></b><small>${o.gust_kt != null ? `G${windFmt(o.gust_kt)} &middot; ` : ""}${age(o.time)}</small></td>`;
 }
@@ -187,26 +190,26 @@ export function wavesCell(d: StationData): string {
 export function airCell(d: StationData): string {
   if (AT != null && atFuture()) {
     const f = forecastAt(d.meta.id, AT);
-    if (f && Number.isFinite(f.air)) return fcCell(f, `${Math.round(f.air)}&deg;`, `Air ${f1(f.air)} F`, `&plusmn;${f.airErr.toFixed(0)}&deg;`);
+    if (f && Number.isFinite(f.air)) return fcCell(f, `${Math.round(tempOfF(f.air))}&deg;`, `Air ${tempNum(f.air)} ${tempLetter()}`, `&plusmn;${tempDeltaOfF(f.airErr).toFixed(0)}&deg;`);
   }
   if (AT != null) {
     if (!Number.isFinite(d.met?.air?.at(AT) ?? NaN)) {
       const f = standIn(d, AT);
-      if (f && Number.isFinite(f.air)) return standInCell("no reading", `No air temperature at ${atLabel(AT)}`, `model ${Math.round(f.air)}&deg;`, `HRRR at the buoy: air ${f1(f.air)} F; ${runText(f.issue, f.lead)}, typically within ${f.airErr.toFixed(0)} F`);
+      if (f && Number.isFinite(f.air)) return standInCell("no reading", `No air temperature at ${atLabel(AT)}`, `model ${Math.round(tempOfF(f.air))}&deg;`, `HRRR at the buoy: air ${tempNum(f.air)} ${tempLetter()}; ${runText(f.issue, f.lead)}, typically within ${tempDeltaOfF(f.airErr).toFixed(0)} ${tempLetter()}`);
     }
     if (!d.met?.air) return `<td class="na">&middot;</td>`;
     const v = d.met.air.at(AT);
-    return atCell(v, `${Math.round(v)}&deg;`, `Air ${f1(v)} F`);
+    return atCell(v, `${Math.round(tempOfF(v))}&deg;`, `Air ${tempNum(v)} ${tempLetter()}`);
   }
   const o = d.met?.last;
   if (!o || o.air_f == null || obsState({ time: o.time } as LastObs) === "offline") {
     const f = standIn(d, Date.now() / 1000);
-    if (f && Number.isFinite(f.air)) return standInCell("offline", "No recent air temperature", `model ${Math.round(f.air)}&deg;`, `HRRR at the buoy: air ${f1(f.air)} F; ${runText(f.issue, f.lead)}, typically within ${f.airErr.toFixed(0)} F`);
+    if (f && Number.isFinite(f.air)) return standInCell("offline", "No recent air temperature", `model ${Math.round(tempOfF(f.air))}&deg;`, `HRRR at the buoy: air ${tempNum(f.air)} ${tempLetter()}; ${runText(f.issue, f.lead)}, typically within ${tempDeltaOfF(f.airErr).toFixed(0)} ${tempLetter()}`);
   }
   if (!o || o.air_f == null) return `<td class="na">&middot;</td>`;
   const state = obsState({ time: o.time } as LastObs);
   if (state === "offline") return `<td class="offline"><b>--</b></td>`;
-  return `<td class="${state}" title="Air ${f1(o.air_f)} F, ${ago(o.time)}${panelTitle(o)}"><b>${Math.round(o.air_f)}&deg;</b><small>${age(o.time)}</small></td>`;
+  return `<td class="${state}" title="Air ${tempNum(o.air_f)} ${tempLetter()}, ${ago(o.time)}${panelTitle(o)}"><b>${Math.round(tempOfF(o.air_f))}&deg;</b><small>${age(o.time)}</small></td>`;
 }
 
 export function pressureCell(d: StationData): string {
@@ -313,7 +316,7 @@ export function stationPin(d: StationData): Pin {
     const f = forecastAt(d.meta.id, AT);
     if (f) {
       const u = WIND_UNITS[WU].label;
-      const label = `Forecast: wind ${windArrow(f.dir, f.spd < LIGHT_KT)}${compass(f.dir)} ${windFmt(f.spd)} ${u}, gusts ${windFmt(f.gust)}${Number.isFinite(f.air) ? `<br>air ${Math.round(f.air)}&deg;F` : ""}<br>HRRR, ${f.lead} h ahead, typically &plusmn;${windFmt(f.err)} ${u}<br>${atLabel(AT)}`;
+      const label = `Forecast: wind ${windArrow(f.dir, f.spd < LIGHT_KT)}${compass(f.dir)} ${windFmt(f.spd)} ${u}, gusts ${windFmt(f.gust)}${Number.isFinite(f.air) ? `<br>air ${Math.round(tempOfF(f.air))}${tempHtml()}` : ""}<br>HRRR, ${f.lead} h ahead, typically &plusmn;${windFmt(f.err)} ${u}<br>${atLabel(AT)}`;
       return { ...base, state: overallState(d), label };
     }
   }
@@ -376,7 +379,7 @@ export function airportPin(d: StationData): Pin {
   }
   const w = d.met?.last;
   const label = w && w.wind_kt != null
-    ? `Airport wind ${w.dir_deg != null ? windArrow(w.dir_deg, w.wind_kt < LIGHT_KT) + compass(w.dir_deg) + " " : ""}${windFmt(w.wind_kt)} ${u}${w.gust_kt != null ? `, gusts ${windFmt(w.gust_kt)}` : ""}, ${ago(w.time)}${w.air_f != null ? `<br>air ${Math.round(w.air_f)}&deg;F` : ""}`
+    ? `Airport wind ${w.dir_deg != null ? windArrow(w.dir_deg, w.wind_kt < LIGHT_KT) + compass(w.dir_deg) + " " : ""}${windFmt(w.wind_kt)} ${u}${w.gust_kt != null ? `, gusts ${windFmt(w.gust_kt)}` : ""}, ${ago(w.time)}${w.air_f != null ? `<br>air ${Math.round(tempOfF(w.air_f))}${tempHtml()}` : ""}`
     : "no recent report";
   return { ...base, state: overallState(d), label };
 }
@@ -388,7 +391,7 @@ export function stationTables(stations: StationData[], SG: string): string {
   const shore = stations.filter((d) => d.kind === "shore");
   const name = (d: StationData) => `<th scope="row"><a href="#${d.meta.id}"><i class="dot${d.kind === "shore" ? " shore" : ""} ${overallState(d)}"></i>${d.meta.name}</a></th>`;
   const wind = `wind (${WIND_UNITS[WU].label})`;
-  const waterUnit = M.view() === "temp" ? "&deg;F" : unitName(M.view());
+  const waterUnit = M.view() === "temp" ? tempHtml() : unitName(M.view());
   const what = `${V().label.toLowerCase()} (${waterUnit})`;
   // Each view has its own columns: water views show the water; Wind and waves shows the weather and the sea. Each head
   // carries its unit, so the cells hold numbers alone; the caption says it all for screen readers. The first head
@@ -396,8 +399,8 @@ export function stationTables(stations: StationData[], SG: string): string {
   const head = (cols: [string, string][]) =>
     `<thead><tr><th><button type="button" class="fig-info key-info" aria-controls="status-key" title="Key to the table">i</button></th>${cols.map(([c, u]) => `<th scope="col">${c}${u ? `<small class="u">${u}</small>` : ""}</th>`).join("")}</tr></thead>`;
   const open = (g: string) => `<table class="status-grid" id="status-panel" role="tabpanel" aria-labelledby="stab-${g}">`;
-  const air = "air (&deg;F), pressure (mbar)";
-  const weather: [string, string][] = [["Wind", WIND_UNITS[WU].label], ["Air", "&deg;F"], ["Pressure", "mb"]];
+  const air = `air (${tempHtml()}), pressure (mbar)`;
+  const weather: [string, string][] = [["Wind", WIND_UNITS[WU].label], ["Air", tempHtml()], ["Pressure", "mb"]];
   // Ahead of now, the run and its typical miss once, above the table, rather than in every cell; its line is held
   // empty otherwise, so the table and the page below do not move as the time crosses now.
   const run = AT != null && atFuture() ? (stations.length ? forecastAt(stations[0].meta.id, hourOf(AT)) : null) : null;
@@ -411,7 +414,7 @@ export function stationTables(stations: StationData[], SG: string): string {
         : `${open("buoy")}${caption(`${AT != null ? `${atFuture() ? "Forecast" : "Weather and waves"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and waves (${waveUnit().label})`)}${head([...weather, ["Waves", waveUnit().label]])}
       <tbody>${buoys.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${wavesCell(d)}</tr>`).join("")}</tbody></table>`
       : isWater(M.view())
-        ? `${open("shore")}${caption(`${AT != null ? `Water at ${atLabel(AT)}` : "Latest readings"}, west to east: ${M.view() === "temp" ? "water temperature (&deg;F)" : `water temperature only (no ${V().label.toLowerCase()} sensors)`} and water level`)}${head([["Water", "&deg;F"], ["Level", "ft"], ["Next tide", ""]])}
+        ? `${open("shore")}${caption(`${AT != null ? `Water at ${atLabel(AT)}` : "Latest readings"}, west to east: ${M.view() === "temp" ? `water temperature (${tempHtml()})` : `water temperature only (no ${V().label.toLowerCase()} sensors)`} and water level`)}${head([["Water", tempHtml()], ["Level", "ft"], ["Next tide", ""]])}
       <tbody>${shore.map((d) => `<tr>${name(d)}${cellHtml(d, "SFC")}${levelCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`
         : `${open("shore")}${caption(`${AT != null ? `${atFuture() ? "Forecast" : "Weather"} at ${atLabel(AT)}` : "Latest readings"}, west to east: ${wind}, ${air} and the next tide`)}${head([...weather, ["Next tide", ""]])}
       <tbody>${shore.map((d) => `<tr>${name(d)}${windCell(d)}${airCell(d)}${pressureCell(d)}${tideCell(d)}</tr>`).join("")}</tbody></table>`;

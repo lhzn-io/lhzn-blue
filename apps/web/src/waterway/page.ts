@@ -48,7 +48,7 @@ import { BOAT, wireBoat } from "./boat";
 import { wireLocate } from "./locate";
 import { embedMode, PLOT_PAGES, plotSlug, type PlotPage } from "./embed";
 import { wireCollect } from "./prompt";
-import { currentSpeed, setUnit, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./units";
+import { currentSpeed, metricTemp, setUnit, tempOpts, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./units";
 import { configureVirtual, loadVirtual, makeVirtual, VCURRENT, virtualFromPath, VIRTUAL_ID, virtualIntro, virtualPath, virtualReadouts, virtualSources, VSST, VWAVES } from "./virtual";
 
 /** The waterway this page is mounted for (mountWaterwayPage), and its parts. */
@@ -547,7 +547,7 @@ const FIGS: Record<Kind, Fig> = {
           ],
         },
         legend,
-        note: `shading marks the working thresholds: inner band mixed (under ${STRAT.mixed} °C, ${dF(STRAT.mixed).toFixed(2)} °F), outer band weakly stratified (to ${STRAT.stratified} °C)`,
+        note: `shading marks the working thresholds: inner band mixed (under ${STRAT.mixed} °C${metricTemp() ? "" : `, ${dF(STRAT.mixed).toFixed(2)} °F`}), outer band weakly stratified (to ${STRAT.stratified} °C)`,
       };
     },
   },
@@ -1605,7 +1605,7 @@ function drawInline(d: StationData, key: Kind): void {
       `<span class="lg" title="More than 0.5 ft beyond the prediction"><svg width="18" height="6" aria-hidden="true"><line x1="0" x2="18" y1="3" y2="3" stroke="var(--wp-amber)" stroke-width="2"/></svg>0.5 ft or more off</span>`;
     return;
   }
-  renderLines($(`${d.meta.id}-${key}`), b.opts);
+  renderLines($(`${d.meta.id}-${key}`), tempOpts(b.opts, key === "chg" || key === "sb")); // in °C with m/s
   $(`${d.meta.id}-${key}-legend`).innerHTML = legendHtml(b);
   PLOT_NOTES.set(`${d.meta.id}-${key}`, b.note ?? "");
   if (key === "next48" && d.kind !== "virtual") {
@@ -1712,7 +1712,7 @@ function about(meta: Meta): void {
 
 /* ---------- Main ---------- */
 
-/** Units (kt, mph, m/s; waves in ft, or m with m/s): knots by default; the choice is remembered in this browser only. */
+/** Units (kt, mph, m/s; waves in ft and temperature in °F, or m and °C with m/s): knots by default; the choice is remembered in this browser only. */
 function wireUnits(redraw: () => void): void {
   const buttons = document.querySelectorAll<HTMLButtonElement>(".unit-switch [data-unit]");
   const mark = () => buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.unit === WU)));

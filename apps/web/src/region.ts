@@ -23,7 +23,7 @@ import { at, sec, series, type Frame } from "./waterway/frames";
 import { stationState, Stations, type Station } from "./waterway/stations";
 import { measuringShore, regionStations, type RegionRegistry } from "./adapters/region";
 import { AT, setAt } from "./waterway/cursor";
-import { currentSpeed, setUnit, WIND_UNITS, windFmt, WU } from "./waterway/units";
+import { currentSpeed, setUnit, tempNum, tempUnit, WIND_UNITS, windFmt, WU } from "./waterway/units";
 
 const DATA = CFG.data;
 const TZ = "America/New_York";
@@ -237,10 +237,10 @@ function statusHtml(): string {
   const ref = refShore();
   if (theme === "water") {
     group("Buoys");
-    for (const b of S.ofKind("buoy")) row(b, `<td><b>${f1(val(b, "water_f"))} °F</b><small>water</small></td><td><b>${f1(val(b, "salinity"))}</b><small>salinity</small></td>`);
+    for (const b of S.ofKind("buoy")) row(b, `<td><b>${tempNum(val(b, "water_f"))} ${tempUnit()}</b><small>water</small></td><td><b>${f1(val(b, "salinity"))}</b><small>salinity</small></td>`);
     if (ref) {
       group("Shore");
-      row(ref, `<td><b>${f1(val(ref, "water_f"))} °F</b><small>water</small></td><td></td>`);
+      row(ref, `<td><b>${tempNum(val(ref, "water_f"))} ${tempUnit()}</b><small>water</small></td><td></td>`);
     }
   }
   if (theme === "tides") statusTides(row, group, ref);
@@ -256,7 +256,7 @@ type GroupFn = (title: string) => void;
 
 function statusTides(row: RowFn, group: GroupFn, ref: Station | undefined): void {
   group("Tide and water level");
-  if (ref) row(ref, `<td><b>${f1(val(ref, "level_ft"), 1)} ft</b><small>MLLW</small></td><td><b>${f1(val(ref, "water_f"))} °F</b><small>water</small></td>`);
+  if (ref) row(ref, `<td><b>${f1(val(ref, "level_ft"), 1)} ft</b><small>MLLW</small></td><td><b>${tempNum(val(ref, "water_f"))} ${tempUnit()}</b><small>water</small></td>`);
   for (const g of S.ofKind("level")) row(g, `<td><b>${f1(val(g, "level_ft"), 1)} ft</b><small>${g.meta.datum}</small></td><td><small>${esc(g.place ?? "")}</small></td>`);
 }
 
@@ -287,7 +287,7 @@ function statusWeather(row: RowFn, group: GroupFn): void {
   for (const a of S.ofKind("airport")) {
     const w = val(a, "wind_kt");
     const dir = val(a, "dir_deg");
-    row(a, `<td><b>${dir == null ? "" : windArrow(dir, w != null && w < LIGHT_KT)}${w == null ? "--" : wind(w)}</b><small>${dir == null ? "wind" : `from ${compass(dir)}`}</small></td><td><b>${f1(val(a, "air_f"))} °F</b><small>air</small></td>`);
+    row(a, `<td><b>${dir == null ? "" : windArrow(dir, w != null && w < LIGHT_KT)}${w == null ? "--" : wind(w)}</b><small>${dir == null ? "wind" : `from ${compass(dir)}`}</small></td><td><b>${tempNum(val(a, "air_f"))} ${tempUnit()}</b><small>air</small></td>`);
   }
   group("Buoys");
   for (const b of S.ofKind("buoy")) {
@@ -533,7 +533,7 @@ function pinLabel(s: Station): string {
   const when = `<br>${ago(sec(lo.time as string))}`;
   const n = (k: string) => lo[k] as number | null;
   switch (s.kind) {
-    case "buoy": return `Water ${f1(n("water_f"))} °F, salinity ${f1(n("salinity"))}${when}`;
+    case "buoy": return `Water ${tempNum(n("water_f"))} ${tempUnit()}, salinity ${f1(n("salinity"))}${when}`;
     case "shore": return `Water level ${f1(n("level_ft"), 2)} ft MLLW${when}`;
     case "level": return `Water level ${(n("level_ft") as number).toFixed(2)} ft ${s.meta.datum}${when}`;
     case "meter": return `Current ${cur(n("spd_cms") as number)} toward ${compass(n("dir_deg") as number)}${when}`;

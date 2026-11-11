@@ -12,7 +12,7 @@ import type { Fig } from "./figures";
 import { FCST, GFS, loadForecast, MS_KT, VER_AS, type FcRun, type GfsGrid, type GfsRun } from "./forecast";
 import { M } from "./models";
 import type { StationData } from "./station-data";
-import { currentSpeed, waveUnit, WIND_UNITS, windFmt, WU } from "./units";
+import { currentSpeed, tempOfC, tempUnit, waveUnit, WIND_UNITS, windFmt, WU } from "./units";
 
 export const VIRTUAL_ID = "AT";
 const SCORED_KM = 25; // the nearest scored buoy's miss within this distance; the scored buoys together beyond
@@ -331,7 +331,7 @@ export function virtualReadouts(t: number): string {
   const slack = cu?.slack.find((s) => s > t); // after the readout's own time, not its rounded hour (up to 30 min earlier)
   out.push(readout(Number.isFinite(cuU) ? (Math.hypot(cuU, cuV) * cs.perCms).toFixed(cs.digits) : "--", cs.label, Number.isFinite(cuU) ? `Current toward ${compass(((Math.atan2(cuU, cuV) * 180) / Math.PI + 360) % 360)}` : "Current", cu === null ? "outside the NECOFS mesh" : `NECOFS${slack ? `, slack ${fmtWhen.format(new Date(slack * 1000))}` : ""}`));
   const s = VB.sst?.at[VB.sst.at.length - 1];
-  out.push(readout(s ? cToF(s[1]).toFixed(1) : "--", "°F", "Water temperature", VB.sst === null ? "no satellite pixel" : s ? `satellite, ${fmtDay.format(new Date(s[0] * 1000))}` : "satellite"));
+  out.push(readout(s ? tempOfC(s[1]).toFixed(1) : "--", tempUnit(), "Water temperature", VB.sst === null ? "no satellite pixel" : s ? `satellite, ${fmtDay.format(new Date(s[0] * 1000))}` : "satellite"));
   return out.join("");
 }
 

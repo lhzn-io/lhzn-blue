@@ -1,5 +1,6 @@
 /** The time a waterway page shows: null for now (the latest readings), else the time bar's time (epoch seconds). The
  * table, the pins and the readouts all read it, so they agree. Read `AT` live; the time bar's listener sets it. */
+import { metricTemp, tempOfF, tempUnit } from "./units";
 import { DAY, grid, type Hourly } from "@lhzn-io/timecharts/series";
 import { span } from "./format";
 import { zoned } from "@lhzn-io/timecharts/dst";
@@ -44,7 +45,8 @@ export function sparklineOf(h: Hourly, color: string, unit: string, digits = 1):
     path += `${pen ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
     pen = true;
   });
-  const title = `last 7 days: ${lo.toFixed(digits)} to ${hi.toFixed(digits)} ${unit} (scaled to this range)`;
+  const t = unit === "°F" && metricTemp(); // a °F series, read in °C
+  const title = `last 7 days: ${(t ? tempOfF(lo) : lo).toFixed(digits)} to ${(t ? tempOfF(hi) : hi).toFixed(digits)} ${t ? tempUnit() : unit} (scaled to this range)`;
   const mx = AT != null && AT >= xs[0] && AT <= xs[xs.length - 1] ? ((AT - xs[0]) / (xs[xs.length - 1] - xs[0])) * W : NaN;
   const tick = Number.isFinite(mx) ? `<line x1="${mx.toFixed(1)}" x2="${mx.toFixed(1)}" y1="0" y2="${H}" stroke="currentColor" stroke-width="1" opacity="0.55"/>` : "";
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${title}"><title>${title}</title><path d="${path}" fill="none" stroke="${color}" stroke-width="1.3" stroke-linejoin="round"/>${tick}</svg>`;

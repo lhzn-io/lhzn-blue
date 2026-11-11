@@ -5,7 +5,7 @@ import { compass, LIGHT_KT, windArrow } from "@lhzn-io/timecharts/wind-dir";
 import { HOUR, oxygenStatus, stratStatus, type Hourly, type LastObs } from "@lhzn-io/timecharts/series";
 import { classify, percentileText, SEASONS, seasonalPercentile, trend, trendText, TRENDS, veerText } from "../trends";
 import { ago, cToF, f1, fmtDate, fmtWhenMin, hourOf, lastValue, signed, signedFt, tideText } from "./format";
-import { waveFmt, waveUnit, WIND_UNITS, windFmt, WU } from "./units";
+import { metricTemp, tempDeltaOfF, tempHtml, tempNum, waveFmt, waveUnit, WIND_UNITS, windFmt, WU } from "./units";
 import { nextTide, noWaterSensor, obsState, stationState, type FcValue, type StationData } from "./station-data";
 import { runText } from "./cells";
 import { M } from "./models";
@@ -59,7 +59,7 @@ function forecastLine(d: StationData, state: string, trendKey: string, pick: (f:
 }
 
 /** The change in the view's water variable, in display units. */
-const waterDelta = (v: number) => (M.view() === "temp" ? `${v.toFixed(1)}&deg;F` : M.view() === "salinity" ? v.toFixed(2) : `${v.toFixed(1)} mg/L`);
+const waterDelta = (v: number) => (M.view() === "temp" ? `${tempDeltaOfF(v).toFixed(1)}${tempHtml()}` : M.view() === "salinity" ? v.toFixed(2) : `${v.toFixed(1)} mg/L`);
 
 /** A reading at one depth, or why there is none. */
 function depthReadout(d: StationData, depth: string, value: (o: LastObs) => number | null | undefined, fmt: (v: number) => string, labelFor: (depthLabel: string) => string, about: string, extra?: (o: LastObs, v: number) => string, context?: string): string {
@@ -110,7 +110,8 @@ function stratContext(d: StationData): string {
   return trendText(classify(now - before, spec), spec, (v) => `${((v * 5) / 9).toFixed(2)}&deg;C`);
 }
 
-const fmtTempF = (c: number) => `${f1(cToF(c))}&deg;F<small>${c.toFixed(1)}&deg;C</small>`;
+/** A water temperature in the reader's unit, the other beneath it. */
+const fmtTempF = (c: number) => (metricTemp() ? `${c.toFixed(1)}&deg;C<small>${f1(cToF(c))}&deg;F</small>` : `${f1(cToF(c))}&deg;F<small>${c.toFixed(1)}&deg;C</small>`);
 const fmtSal = (v: number) => v.toFixed(2);
 const fmtDo = (v: number) => `${v.toFixed(1)}<small>mg/L</small>`;
 
@@ -152,7 +153,7 @@ export function weatherReadouts(d: StationData): string[] {
     out.push(readoutHtml(`${o.pressure_mb.toFixed(0)}<small>mb</small>`, "Pressure", "pressure", ago(o.time), state, ctx));
   }
   if (o?.air_f != null && state !== "offline")
-    out.push(readoutHtml(`${f1(o.air_f)}&deg;F`, "Air", "air", ago(o.time), state, contextLine(d.met?.air, "air", (v) => `${v.toFixed(0)}&deg;F`, { key: "air", what: "last day", long: d.metLong?.air })));
+    out.push(readoutHtml(`${tempNum(o.air_f)}${tempHtml()}`, "Air", "air", ago(o.time), state, contextLine(d.met?.air, "air", (v) => `${tempDeltaOfF(v).toFixed(0)}${tempHtml()}`, { key: "air", what: "last day", long: d.metLong?.air })));
   return out;
 }
 
@@ -194,7 +195,7 @@ export function stationReadouts(d: StationData): string[] {
     if (M.view() === "wind") return [...weatherReadouts(d), levelReadout(d)];
     if (M.view() === "tides") return tidesReadouts(d);
     if (noWaterSensor(d)) return [levelReadout(d)];
-    return [depthReadout(d, d.depths[0], (o) => o.temperature_c, fmtTempF, () => "Water temperature", "col", undefined, d.kind === "shore" ? contextLine(d.m36[d.depths[0]] ?? d.temp.m36[d.depths[0]], "temp", (v) => `${v.toFixed(1)}&deg;F`, { key: "water" }) : undefined), levelReadout(d)];
+    return [depthReadout(d, d.depths[0], (o) => o.temperature_c, fmtTempF, () => "Water temperature", "col", undefined, d.kind === "shore" ? contextLine(d.m36[d.depths[0]] ?? d.temp.m36[d.depths[0]], "temp", (v) => `${tempDeltaOfF(v).toFixed(1)}${tempHtml()}`, { key: "water" }) : undefined), levelReadout(d)];
   }
   if (M.view() === "wind") return weatherReadouts(d);
   if (M.view() === "salinity") {

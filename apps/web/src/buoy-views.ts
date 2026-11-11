@@ -5,7 +5,8 @@
  * arguments. Data: the buoy's hourly window (live.json, the last 30 days) and its daily record (history.json).
  */
 import { chainButton } from "./links";
-import { renderLines, type Area, type Line } from "@lhzn-io/timecharts/chart";
+import { renderLines, type Area, type ChartOptions, type Line } from "@lhzn-io/timecharts/chart";
+import { tempNum, tempOpts, tempUnit } from "./waterway/units";
 import { Daily, Hourly, yearLines } from "@lhzn-io/timecharts/series";
 import { percentileText, seasonalPercentile, SEASONS } from "./trends";
 
@@ -104,7 +105,7 @@ function readout(ctx: BuoyCtx, b: BuoyMeta, key: string): string {
   const now = h.at(t);
   const pct = seasonalPercentile(longHourly(ctx, b.id, v.col), SEASONS.water);
   const ctxText = pct ? ` ${percentileText(pct)}` : "";
-  return `<p class="rg-read"><b>${esc(v.title[0].toUpperCase() + v.title.slice(1))} ${v.tip(now, b)}</b>${ctxText ? `. ${esc(ctxText.trim())}` : ""}.</p>`;
+  return `<p class="rg-read"><b>${esc(v.title[0].toUpperCase() + v.title.slice(1))} ${key === "temp" ? `${tempNum(now)} ${tempUnit()}` : v.tip(now, b)}</b>${ctxText ? `. ${esc(ctxText.trim())}` : ""}.</p>`;
 }
 
 export function buoyCardsHtml(ctx: BuoyCtx, view: BuoyView): string {
@@ -116,12 +117,12 @@ export function buoyCardsHtml(ctx: BuoyCtx, view: BuoyView): string {
       const w = ctx.live?.[b.id]?.last_obs as Record<string, number | null> | undefined;
       body = `<p class="rg-read">${w?.wind_kt != null ? `<b>Wind ${(w.wind_kt * ctx.wind.perKt).toFixed(ctx.wind.digits)} ${ctx.wind.label}</b>${w.gust_kt != null ? `, gusts ${(w.gust_kt * ctx.wind.perKt).toFixed(ctx.wind.digits)}` : ""}` : "No recent wind"}${w?.air_f != null ? `; air ${w.air_f.toFixed(1)} °F` : ""}${w?.pressure_mb != null ? `; ${w.pressure_mb.toFixed(1)} mbar` : ""}. Direction not shown: UNH flags it suspect.</p>` +
         fig(`${b.id}-wind`, "Wind", `${ctx.wind.label}, the last 30 days: hourly, with each day's peak gust`, `Wind at the ${b.name}`) +
-        fig(`${b.id}-air`, "Air and water", "°F, the last 30 days", `Air and water temperature at the ${b.name}`) +
+        fig(`${b.id}-air`, "Air and water", `${tempUnit()}, the last 30 days`, `Air and water temperature at the ${b.name}`) +
         fig(`${b.id}-pres`, "Pressure", "mbar, the last 30 days", `Pressure at the ${b.name}`);
     } else {
       for (const key of VIEW_VARS[view]) {
         const v = VARS[key];
-        const unit = v.unit(b);
+        const unit = key === "temp" ? tempUnit() : v.unit(b);
         body += readout(ctx, b, key) +
           fig(`${b.id}-${key}-yoy`, "This year against earlier years", `${esc(v.title)}${unit ? `, ${esc(unit)}` : ""}, daily means, the same dates each year`, `${v.title} at the ${b.name}, this year and earlier years`) +
           fig(`${b.id}-${key}-30d`, "The last 30 days", `hourly, with earlier years' median for the dates`, `${v.title} at the ${b.name}, the last 30 days`) +
@@ -133,6 +134,9 @@ export function buoyCardsHtml(ctx: BuoyCtx, view: BuoyView): string {
 }
 
 // ---------- Drawing ----------
+
+/** A card's plot; temperature in the reader's unit (a 7-day change as a difference). */
+const rl = (el: HTMLElement, o: ChartOptions) => renderLines(el, tempOpts(o, el.id.endsWith("-chg")));
 
 const marks = (ctx: BuoyCtx) => ({ asOfColor: ctx.colors.asOf });
 
@@ -154,17 +158,17 @@ export function drawBuoyFigures(ctx: BuoyCtx, view: BuoyView): void {
       });
       const wfmt = (v: number) => `${v.toFixed(ctx.wind.digits)} ${ctx.wind.label}`;
       const w = el(`${b.id}-wind`);
-      if (w) renderLines(w, { xs, unit: ` ${ctx.wind.label}`, ...marks(ctx), empty: "No wind readings.", lines: [
+      if (w) rl(w, { xs, unit: ` ${ctx.wind.label}`, ...marks(ctx), empty: "No wind readings.", lines: [
         { ys: gustDaily, color: ctx.colors.second, dots: true, width: 3, label: "Day's peak gust", fmt: wfmt },
         { ys: at("wind_kt", k), color: ctx.colors.measured, width: 1.4, label: "Wind", fmt: wfmt },
       ] });
       const a = el(`${b.id}-air`);
-      if (a) renderLines(a, { xs, unit: "°F", ...marks(ctx), empty: "No readings.", lines: [
+      if (a) rl(a, { xs, unit: "°F", ...marks(ctx), empty: "No readings.", lines: [
         { ys: at("air_f"), color: ctx.colors.second, width: 1.2, label: "Air", fmt: (v) => `${v.toFixed(1)} °F` },
         { ys: at("water_f"), color: ctx.colors.measured, width: 1.8, label: "Water", fmt: (v) => `${v.toFixed(1)} °F` },
       ] });
       const p = el(`${b.id}-pres`);
-      if (p) renderLines(p, { xs, unit: "", ...marks(ctx), empty: "No pressure readings.", lines: [
+      if (p) rl(p, { xs, unit: "", ...marks(ctx), empty: "No pressure readings.", lines: [
         { ys: at("pressure_mb"), color: ctx.colors.measured, width: 1.6, label: "Pressure", fmt: (v) => `${v.toFixed(1)} mbar` },
       ] });
       continue;
@@ -176,7 +180,7 @@ export function drawBuoyFigures(ctx: BuoyCtx, view: BuoyView): void {
       // This year against earlier years: 96 days back to 14 ahead, as on the Sound page.
       const yoy = el(`${b.id}-${key}-yoy`);
       const yxs = dayGrid(nowDay - 96 * DAY, nowDay + 14 * DAY);
-      if (yoy) renderLines(yoy, { xs: yxs, unit: v.unit(b) ? ` ${v.unit(b)}` : "", ...marks(ctx), empty: "No record for these dates.", lines: d ? yearsOf(d, yxs, ctx, fmt) : [] });
+      if (yoy) rl(yoy, { xs: yxs, unit: v.unit(b) ? ` ${v.unit(b)}` : "", ...marks(ctx), empty: "No record for these dates.", lines: d ? yearsOf(d, yxs, ctx, fmt) : [] });
       // The last 30 days, hourly, with the median of earlier years' daily values for each date (where there are 3).
       const thirty = el(`${b.id}-${key}-30d`);
       const hxs = hourGrid(ctx.now - 30 * DAY, ctx.now);
@@ -192,7 +196,7 @@ export function drawBuoyFigures(ctx: BuoyCtx, view: BuoyView): void {
         return vals.length >= 3 ? [vals[0], vals[vals.length - 1]] : [NaN, NaN];
       });
       const areas: Area[] = [{ lo: spread.map((s) => s[0]), hi: spread.map((s) => s[1]), fill: ctx.colors.dim, opacity: 0.12 }];
-      if (thirty) renderLines(thirty, { xs: hxs, unit: v.unit(b) ? ` ${v.unit(b)}` : "", areas, ...marks(ctx), empty: "No readings in the last 30 days.", lines: [
+      if (thirty) rl(thirty, { xs: hxs, unit: v.unit(b) ? ` ${v.unit(b)}` : "", areas, ...marks(ctx), empty: "No readings in the last 30 days.", lines: [
         { ys: med, color: ctx.colors.dim, width: 1, dash: "4 3", label: "Earlier years' median", fmt },
         { ys: hxs.map((t) => (h ? h.at(t) : NaN)), color: ctx.colors.measured, width: 1.6, label: "Hourly", fmt },
       ] });
@@ -200,7 +204,7 @@ export function drawBuoyFigures(ctx: BuoyCtx, view: BuoyView): void {
       const chg = el(`${b.id}-${key}-chg`);
       if (chg) {
         const c = d ? new Daily(d.t0 + 7 * DAY, d.v.map((x, i) => (i + 7 < d.v.length ? d.v[i + 7] - x : NaN))) : null;
-        renderLines(chg, { xs: yxs, unit: v.unit(b) ? ` ${v.unit(b)}` : "", zero: true, ...marks(ctx), empty: "No record for these dates.",
+        rl(chg, { xs: yxs, unit: v.unit(b) ? ` ${v.unit(b)}` : "", zero: true, ...marks(ctx), empty: "No record for these dates.",
           lines: c ? yearsOf(c, yxs, ctx, (x) => `${x >= 0 ? "+" : ""}${fmt(x)}`) : [] });
       }
     }

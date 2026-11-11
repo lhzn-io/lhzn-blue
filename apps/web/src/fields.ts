@@ -248,7 +248,7 @@ interface Meta {
 const META: Record<FieldKind, Meta> = {
   // One scale all year: the deepest colour at seawater's freezing point (about -1.9 C), the brightest above the Sound's
   // summer highs (25 to 27 C at the western buoys), so a colour means the same temperature in February and August.
-  sst: { title: "Sea surface temperature", short: "SST", ramp: "thermal", stops: () => (mapTheme() === "dark" ? SST_STOPS_DARK : SST_STOPS), log: false, range: [-2, 28], fade: false, unit: "°C", digits: 1, note: "Satellite analysis (gap-free), the skin of the water; buoy sensors sit about 1 m down. Colour range, switched in the key: day (the default) spans the day's lowest to highest temperature, the most detail across the water; 90 days spans the days the time bar covers, one scale as the time moves, so the season's change shows; year is one scale all year, even steps from 1.5 to 25.5 °C (the range the Sound's water spans) and compressed beyond, so the deepest and brightest colours mark unusual days. Lines every 1 °C (and fainter half degrees from April to November) show the day's fronts." },
+  sst: { title: "Sea surface temperature", short: "SST", ramp: "thermal", stops: () => (mapTheme() === "dark" ? SST_STOPS_DARK : SST_STOPS), log: false, range: [-2, 28], fade: false, unit: "°C", digits: 1, note: "Satellite analysis (gap-free), the skin of the water; buoy sensors sit about 1 m down. Colour range, switched in the key: day (the default) spans the day's lowest to highest temperature, the most detail across the water; 90 days spans the days the time bar covers, one scale as the time moves, so the season's change shows; year is one scale all year, even steps from 1.5 to 25.5 °C (the range the Sound's water spans) and compressed beyond, so the deepest and brightest colours mark unusual days. Lines every 1 °C (fainter half degrees from April to November), or every 2 °F (fainter single degrees), show the day's fronts; °C with the m/s units, °F otherwise." },
   chl: { title: "Chlorophyll-a", short: "Chlorophyll-a", ramp: "algae", log: true, range: [0.5, 30], unit: "mg/m³", digits: 1, note: "Satellite estimate of the surface; biased high in turbid water and near the shore (a band along the coast is left out)." },
   kd490: { title: "Water clarity (Kd490)", short: "Clarity, Kd490", ramp: "turbid", log: true, range: [0.1, 2], unit: "m⁻¹", digits: 2, note: "Light attenuation at 490 nm, a satellite proxy for murkiness, not a turbidity reading in NTU. Higher is murkier." },
   currents: { title: "Surface currents", short: "Currents", ramp: "currents", log: true, range: [CURRENTS_FLOOR * 100, CURRENTS_TOP * 100], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
@@ -299,6 +299,14 @@ let clickBound = false;
 let shownRaster: RasterField | undefined; // the raster the page passed in (the newest), to tell a new layer from a refresh
 let histIndex = -1; // the history frame on the map
 const histRanges = new WeakMap<RasterHistory, [number, number]>();
+
+/* ---------- SST in the reader's unit ---------- */
+
+/** °F unless the page's units are metric (m/s): the SST key, a click's value and the isotherms follow. The colours
+ * stay tied to the temperature. */
+const sstF = () => controls?.speed?.label !== "m/s";
+const sstShown = (c: number) => (sstF() ? (c * 9) / 5 + 32 : c);
+const sstUnit = () => (sstF() ? "°F" : "°C");
 
 /* ---------- SST colour range: the day, the time bar's days, or the year ---------- */
 
@@ -359,7 +367,7 @@ function rangeSwitch(): string {
   const n = data.history?.header.days.length;
   const pick = (k: SstRange, label: string, title: string) => `<button type="button" data-range="${k}" aria-pressed="${sstRange === k}" title="${title}">${label}</button>`;
   return `<span class="field-range" role="group" aria-label="Colour range">${pick("day", "day", "Colours span the day shown: the most detail")}${
-    n ? pick("days", `${n} days`, `Colours span the ${n} days the time bar covers: one scale as the time moves`) : ""}${pick("global", "year", "One scale all year, -2 to 28 °C")}</span>`;
+    n ? pick("days", `${n} days`, `Colours span the ${n} days the time bar covers: one scale as the time moves`) : ""}${pick("global", "year", `One scale all year, ${sstShown(-2).toFixed(0)} to ${sstShown(28).toFixed(0)} ${sstUnit()}`)}</span>`;
 }
 
 /** A temperature on the local range, carried onto the scale's core: its colour is the core's at the same fraction. */
@@ -503,14 +511,16 @@ function addRaster(map: maplibregl.Map, f: RasterField): void {
   );
 }
 
-/** The SST field's isotherms for its day (isothermStep), one feature per level, whole degrees marked. */
+/** The SST field's isotherms for its day (isothermStep), one feature per level, in the reader's unit: every 1 °C
+ * (0.5 °C from April to November) or every 2 °F (1 °F), the whole degrees or even °F marked. */
 function isothermGeoJSON(f: RasterField) {
-  const values = f.values.map((v) => (v == null ? NaN : v * f.scale));
+  const values = f.values.map((v) => (v == null ? NaN : sstShown(v * f.scale)));
+  const step = isothermStep(new Date(f.time)) * (sstF() ? 2 : 1);
   return {
     type: "FeatureCollection" as const,
-    features: isotherms(values, f.grid, isothermStep(new Date(f.time))).map(({ level, segs }) => ({
+    features: isotherms(values, f.grid, step).map(({ level, segs }) => ({
       type: "Feature" as const,
-      properties: { level, whole: Number.isInteger(level) },
+      properties: { level, whole: sstF() ? Math.round(level) % 2 === 0 : Number.isInteger(level) },
       geometry: { type: "MultiLineString" as const, coordinates: segs },
     })),
   };
@@ -553,7 +563,8 @@ function rasterText(f: RasterField, lng: number, lat: number): string | null {
   const meta = META[f.kind];
   const age = Number.isFinite(at.age) ? `, ${at.age.toFixed(1)}d old` : "";
   const day = data.history ? `<br><small>${fmtFrameDay.format(new Date(f.time))}</small>` : "";
-  return `${at.v.toFixed(meta.digits)} ${meta.unit}${age}${day}`;
+  const v = f.kind === "sst" ? sstShown(at.v) : at.v;
+  return `${v.toFixed(meta.digits)} ${f.kind === "sst" ? sstUnit() : meta.unit}${age}${day}`;
 }
 
 function rasterValueAt(f: RasterField, lng: number, lat: number): { v: number; age: number } | null {
@@ -2332,8 +2343,9 @@ function scaleHtml(meta: Meta, ripKey = false): string {
     const grad = local
       ? meta.stops().filter(([v]) => v >= SST_CORE[0] && v <= SST_CORE[1]).map(([v, c]) => `${c} ${(((v - SST_CORE[0]) / (SST_CORE[1] - SST_CORE[0])) * 100).toFixed(1)}%`).join(",")
       : meta.stops().map(([v, c]) => `${c} ${(((v - lo) / (hi - lo)) * 100).toFixed(1)}%`).join(",");
-    const fmt = (v: number) => (local ? v.toFixed(1) : String(v));
-    return `<div class="field-scale"><span>${fmt(lo)}</span><i class="field-bar" style="background:linear-gradient(90deg,${grad})"></i><span>${fmt(hi)} ${meta.unit}; lines every 1 °C, 0.5 °C Apr to Nov</span></div>`;
+    const fmt = (v: number) => (local ? sstShown(v).toFixed(1) : sstShown(v).toFixed(0));
+    const lines = sstF() ? "lines every 2 °F, 1 °F Apr to Nov" : "lines every 1 °C, 0.5 °C Apr to Nov";
+    return `<div class="field-scale"><span>${fmt(lo)}</span><i class="field-bar" style="background:linear-gradient(90deg,${grad})"></i><span>${fmt(hi)} ${sstUnit()}; ${lines}</span></div>`;
   }
   const fmt = (v: number) => (v === 0 ? "0" : meta.log && v < 1 ? v.toFixed(2) : v.toFixed(meta.digits));
   return `<div class="field-scale"><span>${fmt(range[0])}</span><i class="field-bar" style="background:linear-gradient(90deg,${ramp.join(",")})"></i><span>${fmt(range[1])} ${meta.unit}</span></div>`;

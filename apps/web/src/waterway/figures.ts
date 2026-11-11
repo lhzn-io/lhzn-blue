@@ -2,6 +2,7 @@
  * builder for the chart), its legend, and the zoom view any figure opens into (wheel or pinch to zoom, drag to pan,
  * the full record a click away). The page keeps its registry of figures and hands the zoom view a host. */
 import { highlight, renderLines, type ChartOptions } from "@lhzn-io/timecharts/chart";
+import { tempOpts } from "./units";
 import { COVERAGE_MIN, DAY, type Hourly, type YearLine } from "@lhzn-io/timecharts/series";
 import type { StationData, VarKey } from "./station-data";
 
@@ -116,7 +117,7 @@ let zoomFrame = 0;
 function drawZoom(): void {
   if (!zoom) return;
   const b = H.fig(zoom.key).build(zoom.d, zoom.depth, zoom.x0, zoom.x1, zoom.full);
-  renderLines($("zoom-plot"), b.opts);
+  renderLines($("zoom-plot"), tempOpts(b.opts, zoom.key === "chg" || zoom.key === "sb"));
   $("zoom-legend").innerHTML = legendHtml(b, true);
   H.afterDraw($("zoom-plot"), zoom.d, zoom.key, zoom.x0, zoom.x1);
 }

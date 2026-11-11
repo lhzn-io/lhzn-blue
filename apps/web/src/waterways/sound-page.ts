@@ -5,6 +5,7 @@ import { DO_LEVELS, Hourly, oxygenStatus, type MetaSeries } from "@lhzn-io/timec
 import { BUOY_SENSORS } from "../methods";
 import { ago, escHtml, fmtDate, hourOf, hoursOld, sqmi } from "../waterway/format";
 import { AT, atLabel, sparklineOf } from "../waterway/cursor";
+import { tempHtml, tempOfC } from "../waterway/units";
 import { DELAYED_HOURS, isWater, OFFLINE_HOURS, unitName, WATER_VARS, type StationData, type VarKey } from "../waterway/station-data";
 import { atCell } from "../waterway/cells";
 import { M } from "../waterway/models";
@@ -95,7 +96,7 @@ export function setUsgsWq(u: UsgsTidal | null): void {
   USGS_WQ = u;
 }
 const USGS_VAR: Partial<Record<VarKey, { key: "temperature_c" | "salinity" | "oxygen_mg_l" | "turbidity_fnu"; unit: string; digits: number; f?: (v: number) => number }>> = {
-  temp: { key: "temperature_c", unit: "&deg;F", digits: 1, f: (c) => (c * 9) / 5 + 32 },
+  temp: { key: "temperature_c", unit: "&deg;F", digits: 1, f: (c) => tempOfC(c) }, // unit: the reader's (below)
   salinity: { key: "salinity", unit: "", digits: 1 },
   oxygen: { key: "oxygen_mg_l", unit: "", digits: 1 },
   turbidity: { key: "turbidity_fnu", unit: " FNU", digits: 1 },
@@ -110,7 +111,8 @@ const USGS_SITE_NOTE: Record<string, string> = {
 
 /** The USGS shore gauges' water quality for the view's variable, west to east: value, age, 7-day line. */
 export function usgsWqHtml(): string {
-  const spec = USGS_VAR[M.view()];
+  const spec0 = USGS_VAR[M.view()];
+  const spec = spec0 && M.view() === "temp" ? { ...spec0, unit: tempHtml() } : spec0;
   if (!USGS_WQ || !spec) return "";
   const rows = Object.entries(USGS_WQ.stations)
     .filter(([, g]) => g.series[spec.key]?.length)
@@ -136,7 +138,7 @@ export function usgsWqHtml(): string {
       return `<tr>${name}${cell}</tr>`;
     });
   if (!rows.length) return "";
-  const what = M.view() === "turbidity" ? "turbidity (FNU, a different scale from the buoys' NTU)" : `${WATER_VARS[M.view()].label.toLowerCase()} (${M.view() === "temp" ? "&deg;F" : unitName(M.view())})`;
+  const what = M.view() === "turbidity" ? "turbidity (FNU, a different scale from the buoys' NTU)" : `${WATER_VARS[M.view()].label.toLowerCase()} (${M.view() === "temp" ? tempHtml() : unitName(M.view())})`;
   return `<table class="status-grid usgs-wq"><caption>Shore gauges &middot; USGS, west to east: ${what}${AT != null ? ` at ${atLabel(AT)}` : ", latest"}</caption><tbody>${rows.join("")}</tbody></table>
     <p class="status-key">A separate source from the buoys: USGS water-quality sondes in harbors, a pond and river mouths, near the surface; provisional. Hover a name for what its water is.</p>`;
 }

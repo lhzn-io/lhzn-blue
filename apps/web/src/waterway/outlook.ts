@@ -4,7 +4,7 @@
 import { compass } from "@lhzn-io/timecharts/wind-dir";
 import { HOUR } from "@lhzn-io/timecharts/series";
 import { fmtWhen, fmtWhenMin } from "./format";
-import { waveFmt, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./units";
+import { tempHtml, tempOfF, waveFmt, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./units";
 import type { FcValue, StationData } from "./station-data";
 import { FORECAST_PAGE } from "./data";
 import { FCST, forecastAt, hrrrAsOf, loadForecast, runSpread } from "./forecast";
@@ -136,7 +136,7 @@ export function outlookHtml(stations: StationData[]): string {
       `${windFmt(pk)} ${u} ${shortWhen(at(spd, pk))} ${compass(pkF.dir)}${spread ? ` <small class="ol-more">runs ${windFmt(spread[0])}&ndash;${windFmt(spread[1])}</small>` : ""}`],
     ["Gusts", olSpark(ts, gust.map(windVal), t0, "max"), `${windFmt(gk)} ${u} ${shortWhen(at(gust, gk))}`],
     ["Pressure", olSpark(ts, pres, t0, "min"), `${pl.toFixed(0)} mb ${shortWhen(at(pres, pl))}`],
-    ["Air", olSpark(ts, air, t0, "max"), airs.length ? `${Math.round(Math.min(...airs))}&ndash;${Math.round(Math.max(...airs))}&deg;F` : "--"],
+    ["Air", olSpark(ts, air, t0, "max"), airs.length ? `${Math.round(tempOfF(Math.min(...airs)))}&ndash;${Math.round(tempOfF(Math.max(...airs)))}${tempHtml()}` : "--"],
   ];
   // Waves: the NWS wave model at a buoy (the newest run for each hour), in place of the tide curve; a shore station,
   // which the wave model does not reach, keeps its tide row. The next high tide stays as a line under the rows.

@@ -12,7 +12,7 @@ import pages from "./plot-pages.json";
  * and its short name for the top bar; `river`, the figure the same page shows at a river gauge (this year's flow
  * against earlier years, under the same name as the water's). The river plots (flow and the rest) are drawn in the
  * Rivers view only, at the gauges. `alias`: an earlier address kept for links already shared, which the page replaces
- * with the plot's own (/wind/, the retired wind record's page, now the next 48 hours, named Wind). */
+ * with the plot's own (/next-48h/, the Wind plot's address before it was named Wind). */
 export interface PlotPage {
   fig: string;
   river?: string;

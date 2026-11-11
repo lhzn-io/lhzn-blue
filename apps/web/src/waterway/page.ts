@@ -2553,7 +2553,7 @@ function wireFullScreen(): void {
  * line up in time; a sideways drag still moves the time, and a swipe keeps the time it started at. The plot is swapped in place, since a new page would end full screen, and the address follows (replaced,
  * not added), so a shared link or a reload lands on the plot shown. A column of dots in the margin right of the plot
  * marks the plot shown; each is a button. Picking another station keeps full screen too (deckPlace). */
-const DECK_ORDER = ["next-48h", "waves", "pressure", "air-water"];
+const DECK_ORDER = ["wind", "waves", "pressure", "air-water"];
 const deckName = (slug: string) => PLOT_PAGES[slug]?.name ?? slug;
 const DECK_SWIPE_PX = 56; // the least vertical travel for a swipe, at least twice the sideways
 const DECK_SWIPE_MS = 800;
@@ -3256,7 +3256,7 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   if (PAGES) wirePlaces();
   wireMast();
   DATA = CFG.data;
-  // A plot page's address names its plot after the station (/long-island-sound/exrx/next-48h/).
+  // A plot page's address names its plot after the station (/long-island-sound/exrx/wind/).
   const slug = PAGES && STATION_ID && !VIRTUAL ? location.pathname.slice(PAGES.base.length).split("/")[1]?.toLowerCase() : "";
   PLOT = slug ? PLOT_PAGES[slug] ?? null : null;
   // An earlier address of a plot's page: the plot's own, in place (the time, view and the rest of the link kept).

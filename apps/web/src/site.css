@@ -570,11 +570,13 @@ body.landing {
 .fig-info:hover, .fig-info:focus-visible { color: var(--accent); border-color: var(--accent-line); outline: none; }
 .strip-cap .fig-info { margin: 0 0 0 6px; }
 /* A plot's chain: copies the address of the plot as shown (view, layer, time). */
-.fig-link {
+.fig-link, .fig-full {
   position: relative; flex: none; width: 15px; height: 15px; padding: 0; margin-right: 6px; cursor: pointer; vertical-align: middle;
   display: inline-grid; place-items: center; color: var(--dim); background: none; border: 1px solid var(--rule); border-radius: 3px;
 }
-.fig-link:hover, .fig-link:focus-visible { color: var(--accent); border-color: var(--accent-line); outline: none; }
+.fig-link:hover, .fig-link:focus-visible, .fig-full:hover, .fig-full:focus-visible { color: var(--accent); border-color: var(--accent-line); outline: none; }
+/* A plot page's full-screen button (touch browsers that allow it), beside the chain. */
+.fig-full[aria-pressed="true"] { color: var(--accent); border-color: var(--accent-line); }
 .fig-link[data-copied] { color: var(--accent); border-color: var(--accent-line); }
 .fig-link[data-copied]::before {
   content: "Link copied"; position: absolute; right: calc(100% + 6px); top: 50%; transform: translateY(-50%); white-space: nowrap;
@@ -805,7 +807,7 @@ body:not(.landing) .stage { padding: 0; border: 0; border-radius: 0; color: var(
 
   /* Buttons: a larger invisible tap area around the same 15 px marks; taller tabs and pills. */
   .collect-btn, .fig-info { position: relative; }
-  .collect-btn::after, .fig-info::after, .fig-link::after { content: ""; position: absolute; inset: -9px -6px; }
+  .collect-btn::after, .fig-info::after, .fig-link::after, .fig-full::after { content: ""; position: absolute; inset: -9px -6px; }
   .fig-link { margin-right: 12px; }
   .collect-btn { margin-right: 12px; }
   .fig-info { margin-right: 12px; }

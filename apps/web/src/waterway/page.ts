@@ -1467,7 +1467,7 @@ function sectionHtml(d: StationData): string {
     return `
     <figure${f.wide ? ' class="wide"' : ""}>
       <figcaption><span class="cap-label">${STATION_ID ? "" : `<span class="cap-code">${id}</span>: `}${f.label?.(d) ?? f.title}</span>${f.sub ? `<span class="cap-sub">${f.sub}</span>` : ""}${PLOT_PAGE && key === EMBED ? plotViewTabs(d) : ""}${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, ((PLOT_PAGE && key === EMBED) || LINKED_PLOT === `${id}-${key}`) && d.depths.includes(PLOT_DEPTH) ? PLOT_DEPTH : d.depths[0]) : ""}
-        <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" || key === "mfan" || d.kind === "virtual" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}${key === "mfan" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button>`}</span></figcaption>
+        <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}${PLOT_PAGE ? fullScreenButton() : ""}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" || key === "mfan" || d.kind === "virtual" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}${key === "mfan" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button>`}</span></figcaption>
       <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}"${PLOT_PAGE || key === "mfan" ? "" : ' title="Click to expand"'}><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
     </figure>`;
@@ -2516,6 +2516,26 @@ const plotUrl = (id: string, slug: string, depth = "") => {
   const s = q.toString();
   return `${PAGES!.base}${id.toLowerCase()}/${slug}/${s ? `?${s}` : ""}`;
 };
+/** A plot page's full-screen button, on a touch browser that allows it (Android Chrome; iPhone Safari does not): it
+ * hides the browser's bars and the phone's, and the plot, whose height follows the screen (100svh), grows into the
+ * room. The button again, or Back, leaves. Full screen ends when the browser changes page, so it is offered here, on
+ * the page the Expand button opens on a phone, rather than on Expand itself. */
+const canFullScreen = () => !!document.fullscreenEnabled && window.matchMedia("(pointer: coarse)").matches;
+const fullScreenButton = () =>
+  canFullScreen()
+    ? `<button class="fig-full" type="button" aria-label="Full screen" title="Full screen" aria-pressed="${!!document.fullscreenElement}">` +
+      `<svg viewBox="0 0 10 10" width="9" height="9" aria-hidden="true"><path d="M1 3.5V1h2.5M6.5 1H9v2.5M9 6.5V9H6.5M3.5 9H1V6.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></button>`
+    : "";
+function wireFullScreen(): void {
+  document.addEventListener("click", (e) => {
+    if (!(e.target as Element).closest?.(".fig-full")) return;
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    else void document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => undefined);
+  });
+  document.addEventListener("fullscreenchange", () =>
+    document.querySelectorAll(".fig-full").forEach((b) => b.setAttribute("aria-pressed", String(!!document.fullscreenElement))));
+}
+
 /** A figure's own page at a station, where both have one, at the depth its tabs show (if not the first). */
 const plotPageUrl = (id: string, fig: string): string | null => {
   const slug = plotSlug(fig);
@@ -3086,6 +3106,7 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   const gauge = !!PLOT && isGauge(STATION_ID);
   let fig: string | null;
   ({ fig, station: EMBED_STATION, page: PLOT_PAGE } = embedMode(LINK, CFG.defaults.embedStation, PLOT && STATION_ID ? { fig: (gauge && PLOT.river) || PLOT.fig, station: STATION_ID } : null));
+  if (PLOT_PAGE && canFullScreen()) wireFullScreen();
   EMBED = fig as Kind | null;
   // The plot's view: the link's, if the plot is drawn in it, else its first (an embed by name: next48 in Wind, yoy in
   // Temperature).

@@ -78,11 +78,11 @@ export const METHODS: Record<string, Method> = {
     sources: "{station}, LISICOS [[lisicos]].",
   },
   next48: {
-    title: "The next 48 hours",
+    title: "Wind",
     shows:
       "Wind and gusts at the station: measured over the last day and a half, and forecast by NOAA's HRRR model for the " +
       "next two days. The stitched forecast (the bold blue line) takes each hour from the newest run that reaches it; the " +
-      "lavender lines either side show how far such a forecast typically misses at that lead time; dots are gusts. Each " +
+      "lavender lines either side show how far such a forecast typically misses at that lead time; dots are gusts (gray measured, lavender HRRR's, green GFS's). Each " +
       "faint line is an earlier HRRR run: where they bunch together, the model has been consistent; where they spread " +
       "apart, it has not, and the timing or strength is less certain. The slider at the top left picks a run (so does " +
       "hovering its line) and draws it dashed, with the time it was issued; the expanded chart pans back through a week " +
@@ -91,10 +91,11 @@ export const METHODS: Record<string, Method> = {
       "the right is the model raising that hour's wind as it drew nearer; once the hour has passed, a gold dot is the " +
       "wind measured then; past HRRR's reach the chart is GFS's, its runs of the last 30 hours, 6 hours apart. Past the last hour HRRR reaches, NOAA's GFS model carries the forecast on in green, with its " +
       "own typical miss shaded in a paler green; \"7 days\", a switch on the plot, widens it to a week ahead. Over HRRR's " +
-      "last day a thin green line is GFS for the same hours, so where the two models meet, a step between them reads as " +
-      "their difference in timing or strength. When the wind comes near them, the National Weather Service's levels for a " +
-      "small craft advisory (25 kt) and a gale warning (34 kt) cross the plot as dashed brick lines, and a brick strip " +
-      "along the bottom marks the hours an advisory is in force for the station's marine zone (darker for a gale).",
+      "last day the green line starts early, GFS for the same hours, so where the two models meet, a step between them reads as " +
+      "their difference in timing or strength; both models' gusts are drawn there. Along the bottom, a thin, faint brick " +
+      "strip marks the hours the forecast reaches the National Weather Service's level for a small craft advisory (25 kt) " +
+      "or a gale warning (34 kt, darker), and a stronger strip the hours an advisory is in force for the station's marine " +
+      "zone (darker for a gale).",
     method:
       "HRRR (3 km, run every hour) is read at the station's nearest water cells [[dowell2022hrrr]]. Hourly runs reach 18 " +
       "hours ahead and the 00, 06, 12 and 18 UTC runs 48, so beyond 18 hours the stitched forecast comes from the latest " +
@@ -112,11 +113,11 @@ export const METHODS: Record<string, Method> = {
       "Sound 5 to 34 km wide, so it smooths the wind over the water, and at the buoys it reads slightly low (a bias of " +
       "about −0.5 to −1.1 kt by lead time, uncorrected on the plot). Where the two " +
       "models meet, the step between them is the models' difference, not a change in the weather. The advisory levels " +
-      "are NWS's criteria for sustained wind; NWS issues advisories from its own forecast, also for seas, so a forecast " +
-      "line crossing a level is not an advisory, and an advisory can be in force below it.",
+      "are NWS's criteria for sustained wind; NWS issues advisories from its own forecast, also for seas, so the forecast " +
+      "reaching a level is not an advisory, and an advisory can be in force below it.",
   },
   wind: {
-    title: "Wind",
+    title: "Wind record",
     shows:
       "Wind speed at the station: a smoothed line, the hourly wind (faint) and each day's strongest gust (dots). Hovering " +
       "gives the direction it blows from.",
@@ -252,7 +253,7 @@ export const METHODS: Record<string, Method> = {
   // A virtual buoy's plots (waterway/virtual.ts): one point, models only. "virtual-next48" stands in for next48 there
   // (see about.ts).
   "virtual-next48": {
-    title: "The next 48 hours",
+    title: "Wind",
     shows:
       "HRRR wind and gusts (dots) at this point: before now, each hour's newest run; ahead, the stitched forecast. The " +
       "band is HRRR's typical miss, borrowed from a scored buoy. \"7 days\" adds GFS (green) past HRRR's 48 hours.",

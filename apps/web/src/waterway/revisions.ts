@@ -11,6 +11,7 @@ import { fmtRun, fmtWhen } from "./format";
 import { WIND_UNITS, windFmt, windVal, WU } from "./units";
 import { FCST, GFS, gfsRunWind, MS_KT, type FcRun } from "./forecast";
 import { M } from "./models";
+import { requestRedraw } from "./data";
 import type { StationData } from "./station-data";
 
 const KEY = "lhzn-blue-revisions";
@@ -22,6 +23,8 @@ let on = (() => {
   }
 })();
 let pageTime: number | null = null;
+/** Whether the mode is on: the run slider (which run the plot emphasises) is part of it. */
+export const revisionsOn = () => on;
 /** The next 48 hours plots with the mode mounted: what each needs to draw its inset. */
 const MOUNTED = new Map<HTMLElement, { d: StationData; x0: number; x1: number; hover: number | null }>();
 
@@ -82,6 +85,7 @@ export function mountRevisions(d: StationData, plot: HTMLElement, x0: number, x1
     }
     document.querySelectorAll(".rev-switch").forEach((b) => b.setAttribute("aria-pressed", String(on)));
     MOUNTED.forEach((_, p) => draw(p));
+    requestRedraw(); // the run slider comes and goes with the mode
   });
   for (const type of ["pointerdown", "mousedown", "touchstart"]) sw.addEventListener(type, (e) => e.stopPropagation());
   if (fresh) {

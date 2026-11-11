@@ -577,6 +577,29 @@ body.landing {
 .fig-link:hover, .fig-link:focus-visible, .fig-full:hover, .fig-full:focus-visible { color: var(--accent); border-color: var(--accent-line); outline: none; }
 /* A plot page's full-screen button (touch browsers that allow it), beside the chain. */
 .fig-full[aria-pressed="true"] { color: var(--accent); border-color: var(--accent-line); }
+/* The deck in full screen: the plot keeps every touch (a swipe up or down changes the plot, sideways moves the time),
+   the page does not scroll or refresh under it, the plot reaches the screen's left edge (sideways), and a column of dots in the
+   margin right of it marks the plot shown (the current one shaded lightly); the hint to swipe shows for a moment in
+   the top bar. */
+html:fullscreen { overscroll-behavior: none; }
+html:fullscreen body.plot-page .plot svg { touch-action: none; }
+html:fullscreen body.plot-page .fig-actions::before { content: none; }
+html:fullscreen body.plot-page .fig-actions { justify-content: flex-end; }
+body.plot-page figure { position: relative; }
+@media (orientation: landscape) { html:fullscreen body.plot-page figure { margin-left: calc(4px - var(--gutter)); } } /* upright, the first date needs the gutter */
+.deck-dots { position: absolute; left: 100%; z-index: 2; display: flex; flex-direction: column; transform: translateY(-50%); }
+.deck-dots button { position: relative; width: 14px; height: 20px; padding: 0; border: 0; background: none; cursor: pointer; }
+.deck-dots button::before { content: ""; position: absolute; left: 4px; top: 7px; width: 6px; height: 6px; border-radius: 50%;
+  border: 1px solid var(--dim); background: none; }
+.deck-dots button[aria-current]::before { background: color-mix(in srgb, var(--accent) 40%, transparent); border-color: color-mix(in srgb, var(--accent) 70%, transparent); }
+.deck-hint { margin-left: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: italic 12px/1 var(--serif);
+  color: var(--strip-ink); opacity: 0; transition: opacity 0.5s; pointer-events: none; }
+.deck-hint.deck-hinting { opacity: 1; }
+#stations.deck-up { animation: deck-in-up 0.2s ease-out; }
+#stations.deck-down { animation: deck-in-down 0.2s ease-out; }
+@keyframes deck-in-up { from { transform: translateY(28px); opacity: 0.35; } }
+@keyframes deck-in-down { from { transform: translateY(-28px); opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { #stations.deck-up, #stations.deck-down { animation: none; } }
 .fig-link[data-copied] { color: var(--accent); border-color: var(--accent-line); }
 .fig-link[data-copied]::before {
   content: "Link copied"; position: absolute; right: calc(100% + 6px); top: 50%; transform: translateY(-50%); white-space: nowrap;
@@ -1004,7 +1027,9 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 
 /* The forecast vintage slider (next 48 hours): a small slider at the top left, styled like the map's time bar, with
    only the run's time beside it; the chosen run's line is emphasised. */
-.plot path.lit { stroke-opacity: 0.95 !important; stroke-width: 1.8px; stroke-dasharray: 6 3; } /* dashed like the newest forecast: a forecast, not a measurement */
+/* A run the slider picks: its faint pen made dark, still solid and thin, so each model keeps one dashed line, its newest
+   (HRRR stitched, GFS); a newest line picked keeps its own dash. */
+.plot path.lit { stroke-opacity: 0.95 !important; stroke-width: 1.4px; }
 .plot .vintage { position: absolute; top: 4px; left: 6px; z-index: 3; display: flex; align-items: center; gap: 7px;
   padding: 1px 6px; background: var(--pop-bg); font: 10px/1.6 var(--mono); color: var(--dim); }
 .plot:has(.plot-labels.has-glyphs) .vintage { top: 26px; } /* below the direction arrows */
@@ -1391,6 +1416,12 @@ body.plot-page figcaption:has(.tabs) .fig-actions { margin-left: auto; }
 }
 body.plot-page .plot:not(.strip) { height: max(220px, calc(100svh - 290px)); cursor: crosshair; }
 body.plot-page .plot[data-fig="sb"] { height: max(200px, calc(100svh - 390px)); } /* the wind strip in view under it */
+/* A plot page's values are on the plot (at the page's time on a touch screen, under the pointer on a desk): no reading
+   line. Its time sits in the top bar where the bar has the room (placePageTime). */
+body.plot-page .plot-reading { display: none; }
+.tl-top { flex: none; display: inline-flex; align-items: baseline; margin-right: 18px; white-space: nowrap; font: 13px/1 var(--mono); color: var(--ink); }
+.tl-top .tl-label { margin: 0; }
+.tl-top .tl-now { margin-left: 10px; }
 /* The reading: its slots (two to four, set by the page) of equal width on one line, each cut short rather than wrapped. */
 .plot-reading { display: grid; grid-template-columns: repeat(var(--pr-n, 2), minmax(0, 1fr)); column-gap: 14px; min-height: 1.5em; margin: 10px 0 8px;
   font: 12px/1.5 var(--mono); color: var(--ink); }
@@ -1421,9 +1452,11 @@ body.plot-page .embed-credit a { color: inherit; text-underline-offset: 2px; }
   body.plot-page .tl-dlabel:nth-of-type(2) { display: none; } /* room after the first date, which carries its month */
   body.plot-page .legend, body.plot-page .cap-sub, body.plot-page .embed-credit { display: none; }
   body.plot-page .plot-reading { margin: 2px 0; }
-  /* The link and the (i) in the plot's top corner, not a row of their own. */
+  /* The link, full screen and the (i) at the right end of the time bar's row, not a row of their own and not over the
+     plot's direction arrows; the row leaves them the room. */
   body.plot-page figure { position: relative; }
-  body.plot-page figcaption { position: absolute; top: 0; right: 0; z-index: 2; margin: 0; }
+  body.plot-page figcaption { position: absolute; bottom: calc(100% + 2px); right: 0; z-index: 2; height: 18px; margin: 0; align-items: center; }
+  body.plot-page:not(:has(figcaption .tabs)) .timeline > .tl-row:first-child { padding-right: 90px; } /* the link, full screen and (i) after the steps */
   /* The plot takes what is left: the top bar, the time row and the reading come to about 100 px. */
   body.plot-page .plot:not(.strip) { height: max(150px, calc(100svh - 104px)); }
   /* A water plot's views and depths keep a row of their own above it, rather than lying over its top. */

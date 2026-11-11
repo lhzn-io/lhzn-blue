@@ -1,9 +1,10 @@
 /** The next 48 hours at a station: wind and gusts measured for the last day and a half, then HRRR's stitched forecast
  * with its typical miss at each lead, the earlier runs faint behind it, and the wind's direction along the top. Past
  * HRRR's reach, GFS in its own color with its own typical miss; "7 days" on the plot widens the window to GFS's. GFS
- * also runs thin beside HRRR's last day, so the step where one model hands over to the other reads as the models'
- * difference. NWS advisory levels cross the plot once the wind comes near them, and a brick strip along the bottom
- * marks the hours an advisory is in force for the station's zone. */
+ * runs beside HRRR's last day as well, in the same pen, so the step where one model hands over to the other reads as the models'
+ * difference. Gusts in each source's color: gray measured, lavender HRRR, green GFS (both over HRRR's last day). Along
+ * the bottom, a thin faint strip marks the hours the forecast reaches NWS's small craft or gale level, and a stronger
+ * one the hours an advisory is in force for the station's zone. */
 import type { Line } from "@lhzn-io/timecharts/chart";
 import { DAY, grid, HOUR } from "@lhzn-io/timecharts/series";
 import { compass, measuredOr, windGlyphs, type WindAt } from "@lhzn-io/timecharts/wind-dir";
@@ -11,7 +12,8 @@ import { requestRedraw } from "./data";
 import { fmtRun } from "./format";
 import { WIND_UNITS, windFmt, windVal, WU } from "./units";
 import type { Fig } from "./figures";
-import { FCST, forecastAt, gfsAt, gfsTag, loadForecast, MS_KT, verTag, vintageLabel, vintageRuns, type FcRun } from "./forecast";
+import { FCST, forecastAt, gfsAt, gfsLabels, gfsRuns, gfsRunWind, gfsTag, loadForecast, MS_KT, verTag, vintageLabel, vintageRuns, type FcRun } from "./forecast";
+import { revisionsOn } from "./revisions";
 import type { FcValue } from "./station-data";
 import { M } from "./models";
 import { ADV, loadAdvisories, windAdvisorySpans, zoneOf } from "./advisories";
@@ -21,7 +23,6 @@ const GFS_AHEAD = 168 * HOUR; // GFS's last lead here (the jobs' gfs.LAST_LEAD)
 const BESIDE = 24 * HOUR; // how far back from HRRR's last hour GFS is drawn beside it
 // NWS marine criteria (sustained wind, kt) for the zones here: a small craft advisory from 25 kt, a gale warning from 34.
 const LEVELS: [number, string][] = [[25, "Small craft advisory level, 25 kt"], [34, "Gale warning level, 34 kt"]];
-const NEAR = 0.8; // a level is drawn once the window's sustained wind reaches this share of it
 const LONG_KEY = "lhzn-blue-7days";
 let long = (() => {
   try {
@@ -35,15 +36,6 @@ const longListeners = new Set<(on: boolean) => void>();
 export const longRange = (): boolean => long;
 export const onLongRange = (fn: (on: boolean) => void): void => void longListeners.add(fn);
 /** The plot's name, which follows the switch. */
-const rangeTitle = (on = long) => (on ? "The next 7 days" : "The next 48 hours");
-/** The name where it is already written (captions, the expanded plot's title, a plot page's tab) when the switch turns. */
-function renameRange(): void {
-  const was = new RegExp(rangeTitle(!long), "i");
-  document.querySelectorAll("[data-range-title]").forEach((e) => (e.textContent = rangeTitle()));
-  const zoom = document.getElementById("zoom-title");
-  if (zoom?.textContent && was.test(zoom.textContent)) zoom.textContent = zoom.textContent.replace(was, rangeTitle());
-  if (was.test(document.title)) document.title = document.title.replace(was, rangeTitle().toLowerCase());
-}
 
 /** The "7 days" switch on a next 48 hours plot (inline or expanded). */
 export function mountLongRange(plot: HTMLElement): void {
@@ -65,17 +57,13 @@ export function mountLongRange(plot: HTMLElement): void {
       /* private mode: for this page only */
     }
     document.querySelectorAll(".range-switch").forEach((b) => b.setAttribute("aria-pressed", String(long)));
-    renameRange();
     longListeners.forEach((fn) => fn(long));
     requestRedraw();
   });
 }
 
 export const NEXT48: Fig = {
-  get title() {
-    return rangeTitle();
-  },
-  label: () => `<span data-range-title>${rangeTitle()}</span>`,
+  title: "Wind", // the next 48 hours, or 7 days with the switch on
   varies: false,
   wide: true, // the plot a reader looks ahead with: the full width, like the map and table above
   in: (k) => k === "wind",
@@ -126,34 +114,64 @@ export const NEXT48: Fig = {
     const nowH0 = Math.floor(now / HOUR) * HOUR;
     const gAhead: (FcValue | null)[] = xs.map((t) => (FCST && t >= hrrrEnd && t >= nowH0 ? gfsAt(d.meta.id, t) : null));
     const g = gAhead.map((f) => (f ? f.spd : NaN));
-    const gErr = gAhead.map((f) => f?.err ?? NaN);
     const hasGfs = g.some(Number.isFinite);
-    // GFS beside HRRR over HRRR's last day, thin, meeting GFS's own line at the handoff.
+    // GFS's typical miss over all of GFS's line: beside HRRR's last day as well as past it (the two bands may overlap).
+    const gAll: (FcValue | null)[] = xs.map((t) => (FCST && t >= nowH0 && t > hrrrEnd - BESIDE - HOUR ? gfsAt(d.meta.id, t) : null));
+    const gErr = gAll.map((f) => f?.err ?? NaN);
+    // GFS beside HRRR over HRRR's last day, in the same pen as past it: one GFS line, from a day before the handoff.
     const beside = xs.map((t) => (FCST && t <= hrrrEnd && t > hrrrEnd - BESIDE - HOUR && t >= nowH0 ? (gfsAt(d.meta.id, t)?.spd ?? NaN) : NaN));
     const hasBeside = beside.some(Number.isFinite);
+    // With Revisions on (its run slider reaches GFS too), GFS's earlier runs of the last 30 hours, faint as HRRR's, over
+    // the span GFS's line takes.
+    const gOlder = revisionsOn() && !virtual && FCST ? gfsRuns(d.meta.id).slice(1).filter((r) => r.issue >= now - 30 * HOUR) : [];
+    const gfsRunLines: Line[] = gOlder.map((r, i) => ({
+      ys: xs.map((t) => {
+        const w = t > hrrrEnd - BESIDE - HOUR ? gfsRunWind(r, t, 12) : null;
+        return w ? windVal(Math.hypot(w.u, w.v) * MS_KT) : NaN;
+      }),
+      color: M.palette().gfs,
+      width: 0.8,
+      opacity: 0.4 - (0.28 * i) / Math.max(1, gOlder.length - 1),
+      label: gfsLabels(d.meta.id, r)[0],
+      tip: false,
+    }));
     const m = d.met;
     const vm = virtual ? virtualMiss() : null;
-    // NWS's levels, drawn only when the wind comes near them (they would otherwise stretch a calm week's axis).
-    const peak = Math.max(0, ...[...fc, ...g, ...xs.map((t) => m?.wind?.at(t) ?? NaN)].filter(Number.isFinite));
-    const levels = LEVELS.filter(([kt]) => peak >= NEAR * kt);
     if (!ADV) void loadAdvisories();
     const zone = zoneOf(d.meta.id);
     const inForce = windAdvisorySpans(d.meta.id, x0, x1);
+    // The hours the forecast (HRRR, then GFS) reaches an NWS level, sustained: a fainter strip under any advisory NWS
+    // has issued, so a blow the forecast shows reads along the bottom before (or without) an advisory.
+    const reach: { x0: number; x1: number; rank: 0 | 1 }[] = [];
+    xs.forEach((t, i) => {
+      if (i > 0 && t === xs[i - 1]) return;
+      const v = Number.isFinite(fc[i]) ? fc[i] : g[i];
+      const rank = v >= LEVELS[1][0] ? 1 : v >= LEVELS[0][0] ? 0 : -1;
+      if (rank < 0) return;
+      const a = Math.max(now, t - HOUR / 2), b = t + HOUR / 2;
+      const last = reach[reach.length - 1];
+      if (last && last.rank === rank && a <= last.x1 + 1) last.x1 = b;
+      else reach.push({ x0: a, x1: b, rank: rank as 0 | 1 });
+    });
+    const reachTitle = (r: { rank: 0 | 1; x0: number; x1: number }) =>
+      `Forecast at the ${r.rank ? "gale warning level, 34 kt" : "small craft advisory level, 25 kt"} (sustained): ${fmtRun.format(new Date(r.x0 * 1000))} to ${fmtRun.format(new Date(r.x1 * 1000))}`;
     // A virtual buoy has no measurement: before now, HRRR's newest run for each hour stands in its place, labelled.
     const past = virtual ? xs.map((t) => (t < nowH0 ? (forecastAt(d.meta.id, t)?.spd ?? NaN) : NaN)) : [];
     const lines: Line[] = [
-      ...levels.map(([kt, label]): Line => ({ ys: xs.map(() => windVal(kt)), color: M.palette().brick, width: 1, opacity: 0.55, dash: "2 4", label, tip: false })),
       ...runLines,
-      ...(virtual ? [{ ys: past.map((v) => windVal(v)), color: M.palette().line, width: 1.4, opacity: 0.7, label: "HRRR before now", fmt: fmtU }] : []),
+      ...gfsRunLines,
+      ...(virtual ? [{ ys: past.map((v) => windVal(v)), color: M.palette().line, width: 1.4, opacity: 0.7, label: "HRRR before now", tipLabel: "HRRR", fmt: fmtU }] : []),
       { ys: fc.map((_, i) => err(xs[i])), color: M.palette().miss, label: vm?.label ?? "Typical miss at the buoys", hidden: true, tip: false, fmt: (v) => `&plusmn;${windFmt(v)} ${u.label}` },
       { ys: gErr, color: M.palette().gfs, label: "GFS typical miss", hidden: true, tip: false, fmt: (v) => `&plusmn;${windFmt(v)} ${u.label}` },
-      { ys: ahead.map((f, i) => windVal(f ? f.gust : (gAhead[i]?.gust ?? NaN))), color: M.palette().contrast, opacity: 0.5, label: "Forecast gust", dots: true, fmt: fmtU },
-      { ys: fc.map((v) => windVal(v)), color: M.palette().line, width: 2, dash: "6 3", label: "Stitched forecast", fmt: fmtU },
-      { ys: g.map((v) => windVal(v)), color: M.palette().gfs, width: 2, dash: "6 3", label: "GFS forecast", fmt: fmtU },
-      { ys: beside.map((v) => windVal(v)), color: M.palette().gfs, width: 1.2, opacity: 0.8, label: "GFS beside HRRR", fmt: fmtU },
-      { ys: xs.map((t) => windVal(m?.gust?.at(t) ?? NaN)), color: M.palette().contrast, opacity: 0.55, label: "Gust, measured", dots: true, fmt: fmtU },
-      { ys: xs.map((t) => windVal(m?.wind?.at(t) ?? NaN)), color: M.palette().now, width: 2.2, label: "Wind, measured", fmt: fmtU },
-      { ys: xs.map((t) => m?.dir?.at(t) ?? NaN), color: M.palette().line, label: "From", hidden: true, fmt: (v) => `${compass(v)} (${Math.round(v)}°)` },
+      // Forecast gusts in their model's color; over HRRR's last day both, as both lines are drawn there.
+      { ys: ahead.map((f) => windVal(f?.gust ?? NaN)), color: M.palette().miss, opacity: 0.9, label: "Gust, HRRR", tipLabel: "HRRR gust", dots: true, fmt: fmtU },
+      { ys: gAll.map((f) => windVal(f?.gust ?? NaN)), color: M.palette().gfs, opacity: 0.6, label: "Gust, GFS", tipLabel: "GFS gust", dots: true, fmt: fmtU },
+      { ys: fc.map((v) => windVal(v)), color: M.palette().line, width: 2, dash: "6 3", label: "Stitched forecast", tipLabel: "HRRR stitched", fmt: fmtU },
+      { ys: g.map((v) => windVal(v)), color: M.palette().gfs, width: 2, dash: "6 3", label: "GFS forecast", tipLabel: "GFS", fmt: fmtU },
+      { ys: beside.map((v) => windVal(v)), color: M.palette().gfs, width: 2, dash: "6 3", label: "GFS beside HRRR", tipLabel: "GFS", fmt: fmtU },
+      { ys: xs.map((t) => windVal(m?.gust?.at(t) ?? NaN)), color: M.palette().contrast, opacity: 0.55, label: "Gust, measured", tipLabel: "Measured gust", dots: true, fmt: fmtU },
+      { ys: xs.map((t) => windVal(m?.wind?.at(t) ?? NaN)), color: M.palette().now, width: 2.2, label: "Wind, measured", tipLabel: "Measured", fmt: fmtU },
+      { ys: xs.map((t) => m?.dir?.at(t) ?? NaN), color: M.palette().line, label: "From", hidden: true, tip: false, fmt: (v) => `${compass(v)} (${Math.round(v)}°)` },
     ];
     // The run whose line is nearest the pointer at the hovered hour (the vintage slider follows it).
     const pick = (i: number, yv: number) => {
@@ -175,26 +193,29 @@ export const NEXT48: Fig = {
     return {
       opts: {
         xs, lines, glyphs, unit: ` ${u.label}`, zero: true, marker: { x: now, label: "now" },
-        spans: inForce.map((s) => ({ x0: s.x0, x1: s.x1, fill: M.palette().advisoryStrip[s.rank], title: s.title, edge: 5 })), empty: virtual ? "HRRR at this point is loading." : "No forecast or measurement in this window.", pick: virtual ? undefined : pick,
+        spans: [
+          ...reach.map((r) => ({ x0: r.x0, x1: r.x1, fill: M.palette().levelStrip[r.rank], title: reachTitle(r), edge: 3 })),
+          ...inForce.map((s) => ({ x0: s.x0, x1: s.x1, fill: M.palette().advisoryStrip[s.rank], title: s.title, edge: 5 })),
+        ], empty: virtual ? "HRRR at this point is loading." : "No forecast or measurement in this window.", pick: virtual ? undefined : pick,
         areas: [
-          { lo: fc.map((v, i) => windVal(Math.max(0, v - err(xs[i])))), hi: fc.map((v, i) => windVal(v + err(xs[i]))), fill: M.palette().miss, opacity: 0.22 },
-          ...(hasGfs ? [{ lo: g.map((v, i) => windVal(Math.max(0, v - gErr[i]))), hi: g.map((v, i) => windVal(v + gErr[i])), fill: M.palette().gfs, opacity: 0.18 }] : []),
+          // Both bands start at now: before it, the measurement is the record, not a forecast to miss.
+          { lo: fc.map((v, i) => windVal(Math.max(0, v - err(xs[i])))), hi: fc.map((v, i) => windVal(v + err(xs[i]))), fill: M.palette().miss, opacity: 0.22, from: now },
+          ...(gAll.some(Boolean) ? [{ lo: gAll.map((f) => (f ? windVal(Math.max(0, f.spd - f.err)) : NaN)), hi: gAll.map((f) => (f ? windVal(f.spd + f.err) : NaN)), fill: M.palette().gfs, opacity: 0.12, from: now }] : []),
         ],
       },
       legend: [
         ...(virtual ? ([["HRRR before now", M.palette().line, 0.7, "Before now"]] as [string, string, number, string][]) : ([["Measured", M.palette().now, 1]] as [string, string, number][])),
         ["Stitched forecast", M.palette().line, 1, "Forecast"], ["", M.palette().miss, 0.5, vm?.label ?? "Typical miss"],
         ...(hasGfs ? ([["GFS forecast", M.palette().gfs, 1, "GFS"], ["", M.palette().gfs, 0.4, "GFS typical miss"]] as [string, string, number, string][]) : []),
-        ...(hasBeside && !hasGfs ? ([["GFS beside HRRR", M.palette().gfs, 0.8, "GFS"]] as [string, string, number, string][]) : []),
-        ["Gusts", M.palette().contrast, 0.55], ...(virtual ? [] : ([["Earlier forecasts", M.palette().line, 0.3, "Earlier runs"]] as [string, string, number, string][])),
+        ...(hasBeside && !hasGfs ? ([["GFS beside HRRR", M.palette().gfs, 1, "GFS"]] as [string, string, number, string][]) : []),
+        ["Gust", M.palette().contrast, 0.55, "Gusts"], ...(virtual ? [] : ([["Earlier forecasts", M.palette().line, 0.3, "Earlier runs"]] as [string, string, number, string][])),
       ],
       note: vm ? vm.note : `NOAA HRRR, raw &middot; the shading is HRRR's typical miss at each lead, ${verTag()}` +
         (hasGfs ? ` &middot; past HRRR's 48 hours, NOAA GFS (0.25&deg;, raw), shaded with its own typical miss, ${gfsTag()}` : "") +
-        (hasBeside ? ` &middot; the thin green line is GFS beside HRRR's last day: where they part, the step at the handoff is the models' difference` : "") +
-        (levels.length || inForce.length
-          ? ` &middot; brick: ${levels.length ? `NWS ${levels.map(([kt]) => `${kt} kt`).join(" and ")} level${levels.length > 1 ? "s" : ""} (small craft${levels.length > 1 ? ", gale" : ""})` : ""}` +
-            `${levels.length && inForce.length ? "; " : ""}${inForce.length ? `along the bottom, an NWS advisory in force for zone ${zone}` : ""}`
-          : ""),
+        (hasBeside ? ` &middot; GFS also runs beside HRRR's last day: where they part, the step at the handoff is the models' difference` : "") +
+        ` &middot; gusts: gray measured, lavender HRRR, green GFS` +
+        (inForce.length ? ` &middot; brick along the bottom: an NWS advisory in force for zone ${zone}` : "") +
+        (reach.length ? ` &middot; the fainter, thinner strip along the bottom: the hours the forecast reaches NWS's small craft level (25 kt sustained${reach.some((r) => r.rank) ? "; darker, gale, 34 kt" : ""})` : ""),
     };
   },
 };

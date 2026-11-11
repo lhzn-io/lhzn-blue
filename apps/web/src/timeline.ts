@@ -154,11 +154,11 @@ function sync(): void {
   const range = root.querySelector<HTMLInputElement>(".tl-range")!;
   range.value = String(offset);
   range.setAttribute("aria-valuetext", fullLabel());
-  const lab = root.querySelector<HTMLElement>(".tl-label")!;
+  const lab = labEl!; // held, not looked up: a plot page shows it in the top bar
   lab.textContent = label();
   lab.title = fullLabel();
   lab.classList.toggle("is-now", offset === 0);
-  root.querySelector<HTMLButtonElement>(".tl-now")!.hidden = offset === 0;
+  nowEl!.hidden = offset === 0;
   const unit = scale === "days" ? "d" : "h";
   root.querySelectorAll<HTMLButtonElement>(".tl-step").forEach((b) => {
     const back = b.dataset.dir === "-1";
@@ -207,6 +207,9 @@ function build(): void {
 }
 
 /** The time row: play, the track with its dates, and the time with its steps in a fixed slot. */
+let labEl: HTMLElement | null = null;
+let nowEl: HTMLButtonElement | null = null;
+
 export function mountTimeline(box: HTMLElement): void {
   if (root) return;
   root = document.createElement("div");
@@ -218,6 +221,8 @@ export function mountTimeline(box: HTMLElement): void {
         <input class="tl-range" type="range" value="0"></div>
       <span class="tl-slot"><button type="button" class="tl-step" data-dir="-1"></button><button type="button" class="tl-step" data-dir="1"></button><span class="tl-label" aria-live="polite"></span><button type="button" class="tl-now" hidden>now</button></span></div>`;
   box.appendChild(root);
+  labEl = root.querySelector<HTMLElement>(".tl-label");
+  nowEl = root.querySelector<HTMLButtonElement>(".tl-now");
   build();
   const range = root.querySelector<HTMLInputElement>(".tl-range")!;
   range.addEventListener("input", () => {
@@ -231,7 +236,7 @@ export function mountTimeline(box: HTMLElement): void {
       set(offset + Number(b.dataset.dir) * SCALES[scale].step);
     }),
   );
-  root.querySelector<HTMLButtonElement>(".tl-now")!.addEventListener("click", () => {
+  nowEl!.addEventListener("click", () => {
     stop();
     set(0);
   });

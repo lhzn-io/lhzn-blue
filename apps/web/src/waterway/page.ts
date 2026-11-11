@@ -29,11 +29,11 @@ import { type Built, type Fig, legendHtml, openZoom, redrawZoom, visibleYears, w
 import { stationReadouts } from "./readouts";
 import { openAbout, wireAbout } from "./about";
 import { configureData, onModelData, requestRedraw } from "./data";
-import { chooseRun, chosenRun, FCST, forecastAt, gfsAt, HRRR_HIST_LABEL, hrrrAsOf, hrrrHist, loadForecast, mountVintage, runForecastAt } from "./forecast";
+import { chooseRun, chosenRun, FCST, forecastAt, gfsAt, HRRR_HIST_LABEL, hrrrAsOf, hrrrHist, loadForecast, mountVintage, runForecastAt, unmountRunSlider } from "./forecast";
 import { loadNwps, mountNwpsVintage, NWPS, nwpsLabel, nwpsRunAt, nwpsRuns, nwpsSeries } from "./nwps";
 import { OUTLOOK, outlookHtml } from "./outlook";
 import { longRange, mountLongRange, NEXT48, onLongRange } from "./next48";
-import { mountRevisions, setRevisionTime } from "./revisions";
+import { mountRevisions, revisionsOn, setRevisionTime } from "./revisions";
 import { ADV, ADV_WIND, advisoriesFor, loadAdvisories, zoneOf, zonesInForce } from "./advisories";
 import { fitStripDates, hideWsTip, moveStripCursor, showWsTip, windAcrossHtml, WS_BACK, wsPoint } from "./wind-strip";
 import { windRoseHtml } from "./wind-rose";
@@ -97,7 +97,7 @@ interface Palette {
   oxygen: [string, string, string]; // dissolved oxygen shading: anoxic, hypoxic, below the growth criterion
   advisory: [string, string]; // NWS advisories behind the wind, in brick red: small craft, gale and above
   advisoryStrip: [string, string]; // the same, as a thin strip along a forecast's time axis (stronger, being thin)
-  brick: string; // NWS advisory levels drawn across a wind forecast (small craft, gale)
+  levelStrip: [string, string]; // the hours a wind forecast reaches those levels, fainter than an advisory issued
   miss: string; // a forecast's typical miss, either side of it: faint lavender, apart from the forecast's own blue
   gfs: string; // GFS past HRRR's reach, its line and (fainter) its typical miss: muted green, apart from HRRR's blue
   yearStops: { t: number; L: number; C: number; h: number }[];
@@ -116,7 +116,7 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     oxygen: ["rgba(240,177,53,0.26)", "rgba(240,177,53,0.14)", "rgba(240,177,53,0.05)"],
     advisory: ["rgba(210,74,55,0.16)", "rgba(210,74,55,0.36)"],
     advisoryStrip: ["rgba(210,74,55,0.5)", "rgba(210,74,55,0.9)"],
-    brick: "#d24a37",
+    levelStrip: ["rgba(210,74,55,0.3)", "rgba(210,74,55,0.55)"],
     miss: "#b7a2dd",
     gfs: "#86d1ab",
     yearStops: [
@@ -137,7 +137,7 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     oxygen: ["rgba(163,90,0,0.22)", "rgba(163,90,0,0.12)", "rgba(163,90,0,0.045)"],
     advisory: ["rgba(158,36,24,0.09)", "rgba(158,36,24,0.24)"],
     advisoryStrip: ["rgba(158,36,24,0.4)", "rgba(158,36,24,0.8)"],
-    brick: "#9e2418",
+    levelStrip: ["rgba(158,36,24,0.26)", "rgba(158,36,24,0.5)"],
     miss: "#9a84cc",
     gfs: "#2f7d5b",
     yearStops: [
@@ -555,10 +555,12 @@ const FIGS: Record<Kind, Fig> = {
   vwaves: VWAVES,
   vcur: VCURRENT,
   vsst: VSST,
+  // The wind record: no longer a plot of the Wind view (the next 48 hours, named Wind, took its place and its page's
+  // address); kept for the wind strip under surface minus bottom in the water views, and the strip's zoom.
   wind: {
     title: "Wind",
     varies: false,
-    in: (k) => k === "wind",
+    in: () => false,
     sub: "and each day's peak gust",
     depthTabs: false,
     seasonal: false,
@@ -1297,7 +1299,7 @@ function wireStatusTabs(stations: StationData[]): void {
     if ((e.target as HTMLElement).closest(".ol-info")) box.classList.toggle("ol-open");
   });
   // A click moves the page's time. Two clicks close together in time and place also open that station's wind chart
-  // at that hour (the next 48 hours where it reaches, else the wind record). Counted here, not with dblclick: the
+  // at that hour (the station's Wind plot, the next 48 hours). Counted here, not with dblclick: the
   // strip can be redrawn between the clicks (in a new hour, or as data arrives), and the second would land on a new
   // element, where the browser fires no dblclick.
   let last = { at: -Infinity, x: 0, y: 0 };
@@ -1310,9 +1312,8 @@ function wireStatusTabs(stations: StationData[]): void {
     if (!double || !p.row) return;
     hideWsTip();
     const sid = p.row.d.meta.id;
-    const fig = p.t >= Date.now() / 1000 - 36 * HOUR && document.getElementById(`${sid}-next48`) ? "next48" : "wind";
-    if (!document.getElementById(`${sid}-${fig}`)) return;
-    navigateTo(`${sid}-${fig}`);
+    if (!document.getElementById(`${sid}-next48`)) return;
+    navigateTo(`${sid}-next48`);
   });
   // The strip's own tooltip: the station's wind at the hour under the pointer.
   box.addEventListener("pointermove", (e) => {
@@ -1346,6 +1347,7 @@ async function wireTimeline(box: HTMLElement): Promise<void> {
   timelineWired = true;
   const [tl, chart] = await Promise.all([import("../timeline"), import("@lhzn-io/timecharts/chart")]);
   tl.mountTimeline(document.getElementById("timebar") ?? document.getElementById("map-foot") ?? box);
+  if (PLOT_PAGE) placePageTime();
   const root = tl.timelineRoot();
   if (root && !EMBED) pinTimeline(root); // in reach while the page scrolls
   if (PLOT_PAGE) tl.showWeekday(true); // a plot page states its time once, here
@@ -1587,7 +1589,7 @@ let PLOT_DRAWN: { x0: number; x1: number; b: Built } | null = null;
 
 function drawInline(d: StationData, key: Kind): void {
   if (!shows(d, key)) return;
-  let [x0, x1] = FIGS[key].window(d);
+  let [x0, x1] = key === EMBED && inDeck() ? FIGS.next48.window(d) : FIGS[key].window(d);
   // A water plot page's time reaches 90 days back: its plot does too (the 7-day change and surface minus bottom show 60).
   if (key === EMBED && waterPlotPage()) x0 = Math.min(x0, d.now - 90 * DAY);
   const b = FIGS[key].build(d, activeDepth(d, key), x0, x1, false);
@@ -1607,7 +1609,8 @@ function drawInline(d: StationData, key: Kind): void {
   $(`${d.meta.id}-${key}-legend`).innerHTML = legendHtml(b);
   PLOT_NOTES.set(`${d.meta.id}-${key}`, b.note ?? "");
   if (key === "next48" && d.kind !== "virtual") {
-    mountVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
+    if (revisionsOn()) mountVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
+    else unmountRunSlider($(`${d.meta.id}-${key}`));
     mountRevisions(d, $(`${d.meta.id}-${key}`), x0, x1);
   }
   if (key === "next48") mountLongRange($(`${d.meta.id}-${key}`)); // a virtual buoy's runs are pieces of one file: no run slider
@@ -2270,6 +2273,10 @@ async function main(): Promise<void> {
       drawPlaces();
     };
     renderSections();
+    RENDER_SECTIONS = () => {
+      keepPlace(renderSections);
+      syncDeck();
+    };
     STATIONS = stations;
     statusGrid(stations);
     wireStatusTabs(stations);
@@ -2397,7 +2404,8 @@ async function main(): Promise<void> {
       pageUrl: (d, k) => plotPageUrl(d.meta.id, k),
       afterDraw: (plot, d, k, x0, x1) => {
         if (k === "next48") {
-          mountVintage(d, plot, x0, x1);
+          if (revisionsOn()) mountVintage(d, plot, x0, x1);
+          else unmountRunSlider(plot);
           mountRevisions(d, plot, x0, x1);
           mountLongRange(plot);
         }
@@ -2532,8 +2540,152 @@ function wireFullScreen(): void {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
     else void document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => undefined);
   });
-  document.addEventListener("fullscreenchange", () =>
-    document.querySelectorAll(".fig-full").forEach((b) => b.setAttribute("aria-pressed", String(!!document.fullscreenElement))));
+  document.addEventListener("fullscreenchange", () => {
+    document.querySelectorAll(".fig-full").forEach((b) => b.setAttribute("aria-pressed", String(!!document.fullscreenElement)));
+    RENDER_SECTIONS?.(); // in or out of the deck's shared window
+    syncDeck(true); // after the render, which rebuilds the caption
+  });
+  wireDeck();
+}
+
+/** The deck: in full screen on a plot page in the Wind view, a swipe up or down moves to the station's next or previous
+ * plot (wind, then waves, pressure and air, those the station has), all on the next 48 hours' time window so they
+ * line up in time; a sideways drag still moves the time, and a swipe keeps the time it started at. The plot is swapped in place, since a new page would end full screen, and the address follows (replaced,
+ * not added), so a shared link or a reload lands on the plot shown. A column of dots in the margin right of the plot
+ * marks the plot shown; each is a button. Picking another station keeps full screen too (deckPlace). */
+const DECK_ORDER = ["next-48h", "waves", "pressure", "air-water"];
+const deckName = (slug: string) => PLOT_PAGES[slug]?.name ?? slug;
+const DECK_SWIPE_PX = 56; // the least vertical travel for a swipe, at least twice the sideways
+const DECK_SWIPE_MS = 800;
+let RENDER_SECTIONS: (() => void) | null = null;
+const deckSlug = () => location.pathname.split("/").filter(Boolean).pop() ?? "";
+function deckSlugs(): string[] {
+  const d = STATIONS.find((s) => s.meta.id === STATION_ID);
+  if (!d || VK !== "wind") return [];
+  return DECK_ORDER.filter((s) => {
+    const f = PLOT_PAGES[s] && FIGS[PLOT_PAGES[s].fig as Kind];
+    return !!f && PLOT_PAGES[s].views.includes(VK) && f.in(VK) && f.available(d);
+  });
+}
+const inDeck = () => PLOT_PAGE && !!document.fullscreenElement && deckSlugs().includes(deckSlug());
+
+/** The dots, a column in the margin right of the plot, level with its middle (rebuilt on each change); `hint` says
+ * "swipe up or down" for a moment in the top bar's open stretch, on entering full screen. */
+function syncDeck(hint = false): void {
+  document.getElementById("deck-dots")?.remove();
+  document.getElementById("deck-hint")?.remove();
+  const here = deckSlug();
+  const plot = document.querySelector<HTMLElement>("#stations .plot:not(.strip)");
+  const fig = plot?.closest("figure");
+  if (!inDeck() || !plot || !fig) return;
+  const nav = document.createElement("span");
+  nav.id = "deck-dots";
+  nav.className = `deck-dots${hint ? " deck-hinting" : ""}`; // not "hint", a site-wide popover style
+  nav.setAttribute("role", "group");
+  nav.setAttribute("aria-label", "Plots: swipe up or down");
+  nav.innerHTML = deckSlugs()
+    .map((s) => `<button type="button" data-deck="${s}" aria-label="${escHtml(deckName(s))}" title="${escHtml(deckName(s))}"${s === here ? ' aria-current="true"' : ""}></button>`)
+    .join("");
+  nav.style.top = `${plot.offsetTop + plot.offsetHeight / 2}px`; // the figure is the column's frame
+  fig.append(nav);
+  const bar = document.querySelector(".topbar .fresh");
+  if (hint && bar) {
+    const h = document.createElement("span");
+    h.id = "deck-hint";
+    h.className = "deck-hint deck-hinting"; // not "hint", a site-wide popover style
+    h.setAttribute("aria-hidden", "true");
+    h.textContent = "swipe up or down";
+    bar.append(h);
+    window.setTimeout(() => h.classList.remove("deck-hinting"), 2600);
+    window.setTimeout(() => h.remove(), 3200);
+  }
+}
+
+/** A plot page's time ("Fri 1 AM +40h", and "now" to go back) in the top bar, beside the data's age, where the bar
+ * has the room: the one time a reader looks for. The plot shows the values at that time (on a touch screen) or under
+ * the pointer, so the page has no reading line of its own. A narrow bar keeps it in the time bar. */
+function placePageTime(): void {
+  const lab = document.querySelector<HTMLElement>(".timeline .tl-label");
+  const now = document.querySelector<HTMLElement>(".timeline .tl-now");
+  const slot = lab?.parentElement;
+  const fresh = document.querySelector(".topbar .fresh");
+  if (!lab || !now || !slot || !fresh) return;
+  const top = document.createElement("span");
+  top.className = "tl-top";
+  fresh.after(top);
+  const wide = window.matchMedia("(min-width: 700px)");
+  const place = () => (wide.matches ? top.append(lab, now) : slot.append(lab, now));
+  wide.addEventListener("change", place);
+  place();
+}
+
+/** Another station's same plot, in place, in full screen (a new page would end it): the station's data is on the
+ * page already, as the place menu's other stations are. The address, the top bar, the title and the dots follow. */
+function deckPlace(id: string): void {
+  if (!EMBED) return;
+  STATION_ID = id;
+  EMBED_STATION = id;
+  history.replaceState(history.state, "", plotUrl(id, deckSlug()));
+  markStationPage();
+  drawPlaces();
+  RENDER_SECTIONS?.();
+  syncDeck();
+}
+
+/** Show the deck's plot `slug` in place, keeping the time offset `keep` (hours from now) where given. */
+function deckShow(slug: string, dir: 1 | -1, keep: number | null): void {
+  const p = PLOT_PAGES[slug];
+  if (!p || !STATION_ID) return;
+  PLOT = p;
+  EMBED = p.fig as Kind;
+  history.replaceState(history.state, "", plotUrl(STATION_ID, slug));
+  const name = document.querySelector("#plot-pick .vm-current");
+  if (name) name.textContent = p.name;
+  const d = STATIONS.find((s) => s.meta.id === STATION_ID);
+  if (d) document.title = document.title.replace(/^[^|]*\|/, `${d.meta.name}, ${FIGS[EMBED].title.toLowerCase()} |`);
+  RENDER_SECTIONS?.();
+  if (keep != null) timelineModule?.setOffset(keep);
+  const box = document.getElementById("stations");
+  if (box) {
+    box.classList.remove("deck-up", "deck-down");
+    void box.offsetWidth; // restart the slide
+    box.classList.add(dir > 0 ? "deck-up" : "deck-down");
+  }
+  syncDeck();
+}
+
+function wireDeck(): void {
+  let start: { x: number; y: number; t: number; keep: number | null } | null = null;
+  document.addEventListener("touchstart", (e) => {
+    start = null;
+    if (!inDeck() || e.touches.length !== 1 || !(e.target as Element).closest?.("#stations .plot")) return;
+    const t = e.touches[0];
+    start = { x: t.clientX, y: t.clientY, t: performance.now(), keep: timelineModule?.position().offset ?? null };
+  }, { passive: true });
+  document.addEventListener("touchend", (e) => {
+    const s = start;
+    start = null;
+    const t = e.changedTouches[0];
+    if (!s || !t) return;
+    const dx = t.clientX - s.x, dy = t.clientY - s.y;
+    if (Math.abs(dy) < DECK_SWIPE_PX || Math.abs(dy) < 2 * Math.abs(dx) || performance.now() - s.t > DECK_SWIPE_MS) return;
+    const slugs = deckSlugs();
+    const i = slugs.indexOf(deckSlug());
+    const dir = dy < 0 ? 1 : -1; // up: the next plot, as a page scrolls on
+    const next = slugs[i + dir];
+    if (i < 0) return;
+    if (next) deckShow(next, dir, s.keep);
+    else if (s.keep != null) timelineModule?.setOffset(s.keep); // the last plot: the time stays put
+  }, { passive: true });
+  document.addEventListener("click", (e) => {
+    const b = (e.target as Element).closest?.<HTMLButtonElement>("#deck-dots [data-deck]");
+    if (!b) return;
+    const slugs = deckSlugs();
+    const to = b.dataset.deck!;
+    if (to !== deckSlug()) deckShow(to, slugs.indexOf(to) > slugs.indexOf(deckSlug()) ? 1 : -1, null);
+  });
+  // Turning the phone moves the plot's middle.
+  window.addEventListener("resize", () => { if (document.getElementById("deck-dots")) syncDeck(); });
 }
 
 /** A figure's own page at a station, where both have one, at the depth its tabs show (if not the first). */
@@ -2573,7 +2725,7 @@ function plotMenu(): string {
   return views
     .map((v) => {
       const plots = Object.entries(PLOT_PAGES)
-        .filter(([, p]) => (gauge ? !!p.river || p.views.includes("rivers") : p.views.includes(v)))
+        .filter(([, p]) => !p.alias && (gauge ? !!p.river || p.views.includes("rivers") : p.views.includes(v)))
         .filter(([, p]) => fits(((gauge && p.river) || p.fig) as Kind, v));
       if (!plots.length) return "";
       const current = (slug: string) => (slug === here && (gauge || v === VK) ? ' aria-current="page"' : "");
@@ -2963,7 +3115,13 @@ function wirePlaces(): void {
       // no plot pages), loaded in full.
       const to = a.dataset.place || null;
       const d = to ? STATIONS.find((s) => s.meta.id === to) : undefined;
-      a.href = (d && EMBED && shows(d, EMBED) && plotPageUrl(d.meta.id, EMBED)) || placeUrl(to);
+      const same = d && EMBED && shows(d, EMBED) && plotPageUrl(d.meta.id, EMBED);
+      a.href = same || placeUrl(to);
+      // In full screen, the same plot at the place picked comes in place, keeping full screen.
+      if (same && d && document.fullscreenElement && plain(e) && !VIRTUAL) {
+        e.preventDefault();
+        if (d.meta.id !== STATION_ID) deckPlace(d.meta.id);
+      }
       return;
     }
     a.href = placeUrl(a.dataset.place || null);
@@ -3101,6 +3259,8 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   // A plot page's address names its plot after the station (/long-island-sound/exrx/next-48h/).
   const slug = PAGES && STATION_ID && !VIRTUAL ? location.pathname.slice(PAGES.base.length).split("/")[1]?.toLowerCase() : "";
   PLOT = slug ? PLOT_PAGES[slug] ?? null : null;
+  // An earlier address of a plot's page: the plot's own, in place (the time, view and the rest of the link kept).
+  if (PLOT?.alias && STATION_ID) history.replaceState(history.state, "", `${plotUrl(STATION_ID, PLOT.alias)}${location.search}${location.hash}`);
   PLOT_DEPTH = (LINK.get("depth") ?? "").toUpperCase();
   // A river gauge's plot page (/long-island-sound/conn/flow/): the gauge's figure, in the Rivers view.
   const gauge = !!PLOT && isGauge(STATION_ID);

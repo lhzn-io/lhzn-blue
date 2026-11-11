@@ -303,13 +303,40 @@ export function vintageLabel(id: string, r: FcRun): string {
   return r === (FCST?.runs[id] ?? []).find((q) => q.issue <= now) ? "Stitched forecast" : `HRRR run ${fmtRun.format(new Date(r.issue * 1000))}`;
 }
 
+/** GFS's runs at a station that have been issued, newest first. */
+export const gfsRuns = (id: string): GfsRun[] => (GFS?.runs[id] ?? []).filter((r) => r.issue <= Date.now() / 1000);
+/** A GFS run's line label in the plot: the newest is GFS's own line (both its pieces), the others "GFS run <time>". */
+export function gfsLabels(id: string, r: GfsRun): string[] {
+  return r === gfsRuns(id)[0] ? ["GFS forecast", "GFS beside HRRR"] : [`GFS run ${fmtRun.format(new Date(r.issue * 1000))}`];
+}
+
+/** The Wind plot's run slider, part of Revisions: it picks a time the forecast stood at (each HRRR run's issue time),
+ * and emphasises that HRRR run and the newest GFS run issued by then. */
 export function mountVintage(d: StationData, plot: HTMLElement, x0?: number, x1?: number): void {
-  mountRunSlider(plot, { store: d.meta.id, model: "HRRR", runs: vintageRuns(d.meta.id, x0, x1), lineLabel: (r) => vintageLabel(d.meta.id, r as FcRun) });
+  const id = d.meta.id;
+  mountRunSlider(plot, {
+    store: id,
+    model: "",
+    runs: vintageRuns(id, x0, x1),
+    lineLabel: (r) => {
+      const g = gfsRuns(id).find((q) => q.issue <= r.issue);
+      return [vintageLabel(id, r as FcRun), ...(g ? gfsLabels(id, g) : [])];
+    },
+  });
+}
+
+/** A plot's run slider taken away (Revisions off): no run emphasised, and hovering a line picks none. */
+export function unmountRunSlider(plot: HTMLElement): void {
+  plot.querySelector(".vintage")?.remove();
+  const old = VINTAGE_LISTENERS.get(plot);
+  if (old) plot.removeEventListener("linepick", old);
+  VINTAGE_LISTENERS.delete(plot);
+  emphasise(plot, null);
 }
 
 /** A version slider on a plot: picks one of a model's runs (oldest to newest), shows only "<model> run, <its time>", and
  * emphasises that run's line; hovering a run's line moves it. The choice is kept per plot (store key). */
-export function mountRunSlider(plot: HTMLElement, o: { store: string; model: string; runs: { issue: number }[]; lineLabel: (r: { issue: number }) => string }): void {
+export function mountRunSlider(plot: HTMLElement, o: { store: string; model: string; runs: { issue: number }[]; lineLabel: (r: { issue: number }) => string | string[] }): void {
   plot.querySelector(".vintage")?.remove();
   const runs = o.runs;
   if (runs.length < 2) return;
@@ -325,7 +352,8 @@ export function mountRunSlider(plot: HTMLElement, o: { store: string; model: str
   const label = box.querySelector<HTMLElement>(".vg-label")!;
   const set = (k: number, picked: boolean) => {
     const r = runs[k];
-    label.textContent = `${o.model} run, ${fmtRun.format(new Date(r.issue * 1000)).replace(",", "")}`;
+    const when = fmtRun.format(new Date(r.issue * 1000)).replace(",", "");
+    label.textContent = o.model ? `${o.model} run, ${when}` : `Forecast as of ${when}`; // no model: the time it stood at
     range.value = String(k);
     range.setAttribute("aria-valuetext", label.textContent);
     if (picked) VINTAGE.set(o.store, r.issue);
@@ -337,7 +365,7 @@ export function mountRunSlider(plot: HTMLElement, o: { store: string; model: str
   const old = VINTAGE_LISTENERS.get(plot);
   if (old) plot.removeEventListener("linepick", old);
   const onPick = (e: Event) => {
-    const k = runs.findIndex((r) => o.lineLabel(r) === (e as CustomEvent<string>).detail);
+    const k = runs.findIndex((r) => ([] as string[]).concat(o.lineLabel(r)).includes((e as CustomEvent<string>).detail));
     if (k >= 0) {
       VINTAGE.set(o.store, runs[k].issue);
       set(k, true);

@@ -41,6 +41,7 @@ export interface Line {
   dash?: string;
   label: string;
   tip?: boolean; // include in the tooltip (default true)
+  tipLabel?: string; // the tooltip's name for the line, where shorter than its label (the label still keys the legend)
   hidden?: boolean; // tooltip only: not drawn and not used for the y range (e.g. wind direction)
   dots?: boolean; // draw each value as a dot instead of a connected line (e.g. one peak per day)
   fmt?: (v: number) => string; // tooltip text for this line's value, instead of value + unit
@@ -59,6 +60,7 @@ export interface Area {
   hi: number[];
   fill: string;
   opacity?: number;
+  from?: number; // epoch seconds: the shading starts here, cut between grid points (a forecast's band starting at now)
 }
 
 export interface Span {
@@ -175,8 +177,9 @@ function timeRules(x0: number, x1: number): [number, string][] {
 
 /** Emphasize the lines whose label starts with `label` and dim the rest; null restores all. */
 /** Emphasise one line by its label (or none): drawn darker and heavier, the rest unchanged. */
-export function emphasise(plot: HTMLElement, label: string | null): void {
-  plot.querySelectorAll<SVGPathElement>("path[data-label]").forEach((p) => p.classList.toggle("lit", label !== null && p.dataset.label === label));
+export function emphasise(plot: HTMLElement, label: string | string[] | null): void {
+  const lit = label === null ? [] : Array.isArray(label) ? label : [label];
+  plot.querySelectorAll<SVGPathElement>("path[data-label]").forEach((p) => p.classList.toggle("lit", lit.includes(p.dataset.label ?? "")));
 }
 
 export function highlight(plot: HTMLElement, label: string | null): void {
@@ -189,6 +192,10 @@ export function highlight(plot: HTMLElement, label: string | null): void {
 
 let asOfT: number | null = null;
 
+/** A chart whose values follow the page's time (a touch screen's plot page, which has no hover): its labels, shown at
+ * the time's rule whenever the rule moves. */
+const followAsOf = new WeakMap<SVGLineElement, () => void>();
+
 function placeAsOf(rule: SVGLineElement): void {
   const x0 = Number(rule.dataset.x0);
   const x1 = Number(rule.dataset.x1);
@@ -199,6 +206,7 @@ function placeAsOf(rule: SVGLineElement): void {
     rule.setAttribute("x1", String(xx));
     rule.setAttribute("x2", String(xx));
   }
+  followAsOf.get(rule)?.();
 }
 
 /** Move the page timeline's rule on every chart (null hides it: the cursor is at now). */
@@ -352,9 +360,19 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   for (const a of o.areas ?? []) {
     let run: number[] = [];
     const flush = () => {
-      if (run.length > 1) {
-        const top = run.map((i) => `${px(xs[i]).toFixed(1)},${py(Math.min(a.hi[i], hi)).toFixed(2)}`);
-        const bot = run.slice().reverse().map((i) => `${px(xs[i]).toFixed(1)},${py(Math.max(a.lo[i], lo)).toFixed(2)}`);
+      let pts = run.map((i) => [xs[i], a.lo[i], a.hi[i]]);
+      if (a.from !== undefined) {
+        const k = pts.findIndex((q) => q[0] >= a.from!);
+        if (k < 0) pts = [];
+        else if (k > 0) {
+          const [ta, la, ha] = pts[k - 1], [tb, lb, hb] = pts[k];
+          const w = (a.from - ta) / (tb - ta);
+          pts = [[a.from, la + w * (lb - la), ha + w * (hb - ha)], ...pts.slice(k)];
+        }
+      }
+      if (pts.length > 1) {
+        const top = pts.map(([t, , h]) => `${px(t).toFixed(1)},${py(Math.min(h, hi)).toFixed(2)}`);
+        const bot = pts.slice().reverse().map(([t, l]) => `${px(t).toFixed(1)},${py(Math.max(l, lo)).toFixed(2)}`);
         svg.append(el("path", { d: `M${top.join("L")}L${bot.join("L")}Z`, fill: a.fill, "fill-opacity": a.opacity ?? 0.2, stroke: "none" }));
       }
       run = [];
@@ -435,15 +453,17 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   const hd = o.hoverDigits ?? 1;
   const tipLines = o.lines.filter((l) => l.tip !== false).reverse();
   let picked: string | null = null;
-  const show = (clientX: number, clientY?: number) => {
-    const t = timeAt(clientX);
+  const show = (clientX: number, clientY?: number) => showAt(timeAt(clientX), clientY);
+  const showAt = (t: number, clientY?: number) => {
     const i = Math.max(0, Math.min(xs.length - 1, Math.round((t - x0) / (xs[1] - xs[0]))));
     const xx = px(xs[i]);
     cursor.setAttribute("x1", String(xx));
     cursor.setAttribute("x2", String(xx));
     cursor.setAttribute("visibility", "visible");
     const value = (l: Line) => (l.fmt ? l.fmt(l.ys[i]) : l.ys[i].toFixed(hd) + o.unit);
-    const have = tipLines.filter((l) => Number.isFinite(l.ys[i])).slice(0, 12);
+    // Lines that share a name in the tooltip (two pieces of one model's line, meeting at an hour) show once.
+    const named = new Set<string>();
+    const have = tipLines.filter((l) => Number.isFinite(l.ys[i]) && !named.has(l.tipLabel ?? l.label) && !!named.add(l.tipLabel ?? l.label)).slice(0, 12);
     const frac = xx / W;
     // On-line values, in pixels within the plot. Labels go right of the cursor, or left near the right edge.
     // Measured from the drawing area, not the plot box (which also holds the value axis on the right).
@@ -465,11 +485,11 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
       .map(
         ({ l, y, at }) =>
           `<i class="cv-dot" style="left:${x}px;top:${y}px;background:${l.color}"></i>` +
-          `<span class="cv-lab ${side}" style="left:${x}px;top:${at}px"><i style="background:${l.color};opacity:${Math.max(0.5, l.opacity ?? 1)}"></i>${l.label}<b>${value(l)}</b></span>`,
+          `<span class="cv-lab ${side}" style="left:${x}px;top:${at}px"><i style="background:${l.color};opacity:${Math.max(0.5, l.opacity ?? 1)}"></i>${l.tipLabel ?? l.label}<b>${value(l)}</b></span>`,
       )
       .join("");
     // The box: the time, and values with no line of their own; on the other side of the cursor from the labels.
-    const extra = have.filter((l) => l.hidden).map((l) => `<div>${l.label}<b>${value(l)}</b></div>`);
+    const extra = have.filter((l) => l.hidden).map((l) => `<div>${l.tipLabel ?? l.label}<b>${value(l)}</b></div>`);
     tip!.innerHTML = `<span class="tip-time">${fmtHour.format(new Date(xs[i] * 1000))}</span>${extra.join("")}${have.length ? "" : "<div>no data</div>"}`;
     tip!.hidden = false;
     tip!.style.left = side === "left" ? `${x + 10}px` : "";
@@ -503,6 +523,18 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     }
     if (e.pointerType === "mouse" || plot.dataset.zoom === "1") show(e.clientX, e.clientY);
   };
-  svg.onpointerleave = hide;
+  // On a touch screen's plot page (no hover), the values stay at the page's time (now, until it is moved), as the
+  // pointer shows them on a desk: a tap or a drag moves the time and the labels with it.
+  const follows = () => plot.dataset.timePick === "1" && window.matchMedia("(hover: none)").matches;
+  followAsOf.set(asof, () => {
+    if (!follows() || !svg.isConnected) return;
+    const t = asOfT ?? Date.now() / 1000;
+    if (t < x0 || t > x1) hide();
+    else showAt(t);
+  });
+  requestAnimationFrame(() => followAsOf.get(asof)?.()); // once the page has marked the plot and laid it out
+  svg.onpointerleave = (e) => {
+    if (e.pointerType === "mouse" || !follows()) hide();
+  };
   return rendered;
 }

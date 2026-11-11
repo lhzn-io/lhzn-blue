@@ -1,6 +1,6 @@
 {
-  "next-48h": { "fig": "next48", "views": ["wind"], "name": "Next 48 h" },
-  "wind": { "fig": "wind", "views": ["wind"], "name": "Wind" },
+  "next-48h": { "fig": "next48", "views": ["wind"], "name": "Wind" },
+  "wind": { "fig": "next48", "views": ["wind"], "name": "Wind", "alias": "next-48h" },
   "pressure": { "fig": "pressure", "views": ["wind"], "name": "Pressure" },
   "waves": { "fig": "waves", "views": ["wind"], "name": "Waves" },
   "air-water": { "fig": "air", "views": ["wind", "temp"], "name": "Air and water" },

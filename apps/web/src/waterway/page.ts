@@ -28,7 +28,7 @@ import type { StationDataWaterway } from "./config";
 import { type Built, type Fig, legendHtml, openZoom, redrawZoom, visibleYears, wireLegend, wireZoom } from "./figures";
 import { stationReadouts } from "./readouts";
 import { openAbout, wireAbout } from "./about";
-import { configureData, onModelData } from "./data";
+import { configureData, onModelData, requestRedraw } from "./data";
 import { chooseRun, chosenRun, FCST, forecastAt, gfsAt, HRRR_HIST_LABEL, hrrrAsOf, hrrrHist, loadForecast, mountVintage, runForecastAt } from "./forecast";
 import { loadNwps, mountNwpsVintage, NWPS, nwpsLabel, nwpsRunAt, nwpsRuns, nwpsSeries } from "./nwps";
 import { OUTLOOK, outlookHtml } from "./outlook";
@@ -96,6 +96,8 @@ interface Palette {
   bands: [string, string]; // surface-minus-bottom threshold shading: outer, inner
   oxygen: [string, string, string]; // dissolved oxygen shading: anoxic, hypoxic, below the growth criterion
   advisory: [string, string]; // NWS advisories behind the wind, in brick red: small craft, gale and above
+  advisoryStrip: [string, string]; // the same, as a thin strip along a forecast's time axis (stronger, being thin)
+  brick: string; // NWS advisory levels drawn across a wind forecast (small craft, gale)
   miss: string; // a forecast's typical miss, either side of it: faint lavender, apart from the forecast's own blue
   gfs: string; // GFS past HRRR's reach, its line and (fainter) its typical miss: muted green, apart from HRRR's blue
   yearStops: { t: number; L: number; C: number; h: number }[];
@@ -113,6 +115,8 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     bands: ["rgba(255,255,255,0.04)", "rgba(127,184,216,0.12)"],
     oxygen: ["rgba(240,177,53,0.26)", "rgba(240,177,53,0.14)", "rgba(240,177,53,0.05)"],
     advisory: ["rgba(210,74,55,0.16)", "rgba(210,74,55,0.36)"],
+    advisoryStrip: ["rgba(210,74,55,0.5)", "rgba(210,74,55,0.9)"],
+    brick: "#d24a37",
     miss: "#b7a2dd",
     gfs: "#86d1ab",
     yearStops: [
@@ -132,6 +136,8 @@ const PALETTES: Record<"dark" | "light", Palette> = {
     bands: ["rgba(28,42,72,0.04)", "rgba(58,120,161,0.12)"],
     oxygen: ["rgba(163,90,0,0.22)", "rgba(163,90,0,0.12)", "rgba(163,90,0,0.045)"],
     advisory: ["rgba(158,36,24,0.09)", "rgba(158,36,24,0.24)"],
+    advisoryStrip: ["rgba(158,36,24,0.4)", "rgba(158,36,24,0.8)"],
+    brick: "#9e2418",
     miss: "#9a84cc",
     gfs: "#2f7d5b",
     yearStops: [
@@ -2460,7 +2466,10 @@ async function main(): Promise<void> {
     void loadForecast();
     const mast = document.querySelector(".mast");
     if (mast) {
-      const refresh = () => mountAdvisories(mast, openWindStrip).then(() => syncZones());
+      const refresh = () => mountAdvisories(mast, openWindStrip).then(() => {
+        syncZones();
+        requestRedraw(); // the next 48 hours marks the hours an advisory is in force
+      });
       void refresh();
       window.setInterval(() => void refresh(), 10 * 60_000);
     }

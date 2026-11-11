@@ -66,6 +66,7 @@ export interface Span {
   x1: number;
   fill: string;
   title?: string;
+  edge?: number; // a strip this many pixels tall along the time axis, instead of full height
 }
 
 export interface ChartOptions {
@@ -296,12 +297,14 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     const yb = py(Math.min(hi, Math.max(lo, b.y0)));
     svg.append(el("rect", { x: 0, y: ya, width: W, height: Math.max(0, yb - ya), fill: b.fill }));
   }
-  // Time spans (e.g. an advisory in force), full height, under the rules and lines.
+  // Time spans (e.g. an advisory in force), full height or a strip along the time axis, under the rules and lines.
+  const pxH = H / Math.max(1, svg.clientHeight || plot.clientHeight - 16 || 174); // drawing units per screen pixel, upright
   for (const s of o.spans ?? []) {
     if (s.x1 <= x0 || s.x0 >= x1) continue;
     const xa = px(Math.max(x0, s.x0));
     const xb = px(Math.min(x1, s.x1));
-    const r = el("rect", { x: xa, y: 0, width: Math.max(1, xb - xa), height: H, fill: s.fill });
+    const h = s.edge ? Math.min(H, s.edge * pxH) : H;
+    const r = el("rect", { x: xa, y: H - h, width: Math.max(1, xb - xa), height: h, fill: s.fill });
     if (s.title) r.append(Object.assign(document.createElementNS("http://www.w3.org/2000/svg", "title"), { textContent: s.title }));
     svg.append(r);
   }

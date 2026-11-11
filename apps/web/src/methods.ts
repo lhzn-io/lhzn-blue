@@ -90,7 +90,11 @@ export const METHODS: Record<string, Method> = {
       "the page's time, changed from run to run: along its bottom is the time each run was issued, so a line rising to " +
       "the right is the model raising that hour's wind as it drew nearer; once the hour has passed, a gold dot is the " +
       "wind measured then; past HRRR's reach the chart is GFS's, its runs of the last 30 hours, 6 hours apart. Past the last hour HRRR reaches, NOAA's GFS model carries the forecast on in green, with its " +
-      "own typical miss shaded in a paler green; \"7 days\", a switch on the plot, widens it to a week ahead.",
+      "own typical miss shaded in a paler green; \"7 days\", a switch on the plot, widens it to a week ahead. Over HRRR's " +
+      "last day a thin green line is GFS for the same hours, so where the two models meet, a step between them reads as " +
+      "their difference in timing or strength. When the wind comes near them, the National Weather Service's levels for a " +
+      "small craft advisory (25 kt) and a gale warning (34 kt) cross the plot as dashed brick lines, and a brick strip " +
+      "along the bottom marks the hours an advisory is in force for the station's marine zone (darker for a gale).",
     method:
       "HRRR (3 km, run every hour) is read at the station's nearest water cells [[dowell2022hrrr]]. Hourly runs reach 18 " +
       "hours ahead and the 00, 06, 12 and 18 UTC runs 48, so beyond 18 hours the stitched forecast comes from the latest " +
@@ -107,7 +111,9 @@ export const METHODS: Record<string, Method> = {
       "Service marine forecast. HRRR is used first for its 3 km grid, run hourly; GFS's cells are one or two across a " +
       "Sound 5 to 34 km wide, so it smooths the wind over the water, and at the buoys it reads slightly low (a bias of " +
       "about −0.5 to −1.1 kt by lead time, uncorrected on the plot). Where the two " +
-      "models meet, the step between them is the models' difference, not a change in the weather.",
+      "models meet, the step between them is the models' difference, not a change in the weather. The advisory levels " +
+      "are NWS's criteria for sustained wind; NWS issues advisories from its own forecast, also for seas, so a forecast " +
+      "line crossing a level is not an advisory, and an advisory can be in force below it.",
   },
   wind: {
     title: "Wind",

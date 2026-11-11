@@ -1168,7 +1168,7 @@ wheels = [
 
 [[package]]
 name = "forcingkit"
-version = "0.18.0"
+version = "0.18.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bottleneck" },
@@ -1202,9 +1202,9 @@ dependencies = [
     { name = "zarr", version = "3.1.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "zarr", version = "3.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f7/72/b9ab4fe264bf4ceae8e7e7b36c5c94d2f757b09a5c9af99a15a17562784e/forcingkit-0.18.0.tar.gz", hash = "sha256:79f950eff03a1b22c5f2fee50f5909889581994575853f00bad588dfee8c726c", size = 6182241, upload-time = "2026-11-09T16:28:05.886Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/c4/4b4905a0b07c1dcb67d249173711fdf2d7ef6f406a9c6ed124d47869fcae/forcingkit-0.18.1.tar.gz", hash = "sha256:27858af09ff42bc503c208316157d41a59f85249081a68c4f855f39837dcbeb9", size = 6183197, upload-time = "2026-11-11T01:40:40.052Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/62/b8e9bd33fb435905f9abf81ca92179048e395714d844dc0bc401c6631dac/forcingkit-0.18.0-py3-none-any.whl", hash = "sha256:d05ea3f83eabb91ea47898f3fcfb4037ffe17201a1d1e6dd4a36e4909e7fdb11", size = 171652, upload-time = "2026-11-09T16:28:03.626Z" },
+    { url = "https://files.pythonhosted.org/packages/58/f3/9077ea755a7471905a6b9ece45563fabf90f125a2376fe04ebeebb43eecd/forcingkit-0.18.1-py3-none-any.whl", hash = "sha256:d24147d48d7069319824eb733bfc778cd858dd17eb566c8e06de8a506f474702", size = 172075, upload-time = "2026-11-11T01:40:38.482Z" },
 ]
 
 [[package]]
@@ -1808,7 +1808,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "forcingkit", specifier = ">=0.18,<0.19" },
+    { name = "forcingkit", specifier = ">=0.18.1,<0.19" },
     { name = "google-cloud-storage", specifier = ">=2.18" },
     { name = "insitukit", specifier = ">=0.5,<0.6" },
     { name = "matplotlib", specifier = ">=3.8" },

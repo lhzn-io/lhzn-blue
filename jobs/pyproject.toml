@@ -11,7 +11,7 @@ dependencies = [
     "google-cloud-storage>=2.18",
     # Surface fields (the `fields` job): satellite fetches and the NECOFS surface and full-depth readers; and HRDPS at
     # the stations (the `forecast` job).
-    "forcingkit>=0.18,<0.19",
+    "forcingkit>=0.18.1,<0.19",
     "matplotlib>=3.8",  # point location on the model mesh (the shared coastline)
     "utide>=0.3",  # harmonic tide fits for the USGS tidal gauges (Codiga 2011)
     # The CO-OPS and ERDDAP clients and the guarded store (lhzn-io/insitukit; identified as this site in __init__.py).

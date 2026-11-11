@@ -44,7 +44,7 @@ def test_verification_reads_the_file_at_hrrrs_leads():
 def test_archive_and_backfill_go_under_hrdps(tmp_path, monkeypatch):
     seen = []
 
-    def fake_fetch(cycle, leads, pts, fields=hrdps.FIELDS):
+    def fake_fetch(cycle, leads, pts, fields=hrdps.FIELDS, server=None):
         seen.append((cycle, tuple(leads), tuple(fields)))
         return pd.DataFrame(rows(cycle, leads), columns=COLUMNS)
 
@@ -61,3 +61,85 @@ def test_archive_and_backfill_go_under_hrdps(tmp_path, monkeypatch):
 
 def test_hrrrs_archive_reading_leaves_hrdps_out():
     assert "hrdps" in {m.archive_dir for m in verify.MODELS.values()}
+
+
+# ---------- The Datamart's mirror ----------
+
+
+def test_server_falls_back_to_the_mirror_with_its_client_and_stays(monkeypatch):
+    import httpx
+    from forcingkit.fetchers import hrdps as fk
+
+    made = []
+    monkeypatch.setattr(fk, "hpfx_client", lambda: made.append(httpx.Client()) or made[-1])
+    server = hrdps._Server()
+    calls = []
+
+    def fn(base, client):
+        calls.append((base, client))
+        if base == fk.BASE_URL:
+            raise httpx.ConnectTimeout("timed out")
+        return "ok"
+
+    assert server.call(fn) == "ok" and server.call(fn) == "ok"
+    assert calls == [(fk.BASE_URL, None), (fk.HPFX_URL, made[0]), (fk.HPFX_URL, made[0])] and len(made) == 1
+    server.close()
+    assert made[0].is_closed and server.client is None
+
+
+def test_server_other_errors_do_not_switch():
+    import httpx
+    import pytest
+
+    server = hrdps._Server()
+
+    def fn(base, client):
+        raise httpx.ReadTimeout("slow body")
+
+    with pytest.raises(httpx.ReadTimeout):
+        server.call(fn)
+    assert server.client is None and "dd.weather" in server.url
+
+
+def test_server_mirror_down_too(monkeypatch):
+    import httpx
+    import pytest
+    from forcingkit.fetchers import hrdps as fk
+
+    monkeypatch.setattr(fk, "hpfx_client", lambda: httpx.Client())
+    server = hrdps._Server()
+
+    def fn(base, client):
+        raise httpx.ConnectError("unreachable")
+
+    with pytest.raises(httpx.ConnectError):
+        server.call(fn)
+    assert server.url == fk.HPFX_URL
+    server.close()
+
+
+def test_complete_and_fetch_use_the_mirror(monkeypatch):
+    import httpx
+    from forcingkit.fetchers import hrdps as fk
+
+    seen = []
+    monkeypatch.setattr(fk, "hpfx_client", lambda: httpx.Client())
+
+    def newest_cycle(cycle, fields, lookback, base_url, client):
+        seen.append(("check", base_url, client is not None))
+        if base_url == fk.BASE_URL:
+            raise httpx.ConnectTimeout("timed out")
+        return cycle
+
+    def fetch_points(cycles, leads, pts, fields, max_km, base_url, client):
+        seen.append(("fetch", base_url, client is not None))
+        return pd.DataFrame(rows(cycles[0], leads), columns=COLUMNS)
+
+    monkeypatch.setattr(fk, "newest_cycle", newest_cycle)
+    monkeypatch.setattr(fk, "fetch_points", fetch_points)
+    server = hrdps._Server()
+    c = pd.Timestamp("2026-11-10T12")
+    assert hrdps.complete(c, server)
+    assert len(hrdps.fetch_cycle(c, [0, 1], {"EXRX": (-73.73, 40.88)}, server=server)) == 4
+    assert seen == [("check", fk.BASE_URL, False), ("check", fk.HPFX_URL, True), ("fetch", fk.HPFX_URL, True)]
+    server.close()

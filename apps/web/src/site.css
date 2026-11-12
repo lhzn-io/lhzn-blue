@@ -1,6 +1,8 @@
 /* The site's layout and components. The theme tokens (dark "chart room" and light "gilded china") are in
-   @lhzn-io/timecharts/tokens.css, which other sites reuse; Collect's tray and "+" are in @lhzn-io/collect. */
+   @lhzn-io/timecharts/tokens.css, which other sites reuse, and the charts' and time tracks' own layout in its
+   charts.css; Collect's tray and "+" are in @lhzn-io/collect. */
 @import "@lhzn-io/timecharts/tokens.css";
+@import "@lhzn-io/timecharts/charts.css";
 @import "@lhzn-io/collect/collect.css";
 
 * { box-sizing: border-box; }
@@ -138,39 +140,9 @@ figure.wide { grid-column: 1 / -1; }
 @media (pointer: coarse) { .tl-step { min-width: 46px; min-height: 34px; margin-right: 6px; font-size: 13px; } .tl-row > .tl-slot { padding-left: 0; } }
 .tl-now { margin-left: 8px; font: 10px/1.2 var(--sans); text-decoration: underline; text-underline-offset: 2px; }
 .tl-slot { text-align: right; white-space: nowrap; overflow: hidden; }
-.tl-track { position: relative; height: 100%; }
-.tl-track::before, .tl-track::after { content: ""; position: absolute; top: 50%; pointer-events: none; }
-.tl-track::before { left: 0; width: var(--tl-now); border-top: 1px solid var(--dim); }
-.tl-track::after { left: var(--tl-now); right: 0; border-top: 1px dotted var(--faint); }
-.tl-ticks { position: absolute; inset: 0; pointer-events: none; }
-.tl-tick { position: absolute; top: 50%; width: 1px; height: 4px; margin-top: -2px; background: var(--faint); }
-.tl-tick.day { height: 9px; margin-top: -4.5px; background: var(--dim); }
-.tl-tick.now { height: 13px; margin-top: -6.5px; background: var(--dim); }
-.tl-tick.ahead { opacity: 0.6; }
+/* The track itself (line, ticks, needle, knob, dates, moons) is in @lhzn-io/timecharts/charts.css; the time bar's
+   window of frames is this page's own. */
 .tl-frame { position: absolute; top: 50%; height: 8px; margin-top: -4px; background: var(--ink); opacity: 0.13; pointer-events: none; }
-.tl-needle { position: absolute; top: 50%; width: 2px; height: 14px; margin: -7px 0 0 -1px; background: var(--tl-ink, var(--ink)); pointer-events: none; }
-/* A ring to grab at the cursor; it fills while the slider is hovered, dragged or focused. */
-.tl-knob { position: absolute; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; box-sizing: border-box;
-  border: 1.5px solid var(--tl-ink, var(--ink)); border-radius: 50%; background: var(--bg); pointer-events: none; transition: background 0.12s; }
-.tl-track:hover .tl-knob, .tl-track:has(.tl-range:active) .tl-knob, .tl-track:has(.tl-range:focus-visible) .tl-knob {
-  background: color-mix(in srgb, var(--tl-ink, var(--ink)) 22%, var(--bg)); }
-/* The same track under a page's own slider (time-axis.ts timeTrack): the forecast, models and tides
-   pages. Its height holds the moons above the line and the dates below it. */
-.time-track { height: 30px; min-width: 0; color: var(--dim); }
-/* Day labels under the ticks, in the track's lower half. */
-.tl-dlabel { position: absolute; bottom: 0; padding-left: 2px; font: 7.5px/1 var(--mono); color: var(--faint); white-space: nowrap; pointer-events: none; }
-.tl-dlabel.ahead { opacity: 0.7; }
-.tl-dlabel .tl-mon { font-weight: 400; color: var(--faint); opacity: 0.75; letter-spacing: 0.02em; }
-/* The moon's principal phases (moon.ts) along the track's top edge, each at its time, clear of the dates: a little
-   darker than the dates; the lit part filled on a dark page, the dark part on a light one. */
-.tl-moon { position: absolute; top: 0; transform: translateX(-50%); line-height: 0; color: var(--dim); pointer-events: none; }
-.tl-moon.ahead { opacity: 0.7; }
-.moon .lit { fill: currentColor; }
-.moon .dark { fill: none; }
-:root[data-theme="light"] .moon .lit { fill: none; }
-:root[data-theme="light"] .moon .dark { fill: currentColor; }
-.tl-range { -webkit-appearance: none; appearance: none; position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; background: none; cursor: pointer; opacity: 0; }
-.tl-range:focus-visible { opacity: 1; outline: 1px dotted var(--dim); outline-offset: -3px; }
 /* Pinned under the top bar while its place above the map is out of sight (waterway/pin-time.ts): one thin line of
    play, the slider with its dates and the time; the step buttons and any rows placed with it stay behind. */
 .tl-pin { position: fixed; left: 0; right: 0; z-index: 29; padding: 1px var(--gutter) 2px; background: var(--bg); border-bottom: 1px solid var(--rule); }
@@ -374,23 +346,9 @@ figcaption { display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wra
 .cap-label { font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; }
 .cap-code { letter-spacing: 0.12em; } /* the station code that leads a plot's title */
 .cap-sub { font-size: 12px; color: var(--dim); }
-.plot { position: relative; height: 190px; padding-bottom: 16px; padding-right: 44px; }
-.plot svg { width: 100%; height: 100%; display: block; overflow: visible; touch-action: pan-y; }
+/* The plot, its labels, tooltip and cursor values are laid out by @lhzn-io/timecharts/charts.css; the sizes here are
+   this site's. */
 .plot[data-fig="next48"] { height: 380px; } /* full width, so twice the height of the paired plots */
-.plot-labels { position: absolute; inset: 0 0 16px 0; pointer-events: none; font-family: var(--mono); font-size: 8.5px; color: var(--chart-label); }
-.plot-labels span { position: absolute; white-space: nowrap; }
-.plot-labels .month { bottom: -15px; transform: translateX(-50%); color: var(--chart-month); font-size: 8px; }
-.plot-labels .axis { left: 0; right: 44px; bottom: -1px; height: 1px; background: var(--chart-axis); }
-.plot-labels .ylab { right: 0; transform: translateY(-50%); width: 40px; text-align: right; }
-/* A line's own name at its end (a percentile contour, a year), right-aligned to the end and just above it. */
-.plot-labels .end-lab { transform: translate(-100%, -115%); padding-right: 2px; font-size: 8px; }
-/* The marker's label ("now") among the dates under the axis, in bold over a gold tick, where nothing in the plot covers it. */
-.plot-labels .mark-lab { bottom: -16px; transform: translateX(-50%); padding: 1px 3px 0; border-top: 2px solid var(--now); color: var(--ink); font-weight: 700; font-size: 9px; }
-/* Direction arrows along the top of a chart (chart.ts glyphs), each centred on its hour. */
-.plot-labels .glyph { top: 4px; width: 14px; height: 14px; transform: translateX(-50%); line-height: 0; }
-.plot-labels .glyph svg { display: block; }
-.plot-labels .glyph.faint { opacity: 0.3; }.plot-labels .empty { left: 0; right: 52px; top: 40%; pointer-events: auto; font-family: var(--serif); font-style: italic; font-size: 13px; line-height: 1.4; white-space: normal; color: var(--dim); }
-.plot-labels .empty a { color: var(--ink); }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--chart-legend); }
 .legend i { display: inline-block; width: 14px; height: 2px; margin-right: 5px; vertical-align: 3px; }
 .legend i.shade { height: 4px; vertical-align: 2px; } /* shading, not a pen: twice a line's height */
@@ -409,29 +367,6 @@ figcaption { display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wra
   padding: 3px 10px 4px; font: 700 9px/1 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim);
 }
 .expand:hover { color: var(--accent); border-color: var(--accent-line); }
-
-/* Tooltip */
-.tip {
-  position: absolute; top: 4px; z-index: 3; pointer-events: none; max-width: 260px; padding: 4px 8px 5px;
-  font-family: var(--mono); font-size: 10px; line-height: 1.55; color: var(--ink);
-  background: var(--pop-bg); border-left: 2px solid var(--accent);
-}
-.tip .tip-time { display: block; color: var(--dim); font-size: 9.5px; }
-.tip div:first-of-type { margin-top: 3px; }
-.tip div { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.tip i { display: inline-block; width: 10px; height: 2px; flex: none; }
-.tip b { margin-left: auto; padding-left: 10px; font-weight: 500; }
-
-/* Values on the lines at the cursor: a dot on each line and its value beside it, spread so they never overlap. */
-.cursor-vals { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
-.cv-dot { position: absolute; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--bg); }
-.cv-lab {
-  position: absolute; display: flex; align-items: center; gap: 5px; transform: translate(9px, -50%); padding: 0 4px;
-  font: 9.5px/12px var(--mono); white-space: nowrap; color: var(--dim); background: color-mix(in srgb, var(--bg) 82%, transparent);
-}
-.cv-lab.left { transform: translate(calc(-100% - 9px), -50%); }
-.cv-lab i { display: inline-block; width: 8px; height: 2px; flex: none; }
-.cv-lab b { font-weight: 500; color: var(--ink); }
 
 /* Zoom view */
 .zoom {

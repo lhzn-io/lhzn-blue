@@ -22,9 +22,10 @@
     "./moon": { "types": "./dist/moon.d.ts", "default": "./dist/moon.js" },
     "./currents-ramp": { "types": "./dist/currents-ramp.d.ts", "default": "./dist/currents-ramp.js" },
     "./measured-ramp": { "types": "./dist/measured-ramp.d.ts", "default": "./dist/measured-ramp.js" },
-    "./tokens.css": "./tokens.css"
+    "./tokens.css": "./tokens.css",
+    "./charts.css": "./charts.css"
   },
-  "files": ["dist", "tokens.css", "README.md", "LICENSE"],
+  "files": ["dist", "tokens.css", "charts.css", "README.md", "LICENSE"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepack": "npm run build"

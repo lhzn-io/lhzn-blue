@@ -17,7 +17,12 @@ import { timeTrack } from "@lhzn-io/timecharts/time-axis";
 
 ```css
 @import "@lhzn-io/timecharts/tokens.css";
+@import "@lhzn-io/timecharts/charts.css";
 ```
+
+`charts.css` lays out what `renderLines` and `timeTrack` draw: the plot (`.plot`, its SVG and `.plot-labels`), the
+tooltip (`.tip`), the values at the cursor (`.cursor-vals`), and the time track (`.time-track`, `.tl-*`, the moons).
+A plot is 190 px high by default; set a page's own heights after it.
 
 The package ships ES modules with type declarations (built by `tsc` into `dist/`), for any bundler.
 

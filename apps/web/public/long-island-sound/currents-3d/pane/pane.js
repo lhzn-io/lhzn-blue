@@ -728,15 +728,13 @@ export function mountPane(el, opts = {}) {
         // moves the camera only while the view has focus (a click, a tap or Tab), so the arrows still scroll the page.
         // Zoom stops at 400 m rather than carrying the orbit point on through the water (infinityDolly). A double-click
         // or double-tap on the water's surface or the bed turns the view about that point (vantagekit's pivot pick; the
-        // ray cast meets the meshes as drawn, exaggerated), and a ring marks the point while the view turns
-        // about it (not while the point itself moves: a pan, a zoom that carries it).
+        // ray cast meets the meshes as drawn, exaggerated); no ring marks the point.
         nav = lib.createVantage({
             THREE, CameraControls: lib.CameraControls, camera, dom: renderer.domElement,
             metersPerUnit: 1, exaggeration: () => state.exag, modes: ['orbit'], mouse: 'rotate-left', pan: 'ground',
             keys: 'focus', maxPolarAngle: Math.PI * 0.495, minDistance: 400, maxDistance: VIEW.far / 2,
             infinityDolly: false,
             pivotPick: { objects: () => [objs.cells, objs.nbed, objs.dem].filter((o) => o && o.visible) },
-            pivotMarker: { whileMoving: false }, // the ring only while the view turns about a still point
         });
         // Moved by the viewer (not by Reset or Focus): a drag or pinch, a key on the focused view, or the gamepad.
         nav.controls.addEventListener('controlstart', () => { camMoved = true; });
@@ -752,7 +750,6 @@ export function mountPane(el, opts = {}) {
         world = new THREE.Group();
         world.scale.y = state.exag;
         scene.add(world);
-        if (nav.pivotMarker) scene.add(nav.pivotMarker); // outside `world`, so the exaggeration does not stretch the ring
         const hemi = new THREE.HemisphereLight(0xffffff, 0x404040, 1.6);
         const sun = new THREE.DirectionalLight(0xffffff, 1.6);
         sun.position.set(-0.6, 1.0, -0.4);

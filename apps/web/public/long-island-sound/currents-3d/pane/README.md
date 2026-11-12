@@ -64,8 +64,8 @@ within 400 m of the line; its maximum 2.25 m/s); along the whole axis the 99th p
 
 vantagekit 0.8.2, orbit only: a drag turns the view, a right drag or two fingers pan along the ground, the wheel or a
 pinch zooms (stopping 400 m from the orbit point), and the keys and a gamepad work while the view has focus. A
-double-click or double-tap on the water's surface or the bed turns the view about that point, marked by a ring while
-the view turns about it (not while the point itself moves, as in a pan). Changing the exaggeration keeps the orbit point on the surface or bed it was at.
+double-click or double-tap on the water's surface or the bed turns the view about that point (no marker is drawn
+there). Changing the exaggeration keeps the orbit point on the surface or bed it was at.
 
 ## Scale
 

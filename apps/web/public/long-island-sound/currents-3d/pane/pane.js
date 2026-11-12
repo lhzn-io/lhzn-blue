@@ -21,7 +21,7 @@ const THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.170.0/+esm';
 // Navigation: vantagekit (Long Horizon Observatory's shared viewer navigation) on camera-controls; it imports neither
 // three.js nor camera-controls, so the pane passes both.
 const CC_URL = 'https://cdn.jsdelivr.net/npm/camera-controls@3.1.2/dist/camera-controls.module.min.js';
-const VK_URL = 'https://cdn.jsdelivr.net/gh/lhzn-io/vantagekit@v0.3.2/vantagekit-three.js';
+const VK_URL = 'https://cdn.jsdelivr.net/gh/lhzn-io/vantagekit@v0.8.1/vantagekit-three.js';
 let threeLoad = null;
 function loadThree() {
     if (!threeLoad) {
@@ -564,7 +564,14 @@ export function mountPane(el, opts = {}) {
         applyUnits(); // the curtain's line of text names its bearing
         root.querySelectorAll('[data-leg="buoy"]').forEach((x) => { x.style.display = state.buoy && state.showModel ? '' : 'none'; });
         if (!state.ready) return;
-        if (k === 'exag') { world.scale.y = state.exag; if (objs.dem && objs.dem.visible) demNormals(); updateBuoy(); }
+        if (k === 'exag') {
+            // The orbit point stays on the water or bed it was at: eye and point move with the new exaggeration.
+            const prev = world.scale.y;
+            world.scale.y = state.exag;
+            nav.rescaleVertical(prev, state.exag, nav.getTarget().y);
+            if (objs.dem && objs.dem.visible) demNormals();
+            updateBuoy();
+        }
         else if (k === 'cells' || k === 'layer' || k === 'cellOpacity' || k === 'edges') updateCells();
         else if (k === 'curtain' || k === 'curtainAz') { if (k === 'curtainAz') buildCurtainCrossings(); updateCurtain(); }
         else if (k === 'bed') updateBeds();
@@ -716,10 +723,16 @@ export function mountPane(el, opts = {}) {
         camera = new THREE.PerspectiveCamera(40, 1, 20, VIEW.far);
         // Orbit only (fly mode would take a public page under the water); pans along the ground, as before. The keyboard
         // moves the camera only while the view has focus (a click, a tap or Tab), so the arrows still scroll the page.
+        // Zoom stops at 400 m rather than carrying the orbit point on through the water (infinityDolly). A double-click
+        // or double-tap on the water's surface or the bed turns the view about that point (vantagekit's pivot pick; the
+        // ray cast meets the meshes as drawn, exaggerated), and a ring marks the point while the view turns.
         nav = lib.createVantage({
             THREE, CameraControls: lib.CameraControls, camera, dom: renderer.domElement,
-            metresPerUnit: 1, exaggeration: () => state.exag, modes: ['orbit'], mouse: 'rotate-left', pan: 'ground',
+            metersPerUnit: 1, exaggeration: () => state.exag, modes: ['orbit'], mouse: 'rotate-left', pan: 'ground',
             keys: 'focus', maxPolarAngle: Math.PI * 0.495, minDistance: 400, maxDistance: VIEW.far / 2,
+            infinityDolly: false,
+            pivotPick: { objects: () => [objs.cells, objs.nbed, objs.dem].filter((o) => o && o.visible) },
+            pivotMarker: true,
         });
         // Moved by the viewer (not by Reset or Focus): a drag or pinch, a key on the focused view, or the gamepad.
         nav.controls.addEventListener('controlstart', () => { camMoved = true; });
@@ -735,6 +748,7 @@ export function mountPane(el, opts = {}) {
         world = new THREE.Group();
         world.scale.y = state.exag;
         scene.add(world);
+        if (nav.pivotMarker) scene.add(nav.pivotMarker); // outside `world`, so the exaggeration does not stretch the ring
         const hemi = new THREE.HemisphereLight(0xffffff, 0x404040, 1.6);
         const sun = new THREE.DirectionalLight(0xffffff, 1.6);
         sun.position.set(-0.6, 1.0, -0.4);

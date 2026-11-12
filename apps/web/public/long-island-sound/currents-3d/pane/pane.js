@@ -96,7 +96,7 @@ const THEMES = {
         buttonInk: '#111111', edge: [1, 1, 1], edgeAlpha: 0.13, arrow: '#decf03', label: '#ffffff',
         sea: [[11, 18, 22], [22, 32, 38], [36, 46, 52]],     // deep, mid, shallow (L* about 6 to 18)
         land: [[46, 43, 38], [70, 66, 58]],                  // low, high
-        nbed: [58, 50, 40],
+        nbed: [[52, 55, 58], [150, 155, 159]],              // model bed gray, shallow to deep
         ramp: RAMP_HALINE, tracer: TRACER_DARK, diverging: DIVERGING_DARK,
     },
     light: {
@@ -105,13 +105,13 @@ const THEMES = {
         buttonInk: '#fdfbf6', edge: [0.11, 0.16, 0.28], edgeAlpha: 0.2, arrow: '#b89300', label: '#1c2a48',
         sea: [[196, 206, 212], [214, 221, 224], [230, 233, 230]],
         land: [[236, 226, 198], [222, 207, 168]],
-        nbed: [214, 196, 160],
+        nbed: [[150, 154, 158], [222, 224, 226]],
         ramp: RAMP_HALINE, tracer: TRACER_LIGHT, diverging: DIVERGING_LIGHT,
     },
 };
 
-// Measured currents (a page-supplied profile) are gold; the model's cells and bed take the full-breadth haline speed
-// scale (indigo to pale yellow, the same on either ground), the tracers their teal scales. One fixed linear scale, 0 to 0.5 m/s, as on longhorizon.blue.
+// Measured currents (a page-supplied profile) are gold; the model's cells take the full-breadth haline speed scale
+// (indigo to pale yellow, the same on either ground), the tracers their teal scales; the model bed is plain gray. One fixed linear scale, 0 to 0.5 m/s, as on longhorizon.blue.
 export const MEASURED_TOP = 0.5; // m/s
 const MEASURED_LIGHT = ['#f7f0d8', '#ead28a', '#d0a930', '#a37b00', '#5f4600'];
 const MEASURED_DARK = ['#2b2410', '#5e4b10', '#9c7c0c', '#d6b30a', '#fde047'];
@@ -396,7 +396,7 @@ export function mountPane(el, opts = {}) {
         <h5>Model cells</h5>
         <p>NECOFS (FVCOM GOM7) currents on the model's own triangles, each element-layer one flat colour by horizontal
         speed on a log scale after cmocean's haline (indigo at slack, blue and green, pale yellow at 3 m/s). ${ALL_LAYERS ? 'The surface layer by default; all 45 sigma layers on request.'
-        : 'The surface layer; the bottom layer colours the model bed.'} Hourly records, each held until the next. Element
+        : 'The surface layer.'} Hourly records, each held until the next. Element
         sides are about 160 m in the Thames and at the Race's edges and 1 to 1.5 km in open water, coarser than the
         model's harbour meshes.</p>
         <h5>Model profile</h5>
@@ -408,7 +408,7 @@ export function mountPane(el, opts = {}) {
         the flood (u sin a + v cos a for the flood bearing a), on a fixed symmetric scale of plus or minus 1.25 m/s,
         clamped beyond (the Race section's 99th percentile is 1.21 m/s), drawn at 0.8 opacity. ${place.curtainNote || ''}</p>
         <h5>Seabed and heights</h5>
-        <p>The model's own faceted bed, shaded and coloured by the bottom layer's speed. NECOFS bed and surface are
+        <p>The model's own faceted bed, shaded, in gray that lightens with depth. NECOFS bed and surface are
         relative to the model's own mean sea level. No survey seabed is drawn yet.</p>
         <h5>Exaggeration</h5>
         <p>Water and seabed at <span data-v="exag2">${EXAG}</span>x<span${HAS.dem ? '' : ' hidden'}>, land above 2.5 m MSL at <span data-v="landx2">4</span>x</span>.
@@ -888,21 +888,19 @@ export function mountPane(el, opts = {}) {
         objs.nbedEdges = new THREE.LineSegments(eg, track(new THREE.LineBasicMaterial({ transparent: true })));
         world.add(objs.nbed, objs.nbedEdges);
     }
-    // The model bed is shaded (flat, per facet) and coloured by the bottom layer's speed at the
-    // current NECOFS record, one colour per element.
+    // The model bed is shaded (flat, per facet) and plain gray, lighter with depth (log of depth, 5 to 100 m), so the
+    // deep channels (The Race) read rather than sink into shadow under the cells.
     function nbedColours() {
         if (!objs.nbed) return;
-        const { E, L, speed } = mesh;
-        const lut = THEMES[state.light ? 'light' : 'dark'].lut;
+        const { E, tri, h } = mesh;
+        const [lo, hi] = THEMES[state.light ? 'light' : 'dark'].nbed;
         const col = objs.nbed.geometry.getAttribute('color');
+        const k = Math.log(100 / 5);
         for (let e = 0; e < E; e++) {
-            let c = null;
-            if (nec.rec >= 0) c = 3 * lutIndex(speed[(nec.rec * L + L - 1) * E + e] / 1000);
-            for (let j = 0; j < 3; j++) {
-                const p = (e * 3 + j) * 3;
-                if (c === null) col.array.set([0.3, 0.3, 0.3], p);
-                else { col.array[p] = lut[c]; col.array[p + 1] = lut[c + 1]; col.array[p + 2] = lut[c + 2]; }
-            }
+            const d = (h[tri[3 * e]] + h[tri[3 * e + 1]] + h[tri[3 * e + 2]]) / 3;
+            const f = Math.min(1, Math.max(0, Math.log(Math.max(d, 5) / 5) / k));
+            const c = [0, 1, 2].map((i) => srgbToLinear((lo[i] + (hi[i] - lo[i]) * f) / 255));
+            for (let j = 0; j < 3; j++) col.array.set(c, (e * 3 + j) * 3);
         }
         col.needsUpdate = true;
     }
@@ -1528,7 +1526,7 @@ export function mountPane(el, opts = {}) {
         if (rN !== nec.rec) {
             nec.rec = rN;
             nec.zl = rN >= 0 ? levelZ(rN) : null;
-            updateCells(); updateCurtain(); nbedColours();
+            updateCells(); updateCurtain();
         }
         parts.push(`<b>NECOFS</b> ${rN >= 0 ? fmtUtc(mesh.times[rN]) : 'no record yet'}`);
         // Measured profile: its own records, when the page has one.

@@ -16,7 +16,7 @@ KV:
 | File | Contents |
 | :--- | :--- |
 | `pane.js` | the module (ES module; lazy-loads three.js r170, camera-controls 3.1.2 and [vantagekit](https://github.com/lhzn-io/vantagekit) 0.8.2 from jsDelivr) |
-| `ramp.js` | the currents speed ramps: the site's teal pair (light and dark), and forcingkit's `currents_lis_haline`, which the cells and bed use on either ground |
+| `ramp.js` | the currents speed ramps: the site's teal pair (light and dark), and forcingkit's `currents_lis_haline`, which the cells use on either ground |
 | `mesh.json` | counts, record times (epoch s), sigma levels (`siglev` for drawing, `model_siglev` the model's, `layer_index` the layers held), the element holding the meter (`buoy_element`), the section's geometry, file names, statistics |
 | `nodes.f32` | per node: east, north (m from the meter), h (m, positive down), float32 |
 | `tri.u16` | per element: three node indices, uint16, counter-clockwise |
@@ -78,7 +78,7 @@ there). Changing the exaggeration keeps the orbit point on the surface or bed it
 
 - Element sides are about 160 m in the Thames and at the Race's edges and 1 to 1.5 km in open water, so the Race's
   jets and eddies are resolved only coarsely.
-- The whole Sound draws only the surface layer's top face and the bed (coloured by the bottom layer); "All layers" is
+- The whole Sound draws only the surface layer's top face and the bed (plain gray, lighter with depth); "All layers" is
   for the eastern Sound. An hour without a section (a read that failed, filled on a later run) draws no curtain.
 - Velocities are stored in steps of 2 cm/s and stop at 2.54 m/s; `mesh.json`'s `stats` gives each window's maximum.
 - NECOFS bed and surface are relative to the model's own mean sea level.

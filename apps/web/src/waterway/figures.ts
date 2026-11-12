@@ -12,7 +12,7 @@ export interface Built {
   opts: ChartOptions;
   /** Each entry: the line's label (matched by the highlight; "" for an entry with no line), its colour and opacity, and
    * the name shown, where shorter than the label. */
-  legend: [string, string, number, string?][];
+  legend: [string, string, number, string?, "band"?][]; // "band": shading, drawn as a taller swatch
   note?: string;
 }
 
@@ -58,10 +58,10 @@ export const fullRange = (d: StationData, f: Fig): [number, number] => [f.start?
 export function legendHtml(b: Built, withNote = false): string {
   return (
     b.legend
-      .map(([label, color, op, shown]) =>
+      .map(([label, color, op, shown, band]) =>
         label
           ? `<button type="button" class="lg" data-label="${label}" title="${label}"><i style="background:${color};opacity:${op}"></i>${shown ?? label}</button>`
-          : `<span class="lg lg-static"><i style="background:${color};opacity:${op}"></i>${shown ?? ""}</span>`)
+          : `<span class="lg lg-static"><i${band ? ' class="shade"' : ""} style="background:${color};opacity:${op}"></i>${shown ?? ""}</span>`)
       .join("") + (withNote && b.note ? `<span class="off">${b.note}</span>` : "")
   );
 }

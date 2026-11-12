@@ -207,6 +207,17 @@ export function gfsRunWind(r: GfsRun, t: number, maxGap = Infinity): { u: number
   return Number.isFinite(u) && Number.isFinite(v) ? { u, v, gust: at(r.gust), h } : null;
 }
 
+/** GFS's last forecast before an hour (kt): the newest run issued before it that reaches it, NaN where none. Runs of the
+ * last 30 hours carry every lead; older ones only the verification leads (6 to 12 hours apart, read across). */
+export function gfsBefore(id: string, t: number): number {
+  for (const r of GFS?.runs[id] ?? []) {
+    if (r.issue >= t) continue;
+    const w = gfsRunWind(r, t, 12);
+    if (w) return Math.hypot(w.u, w.v) * MS_KT;
+  }
+  return NaN;
+}
+
 /** The verification tag for GFS: its typical miss at the buoys at a lead, linked to the page. */
 export function gfsTag(lead?: number, err?: number): string {
   const n = GFS?.ver ? Object.values(GFS.ver.by_lead).reduce((a, b) => a + ((b.all as FcStats & { n?: number }).n ?? 0), 0) : 0;

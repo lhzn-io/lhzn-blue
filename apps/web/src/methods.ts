@@ -90,9 +90,11 @@ export const METHODS: Record<string, Method> = {
       "the page's time, changed from run to run: along its bottom is the time each run was issued, so a line rising to " +
       "the right is the model raising that hour's wind as it drew nearer; once the hour has passed, a gold dot is the " +
       "wind measured then; past HRRR's reach the chart is GFS's, its runs of the last 30 hours, 6 hours apart. Past the last hour HRRR reaches, NOAA's GFS model carries the forecast on in green, with its " +
-      "own typical miss shaded in a paler green; \"7 days\", a switch on the plot, widens it to a week ahead. Over HRRR's " +
-      "last day the green line starts early, GFS for the same hours, so where the two models meet, a step between them reads as " +
-      "their difference in timing or strength; both models' gusts are drawn there. Along the bottom, a thin, faint brick " +
+      "own typical miss shaded in a paler green; \"7 days\", a switch on the plot, widens it to a week ahead. From now to " +
+      "HRRR's last hour the green line runs beside it, GFS for the same hours, so where the two models meet, a step between them reads as " +
+      "their difference in timing or strength; both models' gusts are drawn over HRRR's last day. Before now a thinner green " +
+      "line is GFS's last forecast before each hour, and with Revisions on GFS's earlier runs are drawn faint across the " +
+      "whole window, as HRRR's are. Along the bottom, a thin, faint brick " +
       "strip marks the hours the forecast reaches the National Weather Service's level for a small craft advisory (25 kt) " +
       "or a gale warning (34 kt, darker), and a stronger strip the hours an advisory is in force for the station's marine " +
       "zone (darker for a gale).",

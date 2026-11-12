@@ -149,7 +149,7 @@ function placeUrl(s: Station | null): string {
   return `/${CFG.id}/${s ? `${s.id.toLowerCase()}/` : ""}${qs ? `?${qs}` : ""}`;
 }
 
-/** The first navigation row: Overview, the chip kinds (the buoys) by name, and a menu of every other station with a
+/** The first navigation row: the waterway by name, the chip kinds (the buoys) by name, and a menu of every other station with a
  * page, in the config's groups. Links, so each place is its own address and Back works as anywhere. */
 function drawPlaces(): void {
   const here = (s: Station | null) => (s?.id ?? null) === (STATION?.id ?? null);
@@ -163,7 +163,7 @@ function drawPlaces(): void {
     .join("");
   const inMenu = STATION && !CFG.nav.chips.includes(STATION.kind);
   $("places").innerHTML =
-    `<span class="rg-seg">${link(null, "Overview", "rg-btn rg-place")}${chips.join("")}</span>` +
+    `<span class="rg-seg">${link(null, CFG.name, "rg-btn rg-place")}${chips.join("")}</span>` +
     `<details class="rg-menu"><summary class="rg-btn${inMenu ? " rg-current" : ""}">${inMenu ? esc(STATION!.name) : "Stations"}</summary><ul>${groups}</ul></details>`;
 }
 

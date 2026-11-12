@@ -275,7 +275,7 @@ function moonCaption(t: number): string {
 
 /** The Tides view's table: per shore station, the water against the prediction, the next high and low, and how far
  * the next high would stay below minor flooding if the current departure held. */
-export function tidesTable(stations: StationData[]): string {
+export function tidesTable(stations: StationData[], href: (d: StationData) => string = (d) => `#${d.meta.id}`): string {
   const shore = stations.filter((d) => d.kind === "shore");
   const at = AT ?? Date.now() / 1000;
   const rows = shore.map((d) => {
@@ -290,7 +290,7 @@ export function tidesTable(stations: StationData[]): string {
     const margin = minor != null && Number.isFinite(reach)
       ? `<td title="NWS minor flood ${minor.toFixed(1)} ft; next high ${hi!.ft.toFixed(1)} ft predicted, ${reach.toFixed(1)} ft with the current departure"><b>${(minor - reach).toFixed(1)}<small class="g"> ft</small></b><small>below</small></td>`
       : `<td class="na">&middot;</td>`;
-    return `<tr><th scope="row"><a href="#${d.meta.id}"><i class="dot shore ${overallState(d)}"></i>${d.meta.name}</a></th>${levelCell(d)}${depCell}${ev(hi)}${ev(lo)}${margin}</tr>`;
+    return `<tr><th scope="row"><a href="${href(d)}"${href(d).startsWith("#") ? "" : ` data-place="${d.meta.id}"`}><i class="dot shore ${overallState(d)}"></i>${d.meta.name}</a></th>${levelCell(d)}${depCell}${ev(hi)}${ev(lo)}${margin}</tr>`;
   });
   return `<table class="status-grid" id="status-panel"><caption>${moonCaption(AT ?? Date.now() / 1000)}</caption>
     <thead><tr><th></th><th scope="col">Level</th><th scope="col">Departure</th><th scope="col">Next high</th><th scope="col">Next low</th><th scope="col">Below flood</th></tr></thead>

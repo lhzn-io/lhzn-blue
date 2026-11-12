@@ -386,10 +386,10 @@ export function airportPin(d: StationData): Pin {
 
 /** The buoys' or the shore stations' table in the view's columns, with its tabs and key (the overview's status table
  * in every view but Rivers, Turbidity and Tides, which the page writes itself). */
-export function stationTables(stations: StationData[], SG: string): string {
+export function stationTables(stations: StationData[], SG: string, href: (d: StationData) => string = (d) => `#${d.meta.id}`): string {
   const buoys = stations.filter((d) => d.kind === "buoy");
   const shore = stations.filter((d) => d.kind === "shore");
-  const name = (d: StationData) => `<th scope="row"><a href="#${d.meta.id}"><i class="dot${d.kind === "shore" ? " shore" : ""} ${overallState(d)}"></i>${d.meta.name}</a></th>`;
+  const name = (d: StationData) => `<th scope="row"><a href="${href(d)}"${href(d).startsWith("#") ? "" : ` data-place="${d.meta.id}"`}><i class="dot${d.kind === "shore" ? " shore" : ""} ${overallState(d)}"></i>${d.meta.name}</a></th>`;
   const wind = `wind (${WIND_UNITS[WU].label})`;
   const waterUnit = M.view() === "temp" ? tempHtml() : unitName(M.view());
   const what = `${V().label.toLowerCase()} (${waterUnit})`;

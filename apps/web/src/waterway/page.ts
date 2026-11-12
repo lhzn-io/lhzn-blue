@@ -1202,10 +1202,12 @@ function statusHtml(all: StationData[], survey = false): string {
   const stations = all.filter(onStation);
   if (VK === "turbidity") return turbTable() + PARTS.shoreTable() + outlookHtml(STATIONS);
   if (VK === "rivers") return riverTable(A.RIVER_SECTIONS[0]) + outlookHtml(STATIONS);
-  if (VK === "tides") return STATION_ID && stations[0]?.kind === "meter" ? "" : tidesTable(stations) + highestAheadHtml(stations, CFG.defaults.tideStation);
+  // On the waterway's page a station's name opens its own page (the sections are there, not here).
+  const href = soundWide() ? (d: StationData) => (CFG.stationPages?.views[d.kind]?.length ? placeUrl(d.meta.id) : `#${d.meta.id}`) : undefined;
+  if (VK === "tides") return STATION_ID && stations[0]?.kind === "meter" ? "" : tidesTable(stations, href) + highestAheadHtml(stations, CFG.defaults.tideStation);
   const group = STATION_ID ? (stations[0]?.kind === "shore" ? "shore" : "buoy") : SG;
   // An airport is in neither table: its page leads with the outlook. The shore gauges' own table is the overview's.
-  const table = STATION_ID && stations[0]?.kind === "airport" ? "" : stationTables(stations, group);
+  const table = STATION_ID && stations[0]?.kind === "airport" ? "" : stationTables(stations, group, href);
   // The wind across the whole waterway is the overview's: a station's page keeps to the station, with its wind roses.
   const across = STATION_ID ? windRoseHtml(stations[0], VK) : survey ? "" : windAcrossHtml(all, CFG.called);
   return `${table}${stationPhoto()}${isWater(VK) && !STATION_ID ? PARTS.shoreTable() : ""}${outlookHtml(all)}${across}`;
@@ -2229,7 +2231,7 @@ async function main(): Promise<void> {
     // A remembered salinity or oxygen choice loads its history first; if that fails, show temperature.
     if (VK !== "temp") await A.ensureVar(VK, live, stations, addSources).catch(() => (VK = "temp"));
     /** The stations on screen: the rivers section in the Rivers view, the buoys and shore stations otherwise. */
-    const shown = () => (VIRTUAL ? [VIRTUAL] : EMBED ? [...stations, ...A.RIVER_SECTIONS].filter((d) => d.meta.id === EMBED_STATION) : VK === "rivers" ? A.RIVER_SECTIONS : VK === "turbidity" ? (A.TURB_SECTION ? [A.TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore" || d.kind === "meter") : stations.filter((d) => (d.kind !== "airport" || VK === "wind") && d.kind !== "meter" && hasView(d, VK))).filter(onStation);
+    const shown = () => (VIRTUAL ? [VIRTUAL] : EMBED ? [...stations, ...A.RIVER_SECTIONS].filter((d) => d.meta.id === EMBED_STATION) : soundWide() ? [] : VK === "rivers" ? A.RIVER_SECTIONS : VK === "turbidity" ? (A.TURB_SECTION ? [A.TURB_SECTION] : []) : VK === "tides" ? stations.filter((d) => d.kind === "shore" || d.kind === "meter") : stations.filter((d) => (d.kind !== "airport" || VK === "wind") && d.kind !== "meter" && hasView(d, VK))).filter(onStation);
     const drawAll = () => {
       for (const d of shown()) {
         readouts(d);
@@ -2249,6 +2251,7 @@ async function main(): Promise<void> {
         return list.length ? (grouped ? `<h2 class="station-group">${title}</h2>` : "") + list.map(sectionHtml).join("") : "";
       };
       if (STATION_ID && !EMBED) $("stations").innerHTML = shown().map(sectionHtml).join("");
+      else if (soundWide()) $("stations").innerHTML = stationIndexHtml(stations);
       else $("stations").innerHTML = EMBED
         ? embedHtml([...stations, ...A.RIVER_SECTIONS].find((d) => d.meta.id === EMBED_STATION))
         : VK === "tides"
@@ -3032,7 +3035,28 @@ function windReading(d: StationData): string[] {
   return [measured, forecast];
 }
 
-/** The places row: Overview, the stations shown as their own links, and a menu of the rest, in groups; the current one
+/** The waterway's own page (/long-island-sound/) keeps to the waterway as a whole: the map, the tables, the outlook and
+ * the wind across it. Each station's plots are on its own page, listed below the map; the Rivers and Turbidity views
+ * are already the whole waterway's and keep their sections. A waterway without station pages shows every section. */
+const soundWide = () => !!PAGES && !!CFG.stationPages && !STATION_ID && !EMBED && !VIRTUAL && VK !== "rivers" && VK !== "turbidity";
+
+/** The station pages of the view on screen, by group, as links in place of the sections. */
+function stationIndexHtml(stations: StationData[]): string {
+  const sp = CFG.stationPages!;
+  const kinds: StationData["kind"][] = VK === "tides" ? ["shore", "meter"] : VK === "wind" ? ["buoy", "shore", "airport"] : ["buoy", "shore"];
+  const titles = CFG.groups as unknown as Record<string, string | undefined>;
+  const groups = kinds
+    .map((k) => {
+      const list = stations.filter((d) => d.kind === k && hasView(d, VK) && sp.views[d.kind]?.length);
+      return list.length
+        ? `<p class="si-group">${escHtml(titles[k] ?? k)}</p><p class="si-list">${list.map((d) => `<a href="${placeUrl(d.meta.id)}" data-place="${d.meta.id}">${escHtml(d.meta.name)}</a>`).join("")}</p>`
+        : "";
+    })
+    .join("");
+  return groups ? `<h2 class="station-group">Station pages</h2><p class="si-note">Each station's readings and plots are on its own page.</p>${groups}` : "";
+}
+
+/** The places row: the waterway, the stations shown as their own links, and a menu of the rest, in groups; the current one
  * marked. Drawn as stations join. */
 function drawPlaces(): void {
   const box = document.getElementById("places");
@@ -3050,17 +3074,17 @@ function drawPlaces(): void {
         .map((g) => `<p class="place-group">${escHtml(g.title)}</p>${g.list.map((d) => `<a href="${placeUrl(d.meta.id)}" data-place="${d.meta.id}"${here(d.meta.id)}>${escHtml(d.meta.name)}</a>`).join("")}`)
         .join("")}</div></details>`
     : "";
-  box.innerHTML = link(null, "Overview") + withPage.filter((d) => sp.chips.includes(d.kind)).map((d) => link(d.meta.id, d.meta.name)).join("") + menu;
+  box.innerHTML = link(null, CFG.name) + withPage.filter((d) => sp.chips.includes(d.kind)).map((d) => link(d.meta.id, d.meta.name)).join("") + menu;
   // The top bar's picker: the place in words, and the same places as one list under it.
   const pick = document.getElementById("place-pick");
   const panel = document.getElementById("place-panel");
   if (!pick || !panel) return;
   pick.hidden = false;
-  pick.querySelector(".vm-current")!.textContent = STATION_ID ? ([...STATIONS, ...A.RIVER_SECTIONS].find((d) => d.meta.id === STATION_ID)?.meta.name ?? VIRTUAL?.meta.name ?? STATION_ID) : "Overview";
+  pick.querySelector(".vm-current")!.textContent = STATION_ID ? ([...STATIONS, ...A.RIVER_SECTIONS].find((d) => d.meta.id === STATION_ID)?.meta.name ?? VIRTUAL?.meta.name ?? STATION_ID) : CFG.name;
   const item = (id: string | null, label: string) => `<a href="${placeUrl(id)}" data-place="${id ?? ""}"${here(id)}>${escHtml(label)}</a>`;
   const chips = withPage.filter((d) => sp.chips.includes(d.kind));
   panel.innerHTML =
-    item(null, "Overview") +
+    item(null, CFG.name) +
     (chips.length ? `<p class="place-group">Buoys</p>${chips.map((d) => item(d.meta.id, d.meta.name)).join("")}` : "") +
     groups.map((g) => `<p class="place-group">${escHtml(g.title)}</p>${g.list.map((d) => item(d.meta.id, d.meta.name)).join("")}`).join("");
 }

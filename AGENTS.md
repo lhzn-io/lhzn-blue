@@ -7,10 +7,16 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
 - `stations/`: the registries. `stations.json` (buoys: datasets per depth, archive sources), `shore.json` (NOAA
   CO-OPS stations and their products), `rivers.json` (USGS gauges). Both the jobs and the page read them; add a
   station or a series here first.
-- `packages/timecharts/` (`@lhzn-io/timecharts`, TypeScript source for Vite): `chart.ts`, `time-axis.ts`,
-  `series.ts`, `dst.ts`, `wind-dir.ts`, `moon.ts`, the currents and measured ramps, and `tokens.css` (the theme
-  tokens). `apps/web` depends on it as `file:../../packages/timecharts`; other sites install the tarball of a
-  `timecharts-v*` release (`scripts/release-timecharts.sh`). Keep it free of anything specific to one waterway.
+- `packages/` (public npm packages, MIT, built by `tsc` into `dist/`; keep them free of anything specific to one
+  waterway or to this site):
+  - `timecharts/` (`@lhzn-io/timecharts`): `chart.ts`, `time-axis.ts`, `zone.ts` (the time zone, America/New_York
+    by default; `setTimeZone`, or a chart's or track's own `timeZone`), `series.ts`, `dst.ts`, `wind-dir.ts`,
+    `moon.ts`, the currents and measured ramps, and `tokens.css` (the theme tokens).
+  - `collect/` (`@lhzn-io/collect`): Collect (`collect.ts`: the tray and the "Ask your AI" prompt; `snapshot.ts`:
+    one PNG of the collected items; `collect.css`). The page supplies a `CollectHost` and options (labels, terms
+    link, suggestion panel, what the image leaves out); this site's are in `waterway/prompt.ts`.
+  - `apps/web` depends on both as `file:` links and builds them before `dev`, `build` and `typecheck`; other sites
+    install them from npm (`scripts/release-package.sh`).
 - The jobs' NOAA CO-OPS and NERACOOS ERDDAP clients and the guarded store come from `insitukit` (PyPI,
   `lhzn-io/insitukit`); `lhzn_blue_jobs/__init__.py` identifies every request as this site. A change to those
   belongs in insitukit, released, then the pin here raised. Use insitukit's public functions only (no `coops._get`,
@@ -43,8 +49,8 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
   - `map.ts` (MapLibre locator map, pins, river basins; loaded on demand), `fields.ts` (map layers: colour bar,
     rasters, currents), `timeline.ts` (the one time cursor for the map, the charts, the table and the pins).
   - `methods.ts` (the text behind every (i) and the method notes in the prompt; `[[key]]` cites
-    `docs/references.bib`), `collect.ts` and `snapshot.ts` (Collect: the tray, the "Ask your AI" prompt, one PNG
-    of the collected items), `hints.ts`, `suggest.ts`, `site.css` (layout; imports the tokens from the package).
+    `docs/references.bib`), `waterway/prompt.ts` (the prompt, and Collect wired to `@lhzn-io/collect`), `hints.ts`,
+    `suggest.ts`, `site.css` (layout; imports the tokens and Collect's styles from the packages).
 - `apps/web/` pages: `/` (landing), `/long-island-sound/` with `forecast/`, `models/` and `tides/`, `/about/`,
   `/references/`, `/terms/`, and unlisted pages (any page not in `public/sitemap.xml`). `public/` holds
   `basins.geojson`, `references.bib`, `_headers`, `robots.txt` and `sitemap.xml`.
@@ -65,7 +71,7 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
   Keep it that way: no per-run or timestamped object names in KV. (The forecast archive's per-cycle files go to its
   own create-only store, not KV.)
 - **Numbers as text.** The AI prompt is built from the same values the charts use (`lis.ts`, `promptData`, and the
-  Collect prompt in `collect.ts`); the template is `configs/prompts/visitor_prompt.txt`. The Collect image is for
+  Collect prompt in `waterway/prompt.ts`); the template is `configs/prompts/visitor_prompt.txt`. The Collect image is for
   context; never make it the source of numbers.
 - **One time for every surface.** When the timeline's cursor is set, the table, pins, readouts and prompts show
   values at that time: observed, or forecast where one exists, never blended; "--" otherwise.
@@ -87,5 +93,5 @@ scripts/seed-kv.sh out                                           # push local ou
 scripts/deploy-web.sh                                            # build site and deploy the Worker
 scripts/setup-gcp.sh && scripts/deploy-jobs.sh && scripts/schedule-jobs.sh
 cd jobs && uv run pytest                                          # job tests
-scripts/release-timecharts.sh 0.1.0                              # pack timecharts; --publish to release it
+scripts/release-package.sh timecharts 0.2.0                      # build and pack; --publish for npm (npm login)
 ```

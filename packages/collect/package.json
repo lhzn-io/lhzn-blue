@@ -1,0 +1,28 @@
+{
+  "name": "@lhzn-io/collect",
+  "version": "0.1.0",
+  "description": "Collect plots on a page, then ask your own AI about them: one image and a prompt on the clipboard, or a suggestion by email",
+  "license": "MIT",
+  "author": "Long Horizon Observatory",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lhzn-io/lhzn-blue.git",
+    "directory": "packages/collect"
+  },
+  "homepage": "https://github.com/lhzn-io/lhzn-blue/tree/main/packages/collect#readme",
+  "type": "module",
+  "sideEffects": ["*.css"],
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./snapshot": { "types": "./dist/snapshot.d.ts", "default": "./dist/snapshot.js" },
+    "./collect.css": "./collect.css"
+  },
+  "files": ["dist", "collect.css", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

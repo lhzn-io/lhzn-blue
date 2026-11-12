@@ -1,20 +1,35 @@
 {
   "name": "@lhzn-io/timecharts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Time-series charts on one shared time axis, with the series helpers, ramps and theme tokens of longhorizon.blue",
   "license": "MIT",
   "author": "Long Horizon Observatory",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lhzn-io/lhzn-blue.git",
+    "directory": "packages/timecharts"
+  },
+  "homepage": "https://github.com/lhzn-io/lhzn-blue/tree/main/packages/timecharts#readme",
   "type": "module",
+  "sideEffects": ["*.css"],
   "exports": {
-    "./chart": "./src/chart.ts",
-    "./time-axis": "./src/time-axis.ts",
-    "./series": "./src/series.ts",
-    "./dst": "./src/dst.ts",
-    "./wind-dir": "./src/wind-dir.ts",
-    "./moon": "./src/moon.ts",
-    "./currents-ramp": "./src/currents-ramp.ts",
-    "./measured-ramp": "./src/measured-ramp.ts",
+    "./chart": { "types": "./dist/chart.d.ts", "default": "./dist/chart.js" },
+    "./time-axis": { "types": "./dist/time-axis.d.ts", "default": "./dist/time-axis.js" },
+    "./zone": { "types": "./dist/zone.d.ts", "default": "./dist/zone.js" },
+    "./series": { "types": "./dist/series.d.ts", "default": "./dist/series.js" },
+    "./dst": { "types": "./dist/dst.d.ts", "default": "./dist/dst.js" },
+    "./wind-dir": { "types": "./dist/wind-dir.d.ts", "default": "./dist/wind-dir.js" },
+    "./moon": { "types": "./dist/moon.d.ts", "default": "./dist/moon.js" },
+    "./currents-ramp": { "types": "./dist/currents-ramp.d.ts", "default": "./dist/currents-ramp.js" },
+    "./measured-ramp": { "types": "./dist/measured-ramp.d.ts", "default": "./dist/measured-ramp.js" },
     "./tokens.css": "./tokens.css"
   },
-  "files": ["src", "tokens.css", "README.md"]
+  "files": ["dist", "tokens.css", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
 }

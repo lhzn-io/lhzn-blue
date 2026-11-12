@@ -5,16 +5,17 @@
  * month or less; a tick a week (taller on each 1st) over a season; one a month over a longer record. Under the ticks,
  * in the track's lower half, small day labels: weekday and day number over a few days ("Thu 29"), day numbers over
  * weeks, months beyond; the month on each 1st and on the leftmost label. The moon's principal phases along the top
- * edge, each at its own time (spring tides follow new and full moon by a day or two). */
+ * edge, each at its own time (spring tides follow new and full moon by a day or two). Days and hours are those of the
+ * package's time zone (see `zone`), or of the track's own `timeZone`. */
 
-import { moonGlyph, moonPhases } from "./moon";
+import { moonGlyph, moonPhases } from "./moon.js";
+import { dtf, getTimeZone, zonedDate, zonedMidnight } from "./zone.js";
 
-const TZ = "America/New_York";
-const fmtHour = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
-const fmtDate = new Intl.DateTimeFormat("en-US", { timeZone: TZ, day: "numeric" });
-const fmtWeekday = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" });
-const fmtMonth = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "short" });
-const fmtYear = new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric" });
+const HOUR_OPTS: Intl.DateTimeFormatOptions = { hour: "numeric", hourCycle: "h23" };
+const DATE_OPTS: Intl.DateTimeFormatOptions = { day: "numeric" };
+const WEEKDAY_OPTS: Intl.DateTimeFormatOptions = { weekday: "short" };
+const MONTH_OPTS: Intl.DateTimeFormatOptions = { month: "short" };
+const YEAR_OPTS: Intl.DateTimeFormatOptions = { year: "numeric" };
 const HOUR = 3600;
 const DAY = 24 * HOUR;
 
@@ -33,8 +34,13 @@ export function setPlayButton(b: HTMLElement, playing: boolean): void {
 
 /** The track's ticks, day labels and moons for [t0, t1] (epoch seconds), as positioned HTML. `now` splits the past
  * from what is ahead (fainter) and is marked where it falls in the span. */
-export function axisHtml(t0: number, t1: number, now = Date.now() / 1000): string {
+export function axisHtml(t0: number, t1: number, now = Date.now() / 1000, timeZone = getTimeZone()): string {
   if (!(t1 > t0)) return "";
+  const fmtHour = dtf(HOUR_OPTS, timeZone);
+  const fmtDate = dtf(DATE_OPTS, timeZone);
+  const fmtWeekday = dtf(WEEKDAY_OPTS, timeZone);
+  const fmtMonth = dtf(MONTH_OPTS, timeZone);
+  const fmtYear = dtf(YEAR_OPTS, timeZone);
   const x = (t: number) => (t - t0) / (t1 - t0);
   const ahead = (t: number) => (t > now + 60 ? " ahead" : "");
   const atNow = (t: number) => Math.abs(t - now) < HOUR / 2; // "now" has its own mark
@@ -83,7 +89,7 @@ export function axisHtml(t0: number, t1: number, now = Date.now() / 1000): strin
   } else {
     // A long record: a tick on each month's 1st, labelled with the month (the year in January, taller; the leftmost
     // label with its year too).
-    for (let t = firstOfMonth(t0); t <= t1; t = firstOfMonth(t + 32 * DAY)) {
+    for (let t = firstOfMonth(t0, timeZone); t <= t1; t = firstOfMonth(t + 32 * DAY, timeZone)) {
       if (t < t0) continue;
       const d = new Date(t * 1000);
       const jan = fmtMonth.format(d) === "Jan";
@@ -95,10 +101,9 @@ export function axisHtml(t0: number, t1: number, now = Date.now() / 1000): strin
 }
 
 /** Local midnight on the first of the month that holds t (epoch seconds). */
-function firstOfMonth(t: number): number {
-  const s = Math.round(t / HOUR) * HOUR - (Number(fmtDate.format(new Date(t * 1000))) - 1) * DAY;
-  const h = Number(fmtHour.format(new Date(s * 1000))) % 24; // off midnight by the hours of the day, or a DST hour
-  return s + (h >= 12 ? 24 - h : -h) * HOUR;
+function firstOfMonth(t: number, timeZone: string): number {
+  const [y, m] = zonedDate(t, timeZone);
+  return zonedMidnight(y, m, 1, timeZone);
 }
 
 /** Hide the dates that would run into the one before (a narrow phone, a long first label), left to right. */
@@ -116,7 +121,7 @@ export function thinDates(ticks: HTMLElement): void {
  * needle and knob at its value. `timeOf` maps the input's values to epoch seconds (an index into the page's hours, or
  * the time itself). The page keeps its input and its listeners; setting the input's value, min or max (as the page
  * already does, from play, steps or new data) moves the needle or redraws the dates. */
-export function timeTrack(input: HTMLInputElement, timeOf: (v: number) => number): { redraw: () => void } {
+export function timeTrack(input: HTMLInputElement, timeOf: (v: number) => number, options: { timeZone?: string } = {}): { redraw: () => void } {
   const track = document.createElement("div");
   track.className = "tl-track time-track";
   input.replaceWith(track);
@@ -146,7 +151,7 @@ export function timeTrack(input: HTMLInputElement, timeOf: (v: number) => number
     if (key !== drawn && Number.isFinite(t0) && Number.isFinite(t1)) {
       drawn = key;
       track.style.setProperty("--tl-now", pct(t1 > t0 ? (now - t0) / (t1 - t0) : 0));
-      ticks.innerHTML = axisHtml(t0, t1, now);
+      ticks.innerHTML = axisHtml(t0, t1, now, options.timeZone ?? getTimeZone());
       thin();
     }
     sync();

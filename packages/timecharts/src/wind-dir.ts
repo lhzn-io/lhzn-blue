@@ -4,7 +4,7 @@
  * Directions arrive as the meteorological convention, degrees the wind blows FROM, clockwise from true north. The
  * arrows point the other way, downwind, the way a flag streams and the way the water is pushed.
  */
-import type { Glyph } from "./chart";
+import type { Glyph } from "./chart.js";
 
 const HOUR = 3600;
 const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];

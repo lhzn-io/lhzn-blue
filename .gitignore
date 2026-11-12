@@ -25,3 +25,7 @@ walkthrough.md
 # OS
 .DS_Store
 Thumbs.db
+
+# Built packages and release tarballs
+packages/*/dist/
+/dist/

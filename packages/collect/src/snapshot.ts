@@ -1,13 +1,12 @@
 /**
- * One PNG of what a visitor collected: each plot, readout row or the map, painted from the page as it stands, with
- * a title per item and a credit footer. A small painter rather than a library: the plots are SVG with HTML labels,
- * so it draws each <svg> as an image, each <canvas> (the map) as is, coloured boxes (dots, bands, colour bars) and
- * every text node in its own computed font and colour. Controls (buttons for collect, info, expand) are left out.
+ * One PNG of what a visitor collected: each plot, table row or map, painted from the page as it stands, with a title
+ * per item and a credit footer. A small painter rather than a library: the plots are SVG with HTML labels, so it
+ * draws each <svg> as an image, each <canvas> (a map) as is, coloured boxes (dots, bands, colour bars) and every text
+ * node in its own computed font and colour. The "+" buttons are left out, and whatever else the page names.
  */
 
-/** Elements not painted (and not descended into): controls, hover overlays, and the time rows (their lines are CSS
- * decorations; the map's title carries the time instead). */
-const SKIP = ".fig-actions, .collect-btn, .fig-info, .band-info, .tip, .cursor-vals, .maplibregl-control-container, .timeline, .layers-drawer, .field-info, .map-actions, .sr-only";
+/** Elements never painted (and not descended into); a page adds its own controls and hover overlays with `skip`. */
+const SKIP = ".collect-btn, .sr-only, .maplibregl-control-container";
 
 export interface SnapItem {
   title: string;
@@ -47,11 +46,11 @@ async function svgImage(svg: SVGSVGElement, w: number, h: number): Promise<HTMLI
 }
 
 /** Paint `root` with its top-left at (x, y), scaled by `k`. */
-async function paint(ctx: CanvasRenderingContext2D, root: HTMLElement, x: number, y: number, k: number): Promise<void> {
+async function paint(ctx: CanvasRenderingContext2D, root: HTMLElement, x: number, y: number, k: number, skip: string): Promise<void> {
   const base = root.getBoundingClientRect();
   const at = (r: DOMRect) => ({ x: x + (r.left - base.left) * k, y: y + (r.top - base.top) * k, w: r.width * k, h: r.height * k });
   const visit = async (el: Element): Promise<void> => {
-    if (el !== root && el.matches(SKIP)) return;
+    if (el !== root && el.matches(skip)) return;
     const cs = getComputedStyle(el);
     if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity) === 0) return;
     const r = el.getBoundingClientRect();
@@ -140,8 +139,10 @@ function paintText(ctx: CanvasRenderingContext2D, node: Text, cs: CSSStyleDeclar
   }
 }
 
-/** The PNG: a header line, then each item with its title, then the credit. */
-export async function snapshot(items: SnapItem[], header: string, credit: string): Promise<Blob> {
+/** The PNG: a header line, then each item with its title, then the credit. `skip` adds selectors of elements to
+ * leave out. */
+export async function snapshot(items: SnapItem[], header: string, credit: string, skip?: string): Promise<Blob> {
+  const leaveOut = skip ? `${SKIP}, ${skip}` : SKIP;
   const inner = WIDTH - 2 * PAD;
   const scaled = items.map((it) => {
     const r = it.el.getBoundingClientRect();
@@ -169,7 +170,7 @@ export async function snapshot(items: SnapItem[], header: string, credit: string
     ctx.font = `600 13px ${sans}`;
     ctx.fillText(it.title, PAD, y + 16);
     y += titleH;
-    await paint(ctx, it.el, PAD, y, it.k);
+    await paint(ctx, it.el, PAD, y, it.k, leaveOut);
     y += it.h + 18;
   }
   ctx.fillStyle = ink;

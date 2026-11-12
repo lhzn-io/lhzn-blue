@@ -1,15 +1,16 @@
 /** Line charts in the chart-room style: a linear, multi-line variant of the csb-census horizon chart.
  *
  * Lines break at missing values (never interpolated across gaps). Times are epoch seconds; axis and
- * tooltip labels are shown in Eastern time, where the readers are.
+ * tooltip labels are shown in the package's time zone (Eastern time unless set; see `zone`) or the chart's own
+ * `timeZone`.
  */
 
-import { arrowMarkup } from "./wind-dir";
-import { zoned } from "./dst";
+import { arrowMarkup } from "./wind-dir.js";
+import { zoned } from "./dst.js";
+import { dtf, getTimeZone, zonedDate, zonedMidnight } from "./zone.js";
 
 const SVG = "http://www.w3.org/2000/svg";
 export const YELLOW = "#decf03";
-const TZ = "America/New_York";
 const DAY = 86400;
 
 /** A theme token from site.css (charts follow the light and dark themes), read once per theme: the theme is the root's
@@ -95,6 +96,8 @@ export interface ChartOptions {
   /** Arrows in a row along the top (e.g. wind direction); the value axis leaves them room. Thinned to whole-hour
    * steps that fit the plot's width. */
   glyphs?: Glyph[];
+  /** The time zone of the time rules and the tooltip (an IANA name); the package's (`zone`) when absent. */
+  timeZone?: string;
 }
 
 /** An arrow at a time, pointing `deg` degrees clockwise from north (up). */
@@ -117,9 +120,9 @@ function thinGlyphs(gs: Glyph[], x0: number, x1: number, widthPx: number): Glyph
   return gs.filter((g) => g.x > x0 && g.x < x1 && Math.round(g.x / 3600) % n === 0);
 }
 
-const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "short", day: "numeric" });
-const fmtMonth = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "short", year: "numeric" });
-const fmtHour = zoned(new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric" }));
+const DAY_OPTS: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+const MONTH_OPTS: Intl.DateTimeFormatOptions = { month: "short", year: "numeric" };
+const HOUR_OPTS: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric", hour: "numeric" };
 
 export function niceStep(span: number, target = 4): number {
   const raw = span / target;
@@ -128,48 +131,35 @@ export function niceStep(span: number, target = 4): number {
   return 10 * p;
 }
 
-/** Year, month (0-based) and day of an instant on the Eastern calendar. */
-const etParts = new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric", month: "numeric", day: "numeric" });
-function etDate(t: number): [number, number, number] {
-  const p = Object.fromEntries(etParts.formatToParts(new Date(t * 1000)).map((x) => [x.type, x.value]));
-  return [Number(p.year), Number(p.month) - 1, Number(p.day)];
-}
-
-/** Epoch seconds of midnight, Eastern time, on a calendar date (month 0-based; days may overflow). */
-const etHour = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
-function etMidnight(y: number, m: number, d: number): number {
-  const guess = Date.UTC(y, m, d, 5); // midnight in standard time (UTC-5)
-  const h = Number(etHour.format(new Date(guess))); // 0 in standard time, 1 in daylight time
-  return guess / 1000 - h * 3600;
-}
-
 /**
- * Time rules at Eastern midnights, labelled on the Eastern calendar: years, months, weeks (Mondays) or days by
- * span. The rules sit where their labels say (a rule at midnight UTC on the 1st would fall on the evening
- * before in New York, and a month label there would name the previous month).
+ * Time rules at local midnights, labelled on the local calendar (the chart's time zone): years, months, weeks
+ * (Mondays) or days by span. The rules sit where their labels say (a rule at midnight UTC on the 1st would fall on
+ * the evening before in New York, and a month label there would name the previous month).
  */
-function timeRules(x0: number, x1: number): [number, string][] {
+function timeRules(x0: number, x1: number, tz: string): [number, string][] {
   const span = x1 - x0;
   const out: [number, string][] = [];
-  const [y0, m0, d0] = etDate(x0);
+  const fmtDay = dtf(DAY_OPTS, tz);
+  const fmtMonth = dtf(MONTH_OPTS, tz);
+  const [y0, m0, d0] = zonedDate(x0, tz);
   if (span > 3 * 366 * DAY) {
-    for (let y = y0 + 1; etMidnight(y, 0, 1) < x1; y++) out.push([etMidnight(y, 0, 1), String(y)]);
+    for (let y = y0 + 1; zonedMidnight(y, 0, 1, tz) < x1; y++) out.push([zonedMidnight(y, 0, 1, tz), String(y)]);
     return out;
   }
   if (span > 150 * DAY) {
     for (let k = 1; ; k++) {
-      const t = etMidnight(y0, m0 + k, 1);
+      const t = zonedMidnight(y0, m0 + k, 1, tz);
       if (t >= x1) break;
-      const [, m] = etDate(t);
+      const [, m] = zonedDate(t, tz);
       out.push([t, m === 0 ? fmtMonth.format(new Date(t * 1000)) : fmtDay.format(new Date(t * 1000)).split(" ")[0]]);
     }
     return out;
   }
   const weekly = span > 12 * DAY;
   for (let k = 1; ; k++) {
-    const t = etMidnight(y0, m0, d0 + k);
+    const t = zonedMidnight(y0, m0, d0 + k, tz);
     if (t >= x1) break;
-    if (weekly && new Date(t * 1000).getUTCDay() !== 1) continue; // Mondays (the UTC day of an ET midnight is the same date)
+    if (weekly && new Date(Date.UTC(y0, m0, d0 + k)).getUTCDay() !== 1) continue; // Mondays on the local calendar
     out.push([t, fmtDay.format(new Date(t * 1000))]);
   }
   return out;
@@ -255,6 +245,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   svg.setAttribute("preserveAspectRatio", "none");
   svg.replaceChildren();
   const { xs } = o;
+  const tz = o.timeZone ?? getTimeZone();
   const [x0, x1] = [xs[0] ?? 0, xs[xs.length - 1] ?? 1];
   const timeAt = (clientX: number) => {
     const box = svg.getBoundingClientRect();
@@ -267,7 +258,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   for (const a of o.areas ?? []) all.push(...a.hi.filter((v) => Number.isFinite(v)));
   if (!all.length) {
     // Keep the shared time axis, so an empty chart lines up with its neighbours, and say why it is empty.
-    const rules = timeRules(x0, x1);
+    const rules = timeRules(x0, x1, tz);
     const every = Math.ceil(rules.length / Math.max(3, Math.floor((plot.clientWidth || 600) / 64)));
     labelsEl.innerHTML =
       rules
@@ -318,7 +309,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
   }
 
   // Time rules: every rule drawn, labels thinned to what the plot width can hold.
-  const rules = timeRules(x0, x1);
+  const rules = timeRules(x0, x1, tz);
   const every = Math.ceil(rules.length / Math.max(3, Math.floor((plot.clientWidth || 600) / 64)));
   const mark = o.marker && o.marker.x > x0 && o.marker.x < x1 ? px(o.marker.x) : null;
   const pxPer = (plot.clientWidth || 600) / W; // screen px per drawing unit: a date under the marker's label gives way
@@ -490,7 +481,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
       .join("");
     // The box: the time, and values with no line of their own; on the other side of the cursor from the labels.
     const extra = have.filter((l) => l.hidden).map((l) => `<div>${l.tipLabel ?? l.label}<b>${value(l)}</b></div>`);
-    tip!.innerHTML = `<span class="tip-time">${fmtHour.format(new Date(xs[i] * 1000))}</span>${extra.join("")}${have.length ? "" : "<div>no data</div>"}`;
+    tip!.innerHTML = `<span class="tip-time">${zoned(dtf(HOUR_OPTS, tz)).format(new Date(xs[i] * 1000))}</span>${extra.join("")}${have.length ? "" : "<div>no data</div>"}`;
     tip!.hidden = false;
     tip!.style.left = side === "left" ? `${x + 10}px` : "";
     tip!.style.right = side === "left" ? "" : `${outer.width - x + 10}px`;

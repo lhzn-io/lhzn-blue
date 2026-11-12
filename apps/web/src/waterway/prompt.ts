@@ -1,7 +1,7 @@
 /** Bring your own AI: the prompt a visitor copies (the page's template filled with every station's data, or only the
  * collected items' stations, with their methods, the readouts and the map as shown) and the Collect tray it comes from.
  * The page supplies its template, its map layer, its links and its credit. */
-import { mountCollect } from "../collect";
+import { mountCollect } from "@lhzn-io/collect";
 import { METHODS, REF_LABELS } from "../methods";
 import { compass } from "@lhzn-io/timecharts/wind-dir";
 import { COVERAGE_MIN, DAY, fToC, grid, oxygenStatus, STRAT, yearLines, type Live, type Meta } from "@lhzn-io/timecharts/series";
@@ -175,5 +175,15 @@ export function wireCollect(meta: Meta, live: Live, stations: StationData[], hos
     credit: H.credit,
     mailTo: H.mailTo,
     pageName: meta.waterway.name,
+  }, {
+    terms: { href: "/terms/#ai", text: "how this site uses AI" },
+    labels: {
+      suggestExtra: `To ask or suggest in public, post in the project's <a href="https://github.com/lhzn-io/lhzn-blue/discussions" target="_blank" rel="noopener">GitHub Discussions</a>.`,
+    },
+    itemSelector: "figure, .readouts-row, .map-col",
+    watch: ["stations", "map-foot"],
+    fileName: "longhorizon-blue",
+    // Controls, hover overlays, and the time rows (their lines are CSS decorations; the map's title carries the time).
+    skip: ".fig-actions, .fig-info, .band-info, .tip, .cursor-vals, .timeline, .layers-drawer, .field-info, .map-actions",
   });
 }

@@ -1,6 +1,7 @@
 /* The site's layout and components. The theme tokens (dark "chart room" and light "gilded china") are in
-   @lhzn-io/timecharts/tokens.css, which other sites reuse. */
+   @lhzn-io/timecharts/tokens.css, which other sites reuse; Collect's tray and "+" are in @lhzn-io/collect. */
 @import "@lhzn-io/timecharts/tokens.css";
+@import "@lhzn-io/collect/collect.css";
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -652,43 +653,11 @@ figure.linked, .station.linked { outline: 2px solid var(--accent-line); outline-
 .about-sources-box summary { cursor: pointer; font: 700 9.5px/1.6 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
 @media (max-width: 560px) { .about-list { grid-template-columns: 1fr; gap: 2px 0; } .about-list dd { margin-bottom: 6px; } }
 
-/* Collect: the "+" (a tick once collected), the top-bar button, collected items, and the tray. */
-.collect-btn {
-  flex: none; width: 15px; height: 15px; padding: 0; margin-right: 6px; cursor: pointer; border-radius: 3px; vertical-align: middle;
-  font: 700 12px/13px var(--sans); text-align: center; color: var(--dim); background: none; border: 1px solid var(--rule);
-}
-.collect-btn:hover, .collect-btn:focus-visible { color: var(--accent); border-color: var(--accent-line); outline: none; }
-.collect-btn[aria-pressed="true"] { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+/* Collect: where this site places the "+" (the "+", the tray and the top-bar button are styled by @lhzn-io/collect). */
 .band-actions { display: inline-flex; align-items: start; margin: 4px 0 0 6px; }
 .band-actions .band-info { margin: 0; }
 .map-foot { position: relative; padding-right: 32px; } /* room for the map's "+" beside the time labels */
 .map-actions { position: absolute; right: 0; top: 8px; z-index: 1; }
-.is-collected { outline: 1px solid var(--accent-line); outline-offset: 4px; }
-.collect-open {
-  flex: none; margin-right: var(--gutter); cursor: pointer; padding: 3px 12px 5px; border-radius: 999px;
-  font: 700 9px/1.2 var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); background: none; border: 1px solid var(--accent-line);
-}
-.collect-open:hover, .collect-open[aria-expanded="true"] { color: var(--accent-hi); border-color: var(--accent-hi); }
-.collect-tray {
-  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 60; width: min(720px, calc(100vw - 24px)); max-height: 60vh; overflow: auto;
-  padding: 12px 16px 14px; color: var(--ink); background: var(--panel, var(--bg)); border: 1px solid var(--rule); box-shadow: 0 10px 34px rgba(0, 0, 0, 0.3);
-  font: 13px/1.45 var(--sans);
-}
-.ct-head { display: flex; align-items: baseline; gap: 10px; }
-.ct-head b { font: 700 10px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
-.ct-count { color: var(--dim); font-size: 12px; }
-.ct-done { margin-left: auto; }
-.ct-hint { margin: 8px 0 2px; color: var(--dim); }
-.ct-items { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
-.ct-items li { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 10px; border: 1px solid var(--rule); border-radius: 999px; font-size: 12px; }
-.ct-remove { cursor: pointer; padding: 0 4px; color: var(--dim); background: none; border: 0; font-size: 14px; line-height: 1; }
-.ct-actions, .ct-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.ct-panel { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rule); }
-.ct-label { display: block; font: 700 9.5px/1.4 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
-.ct-panel textarea { width: 100%; margin-top: 4px; font: 13px/1.4 var(--sans); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); padding: 8px; }
-.ct-note { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
-.ct-status { margin: 6px 0 0; font-size: 12px; color: var(--ink-soft); min-height: 1em; }
-.collect-tray button[disabled] { opacity: 0.45; cursor: default; }
 
 /* Terms page */
 .terms main { max-width: 680px; padding-top: 30px; }
@@ -805,10 +774,6 @@ figure.linked, .station.linked { outline: 2px solid var(--accent-line); outline-
 /* About opens from the menu: its drawer drops from the bar's right edge. */
 .topbar > .info { position: absolute; right: var(--gutter); top: 100%; margin: 0; }
 .topbar > .info .suggest-form { top: 0; right: 0; }
-/* Collect is a mode: the "+" marks show only while the tray is open (a collected item keeps its tick). */
-.collect-btn { display: none; }
-body.collecting .collect-btn, .collect-btn[aria-pressed="true"] { display: inline-block; }
-
 /* On a waterway page ALPHA sits among pill buttons, so it is plain text there (the landing keeps its outline). */
 body:not(.landing) .stage { padding: 0; border: 0; border-radius: 0; color: var(--dim); }
 
@@ -835,10 +800,9 @@ body:not(.landing) .stage { padding: 0; border: 0; border-radius: 0; color: var(
   .mast { gap: 12px 16px; }
 
   /* Buttons: a larger invisible tap area around the same 15 px marks; taller tabs and pills. */
-  .collect-btn, .fig-info { position: relative; }
-  .collect-btn::after, .fig-info::after, .fig-link::after, .fig-full::after { content: ""; position: absolute; inset: -9px -6px; }
+  .fig-info { position: relative; }
+  .fig-info::after, .fig-link::after, .fig-full::after { content: ""; position: absolute; inset: -9px -6px; }
   .fig-link { margin-right: 12px; }
-  .collect-btn { margin-right: 12px; }
   .fig-info { margin-right: 12px; }
   .fig-actions { gap: 4px; align-items: center; }
   /* The plot's actions small and on the title's line (a wider tap area around each); pinch zooms, so no zoom help. */

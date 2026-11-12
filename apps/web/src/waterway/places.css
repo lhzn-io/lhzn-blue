@@ -31,6 +31,13 @@
   .station-photo img { width: auto; max-height: 40vh; }
   .station-photo .photo-none { height: 40vh; }
 }
+/* An upright phone: the photo keeps to 28% of the screen, so the readings and plots below it stay in reach; a tap shows
+   it whole (and a second tap folds it again). */
+@media (max-width: 640px) and (orientation: portrait) {
+  .station-photo img { max-height: 28svh; cursor: zoom-in; }
+  .station-photo.open img { max-height: none; width: 100%; cursor: zoom-out; }
+  .station-photo .photo-none { height: 28svh; }
+}
 /* A station's wind roses: the last 3 days beside the last 30, at a fixed size. */
 .wr { margin: 18px 0 0; padding-top: 10px; border-top: 1px solid var(--rule); }
 .wr-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

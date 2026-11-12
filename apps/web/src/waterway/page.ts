@@ -3217,7 +3217,7 @@ Credit as:
     return `<figure class="station-photo none"><div class="photo-none"><span>No photo of this buoy yet</span><a href="${escHtml(mail)}">Send us a photo</a></div></figure>`;
   }
   if (!ph || !d) return "";
-  return `<figure class="station-photo"><img src="${ph.src}" alt="${escHtml(ph.alt)}" decoding="async"><figcaption>${escHtml(d.meta.name)}, ${escHtml(ph.when)}. Photo: Long Horizon Observatory.</figcaption></figure>`;
+  return `<figure class="station-photo"><img src="${ph.src}" alt="${escHtml(ph.alt)}" decoding="async" title="Tap for the whole photo"><figcaption>${escHtml(d.meta.name)}, ${escHtml(ph.when)}. Photo: Long Horizon Observatory.</figcaption></figure>`;
 }
 
 /** What a waterway brings to the page besides its config: its data adapter, the prompt template, each station's About,
@@ -3254,6 +3254,11 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   }
   configureVirtual({ places: () => STATIONS.map((d) => d.meta), stationUrl: (id) => placeUrl(id) });
   if (PAGES) wirePlaces();
+  // A station photo held short on an upright phone opens whole on a tap, and folds on another (places.css).
+  document.addEventListener("click", (e) => {
+    const img = (e.target as HTMLElement).closest(".station-photo img");
+    if (img) img.closest(".station-photo")?.classList.toggle("open");
+  });
   wireMast();
   DATA = CFG.data;
   // A plot page's address names its plot after the station (/long-island-sound/exrx/wind/).

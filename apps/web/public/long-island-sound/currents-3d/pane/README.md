@@ -15,8 +15,8 @@ KV:
 
 | File | Contents |
 | :--- | :--- |
-| `pane.js` | the module (ES module; lazy-loads three.js r170, camera-controls 3.1.2 and [vantagekit](https://github.com/lhzn-io/vantagekit) 0.8.1 from jsDelivr) |
-| `ramp.js` | the teal currents speed ramps (light and dark), generated from the site's ramp CSVs |
+| `pane.js` | the module (ES module; lazy-loads three.js r170, camera-controls 3.1.2 and [vantagekit](https://github.com/lhzn-io/vantagekit) 0.8.2 from jsDelivr) |
+| `ramp.js` | the currents speed ramps: the site's teal pair (light and dark), and forcingkit's `currents_lis_haline`, which the cells and bed use on either ground |
 | `mesh.json` | counts, record times (epoch s), sigma levels (`siglev` for drawing, `model_siglev` the model's, `layer_index` the layers held), the element holding the meter (`buoy_element`), the section's geometry, file names, statistics |
 | `nodes.f32` | per node: east, north (m from the meter), h (m, positive down), float32 |
 | `tri.u16` | per element: three node indices, uint16, counter-clockwise |
@@ -62,10 +62,10 @@ within 400 m of the line; its maximum 2.25 m/s); along the whole axis the 99th p
 
 ## Navigation
 
-vantagekit 0.8.1, orbit only: a drag turns the view, a right drag or two fingers pan along the ground, the wheel or a
+vantagekit 0.8.2, orbit only: a drag turns the view, a right drag or two fingers pan along the ground, the wheel or a
 pinch zooms (stopping 400 m from the orbit point), and the keys and a gamepad work while the view has focus. A
 double-click or double-tap on the water's surface or the bed turns the view about that point, marked by a ring while
-the view moves. Changing the exaggeration keeps the orbit point on the surface or bed it was at.
+the view turns about it (not while the point itself moves, as in a pan). Changing the exaggeration keeps the orbit point on the surface or bed it was at.
 
 ## Scale
 

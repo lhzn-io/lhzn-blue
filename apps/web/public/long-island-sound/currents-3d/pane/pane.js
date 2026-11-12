@@ -15,13 +15,13 @@
 // Frame: east and north metres from the Groton meter (41.39180 N, 72.09230 W); scene x = east,
 // scene -z = north, scene y = elevation in metres times the vertical exaggeration.
 
-import { RAMP_LIGHT, RAMP_DARK } from './ramp.js';
+import { RAMP_HALINE } from './ramp.js';
 
 const THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.170.0/+esm';
 // Navigation: vantagekit (Long Horizon Observatory's shared viewer navigation) on camera-controls; it imports neither
 // three.js nor camera-controls, so the pane passes both.
 const CC_URL = 'https://cdn.jsdelivr.net/npm/camera-controls@3.1.2/dist/camera-controls.module.min.js';
-const VK_URL = 'https://cdn.jsdelivr.net/gh/lhzn-io/vantagekit@v0.8.1/vantagekit-three.js';
+const VK_URL = 'https://cdn.jsdelivr.net/gh/lhzn-io/vantagekit@v0.8.2/vantagekit-three.js';
 let threeLoad = null;
 function loadThree() {
     if (!threeLoad) {
@@ -97,7 +97,7 @@ const THEMES = {
         sea: [[11, 18, 22], [22, 32, 38], [36, 46, 52]],     // deep, mid, shallow (L* about 6 to 18)
         land: [[46, 43, 38], [70, 66, 58]],                  // low, high
         nbed: [58, 50, 40],
-        ramp: RAMP_DARK, tracer: TRACER_DARK, diverging: DIVERGING_DARK,
+        ramp: RAMP_HALINE, tracer: TRACER_DARK, diverging: DIVERGING_DARK,
     },
     light: {
         bg: '#efebe2', ink: '#1c2a48', inkSoft: '#24345a', dim: '#56657f', faint: '#7b8496',
@@ -106,12 +106,12 @@ const THEMES = {
         sea: [[196, 206, 212], [214, 221, 224], [230, 233, 230]],
         land: [[236, 226, 198], [222, 207, 168]],
         nbed: [214, 196, 160],
-        ramp: RAMP_LIGHT, tracer: TRACER_LIGHT, diverging: DIVERGING_LIGHT,
+        ramp: RAMP_HALINE, tracer: TRACER_LIGHT, diverging: DIVERGING_LIGHT,
     },
 };
 
-// Measured currents (a page-supplied profile) are gold; model output (NECOFS cells, bed, tracers) stays on the
-// teal currents ramps. One fixed linear scale, 0 to 0.5 m/s, as on longhorizon.blue.
+// Measured currents (a page-supplied profile) are gold; the model's cells and bed take the full-breadth haline speed
+// scale (indigo to pale yellow, the same on either ground), the tracers their teal scales. One fixed linear scale, 0 to 0.5 m/s, as on longhorizon.blue.
 export const MEASURED_TOP = 0.5; // m/s
 const MEASURED_LIGHT = ['#f7f0d8', '#ead28a', '#d0a930', '#a37b00', '#5f4600'];
 const MEASURED_DARK = ['#2b2410', '#5e4b10', '#9c7c0c', '#d6b30a', '#fde047'];
@@ -257,8 +257,11 @@ const CSS = `
 /* The legend starts closed to its button, at every width; the (i) beside it opens the notes. */
 .pqp-legbtns { display: flex; gap: 6px; align-items: center; }
 .pqp-legbtns .pqp-iconbtn { width: 28px; height: 28px; }
-.pqp-about { inset: 10px; z-index: 3; overflow-y: auto; padding: 10px 14px 12px; background: var(--pqp-bg); border: 1px solid var(--pqp-rule);
-  border-radius: 3px; font-size: 12px; line-height: 1.45; color: var(--pqp-ink-soft); }
+/* The (i): a card the size of its text, centred over the pane, so the view stays in sight around it; it scrolls only
+   when the pane is shorter than the text. */
+.pqp-about { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100% - 32px)); max-height: calc(100% - 32px);
+  z-index: 3; overflow-y: auto; padding: 10px 14px 12px; background: var(--pqp-bg); border: 1px solid var(--pqp-rule);
+  border-radius: 3px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); font-size: 12px; line-height: 1.45; color: var(--pqp-ink-soft); }
 .pqp-about[hidden] { display: none; }
 .pqp-about-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; color: var(--pqp-ink); font-size: 13px; }
 .pqp-about h5 { margin: 10px 0 2px; font-size: 8.5px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--pqp-faint); }
@@ -320,7 +323,7 @@ export function mountPane(el, opts = {}) {
 
     const state = {
         t: null, light: false, exag: EXAG, disposed: false, ready: false,
-        cells: 'surface', layer: 1, cellOpacity: 0.3, curtain: false, curtainAz: Object.keys(CURTAIN_SET)[0], edges: true,
+        cells: 'surface', layer: 1, cellOpacity: 0.65, curtain: false, curtainAz: Object.keys(CURTAIN_SET)[0], edges: true,
         bed: HAS.dem ? 'dem' : 'necofs', tracers: HAS.tracks, trailH: 3, buoy: true, buoyDeep: false,
         showMeas: HAS.meas, showModel: true, showDiff: false, opacityTouched: false,
         profiles: HAS.meas ? 'both' : 'model', curtainMode: 'off', // the panel's two combined choices (onControl maps them onto the flags above)
@@ -392,7 +395,7 @@ export function mountPane(el, opts = {}) {
         <div class="pqp-about-head"><b>About the 3D view</b><button class="pqp-btn" data-act="about-close">Close</button></div>
         <h5>Model cells</h5>
         <p>NECOFS (FVCOM GOM7) currents on the model's own triangles, each element-layer one flat colour by horizontal
-        speed on the site's teal scale (log). ${ALL_LAYERS ? 'The surface layer by default; all 45 sigma layers on request.'
+        speed on a log scale after cmocean's haline (indigo at slack, blue and green, pale yellow at 3 m/s). ${ALL_LAYERS ? 'The surface layer by default; all 45 sigma layers on request.'
         : 'The surface layer; the bottom layer colours the model bed.'} Hourly records, each held until the next. Element
         sides are about 160 m in the Thames and at the Race's edges and 1 to 1.5 km in open water, coarser than the
         model's harbour meshes.</p>
@@ -725,14 +728,15 @@ export function mountPane(el, opts = {}) {
         // moves the camera only while the view has focus (a click, a tap or Tab), so the arrows still scroll the page.
         // Zoom stops at 400 m rather than carrying the orbit point on through the water (infinityDolly). A double-click
         // or double-tap on the water's surface or the bed turns the view about that point (vantagekit's pivot pick; the
-        // ray cast meets the meshes as drawn, exaggerated), and a ring marks the point while the view turns.
+        // ray cast meets the meshes as drawn, exaggerated), and a ring marks the point while the view turns
+        // about it (not while the point itself moves: a pan, a zoom that carries it).
         nav = lib.createVantage({
             THREE, CameraControls: lib.CameraControls, camera, dom: renderer.domElement,
             metersPerUnit: 1, exaggeration: () => state.exag, modes: ['orbit'], mouse: 'rotate-left', pan: 'ground',
             keys: 'focus', maxPolarAngle: Math.PI * 0.495, minDistance: 400, maxDistance: VIEW.far / 2,
             infinityDolly: false,
             pivotPick: { objects: () => [objs.cells, objs.nbed, objs.dem].filter((o) => o && o.visible) },
-            pivotMarker: true,
+            pivotMarker: { whileMoving: false }, // the ring only while the view turns about a still point
         });
         // Moved by the viewer (not by Reset or Focus): a drag or pinch, a key on the focused view, or the gamepad.
         nav.controls.addEventListener('controlstart', () => { camMoved = true; });
@@ -1614,8 +1618,8 @@ export function mountPane(el, opts = {}) {
         setTheme(light) {
             if (state.disposed) return;
             state.light = !!light;
-            // Default surface-cell opacity per theme (lower on light), until the viewer sets it.
-            state.cellOpacity = state.light ? 0.15 : 0.3;
+            // The surface cells' opacity: enough that the field's colours read over the shaded bed on either ground.
+            state.cellOpacity = 0.65;
             applyThemeCss();
             if (!state.ready) return;
             applyThemeScene();

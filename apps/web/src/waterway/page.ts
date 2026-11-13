@@ -37,7 +37,7 @@ import { mountRevisions, revisionsOn, setRevisionTime } from "./revisions";
 import { ADV, ADV_WIND, advisoriesFor, loadAdvisories, zoneOf, zonesInForce } from "./advisories";
 import { fitStripDates, hideWsTip, moveStripCursor, showWsTip, windAcrossHtml, WS_BACK, wsPoint } from "./wind-strip";
 import { windRoseHtml } from "./wind-rose";
-import { DEPARTURE, loadTides, onTides, TIDES } from "./tides";
+import { DEPARTURE, loadTides, onTides, predictedHour, TIDES } from "./tides";
 import { departureBuilt, departureRowsSvg, drawLadder, highestAheadHtml, hiloAround, hiloBuilt, tidesTable } from "./tides-view";
 import { BINS_WINDOW, meterBinsBuilt, type MeterColours, meterFanSvg, meterFlowBuilt, meterRecord, meterStart, METER_WINDOW } from "./meter";
 import { cfs, dailyFlow, ordinal, pct, percentileOf, riverFlow } from "./rivers";
@@ -49,7 +49,8 @@ import { wireLocate } from "./locate";
 import { embedMode, PLOT_PAGES, plotSlug, type PlotPage } from "./embed";
 import { wireCollect } from "./prompt";
 import { currentSpeed, metricTemp, setUnit, tempOpts, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./units";
-import { configureVirtual, loadVirtual, makeVirtual, VCURRENT, virtualFromPath, VIRTUAL_ID, virtualIntro, virtualPath, virtualReadouts, virtualSources, VSST, VWAVES } from "./virtual";
+import { CURRENT_PAIR } from "./current-pair";
+import { configureVirtual, loadVirtual, makeVirtual, virtualFromPath, VIRTUAL_ID, virtualIntro, virtualPath, virtualReadouts, virtualSources, VSST, VWAVES } from "./virtual";
 
 /** The waterway this page is mounted for (mountWaterwayPage), and its parts. */
 let CFG: StationDataWaterway;
@@ -553,7 +554,7 @@ const FIGS: Record<Kind, Fig> = {
   },
   next48: NEXT48,
   vwaves: VWAVES,
-  vcur: VCURRENT,
+  vcur: CURRENT_PAIR, // measured (HF radar) beside forecast (NECOFS), at buoys and virtual buoys
   vsst: VSST,
   // The wind record: no longer a plot of the Wind view (the next 48 hours, named Wind, took its place and its page's
   // address); kept for the wind strip under surface minus bottom in the water views, and the strip's zoom.
@@ -1042,6 +1043,34 @@ const hasWind = (d: StationData) => !!d.met?.wind && Number.isFinite(d.met.wind.
 const windStripHtml = (id: string) =>
   `<div class="strip-cap">Wind, smoothed: the blow behind a mixing event <button class="fig-info" type="button" data-about="wind" aria-label="About this plot: wind" title="About this plot">i</button></div><div class="plot strip" id="${id}-sb-wind" data-station="${id}" data-fig="wind" title="Wind: click to expand"><svg role="img" aria-label="Wind, smoothed"></svg><div class="plot-labels" aria-hidden="true"></div></div>`;
 
+/** Under the current plot, the tide at the nearest shore station with a water level: observed (gold) and NOAA's
+ * prediction (faint), so the current's flood and ebb can be read against high and low water, and a wind's setup
+ * against the prediction. */
+const tideGauge = (d: StationData) => {
+  const km = (s: StationData) => Math.hypot((s.meta.lon - d.meta.lon) * Math.cos((d.meta.lat * Math.PI) / 180), s.meta.lat - d.meta.lat) * 111.2;
+  const near = STATIONS.filter((s) => s.kind === "shore" && !!s.level).sort((a, b) => km(a) - km(b))[0];
+  return near ? { s: near, km: km(near) } : null;
+};
+const tideStripHtml = (d: StationData) => {
+  const g = tideGauge(d);
+  return g
+    ? `<div class="strip-cap">Tide at ${g.s.meta.name} (${g.s.meta.operator ?? "NOAA"}), ${g.km.toFixed(0)} km away: observed and predicted</div><div class="plot strip" id="${d.meta.id}-vcur-tide" data-station="${g.s.meta.id}" data-fig="tide" title="Tide: click to expand"><svg role="img" aria-label="Tide at ${g.s.meta.name}"></svg><div class="plot-labels" aria-hidden="true"></div></div>`
+    : "";
+};
+function drawTideStrip(d: StationData, x0: number, x1: number): void {
+  const strip = document.getElementById(`${d.meta.id}-vcur-tide`);
+  const g = tideGauge(d);
+  if (!strip || !g) return;
+  if (!TIDES) void loadTides();
+  const xs = grid(x0, x1).map((t) => Math.round(t / HOUR) * HOUR);
+  const ft = (v: number) => `${v.toFixed(1)} ft`;
+  const lines: Line[] = [
+    { ys: xs.map((t) => (TIDES ? predictedHour(g.s.meta.id, t) : NaN)), color: P.contrast, width: 1, opacity: 0.45, label: "Predicted", fmt: ft },
+    { ys: xs.map((t) => g.s.level!.at(t) ?? NaN), color: P.now, width: 1.5, label: "Observed", fmt: ft },
+  ];
+  renderLines(strip, { xs, lines, unit: " ft", marker: { x: Date.now() / 1000, label: "" }, minPad: 0.2, empty: "No water level in this window." });
+}
+
 function drawWindStrip(d: StationData, x0: number, x1: number): void {
   const strip = document.getElementById(`${d.meta.id}-sb-wind`);
   if (!strip) return;
@@ -1471,8 +1500,8 @@ function sectionHtml(d: StationData): string {
     return `
     <figure${f.wide ? ' class="wide"' : ""}>
       <figcaption><span class="cap-label">${STATION_ID ? "" : `<span class="cap-code">${id}</span>: `}${f.label?.(d) ?? f.title}</span>${f.sub ? `<span class="cap-sub">${f.sub}</span>` : ""}${PLOT_PAGE && key === EMBED ? plotViewTabs(d) : ""}${f.depthTabs && d.depths.length > 1 ? depthTabsHtml(d, key, ((PLOT_PAGE && key === EMBED) || LINKED_PLOT === `${id}-${key}`) && d.depths.includes(PLOT_DEPTH) ? PLOT_DEPTH : d.depths[0]) : ""}
-        <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}${PLOT_PAGE ? fullScreenButton() : ""}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" || key === "mfan" || d.kind === "virtual" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}${key === "mfan" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button>`}</span></figcaption>
-      <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}"${PLOT_PAGE || key === "mfan" ? "" : ' title="Click to expand"'}><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}
+        <span class="fig-actions"><button class="collect-btn" type="button" data-collect="${id}-${key}" data-title="${figName(f)}: ${st.name}" data-kind="plot" aria-pressed="false">+</button>${chainButton(`${id}-${key}`, `this plot: ${figName(f)}, ${st.name}`)}${PLOT_PAGE ? fullScreenButton() : ""}<button class="fig-info" type="button" data-about="${key}" aria-label="About this plot: ${figName(f)}" title="About this plot">i</button>${key === "next48" || key === "mfan" || key === "vcur" || d.kind === "virtual" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" data-full="1" aria-label="Full record: ${figName(f)}, ${st.name}">Full record</button>`}${key === "mfan" ? "" : `<button class="expand" type="button" data-station="${id}" data-fig="${key}" aria-label="Expand: ${figName(f)}, ${st.name}">Expand</button>`}</span></figcaption>
+      <div class="plot" id="${id}-${key}" data-station="${id}" data-fig="${key}"${PLOT_PAGE || key === "mfan" ? "" : ' title="Click to expand"'}><svg role="img" aria-label="${figName(f)}"></svg><div class="plot-labels" aria-hidden="true"></div></div>${key === "sb" && hasWind(d) ? windStripHtml(id) : ""}${key === "vcur" ? tideStripHtml(d) : ""}
       <div class="legend" id="${id}-${key}-legend"></div>
     </figure>`;
   };
@@ -1597,6 +1626,7 @@ function drawInline(d: StationData, key: Kind): void {
   const b = FIGS[key].build(d, activeDepth(d, key), x0, x1, false);
   if (PLOT_PAGE && key === EMBED) PLOT_DRAWN = { x0, x1, b };
   if (key === "sb") drawWindStrip(d, x0, x1);
+  if (key === "vcur") drawTideStrip(d, x0, x1);
   if (key === "mfan") return drawMeterFan(d);
   if (key === "hilo") {
     drawLadder(d, x0, x1);
@@ -1804,6 +1834,7 @@ const FIELD_CHOICES: { kind: FieldKind | "none"; label: string }[] = [
   { kind: "chl", label: "Chlorophyll-a" },
   { kind: "kd490", label: "Water clarity (Kd490)" },
   { kind: "currents", label: "Surface currents (model)" },
+  { kind: "radar", label: "Surface currents (HF radar, measured)" },
   { kind: "wind", label: "Wind (HRRR)" },
   { kind: "waves", label: "Waves (NWS model)" },
 ];
@@ -1813,7 +1844,7 @@ const VIEW_LAYERS: Record<VarKey, { offer: FieldKind[]; def: FieldKind | "none";
   salinity: { offer: ["chl"], def: "none" },
   oxygen: { offer: ["chl"], def: "chl" },
   turbidity: { offer: ["kd490", "chl"], def: "kd490" },
-  wind: { offer: ["comfort", "wind", "waves", "currents"], def: "comfort", overlay: true }, // the wind-against-tide overlay
+  wind: { offer: ["comfort", "wind", "waves", "currents", "radar"], def: "comfort", overlay: true }, // the wind-against-tide overlay
   tides: { offer: [], def: "none" },
   rivers: { offer: [], def: "none" },
 };
@@ -1881,7 +1912,7 @@ try {
 } catch {
   /* private mode: the normal map */
 }
-const FRAME_SPAN: Record<FieldKind | "none", [number, number]> = { none: [0, 0], comfort: [0, 1], currents: [0, 2], wind: [0, 1], waves: [0, 1], wat: [0, 2], sst: [24, 0], chl: [7 * 24, 0], kd490: [7 * 24, 0] };
+const FRAME_SPAN: Record<FieldKind | "none", [number, number]> = { none: [0, 0], comfort: [0, 1], currents: [0, 2], radar: [0, 1], wind: [0, 1], waves: [0, 1], wat: [0, 2], sst: [24, 0], chl: [7 * 24, 0], kd490: [7 * 24, 0] };
 const fieldCache = new Map<FieldKind, Promise<FieldData>>();
 
 /** Comfort on the map: the models it reads (the NECOFS current only for kayaks), each from its own cache, as one
@@ -1912,6 +1943,8 @@ function fieldData(kind: FieldKind): Promise<FieldData> {
     const load: Promise<FieldData> =
       kind === "wat"
         ? getJson<FieldData["wat"]>(`${DATA}/fields/wind-against-tide.json`).then((wat) => ({ wat }))
+        : kind === "radar"
+        ? getJson<FieldData["radar"]>(`${DATA}/fields/hfradar.json`).then((radar) => ({ radar }))
         : kind === "currents"
         ? Promise.all([getJson<FieldData["mesh"]>(`${DATA}/fields/currents-mesh.json`), import("../fields").then((f) => f.loadCurrents(`${DATA}/fields/`))]).then(([mesh, currents]) => ({ mesh, currents }))
         : kind === "wind" || kind === "waves"
@@ -2022,7 +2055,7 @@ async function syncField(): Promise<void> {
       console.error(err);
     }
   }
-  const shown = kind !== "none" && (payload.raster || payload.currents || payload.wind || payload.wat || payload.comfort) ? kind : null;
+  const shown = kind !== "none" && (payload.raster || payload.currents || payload.radar || payload.wind || payload.wat || payload.comfort) ? kind : null;
   // The time bar: days for a satellite layer once its history is in, hours otherwise.
   const tl = await import("../timeline");
   tl.setHoursBack(hoursBack());
@@ -3309,7 +3342,7 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   if (PLOT_PAGE) wirePlotPage();
   wireCompact(); // after the plot page is known: it has no band, so its top bar shows the picker from the start
   OXYGEN_NOTE = `shading: under ${DO_LEVELS.anoxic} mg/L anoxic, under ${DO_LEVELS.hypoxic} hypoxic (${CFG.oxygenAuthority}), under ${DO_LEVELS.growth} below EPA's growth criterion`;
-  fieldPick = (["sst", "chl", "kd490", "currents", "wind", "waves", "comfort"] as const).find((k) => k === LINK.get("layer")) ?? VIEW_LAYERS[VK].def;
+  fieldPick = (["sst", "chl", "kd490", "currents", "radar", "wind", "waves", "comfort"] as const).find((k) => k === LINK.get("layer")) ?? VIEW_LAYERS[VK].def;
   configureData({ data: DATA, forecastPage: CFG.forecastPage });
   OUTLOOK.pin = CFG.defaults.outlookStation;
   PARTS.diagram?.configure({ stations: () => STATIONS, redrawTable: () => statusGrid(STATIONS) });

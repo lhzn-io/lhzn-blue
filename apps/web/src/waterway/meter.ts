@@ -24,7 +24,7 @@ export interface MeterColours {
 const light = () => document.documentElement.dataset.theme === "light";
 const css = (v: string) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const PREDICTED = () => css("--fc-mid") || "#4a7fae";
-const MODEL = () => (light() ? "#1f7f86" : "#5fc3c4");
+export const MODEL = () => (light() ? "#1f7f86" : "#5fc3c4");
 
 /* ---------- The prediction and the model at the meter ---------- */
 

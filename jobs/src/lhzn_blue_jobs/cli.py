@@ -125,6 +125,7 @@ def _main() -> None:
         _shore(lambda: __import__("lhzn_blue_jobs.hrrr_history", fromlist=["update"]).update(store), "hrrr history")
         _shore(lambda: __import__("lhzn_blue_jobs.phase", fromlist=["publish"]).publish(store), "current phase")
         _shore(lambda: __import__("lhzn_blue_jobs.rips", fromlist=["publish"]).publish(store), "charted rips")
+        _shore(lambda: __import__("lhzn_blue_jobs.hfradar", fromlist=["publish"]).publish(store), "hfradar layer")
     elif args.command == "hrrr-history-seed":
         from . import hrrr_history
 

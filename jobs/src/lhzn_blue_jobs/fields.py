@@ -388,6 +388,12 @@ def publish(store: Store) -> list[str]:
         store.write_json("v1/fields/currents-mesh.json", mesh, max_age=86400)
         store.write_bytes("v1/fields/currents.bin", encode_currents(data), max_age=3600)
         water = mesh
+        try:  # the run as issued, at the HF radar cells, for the measured-and-forecast plot
+            from . import hfradar
+
+            hfradar.model_runs(store, mesh, data)
+        except Exception as exc:
+            outages.record(failed, "necofs at radar", exc, log)
     except Exception as exc:
         outages.record(failed, "currents", exc, log)
         water = store.read_json("v1/fields/currents-mesh.json")

@@ -272,12 +272,27 @@ export const METHODS: Record<string, Method> = {
     caveats: "Not scored on this site. Excludes currents, so wind against tide is not represented.",
   },
   vcur: {
-    title: "Surface current, next 72 hours",
-    shows: "NECOFS surface current speed at this point; arrows show where the water goes. The note lists slack times.",
+    title: "Surface current, flood and ebb",
+    shows:
+      "The surface current at this point along the flood direction, flood (into the Sound) up and ebb (out) down: measured by HF radar (gold dots, one " +
+      "per hour, joined faintly where hours are consecutive) against the NECOFS forecast, both as made a day ahead (dotted) " +
+      "and as the latest run (dashed). The shading between measured and forecast is the miss. The arrows along the top are " +
+      "the current's direction, where the water goes (gold measured, dashed teal forecast), not the wind's. Under the plot, " +
+      "the tide at the nearest shore gauge, observed and predicted, so flood and ebb can be read against high and low water " +
+      "and a wind's setup against the prediction.",
     method:
-      "NECOFS FVCOM [[chen2003fvcom]] [[chen2006fvcom]], the triangle holding the point, every 2 hours. Slack: where the " +
-      "current along its main axis changes sign.",
-    caveats: "Not scored on this site. Slack times are approximate (2 hour steps).",
+      "HF radar: the 1 km cell holding the point, hourly totals from the NOAA IOOS HF Radar National Network (HFRNet; in " +
+      "the western Sound the University of Connecticut's LISICOS sites), served by NOAA NDBC. Hours where the cell is at " +
+      "the edge of that hour's coverage, or its geometry is weak (GDOP above 1.0), are drawn faint and left out of the " +
+      "comparison. NECOFS FVCOM [[chen2003fvcom]] [[chen2006fvcom]]: the latest run on the triangle holding the point, " +
+      "every 2 hours; the forecast made a day ahead is, for each hour, the run fetched 24 to 48 hours before it, kept daily " +
+      "at the radar's cells. The flood direction is the radar's principal axis over its clean hours (the model's strongest " +
+      "current where the radar does not reach), with flood its westward end, toward the East River. The note gives the RMS " +
+      "miss along the flood direction and the measured ebb and flood as a share of the forecast's.",
+    caveats:
+      "The radar measures roughly the top metre, averaged over the hour and the cell; the model's top layer is a thin " +
+      "fraction of the local depth. The comparison covers the radar's last 72 hours, so it is not a score. The radar " +
+      "reaches the western Sound only. The day-ahead forecast fills in once the site has kept runs for two days.",
   },
   vsst: {
     title: "Water temperature, last 90 days",
@@ -330,6 +345,24 @@ export const METHODS: Record<string, Method> = {
       "ground. The dark theme uses a twin scale on the same speeds, deep blue-teal to pale seafoam, so faster water is lighter there.",
     caveats: "A model forecast, not a measurement. Speeds follow the Units switch.",
     more: { href: "/long-island-sound/currents-3d/", text: "The same model in 3D, below the surface", on: ["/long-island-sound/", "/about/"] },
+  },
+  "map-radar": {
+    title: "Surface currents (HF radar)",
+    shows:
+      "Measured surface currents, hourly, on 1 km cells, shaded by speed, with arrows in the direction of flow; the last " +
+      "72 hours the network has published. Gold, from 0 to 0.5 m/s and the darkest gold above, is the site's colour for " +
+      "measured currents; the model's currents are teal, so the two layers are never confused.",
+    method:
+      "Shore-based high-frequency radar measures the speed of the surface water toward or away from each site (a radial). " +
+      "Where two sites see the same cell at a good angle, the NOAA IOOS HF Radar National Network (HFRNet) combines their " +
+      "radials into an hourly total vector on a 1 km grid; NOAA NDBC serves the totals. In the western Sound the sites are " +
+      "the University of Connecticut's (LISICOS). The network keeps cells whose geometric dilution of precision is at " +
+      "most 1.25. Cells are drawn at the grid's own resolution; an hour with no total in a cell leaves it empty.",
+    caveats:
+      "The top metre or so of the water, averaged over the hour and the cell. Coverage stops east of about Norwalk, and " +
+      "thins at the edges and near the shore. A click's readout flags a cell at the edge of that hour's coverage (a side " +
+      "neighbour without a total) and a total with weak geometry (GDOP above 1.0), where the speed and direction are less " +
+      "certain. The network publishes a few hours behind real time.",
   },
   "map-waves": {
     title: "Waves (NWS model)",

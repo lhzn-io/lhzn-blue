@@ -64,6 +64,8 @@ const FILES: Record<string, number> = {
   "v1/fields/nwps-waves-near.json": 1800, // the hours around now from nwps-waves.json, for the map's first view
   "v1/fields/wind-against-tide.json": 1800,
   "v1/fields/rips.json": 3600,
+  "v1/fields/hfradar.json": 1800, // HF radar surface currents, the last 72 hours (the jobs' hfradar.py)
+  "v1/fields/necofs-at-radar.json": 3600, // NECOFS runs as issued at the HF radar cells (the jobs' hfradar.py)
   "v1/asos.json": 300,
   "v1/current-phase.json": 1800,
   "v1/forecast-gfs.json": 1800, // GFS at the stations past HRRR's 48 h (jobs: gfs.py)

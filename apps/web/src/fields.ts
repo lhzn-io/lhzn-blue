@@ -14,13 +14,14 @@ import { alertsNow, zoneForecastUrl } from "./advisory";
 import { BOATS, COMFORT_WORDS, boatIcon, type Boat } from "./comfort-thresholds";
 import { SST_STOPS, SST_STOPS_DARK, isothermStep, isotherms, stopColour } from "./sst-scale";
 import { CURRENTS_FLOOR, CURRENTS_KNOTS, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURRENTS_TOP } from "@lhzn-io/timecharts/currents-ramp";
+import { MEASURED_RAMP, MEASURED_RAMP_DARK, MEASURED_TOP } from "@lhzn-io/timecharts/measured-ramp";
 import { mapReady, mapTheme, onStyle } from "./map";
 import { compass as compass16, LIGHT_KT, windArrow } from "@lhzn-io/timecharts/wind-dir";
 
-export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "wind" | "waves" | "wat" | "comfort";
+export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "radar" | "wind" | "waves" | "wat" | "comfort";
 
 export interface RasterField {
-  kind: Exclude<FieldKind, "currents" | "wind" | "waves" | "wat" | "comfort">;
+  kind: Exclude<FieldKind, "currents" | "radar" | "wind" | "waves" | "wat" | "comfort">;
   units: string;
   scale: number;
   time: string;
@@ -52,6 +53,20 @@ export interface CurrentsField {
   source: string;
   layer: string;
   generated_at: string;
+}
+
+/** HF radar surface currents, measured (see the jobs' hfradar.py): hourly totals on a regular 1 km lat-lon grid, at
+ * the cells holding a total in any hour of the file. Per frame, east and north as base64 int8 per listed cell in steps
+ * of encoding.step m/s, encoding.missing where that hour has no total; and, where the file has it, each total's
+ * geometric dilution of precision (GDOP) as base64 uint8 in steps of encoding.gdop_step. */
+export interface RadarField {
+  generated_at: string;
+  source: string;
+  attribution: string;
+  grid: { lon0: number; lat0: number; dlon: number; dlat: number; nx: number; ny: number };
+  cells: number[];
+  encoding: { step: number; missing: number; gdop_step?: number; gdop_missing?: number };
+  frames: { valid_time: string; n: number; u: string; v: string; g?: string }[];
 }
 
 /** HRRR 10 m wind on the model's own grid (see the jobs' hrrr_grid.py): each cell a quadrilateral, one frame per
@@ -88,7 +103,7 @@ export interface WindHistory {
 /** The last 90 days of a raster, one frame per UTC day (see the jobs' fields.py for the file layout). */
 export interface RasterHistory {
   header: {
-    kind: Exclude<FieldKind, "currents" | "wind" | "waves" | "wat" | "comfort">;
+    kind: Exclude<FieldKind, "currents" | "radar" | "wind" | "waves" | "wat" | "comfort">;
     units: string;
     grid: RasterField["grid"];
     days: string[];
@@ -128,6 +143,7 @@ export interface FieldData {
   history?: RasterHistory;
   mesh?: CurrentsMesh;
   currents?: CurrentsField;
+  radar?: RadarField;
   wind?: WindField;
 }
 
@@ -230,6 +246,15 @@ const curFill = (): maplibregl.ExpressionSpecification => [
   ["ln", ["max", ["/", ["coalesce", ["feature-state", "s"], 0], 100], CURRENTS_FLOOR]],
   ...curRamp().flatMap(([ms, c]) => [Math.log(ms), c]),
 ] as maplibregl.ExpressionSpecification;
+/** Measured currents (HF radar): the gilded ramp, linear from 0 to MEASURED_TOP m/s and the last colour above, so a
+ * measurement never shares a colour with the model's teal. */
+const goldRamp = () => (mapTheme() === "dark" ? MEASURED_RAMP_DARK : MEASURED_RAMP);
+const goldFill = (): maplibregl.ExpressionSpecification => [
+  "interpolate",
+  ["linear"],
+  ["/", ["coalesce", ["feature-state", "s"], 0], 100],
+  ...goldRamp().flatMap((c, i, all) => [(i / (all.length - 1)) * MEASURED_TOP, c]),
+] as maplibregl.ExpressionSpecification;
 const vecStops = () => (isWaves() ? waveStops() : windStops());
 
 interface Meta {
@@ -252,6 +277,7 @@ const META: Record<FieldKind, Meta> = {
   chl: { title: "Chlorophyll-a", short: "Chlorophyll-a", ramp: "algae", log: true, range: [0.5, 30], unit: "mg/m³", digits: 1, note: "Satellite estimate of the surface; biased high in turbid water and near the shore (a band along the coast is left out)." },
   kd490: { title: "Water clarity (Kd490)", short: "Clarity, Kd490", ramp: "turbid", log: true, range: [0.1, 2], unit: "m⁻¹", digits: 2, note: "Light attenuation at 490 nm, a satellite proxy for murkiness, not a turbidity reading in NTU. Higher is murkier." },
   currents: { title: "Surface currents", short: "Currents", ramp: "currents", log: true, range: [CURRENTS_FLOOR * 100, CURRENTS_TOP * 100], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
+  radar: { title: "Surface currents (HF radar)", short: "Currents, HF radar", ramp: "currents", log: false, range: [0, MEASURED_TOP * 100], unit: "cm/s", digits: 0, note: "Measured by shore-based HF radar: hourly totals on 1 km cells, where two sites both see the water. The radar reaches the western Sound only; cells with no total that hour are left empty, not filled in. Gold marks a measurement, as on the site's other measured currents; the model layer is teal." },
   waves: { title: "Waves (NWS NWPS)", short: "Waves, NWPS", ramp: "wind", log: false, range: [0, WAVE_TOP], unit: "m", digits: 2, note: "Model forecast (NWS Nearshore Wave Prediction System, SWAN): significant wave height on the model's own 1.8 km cells; arrows show where the waves travel. The runs exclude currents; steepening where wind opposes the tide is not represented." },
   wat: { title: "Wind against tide", short: "Wind against tide", ramp: "wind", log: false, unit: "", digits: 0, note: "A model-derived index, not an observation and not an NWS product: where the NECOFS current runs against the NWPS waves and steepens them (linear theory). Excludes shoals, rips and overfalls finer than the 1.8 km cells." },
   comfort: { title: "Comfort index", short: "Comfort", ramp: "wind", log: false, unit: "", digits: 0, note: "How the water suits the boat set in the byline, cell by cell, as a score from 0 to 7 (1 Moderate, 2 Uncomfortable, 3 Discomfort, then one point for each half of that step again): the worst of HRRR wind, NWPS waves, wind against tide and, for kayaks, the NECOFS current, raised by cold water, as in a click's readout. Advisories are not in the shading: the masthead and the zone lines show them, and a click's readout includes them. Shore cells (harbours, coves) carry wind only. No shading beyond HRRR's 48 hours." },
@@ -284,6 +310,7 @@ let active: FieldKind | null = null;
 let data: FieldData = {};
 let range: [number, number] = [0, 1];
 let frame = 0; // the currents frame on the map (-1: the timeline's time is outside the model run)
+let radarFrame = -1; // the HF radar hour on the map (-1: none within half an hour of the timeline's time)
 let windFrame = -1; // the wind frame on the map (-1: no HRRR hour at the timeline's time)
 let watFrame = -1; // the wind-against-tide frame on the map (-1: none within the hour)
 let overlay: WatField | null = null; // wind against tide over another field
@@ -446,8 +473,8 @@ function historyRange(h: RasterHistory): [number, number] {
   return r;
 }
 
-const LAYER_IDS = ["field-raster", "sst-iso", "cur-fill", "cur-arrows", "wind-fill", "wind-arrows", "comfort-fill", "comfort-hatch", "comfort-edge-casing", "comfort-edge", "wat-fill", "wat-arrows"];
-const SOURCE_IDS = ["field-raster", "sst-iso", "cur-mesh", "cur-points", "wind-cells", "wind-points", "comfort-cells", "comfort-edge", "wat-cells", "wat-points"];
+const LAYER_IDS = ["field-raster", "sst-iso", "cur-fill", "cur-arrows", "radar-fill", "radar-arrows", "wind-fill", "wind-arrows", "comfort-fill", "comfort-hatch", "comfort-edge-casing", "comfort-edge", "wat-fill", "wat-arrows"];
+const SOURCE_IDS = ["field-raster", "sst-iso", "cur-mesh", "cur-points", "radar-cells", "radar-points", "wind-cells", "wind-points", "comfort-cells", "comfort-edge", "wat-cells", "wat-points"];
 
 function clear(map: maplibregl.Map): void {
   for (const id of LAYER_IDS) if (map.getLayer(id)) map.removeLayer(id);
@@ -689,6 +716,191 @@ function currentText(c: CurrentsField, id: number): string {
   const sp = controls?.speed ?? { label: "cm/s", perCms: 1, digits: 0 };
   const t = fmtProbe.format(new Date(Date.parse(c.t0) + frame * c.step * 1000));
   return `${(Math.hypot(u, v) * sp.perCms).toFixed(sp.digits + 1)} ${sp.label} toward ${Math.round(deg)}&deg;<br><small>${t}, model</small>`;
+}
+
+/* ---------- HF radar (measured surface currents) ---------- */
+
+/** Above this GDOP a total is flagged as weak geometry: the two sites see the cell at a narrow angle, so the vector is
+ * less certain. The network itself drops totals above 1.25. Fixed here and stated in the readout and the method. */
+export const WEAK_GDOP = 1.0;
+
+const radarDecoded = new WeakMap<RadarField["frames"][number], { u: Float32Array; v: Float32Array; g: Float32Array }>();
+
+/** A frame's east and north in cm/s per listed cell, NaN where that hour has no total, and each total's GDOP (NaN
+ * where the file has none); decoded once. */
+export function radarUV(r: RadarField, k: number): { u: Float32Array; v: Float32Array; g: Float32Array } {
+  const f = r.frames[k];
+  let uv = radarDecoded.get(f);
+  if (!uv) {
+    const dec = (s: string) => {
+      const b = atob(s);
+      const out = new Float32Array(b.length);
+      for (let i = 0; i < b.length; i++) {
+        const q = (b.charCodeAt(i) << 24) >> 24; // int8
+        out[i] = q === r.encoding.missing ? NaN : q * r.encoding.step * 100;
+      }
+      return out;
+    };
+    const g = new Float32Array(r.cells.length).fill(NaN);
+    if (f.g) {
+      const b = atob(f.g);
+      const miss = r.encoding.gdop_missing ?? 255;
+      for (let i = 0; i < b.length; i++) if (b.charCodeAt(i) !== miss) g[i] = b.charCodeAt(i) * (r.encoding.gdop_step ?? 0.01);
+    }
+    uv = { u: dec(f.u), v: dec(f.v), g };
+    radarDecoded.set(f, uv);
+  }
+  return uv;
+}
+
+const radarIndex = new WeakMap<RadarField, Map<number, number>>();
+
+/** A total's flags for an hour: at the edge of that hour's coverage (a side neighbour without a total, or outside the
+ * file's cells), and its GDOP where the file has it. */
+export function radarQuality(r: RadarField, k: number, id: number): { edge: boolean; gdop: number; weak: boolean } {
+  let index = radarIndex.get(r);
+  if (!index) {
+    index = new Map(r.cells.map((c, i) => [c, i]));
+    radarIndex.set(r, index);
+  }
+  const { u, g } = radarUV(r, k);
+  const { nx, ny } = r.grid;
+  const c = r.cells[id];
+  const i = c % nx;
+  const j = Math.floor(c / nx);
+  const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([di, dj]) => {
+    const ii = i + di;
+    const jj = j + dj;
+    if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) return true;
+    const n = index!.get(jj * nx + ii);
+    return n == null || !Number.isFinite(u[n]);
+  });
+  return { edge, gdop: g[id], weak: g[id] > WEAK_GDOP };
+}
+
+/** The listed cell holding a point (its centre within half a cell each way), or -1. */
+export function radarCellAt(r: RadarField, lng: number, lat: number): number {
+  const { lon0, lat0, dlon, dlat, nx, ny } = r.grid;
+  const i = Math.round((lng - lon0) / dlon);
+  const j = Math.round((lat - lat0) / dlat);
+  if (i < 0 || j < 0 || i >= nx || j >= ny) return -1;
+  return r.cells.indexOf(j * nx + i);
+}
+
+/** The hour for the timeline's time: the nearest, or -1 when none is within half an hour (the radar is hourly). */
+function radarFrameAt(r: RadarField): number {
+  const t = fieldT ?? Date.now() / 1000;
+  let best = -1;
+  let gap = Infinity;
+  r.frames.forEach((f, k) => {
+    const d = Math.abs(Date.parse(f.valid_time) / 1000 - t);
+    if (d < gap) [best, gap] = [k, d];
+  });
+  return gap <= 1800 ? best : -1;
+}
+
+/** Each listed cell as its own square on the radar's grid (centre plus and minus half a step). */
+function radarCellsGeoJSON(r: RadarField) {
+  const { lon0, lat0, dlon, dlat, nx } = r.grid;
+  return {
+    type: "FeatureCollection" as const,
+    features: r.cells.map((c, id) => {
+      const x = lon0 + (c % nx) * dlon;
+      const y = lat0 + Math.floor(c / nx) * dlat;
+      const [w, e, s, n] = [x - dlon / 2, x + dlon / 2, y - dlat / 2, y + dlat / 2];
+      return { type: "Feature" as const, id, properties: {}, geometry: { type: "Polygon" as const, coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] } };
+    }),
+  };
+}
+
+/** Arrows at the cells with a total that hour; level 0 every 4th cell each way, 1 every 2nd, 2 the rest, so the
+ * spacing stays even as the map zooms in. */
+function radarPointsGeoJSON(r: RadarField, k: number) {
+  if (k < 0) return { type: "FeatureCollection" as const, features: [] };
+  const { lon0, lat0, dlon, dlat, nx } = r.grid;
+  const { u, v } = radarUV(r, k);
+  const features = [];
+  for (let id = 0; id < r.cells.length; id++) {
+    if (!Number.isFinite(u[id])) continue;
+    const i = r.cells[id] % nx;
+    const j = Math.floor(r.cells[id] / nx);
+    const level = i % 4 === 0 && j % 4 === 0 ? 0 : i % 2 === 0 && j % 2 === 0 ? 1 : 2;
+    features.push({
+      type: "Feature" as const,
+      properties: { level, s: Math.hypot(u[id], v[id]), d: (Math.atan2(u[id], v[id]) * 180) / Math.PI },
+      geometry: { type: "Point" as const, coordinates: [lon0 + i * dlon, lat0 + j * dlat] },
+    });
+  }
+  return { type: "FeatureCollection" as const, features };
+}
+
+function addRadar(map: maplibregl.Map, r: RadarField): void {
+  range = META.radar.range!;
+  arrowImage(map);
+  map.addSource("radar-cells", { type: "geojson", data: radarCellsGeoJSON(r) });
+  map.addSource("radar-points", { type: "geojson", data: radarPointsGeoJSON(r, radarFrame) });
+  map.addLayer(
+    {
+      id: "radar-fill",
+      type: "fill",
+      source: "radar-cells",
+      paint: {
+        "fill-color": goldFill(),
+        "fill-opacity": ["case", ["==", ["feature-state", "s"], null], 0, 0.85] as maplibregl.ExpressionSpecification,
+        "fill-antialias": false,
+      },
+    },
+    beneathLabels(map),
+  );
+  const shown = (level: number): maplibregl.ExpressionSpecification => ["case", ["<=", ["get", "level"], level], 0.9, 0];
+  map.addLayer({
+    id: "radar-arrows",
+    type: "symbol",
+    source: "radar-points",
+    layout: {
+      "icon-image": "cur-arrow",
+      "icon-rotate": ["get", "d"],
+      "icon-rotation-alignment": "map",
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+      "icon-size": ["interpolate", ["linear"], ["get", "s"], 0, 0.28, 40, 0.42, 120, 0.7],
+    },
+    paint: {
+      "icon-color": mapTheme() === "light" ? "#1c2a48" : "#f4f1e8",
+      "icon-opacity": ["step", ["zoom"], shown(0), 10.2, shown(1), 11.4, shown(2)] as maplibregl.ExpressionSpecification,
+    },
+  });
+  paintRadar(map);
+}
+
+/** Shade each cell by speed at the hour shown (cells with no total that hour stay empty), and move the arrows. */
+function paintRadar(map: maplibregl.Map): void {
+  const r = data.radar;
+  if (!r || !map.getSource("radar-cells")) return;
+  const uv = radarFrame >= 0 ? radarUV(r, radarFrame) : null;
+  for (let id = 0; id < r.cells.length; id++) {
+    const s = uv && Number.isFinite(uv.u[id]) ? Math.hypot(uv.u[id], uv.v[id]) : null;
+    map.setFeatureState({ source: "radar-cells", id }, { s });
+  }
+  (map.getSource("radar-points") as maplibregl.GeoJSONSource).setData(radarPointsGeoJSON(r, radarFrame));
+  refreshPopup();
+}
+
+/** A cell's measured current for the hour shown, in the reader's unit, with its time. */
+function radarText(r: RadarField, id: number): string {
+  if (radarFrame < 0) return "no radar hour at this time";
+  const { u, v } = radarUV(r, radarFrame);
+  const t = fmtProbe.format(new Date(r.frames[radarFrame].valid_time));
+  if (!Number.isFinite(u[id])) return `no total in this cell<br><small>${t}, HF radar</small>`;
+  const deg = ((Math.atan2(u[id], v[id]) * 180) / Math.PI + 360) % 360;
+  const sp = controls?.speed ?? { label: "cm/s", perCms: 1, digits: 0 };
+  const q = radarQuality(r, radarFrame, id);
+  const flags = [
+    q.edge ? "Edge of coverage this hour: the sites' beams reach this cell at their limit." : "",
+    q.weak ? `Weak geometry (GDOP ${q.gdop.toFixed(2)}, above ${WEAK_GDOP.toFixed(1)}): the two sites see this cell at a narrow angle, so the speed and direction are less certain.` : "",
+  ].filter(Boolean);
+  const flagHtml = flags.length ? `<br><small class="pop-flag">${flags.join("<br>")}</small>` : "";
+  return `${(Math.hypot(u[id], v[id]) * sp.perCms).toFixed(sp.digits + 1)} ${sp.label} toward ${Math.round(deg)}&deg;<br><small>${t}, measured (HF radar)${Number.isFinite(q.gdop) && !q.weak ? `, GDOP ${q.gdop.toFixed(2)}` : ""}</small>${flagHtml}`;
 }
 
 /* ---------- Wind (HRRR) ---------- */
@@ -1069,6 +1281,7 @@ function refreshPopup(): void {
     if (data.wat) base = watText(data.wat, probe);
     else if (data.wind) base = windText(data.wind, probe);
     else if (data.currents) base = currentText(data.currents, probe);
+    else if (data.radar) base = radarText(data.radar, probe);
   }
   if (base != null) popup.setHTML(withOverlay(base));
 }
@@ -2182,6 +2395,14 @@ export async function setFieldTime(t: number | null): Promise<void> {
     if (box) renderPanel(box); // the key shows the hour and run
     return paintWind(await mapReady());
   }
+  if (data.radar) {
+    const k = radarFrameAt(data.radar);
+    if (k === radarFrame) return;
+    radarFrame = k;
+    const box = document.getElementById("map");
+    if (box) renderPanel(box); // the key names the hour
+    return paintRadar(await mapReady());
+  }
   const c = data.currents;
   if (!c) return;
   const k = frameAt(c);
@@ -2321,6 +2542,15 @@ function scaleHtml(meta: Meta, ripKey = false): string {
     const v = (s: number) => (s * un.perMs).toFixed(0);
     return `<div class="field-scale"><span>0</span><i class="field-bar" style="background:linear-gradient(90deg,${stops.join(",")})"></i><span>${v(WIND_TOP)} ${un.label}</span></div>`;
   }
+  if (active === "radar") {
+    const sp = controls?.speed ?? { label: "cm/s", perCms: 1, digits: 0 };
+    const v = (ms: number) => {
+      const x = ms * 100 * sp.perCms;
+      return x < 10 ? x.toFixed(1) : x.toFixed(0);
+    };
+    const ticks = [0.25].map((ms) => `<span style="left:${((ms / MEASURED_TOP) * 100).toFixed(1)}%">${v(ms)}</span>`).join("");
+    return `<div class="field-scale cur-scale"><div class="cur-key"><i class="field-bar" style="background:linear-gradient(90deg,${goldRamp().join(",")})"></i><div class="cur-ticks"><span style="left:0">0</span>${ticks}</div></div><span>${v(MEASURED_TOP)}+ ${sp.label}</span></div>`;
+  }
   if (active === "currents") {
     // Currents are stored in cm/s and shown in the reader's unit, with ticks at the ramp's knots.
     const sp = controls?.speed ?? { label: "cm/s", perCms: 1, digits: 0 };
@@ -2379,6 +2609,8 @@ function renderPanel(fallback: HTMLElement): void {
   {
     const r = data.raster;
     const c = data.currents;
+    const rd = data.radar;
+    const rf = rd && radarFrame >= 0 ? rd.frames[radarFrame] : null;
     const w = data.wind;
     const wt = data.wat;
     const tf = wt && watFrame >= 0 ? wt.frames[watFrame] : null;
@@ -2398,6 +2630,10 @@ function renderPanel(fallback: HTMLElement): void {
       ? tf
         ? `${fmtProbe.format(new Date(tf.valid_time))}, NWPS ${tf.cycle.slice(11, 13)}Z run`
         : "no model hour"
+      : rd
+      ? rf
+        ? `${fmtProbe.format(new Date(rf.valid_time))}, ${rf.n} cells`
+        : "no radar hour"
       : r
       ? daySpan(day(r.window_days > 2 ? oldest : newest), day(newest))
       : c
@@ -2414,6 +2650,8 @@ function renderPanel(fallback: HTMLElement): void {
       ? " Each hour from HRRR wind (14 days back to 48h ahead), NWPS waves and wind against tide (24h back; wind only before that); the time bar below moves it."
       : wt
       ? " Every 2 hours from 24h back to 72h ahead: the newest NWPS run for each hour with the day's NECOFS currents; the time bar below moves it."
+      : rd
+      ? ` Hourly, the ${rd.frames.length} hours to ${fmtProbe.format(new Date(rd.frames[rd.frames.length - 1].valid_time))} (the network publishes a few hours behind); the time bar below moves it.`
       : c
       ? ` Run of ${fmtDay.format(new Date(c.generated_at))}, covering 24h back to 72h ahead; the time bar below moves it.`
       : w
@@ -2421,7 +2659,7 @@ function renderPanel(fallback: HTMLElement): void {
           ? " Each hour from the newest NWPS run that covers it (00 and 12 UTC), 24h back to 72h ahead; the time bar below moves it."
           : " Each hour from the newest HRRR run that covers it, 14 days back (hours before the last 24 load on the first step back) to 48h ahead; the time bar below moves it."
         : "";
-    const credit = cm ? [cm.wind?.attribution, cm.waves?.attribution].filter(Boolean).join(" ") : wt ? wt.attribution : r ? r.attribution : c ? c.source : w ? w.attribution : "";
+    const credit = cm ? [cm.wind?.attribution, cm.waves?.attribution].filter(Boolean).join(" ") : wt ? wt.attribution : rd ? rd.attribution : r ? r.attribution : c ? c.source : w ? w.attribution : "";
     const boat = controls?.boat ?? "console";
     const name = cm ? `${boatIcon(boat, 10)} ${meta.short}, ${BOATS[boat].name.toLowerCase()}` : meta.short;
     // The Sound's currents layer links to the same model in 3D (/long-island-sound/currents-3d/).
@@ -2569,6 +2807,7 @@ function draw(map: maplibregl.Map): void {
   if (data.wat) addWat(map, data.wat);
   else if (data.raster) addRaster(map, data.raster);
   else if (data.mesh && data.currents) addCurrents(map, data.mesh, data.currents);
+  else if (data.radar) addRadar(map, data.radar);
   else if (data.wind) addWind(map, data.wind);
   else if (data.comfort) addComfort(map, data.comfort, true, zonesOnComfort);
   if (overlay && !data.wat) addWat(map, overlay, !(data.wind || data.currents));
@@ -2578,7 +2817,7 @@ function draw(map: maplibregl.Map): void {
 
 /** Show a field (or none) with its data, and the panel with the page's controls. */
 export async function showField(kind: FieldKind | null, payload: FieldData, ctl: FieldControls): Promise<void> {
-  const sameLayer = kind === active && payload.raster === shownRaster && payload.currents === data.currents && payload.wind === data.wind && payload.wat === data.wat && payload.comfort === data.comfort && (payload.overlay ?? null) === overlay && (kind === "comfort" ? !!payload.hazard === zonesOnComfort : (payload.hazard ?? null) === hazard);
+  const sameLayer = kind === active && payload.raster === shownRaster && payload.currents === data.currents && payload.radar === data.radar && payload.wind === data.wind && payload.wat === data.wat && payload.comfort === data.comfort && (payload.overlay ?? null) === overlay && (kind === "comfort" ? !!payload.hazard === zonesOnComfort : (payload.hazard ?? null) === hazard);
   if (!sameLayer) closeValue(); // a value from another layer
   active = kind;
   data = kind ? { ...payload } : {};
@@ -2595,6 +2834,7 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
     data.raster = historyRaster(data.history, histIndex);
   }
   if (data.currents) frame = frameAt(data.currents);
+  radarFrame = data.radar ? radarFrameAt(data.radar) : -1;
   for (const w of [data.wind, data.comfort?.wind, hazard?.wind]) mergeWindHistory(w); // the history, once loaded
   if (data.wind) windFrame = windFrameAt(data.wind);
   const cmSrc = data.comfort ?? hazard;
@@ -2605,6 +2845,7 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
   if (data.history) range = historyRange(data.history);
   else if (data.raster) range = rangeOf(META[data.raster.kind], data.raster.values.map((v) => (v == null ? NaN : v * data.raster!.scale)));
   else if (data.currents) range = META.currents.range!;
+  else if (data.radar) range = META.radar.range!;
   else if (data.wind) range = META[isWaves() ? "waves" : "wind"].range!;
   // The panel first, so the picker, colour bar and source show while the map is still loading its tiles.
   const box = document.getElementById("map");
@@ -2633,6 +2874,13 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
       map.on("click", hide);
     }
     map.on("click", async (e) => {
+      const rd = active === "radar" ? data.radar : undefined;
+      if (rd) {
+        const hit = map.queryRenderedFeatures(e.point, { layers: ["radar-fill"] })[0];
+        if (hit && typeof hit.id === "number") void showValue(map, e.lngLat, radarText(rd, hit.id), hit.id);
+        else closeValue();
+        return;
+      }
       const r = data.raster;
       if (controls?.point) {
         const load = controls.point;

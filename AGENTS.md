@@ -38,6 +38,8 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
     datums and moon phases), `panels.py` (a transcribed record from the LISICOS station panels during outages).
   - `piscataqua.py` (NOAA's tidal current predictions for the Piscataqua Region page).
   - `snapshot.py` (saved copies of the server's datasets), `archive.py` (reads saved downloads for the imports),
+    `hfradar.py` (the Sound's HF radar surface currents through forcingkit's `hfradar` fetcher, one create-only
+    NetCDF file per day, kept by the snapshot job; `hfradar --start all` saves every day the server still holds),
     `cli.py`.
 - `apps/web/src/`:
   - `lis.ts`: the page. Views (`WATER_VARS`: temp, salinity, oxygen, wind, turbidity, rivers), the overview table

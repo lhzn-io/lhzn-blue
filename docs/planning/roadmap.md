@@ -1,6 +1,6 @@
 # Roadmap
 
-What `longhorizon.blue` builds next, in rough order. Last revised 2026-11-05.
+What `longhorizon.blue` builds next, in rough order. Last revised 2026-11-12.
 
 ## Principles
 
@@ -42,6 +42,10 @@ Long Island Sound page:
 - [x] Outage handling: every dataset retried hourly, saved copies of the source datasets three times a week, a
       transcribed record from the LISICOS station panels while the data server is down, and model stand-ins labelled
       as such
+- [x] HF radar surface currents kept: the Western Long Island Sound HF radar (University of Connecticut, LISICOS),
+      combined into hourly totals by the NOAA IOOS HF Radar National Network (HFRNet) and served by NOAA NDBC for
+      about 92 days. The Sound's box at 1 km and 2 km is saved three times a week, one file per day, from
+      2026-08-12, so the record grows past the server's window. Not yet drawn on the page.
 - [x] Phone layout, and an embed mode for one live figure
 - [x] A page per station: each buoy, shore station and coastal airport with only the views it has, our own photos of
       three of the buoys, and earlier links to a station or one of its plots opening its page
@@ -77,8 +81,8 @@ Long Island Sound page:
 ## After that
 
 1. **Tidal currents beside the model.** Plum Gut added to the current phase strip, with NOAA's prediction beside the
-   NECOFS surface current. Scored only where there is a measurement, as at Groton; the other points show the two
-   curves without a score.
+   NECOFS surface current. Scored only where there is a measurement, as at Groton and, at the surface, where the
+   HF radar reaches; the other points show the two curves without a score.
 2. **Fog.** Dew-point depression and the air-sea temperature difference at the buoys, visibility from the airport
    stations around the Sound, satellite fog products, and visibility forecasts scored against them.
 3. **Tide-averaged flow at Middle Haddam.** USGS publishes only tidal flow below Thompsonville on the Connecticut

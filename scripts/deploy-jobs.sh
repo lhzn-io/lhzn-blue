@@ -1,8 +1,8 @@
 #!/bin/bash
 # Build the ingest image and (re)deploy the Cloud Run jobs: `live` (hourly), `latest` (the buoys every 15 minutes
 # between hourly runs), `history` and `fields` (daily),
-# `snapshot` (saved copies of the server's datasets, three times a week), `forecast` (HRRR at the stations, hourly),
-# and `forecast-backfill` (past HRRR cycles, run by hand).
+# `snapshot` (saved copies of the server's datasets, and the Sound's HF radar days, three times a week),
+# `forecast` (HRRR at the stations, hourly), and `forecast-backfill` (past HRRR cycles, run by hand).
 # Settings come from ~/.config/lhzn-blue/env (never committed):
 #   GCP_PROJECT      Google Cloud project id
 #   GCP_REGION       e.g. us-central1
@@ -14,6 +14,8 @@
 #   FORECAST_STORE   gs://bucket/prefix the forecast job archives HRRR at the stations to
 #   NWPS_STORE       optional: gs://bucket/prefix for the NWPS wave model runs (default: nwps-okx beside FORECAST_STORE)
 #   PANELS_STORE     optional: gs://bucket/prefix for the LISICOS panel images as fetched (default: lisicos-panels beside it)
+#   HFRADAR_STORE    optional: gs://bucket/prefix for the Sound's HF radar surface currents, kept by the snapshot job
+#                    (default: hfradar-usegc beside FORECAST_STORE)
 # Scheduling is separate (scripts/schedule-jobs.sh), so redeploying code does not touch triggers.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -44,6 +46,7 @@ gcloud builds submit "$CTX" --project "$GCP_PROJECT" --region "$GCP_REGION" \
 
 NWPS_STORE="${NWPS_STORE:-${FORECAST_STORE%/*}/nwps-okx}"
 PANELS_STORE="${PANELS_STORE:-${FORECAST_STORE%/*}/lisicos-panels}"
+HFRADAR_STORE="${HFRADAR_STORE:-${FORECAST_STORE%/*}/hfradar-usegc}"
 SECRETS="CLOUDFLARE_API_TOKEN=${CF_TOKEN_SECRET}:latest"
 [ -n "${USGS_KEY_SECRET:-}" ] && SECRETS="${SECRETS},USGS_API_KEY=${USGS_KEY_SECRET}:latest"
 
@@ -60,7 +63,7 @@ for mode in live latest history fields snapshot forecast panels region-live regi
   gcloud run jobs deploy "lhzn-blue-${mode}" \
     --project "$GCP_PROJECT" --region "$GCP_REGION" --image "$IMAGE" \
     --service-account "$JOB_SA" --args "$mode" \
-    --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_SNAPSHOTS=${SNAPSHOT_STORE},LHZN_BLUE_FORECASTS=${FORECAST_STORE},LHZN_BLUE_NWPS=${NWPS_STORE},LHZN_BLUE_PANELS_ARCHIVE=${PANELS_STORE}" \
+    --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_SNAPSHOTS=${SNAPSHOT_STORE},LHZN_BLUE_FORECASTS=${FORECAST_STORE},LHZN_BLUE_NWPS=${NWPS_STORE},LHZN_BLUE_PANELS_ARCHIVE=${PANELS_STORE},LHZN_BLUE_HFRADAR=${HFRADAR_STORE}" \
     --set-secrets "$SECRETS" \
     --tasks 1 --max-retries 1 --task-timeout "${TIMEOUT[$mode]}" \
     --cpu 1 --memory "${MEMORY[$mode]}"

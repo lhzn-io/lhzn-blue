@@ -56,6 +56,8 @@ NWPS_STORE="${NWPS_STORE:-${FORECAST_STORE%/*}/nwps-okx}"  # the NWPS wave model
 NWPS_PREFIX="${NWPS_STORE#gs://$SNAP_BUCKET}"; NWPS_PREFIX="${NWPS_PREFIX#/}"
 PANELS_STORE="${PANELS_STORE:-${FORECAST_STORE%/*}/lisicos-panels}"  # the LISICOS panel images (same bucket)
 PANELS_PREFIX="${PANELS_STORE#gs://$SNAP_BUCKET}"; PANELS_PREFIX="${PANELS_PREFIX#/}"
+HFRADAR_STORE="${HFRADAR_STORE:-${FORECAST_STORE%/*}/hfradar-usegc}"  # the Sound's HF radar days (same bucket)
+HFRADAR_PREFIX="${HFRADAR_STORE#gs://$SNAP_BUCKET}"; HFRADAR_PREFIX="${HFRADAR_PREFIX#/}"
 gcloud storage buckets add-iam-policy-binding "gs://$SNAP_BUCKET" "${P[@]}" \
   --member "serviceAccount:$JOB_SA" --role roles/storage.objectCreator >/dev/null
 # Copies older than 30 days move to Coldline (read rarely, kept indefinitely). The second prefix covers the
@@ -63,7 +65,7 @@ gcloud storage buckets add-iam-policy-binding "gs://$SNAP_BUCKET" "${P[@]}" \
 LIFECYCLE="$(mktemp)"
 cat > "$LIFECYCLE" <<JSON
 {"rule": [{"action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
-           "condition": {"age": 30, "matchesStorageClass": ["STANDARD"], "matchesPrefix": ["${SNAP_PREFIX%/}/", "/${SNAP_PREFIX%/}/", "${FC_PREFIX%/}/", "${NWPS_PREFIX%/}/", "${PANELS_PREFIX%/}/"]}}]}
+           "condition": {"age": 30, "matchesStorageClass": ["STANDARD"], "matchesPrefix": ["${SNAP_PREFIX%/}/", "/${SNAP_PREFIX%/}/", "${FC_PREFIX%/}/", "${NWPS_PREFIX%/}/", "${PANELS_PREFIX%/}/", "${HFRADAR_PREFIX%/}/"]}}]}
 JSON
 gcloud storage buckets update "gs://$SNAP_BUCKET" "${P[@]}" --lifecycle-file "$LIFECYCLE" >/dev/null
 rm -f "$LIFECYCLE"

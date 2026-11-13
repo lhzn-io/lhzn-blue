@@ -1,4 +1,4 @@
-"""Command line: ``lhzn-blue-jobs {history,live,latest,fields,snapshot,forecast,forecast-backfill,gfs-backfill,hrdps-backfill,hrrr-wind-backfill,import-verification,import-archive,import-waves,import-weather} --out <store>``.
+"""Command line: ``lhzn-blue-jobs {history,live,latest,fields,snapshot,hfradar,forecast,forecast-backfill,gfs-backfill,hrdps-backfill,hrrr-wind-backfill,import-verification,import-archive,import-waves,import-weather} --out <store>``.
 
 ``live`` and ``history`` also refresh the shore stations (``shore.json``, ``shore-history.json``) and the
 rivers (``rivers.json``, ``rivers-history.json``) after the buoys; a failure there is logged and never stops
@@ -18,7 +18,7 @@ from . import build, merlin, outages, rivers, shore, tides, turbidity, usgs_tida
 
 def _main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "gfs-backfill", "hrdps-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "panels", "region-live", "region-daily", "region-wind", "import-verification", "import-archive", "import-waves", "import-weather"])
+    parser.add_argument("command", choices=["history", "live", "latest", "fields", "snapshot", "forecast", "forecast-backfill", "gfs-backfill", "hrdps-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "panels", "region-live", "region-daily", "region-wind", "import-verification", "import-archive", "import-waves", "import-weather", "hfradar"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
@@ -50,16 +50,22 @@ def _main() -> None:
         default=os.environ.get("LHZN_BLUE_PANELS_ARCHIVE"),
         help="panels: local directory or gs://bucket/prefix for the panel images as fetched (env LHZN_BLUE_PANELS_ARCHIVE)",
     )
-    parser.add_argument("--start", help="forecast-backfill, gfs-backfill, hrdps-backfill: first cycle, UTC (e.g. 2024-01-01T00)")
-    parser.add_argument("--end", help="forecast-backfill, gfs-backfill, hrdps-backfill: last cycle, UTC")
+    parser.add_argument(
+        "--hfradar",
+        default=os.environ.get("LHZN_BLUE_HFRADAR"),
+        help="hfradar, snapshot: local directory or gs://bucket/prefix for the HF radar archive (env LHZN_BLUE_HFRADAR); "
+        "hfradar defaults to forcingkit's cache",
+    )
+    parser.add_argument("--start", help="forecast-backfill, gfs-backfill, hrdps-backfill: first cycle, UTC (e.g. 2024-01-01T00); hfradar: first day, or 'all'")
+    parser.add_argument("--end", help="forecast-backfill, gfs-backfill, hrdps-backfill: last cycle, UTC; hfradar: last day")
     parser.add_argument("--model", choices=["hrrr", "gfs", "hrdps"], default="hrrr", help="import-verification: the model to score (default hrrr)")
     parser.add_argument("--days", type=int, default=14, help="hrrr-wind-backfill: days back to fill (default 14)")
     parser.add_argument("--vintage", help="import-archive: fallback snapshot folder when stations.json names none")
     parser.add_argument("--full", action="store_true", help="live: refetch the whole 45-day window")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    # The region jobs never read the Sound's LISICOS server: a budget of 0 makes a stray call fail instead of sending.
-    merlin.set_budget(0 if args.command.startswith("region-") else merlin.BUDGETS.get(args.command, merlin.DEFAULT_BUDGET))
+    # The region jobs and hfradar never read the Sound's LISICOS server: a budget of 0 makes a stray call fail instead of sending.
+    merlin.set_budget(0 if args.command.startswith("region-") or args.command == "hfradar" else merlin.BUDGETS.get(args.command, merlin.DEFAULT_BUDGET))
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -187,6 +193,10 @@ def _main() -> None:
         manifest = snapshot.snapshot(args.to)
         # The manifest lists every dataset not saved; only faults fail the run (a quiet server is an outage).
         _failed.extend(f["dataset"] for f in manifest["failed"] if not f.get("outage"))
+        if args.hfradar:  # the Sound's HF radar days since the last run (the server keeps about 92 days)
+            _shore(lambda: _hfradar(args.hfradar), "hfradar")
+    elif args.command == "hfradar":  # without --hfradar, into forcingkit's cache (FORCINGKIT_CACHE_DIR/hfradar)
+        _shore(lambda: _hfradar(args.hfradar, args.start, args.end), "hfradar")
     elif args.command == "import-weather":
         if not args.archive_dir:
             parser.error("import-weather needs --archive-dir")
@@ -212,6 +222,13 @@ def _verify(store: build.Store, model: str = "hrrr") -> None:
     from . import verify  # pandas only; kept out of the other jobs' imports
 
     verify.update(store, verify.MODELS[model])
+
+
+def _hfradar(root: str | None, start: str | None = None, end: str | None = None) -> None:
+    from . import hfradar  # forcingkit's HF radar fetcher (xarray, OPeNDAP) is needed only here
+
+    written = hfradar.archive(root, start, end)
+    logging.getLogger("lhzn_blue_jobs.hfradar").info("HF radar days written: %s", {g: len(n) for g, n in written.items()})
 
 
 def _usgs_fit(store: build.Store) -> None:

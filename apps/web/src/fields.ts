@@ -787,9 +787,18 @@ export function radarCellAt(r: RadarField, lng: number, lat: number): number {
   return r.cells.indexOf(j * nx + i);
 }
 
-/** The hour for the timeline's time: the nearest, or -1 when none is within half an hour (the radar is hourly). */
+/** How old the newest radar hour may be and still stand in for "now": the totals reach the server some 4 to 6 hours
+ * late, so at "now" the layer shows that newest hour, with its age, rather than nothing. */
+const RADAR_NOW_HOURS = 12;
+
+/** The hour for the timeline's time: the nearest, or -1 when none is within half an hour (the radar is hourly). At
+ * "now" (no time picked), the newest hour when it is under RADAR_NOW_HOURS old. */
 function radarFrameAt(r: RadarField): number {
-  const t = fieldT ?? Date.now() / 1000;
+  if (fieldT == null) {
+    const k = r.frames.length - 1;
+    return k >= 0 && Date.now() / 1000 - Date.parse(r.frames[k].valid_time) / 1000 < RADAR_NOW_HOURS * 3600 ? k : -1;
+  }
+  const t = fieldT;
   let best = -1;
   let gap = Infinity;
   r.frames.forEach((f, k) => {
@@ -797,6 +806,13 @@ function radarFrameAt(r: RadarField): number {
     if (d < gap) [best, gap] = [k, d];
   });
   return gap <= 1800 ? best : -1;
+}
+
+/** ", 5 h ago" when the radar hour shown stands in for "now" and is an hour or more old; "" otherwise. */
+function radarAge(r: RadarField, k: number): string {
+  if (fieldT != null || k < 0) return "";
+  const h = Math.round((Date.now() - Date.parse(r.frames[k].valid_time)) / 3600e3);
+  return h >= 1 ? `, ${h} h ago` : "";
 }
 
 /** Each listed cell as its own square on the radar's grid (centre plus and minus half a step). */
@@ -890,7 +906,7 @@ function paintRadar(map: maplibregl.Map): void {
 function radarText(r: RadarField, id: number): string {
   if (radarFrame < 0) return "no radar hour at this time";
   const { u, v } = radarUV(r, radarFrame);
-  const t = fmtProbe.format(new Date(r.frames[radarFrame].valid_time));
+  const t = fmtProbe.format(new Date(r.frames[radarFrame].valid_time)) + radarAge(r, radarFrame);
   if (!Number.isFinite(u[id])) return `no total in this cell<br><small>${t}, HF radar</small>`;
   const deg = ((Math.atan2(u[id], v[id]) * 180) / Math.PI + 360) % 360;
   const sp = controls?.speed ?? { label: "cm/s", perCms: 1, digits: 0 };
@@ -2632,7 +2648,7 @@ function renderPanel(fallback: HTMLElement): void {
         : "no model hour"
       : rd
       ? rf
-        ? `${fmtProbe.format(new Date(rf.valid_time))}, ${rf.n} cells`
+        ? `${fmtProbe.format(new Date(rf.valid_time))}${radarAge(rd, radarFrame)}, ${rf.n} cells`
         : "no radar hour"
       : r
       ? daySpan(day(r.window_days > 2 ? oldest : newest), day(newest))

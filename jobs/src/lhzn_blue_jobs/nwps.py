@@ -58,11 +58,14 @@ NAME = re.compile(r"\d{4}/\d{2}/okx_nwps_CG1_\d{8}_\d{2}00\.grib2")
 
 
 def file_name(run: datetime) -> str:
+    """The run's name in our archive (NOMADS's name before NWPS v1.5, kept so the archive reads as one series)."""
     return f"okx_nwps_CG1_{run:%Y%m%d_%H}00.grib2"
 
 
 def url(run: datetime) -> str:
-    return f"{BASE}/er.{run:%Y%m%d}/{WFO}/{run:%H}/{GRID}/{file_name(run)}"
+    """The run on NOMADS. Since NWPS v1.5 (first seen on the 2026-11-10 00Z run) the file is named
+    nwps.tHHz.cg1.okx.grib2 in the same directory; its fields, steps and grid are unchanged."""
+    return f"{BASE}/er.{run:%Y%m%d}/{WFO}/{run:%H}/{GRID}/nwps.t{run:%H}z.{GRID.lower()}.{WFO}.grib2"
 
 
 class Archive:

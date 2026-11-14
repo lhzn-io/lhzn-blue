@@ -31,6 +31,9 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
+      # The local packages (timecharts, Collect) are imported from their built dist/, which npm ci does not
+      # build; npm run build does (its prebuild), but these steps call tsc and vite directly.
+      - run: npm run packages
       - run: node node_modules/typescript/bin/tsc --noEmit
       - run: node node_modules/vite/bin/vite.js build
         env:

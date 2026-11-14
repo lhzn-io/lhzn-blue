@@ -284,13 +284,16 @@ export const METHODS: Record<string, Method> = {
       "HF radar: the 1 km cell holding the point, hourly totals from the NOAA IOOS HF Radar National Network (HFRNet; in " +
       "the western Sound the University of Connecticut's LISICOS sites), served by NOAA NDBC. Hours where the cell is at " +
       "the edge of that hour's coverage, or its geometry is weak (GDOP above 1.0), are drawn faint and left out of the " +
-      "comparison. NECOFS FVCOM [[chen2003fvcom]] [[chen2006fvcom]]: the latest run on the triangle holding the point, " +
+      "comparison. NECOFS FVCOM (NECOFS/UMASSD) [[chen2003fvcom]] [[chen2006fvcom]]: the latest run on the triangle holding the point, " +
       "every 2 hours; the forecast made a day ahead is, for each hour, the run fetched 24 to 48 hours before it, kept daily " +
       "at the radar's cells. The flood direction is the radar's principal axis over its clean hours (the model's strongest " +
-      "current where the radar does not reach), with flood its westward end, toward the East River. The note gives the RMS " +
-      "miss along the flood direction and the measured ebb and flood as a share of the forecast's.",
+      "current where the radar does not reach), with flood its westward end, toward the East River.",
+    sources:
+      "HF radar: NOAA IOOS HFRNet totals from the University of Connecticut's LISICOS sites [[lisicos]], served by NOAA " +
+      "NDBC. NECOFS/UMASSD: FVCOM, School for Marine Science and Technology, UMass Dartmouth [[chen2003fvcom]] " +
+      "[[chen2006fvcom]].",
     caveats:
-      "The radar measures roughly the top metre, averaged over the hour and the cell; the model's top layer is a thin " +
+      "The radar measures roughly the top meter, averaged over the hour and the cell; the model's top layer is a thin " +
       "fraction of the local depth. The comparison covers the radar's last 72 hours, so it is not a score. The radar " +
       "reaches the western Sound only. The day-ahead forecast fills in once the site has kept runs for two days.",
   },

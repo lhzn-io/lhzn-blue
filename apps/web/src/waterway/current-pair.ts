@@ -158,7 +158,6 @@ function floodAxis(p: Pair): { ax: number; ay: number; from: "radar" | "model" }
 
 const toward = (u: number, v: number) => ((Math.atan2(u, v) * 180) / Math.PI + 360) % 360;
 const fmtWhen = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric" });
-const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 export const CURRENT_PAIR: Fig = {
   title: "Surface current, flood and ebb",
@@ -196,7 +195,6 @@ export const CURRENT_PAIR: Fig = {
     // The miss is shaded against the day-ahead forecast where the kept runs reach that far, else the latest run.
     const hasAhead = xs.some((t) => hourly.has(t) && aheadAt(t));
     const ref = (t: number) => (hasAhead ? aheadAt(t) : latestAt(t));
-    const refLabel = hasAhead ? "the forecast made a day ahead" : "the latest run";
     const area: Area = {
       lo: xs.map((t) => { const m = measured(t, true), f = val(ref(t)); return Number.isFinite(m) && Number.isFinite(f) ? Math.min(m, f) : NaN; }),
       hi: xs.map((t) => { const m = measured(t, true), f = val(ref(t)); return Number.isFinite(m) && Number.isFinite(f) ? Math.max(m, f) : NaN; }),
@@ -228,22 +226,6 @@ export const CURRENT_PAIR: Fig = {
       if (!m) continue;
       glyphs.push({ x: t, deg: toward(m.u, m.v), color: model, dashed: true, faint: Math.hypot(m.u, m.v) < 10, title: `current forecast toward ${compass(toward(m.u, m.v))}` });
     }
-    // How wrong the forecast was, over the clean radar hours it covers: RMS miss along the flood direction, and the measured
-    // flood and ebb as a share of the forecast's (each over the hours the forecast floods or ebbs).
-    const hours = (p.radar?.at ?? []).filter((x) => !x.weak && !x.edge).map((x) => ({ m: along(x.u, x.v), f: val(ref(x.t)) })).filter((h) => Number.isFinite(h.m) && Number.isFinite(h.f));
-    let miss = "";
-    if (hours.length >= 6) {
-      const rms = Math.sqrt(hours.reduce((s, h) => s + (h.m - h.f) ** 2, 0) / hours.length);
-      const share = (sign: number) => {
-        const hs = hours.filter((h) => Math.sign(h.f) === sign);
-        const f = hs.reduce((s, h) => s + Math.abs(h.f), 0);
-        return hs.length >= 3 && f > 0 ? hs.reduce((s, h) => s + Math.max(0, sign * h.m), 0) / f : NaN;
-      };
-      const fl = share(1), eb = share(-1);
-      miss =
-        `against ${refLabel} over ${hours.length} measured hours: RMS miss ${fmtSpeed(rms)} along the flood direction` +
-        `${Number.isFinite(eb) ? `; the ebb ran ${pct(eb)} of the forecast's` : ""}${Number.isFinite(fl) ? `, the flood ${pct(fl)}` : ""}`;
-    }
     const axisNote = axis ? `flood toward ${Math.round(toward(axis.ax, axis.ay))}° (the ${axis.from === "radar" ? "radar's" : "model's"} principal axis)` : "";
     const radarNote =
       p.radar === undefined ? "HF radar loading" : p.radar === null ? "HF radar does not reach this point (western Sound only)" : `HF radar, 1 km cell ${p.radar.km.toFixed(1)} km away, hourly, to ${p.radar.at.length ? fmtWhen.format(new Date(lastRadar * 1000)) : "--"}`;
@@ -271,7 +253,7 @@ export const CURRENT_PAIR: Fig = {
         empty: none ? "Neither the HF radar nor the NECOFS model reaches this point." : "The current data are loading.",
       },
       legend: p.radar === null ? legend.filter(([l]) => !l.startsWith("HF radar") && l !== "NECOFS, a day ahead") : legend,
-      note: [axisNote, miss, radarNote, runsNote].filter(Boolean).join(" &middot; "),
+      note: [axisNote, radarNote, runsNote].filter(Boolean).join(" &middot; "),
     };
   },
 };

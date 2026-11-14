@@ -1,10 +1,11 @@
 /**
  * longhorizon.blue edge: serves the static site and the page's data files from Workers KV, where
- * the ingest jobs write them. This Worker does no data processing.
+ * the ingest jobs write them. Its one computation is the wind mark (mark.ts): the last week's daily
+ * peak wind, as the favicon and as /mark/wind.json.
  *
  * The data files exist for this site's pages; they are not a supported public API yet. They are
  * same-origin only (no CORS) and throttled per client address, so the free-plan request allowance
- * goes to people reading the page.
+ * goes to people reading the page. /mark/wind.json is the exception: open to any site, cached an hour.
  */
 
 import buoys from "../../stations/stations.json";
@@ -12,9 +13,11 @@ import shore from "../../stations/shore.json";
 import airports from "../../stations/asos.json";
 import rivers from "../../stations/rivers.json";
 import plotPages from "../../apps/web/src/waterway/plot-pages.json";
+import { mark } from "./mark";
 
 interface KV {
   get(key: string, options: { type: "stream"; cacheTtl?: number }): Promise<ReadableStream | null>;
+  get(key: string, options: { type: "text"; cacheTtl?: number }): Promise<string | null>;
 }
 
 declare class HTMLRewriter {
@@ -151,9 +154,11 @@ const POINT_PAGES = new Set(["long-island-sound"]);
 const UNLISTED = ["/piscataqua-region/"];
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx?: { waitUntil(p: Promise<unknown>): void }): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname.startsWith("/data/")) return data(req, env, url.pathname);
+    const m = await mark(req, env, url, ctx); // /mark/wind.json and /favicon.svg
+    if (m) return m;
     const res = await page(req, env, url);
     if (!UNLISTED.some((p) => url.pathname.startsWith(p))) return res;
     const out = new Response(res.body, res);

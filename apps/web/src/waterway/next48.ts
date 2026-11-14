@@ -210,7 +210,7 @@ export const NEXT48: Fig = {
       },
       legend: [
         ...(virtual ? ([["HRRR before now", M.palette().line, 0.7, "Before now"]] as [string, string, number, string][]) : ([["Measured", M.palette().now, 1]] as [string, string, number][])),
-        ["Stitched forecast", M.palette().line, 1, "HRRR"], ["", M.palette().miss, 0.5, vm?.label ?? "HRRR error", "band"],
+        ["Stitched forecast", M.palette().line, 1, "HRRR"], ["", M.palette().miss, 0.5, "HRRR error", "band"],
         ...(hasGfs ? ([["GFS forecast", M.palette().gfs, 1, "GFS"], ["", M.palette().gfs, 0.4, "GFS error", "band"]] as [string, string, number, string?, "band"?][]) : []),
         ...(hasBeside && !hasGfs ? ([["GFS beside HRRR", M.palette().gfs, 1, "GFS"]] as [string, string, number, string][]) : []),
       ],

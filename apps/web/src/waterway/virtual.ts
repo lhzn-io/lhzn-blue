@@ -35,16 +35,19 @@ const km = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) =>
   Math.hypot((a.lon - b.lon) * Math.cos((a.lat * Math.PI) / 180), a.lat - b.lat) * 111.2;
 const fmtKm = (d: number) => `${d < 10 ? d.toFixed(1) : Math.round(d)} km`;
 
-/** The point an address names (`<base>at/<lat>,<lon>/`), rounded to 3 decimals (about 110 m), or null; a point outside
- * the box is null too. */
-export function virtualFromPath(path: string, base: string, box: [[number, number], [number, number]]): { lat: number; lon: number } | null {
+/** A virtual buoy's plot pages (`<base>at/<lat>,<lon>/wind/`): the plots it draws that have a page of their own. */
+export const VIRTUAL_PLOTS = new Set(["wind", "next-48h"]);
+
+/** The point an address names (`<base>at/<lat>,<lon>/`, or a plot's page under it), rounded to 3 decimals (about
+ * 110 m), with the plot's slug if one is named, or null; a point outside the box is null too. */
+export function virtualFromPath(path: string, base: string, box: [[number, number], [number, number]]): { lat: number; lon: number; slug: string } | null {
   if (!path.startsWith(`${base}at/`)) return null;
-  const m = /^(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)\/?$/.exec(decodeURIComponent(path.slice(base.length + 3)));
+  const m = /^(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)(?:\/([a-z0-9-]+))?\/?$/i.exec(decodeURIComponent(path.slice(base.length + 3)));
   if (!m) return null;
   const lat = Math.round(Number(m[1]) * 1000) / 1000;
   const lon = Math.round(Number(m[2]) * 1000) / 1000;
   const [[w, s], [e, n]] = box;
-  return lon >= w && lon <= e && lat >= s && lat <= n ? { lat, lon } : null;
+  return lon >= w && lon <= e && lat >= s && lat <= n ? { lat, lon, slug: (m[3] ?? "").toLowerCase() } : null;
 }
 /** The address of a point on a waterway's page (base: "/long-island-sound/"). */
 export const virtualPath = (base: string, lat: number, lon: number) => `${base}at/${lat.toFixed(3)},${lon.toFixed(3)}/`;

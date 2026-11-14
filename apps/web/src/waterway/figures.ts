@@ -173,8 +173,9 @@ export function openZoom(d: StationData, key: string, full = false): void {
     page.hidden = !url;
     if (url) page.href = url;
   }
+  $("zoom-full").hidden = d.kind === "virtual"; // a virtual buoy holds no record of its own
   ($("zoom") as HTMLDialogElement).showModal();
-  setFull(full); // draws after layout, so the axis labels fit the dialog's width
+  setFull(full && d.kind !== "virtual"); // draws after layout, so the axis labels fit the dialog's width
 }
 
 export function wireZoom(host: ZoomHost): void {

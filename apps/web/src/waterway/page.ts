@@ -50,7 +50,7 @@ import { embedMode, PLOT_PAGES, plotSlug, type PlotPage } from "./embed";
 import { wireCollect } from "./prompt";
 import { currentSpeed, metricTemp, setUnit, tempOpts, waveUnit, WIND_UNITS, windFmt, windVal, WU } from "./units";
 import { CURRENT_PAIR } from "./current-pair";
-import { configureVirtual, loadVirtual, makeVirtual, virtualFromPath, VIRTUAL_ID, virtualIntro, virtualPath, virtualReadouts, virtualSources, VSST, VWAVES } from "./virtual";
+import { configureVirtual, loadVirtual, makeVirtual, virtualFromPath, VIRTUAL_ID, virtualIntro, virtualPath, VIRTUAL_PLOTS, virtualReadouts, virtualSources, VSST, VWAVES } from "./virtual";
 
 /** The waterway this page is mounted for (mountWaterwayPage), and its parts. */
 let CFG: StationDataWaterway;
@@ -65,6 +65,8 @@ let STATION_ID: string | null = null;
 /** A virtual buoy's page (<base>at/<lat>,<lon>/): the point read from the models only (waterway/virtual.ts); its
  * station id is VIRTUAL_ID. */
 let VIRTUAL: StationData | null = null;
+/** The plot page a virtual buoy's address names ("wind"), or "" on the point's own page. */
+let VIRTUAL_SLUG = "";
 const onStation = (d: StationData) => !STATION_ID || d.meta.id === STATION_ID;
 /** Whether a shore station has anything to show in a view: a tide gauge with no weather sensors stays out of Wind &
  * waves, and one with no thermometer out of Temperature (USGS Rye reports water level only). */
@@ -1573,7 +1575,8 @@ function readouts(d: StationData): void {
   if (d.kind === "virtual") {
     $(`${d.meta.id}-readouts`).innerHTML = virtualReadouts(AT ?? Date.now() / 1000);
     $(`${d.meta.id}-readouts`).classList.add("readouts-row");
-    $("status").innerHTML = virtualSources(); // the column beside the map: where each value comes from
+    const status = document.getElementById("status"); // the column beside the map (not on a plot page)
+    if (status) status.innerHTML = virtualSources(); // where each value comes from
     const note = document.querySelector(`#${d.meta.id} .station-note`);
     if (note) note.innerHTML = virtualIntro(d).note; // its shore and land words wait for the models
     return;
@@ -2286,7 +2289,7 @@ async function main(): Promise<void> {
       if (STATION_ID && !EMBED) $("stations").innerHTML = shown().map(sectionHtml).join("");
       else if (soundWide()) $("stations").innerHTML = stationIndexHtml(stations);
       else $("stations").innerHTML = EMBED
-        ? embedHtml([...stations, ...A.RIVER_SECTIONS].find((d) => d.meta.id === EMBED_STATION))
+        ? embedHtml([...(VIRTUAL ? [VIRTUAL] : []), ...stations, ...A.RIVER_SECTIONS].find((d) => d.meta.id === EMBED_STATION))
         : VK === "tides"
           ? `<h2 class="station-group">${CFG.groups.shore}</h2>${stations.filter((d) => d.kind === "shore").map(sectionHtml).join("")}` +
             (CFG.groups.meter && stations.some((d) => d.kind === "meter") ? `<h2 class="station-group">${CFG.groups.meter}</h2>${stations.filter((d) => d.kind === "meter").map(sectionHtml).join("")}` : "")
@@ -2440,9 +2443,11 @@ async function main(): Promise<void> {
       pageUrl: (d, k) => plotPageUrl(d.meta.id, k),
       afterDraw: (plot, d, k, x0, x1) => {
         if (k === "next48") {
-          if (revisionsOn()) mountVintage(d, plot, x0, x1);
-          else unmountRunSlider(plot);
-          mountRevisions(d, plot, x0, x1);
+          if (d.kind !== "virtual") { // a virtual buoy's runs are pieces of one file: no Revisions, as on its page
+            if (revisionsOn()) mountVintage(d, plot, x0, x1);
+            else unmountRunSlider(plot);
+            mountRevisions(d, plot, x0, x1);
+          }
           mountLongRange(plot);
         }
         else if (k === "waves") mountNwpsVintage(d, plot, x0, x1);
@@ -2547,8 +2552,11 @@ const hasPage = (id: string) => {
   return !!d && !!CFG.stationPages?.views[d.kind]?.length;
 };
 
+/** A place's path: a station's (/<waterway>/<station>/), or the virtual buoy's point (/<waterway>/at/<lat>,<lon>/). */
+const placePath = (id: string) =>
+  id === VIRTUAL_ID && VIRTUAL ? virtualPath(PAGES!.base, VIRTUAL.meta.lat, VIRTUAL.meta.lon) : `${PAGES!.base}${id.toLowerCase()}/`;
 /** A station's page (or the overview, for null), keeping the page's time and view. */
-const placeUrl = (id: string | null) => `${PAGES!.base}${id ? `${id.toLowerCase()}/` : ""}${location.search}`;
+const placeUrl = (id: string | null) => `${id ? placePath(id) : PAGES!.base}${location.search}`;
 /** A station's plot page (/<waterway>/<station>/<plot>/), keeping the page's time, view and units; not the map's layer,
  * which a plot page does not draw. */
 const plotUrl = (id: string, slug: string, depth = "") => {
@@ -2558,7 +2566,7 @@ const plotUrl = (id: string, slug: string, depth = "") => {
   if (depth) q.set("depth", depth.toLowerCase());
   else q.delete("depth");
   const s = q.toString();
-  return `${PAGES!.base}${id.toLowerCase()}/${slug}/${s ? `?${s}` : ""}`;
+  return `${placePath(id)}${slug}/${s ? `?${s}` : ""}`;
 };
 /** A plot page's full-screen button, on a touch browser that allows it (Android Chrome; iPhone Safari does not): it
  * hides the browser's bars and the phone's, and the plot, whose height follows the screen (100svh), grows into the
@@ -2596,11 +2604,11 @@ const DECK_SWIPE_MS = 800;
 let RENDER_SECTIONS: (() => void) | null = null;
 const deckSlug = () => location.pathname.split("/").filter(Boolean).pop() ?? "";
 function deckSlugs(): string[] {
-  const d = STATIONS.find((s) => s.meta.id === STATION_ID);
+  const d = STATIONS.find((s) => s.meta.id === STATION_ID) ?? (STATION_ID === VIRTUAL_ID ? VIRTUAL : undefined);
   if (!d || VK !== "wind") return [];
   return DECK_ORDER.filter((s) => {
     const f = PLOT_PAGES[s] && FIGS[PLOT_PAGES[s].fig as Kind];
-    return !!f && PLOT_PAGES[s].views.includes(VK) && f.in(VK) && f.available(d);
+    return !!f && PLOT_PAGES[s].views.includes(VK) && f.in(VK) && f.available(d) && (d.kind !== "virtual" || VIRTUAL_PLOTS.has(s));
   });
 }
 const inDeck = () => PLOT_PAGE && !!document.fullscreenElement && deckSlugs().includes(deckSlug());
@@ -2729,7 +2737,8 @@ const plotPageUrl = (id: string, fig: string): string | null => {
   const slug = plotSlug(fig);
   const d = STATIONS.find((s) => s.meta.id === id);
   const depth = d && FIGS[fig as Kind]?.depthTabs ? activeDepth(d, fig as Kind) : "";
-  return slug && PAGES && (hasPage(id) || isGauge(id)) ? plotUrl(id, slug, d && depth !== d.depths[0] ? depth : "") : null;
+  const point = id === VIRTUAL_ID && !!VIRTUAL && VIRTUAL_PLOTS.has(slug ?? "");
+  return slug && PAGES && (hasPage(id) || isGauge(id) || point) ? plotUrl(id, slug, d && depth !== d.depths[0] ? depth : "") : null;
 };
 
 /** The plot page's chooser: the station's plots, by view, in the order of the view tabs. Each view leads with the
@@ -2741,8 +2750,9 @@ function plotMenu(): string {
   const id = STATION_ID;
   const base = PAGES.base;
   const gauge = isGauge(id);
-  const d = [...STATIONS, ...(gauge ? A.RIVER_SECTIONS : [])].find((s) => s.meta.id === id);
-  const views: VarKey[] = gauge ? ["rivers"] : ((d && CFG.stationPages?.views[d.kind]) ?? []);
+  const d = id === VIRTUAL_ID && VIRTUAL ? VIRTUAL : [...STATIONS, ...(gauge ? A.RIVER_SECTIONS : [])].find((s) => s.meta.id === id);
+  const point = d?.kind === "virtual";
+  const views: VarKey[] = gauge ? ["rivers"] : point ? ["wind"] : ((d && CFG.stationPages?.views[d.kind]) ?? []);
   const here = location.pathname.split("/").filter(Boolean).pop();
   const label = (v: string) => document.querySelector(`.var-switch [data-var="${v}"]`)?.textContent?.trim() || v;
   const withView = (url: string, v: VarKey) => {
@@ -2754,7 +2764,7 @@ function plotMenu(): string {
     const q = new URLSearchParams(location.search);
     q.delete("depth");
     q.delete("run");
-    return withView(gauge ? `${base}?${q}#${id}` : `${base}${id.toLowerCase()}/?${q}`, v);
+    return withView(gauge ? `${base}?${q}#${id}` : `${placePath(id)}?${q}`, v);
   };
   const fits = (fig: Kind, v: VarKey) =>
     !!FIGS[fig] && (!d || (FIGS[fig].available(d) && (gauge || (FIGS[fig].in(v) && !(FIGS[fig].varies && d.kind === "shore" && (v !== "temp" || noWaterSensor(d)))))));
@@ -2762,7 +2772,7 @@ function plotMenu(): string {
     .map((v) => {
       const plots = Object.entries(PLOT_PAGES)
         .filter(([, p]) => !p.alias && (gauge ? !!p.river || p.views.includes("rivers") : p.views.includes(v)))
-        .filter(([, p]) => fits(((gauge && p.river) || p.fig) as Kind, v));
+        .filter(([slug, p]) => fits(((gauge && p.river) || p.fig) as Kind, v) && (!point || VIRTUAL_PLOTS.has(slug)));
       if (!plots.length) return "";
       const current = (slug: string) => (slug === here && (gauge || v === VK) ? ' aria-current="page"' : "");
       return (
@@ -2807,7 +2817,7 @@ function wirePlotPage(): void {
   back.className = "plot-back";
   back.textContent = "\u2039";
   const name = () =>
-    fromOverview || gauge ? "the overview" : (STATIONS.find((s) => s.meta.id === STATION_ID)?.meta.name ?? "the station's page");
+    fromOverview || gauge ? "the overview" : (STATIONS.find((s) => s.meta.id === STATION_ID)?.meta.name ?? VIRTUAL?.meta.name ?? "the station's page");
   const backUrl = () => {
     back.title = `Back to ${name()}`;
     back.setAttribute("aria-label", back.title);
@@ -3225,7 +3235,7 @@ function markStationPage(): void {
     // A virtual buoy: kept out of search results (as the Worker's header says), its canonical address the waterway's.
     if (top) top.textContent = CFG.name.toUpperCase();
     if (bottom) bottom.textContent = VIRTUAL.meta.name.replace(/°/g, "").toUpperCase();
-    document.title = `${VIRTUAL.meta.name} (virtual buoy) | ${CFG.name} (alpha) | longhorizon.blue`;
+    document.title = `${VIRTUAL.meta.name}${PLOT_PAGE && EMBED ? `, ${FIGS[EMBED].title.toLowerCase()}` : ""} (virtual buoy) | ${CFG.name} (alpha) | longhorizon.blue`;
     if (!document.querySelector('meta[name="robots"]')) document.head.insertAdjacentHTML("beforeend", '<meta name="robots" content="noindex, nofollow">');
     return;
   }
@@ -3306,7 +3316,9 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
     }
     VIRTUAL = makeVirtual(at.lat, at.lon);
     STATION_ID = VIRTUAL_ID;
-    const path = virtualPath(PAGES.base, at.lat, at.lon);
+    // A plot page under the point (at/<lat>,<lon>/wind/) where it has one; any other slug, the point's page.
+    VIRTUAL_SLUG = VIRTUAL_PLOTS.has(at.slug) ? at.slug : "";
+    const path = `${virtualPath(PAGES.base, at.lat, at.lon)}${VIRTUAL_SLUG ? `${VIRTUAL_SLUG}/` : ""}`;
     if (location.pathname !== path) history.replaceState(null, "", `${path}${location.search}${location.hash}`);
   }
   configureVirtual({ places: () => STATIONS.map((d) => d.meta), stationUrl: (id) => placeUrl(id) });
@@ -3319,7 +3331,7 @@ export function mountWaterwayPage(config: StationDataWaterway, parts: PageParts,
   wireMast();
   DATA = CFG.data;
   // A plot page's address names its plot after the station (/long-island-sound/exrx/wind/).
-  const slug = PAGES && STATION_ID && !VIRTUAL ? location.pathname.slice(PAGES.base.length).split("/")[1]?.toLowerCase() : "";
+  const slug = VIRTUAL ? VIRTUAL_SLUG : PAGES && STATION_ID ? location.pathname.slice(PAGES.base.length).split("/")[1]?.toLowerCase() : "";
   PLOT = slug ? PLOT_PAGES[slug] ?? null : null;
   // An earlier address of a plot's page: the plot's own, in place (the time, view and the rest of the link kept).
   if (PLOT?.alias && STATION_ID) history.replaceState(history.state, "", `${plotUrl(STATION_ID, PLOT.alias)}${location.search}${location.hash}`);

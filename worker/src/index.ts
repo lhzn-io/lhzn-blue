@@ -141,8 +141,9 @@ const PLOT_ONLY: Record<string, Set<string>> = {
 const STATION_PATH = new RegExp(`^/([a-z0-9-]+)/([a-z0-9-]{2,20})(?:/(${Object.keys(plotPages).join("|")}))?/?$`, "i");
 
 /** A virtual buoy's page (/long-island-sound/at/41.050,-72.900/: the point read from the models only, see the page's
- * waterway/virtual.ts): the waterway's page, kept out of search results, with the waterway as its canonical address. */
-const POINT_PATH = /^\/([a-z0-9-]+)\/at\/(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)\/?$/;
+ * waterway/virtual.ts), or its wind plot's page (.../wind/): the waterway's page, kept out of search results, with the
+ * waterway as its canonical address. */
+const POINT_PATH = /^\/([a-z0-9-]+)\/at\/(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)(?:\/(?:wind|next-48h))?\/?$/i;
 const POINT_PAGES = new Set(["long-island-sound"]);
 
 /** Waterways kept out of search results: what the Worker serves under them carries the noindex that _headers gives

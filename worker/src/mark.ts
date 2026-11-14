@@ -111,7 +111,12 @@ export async function mark(req: Request, env: MarkEnv, url: URL, ctx?: Ctx): Pro
   // One cached copy per form (the whole Sound, or a station), whatever else the query says.
   const key = new Request(`${url.origin}${url.pathname}${station ? `?station=${station}` : ""}`);
   const hit = await caches.default.match(key).catch(() => undefined);
-  if (hit) return req.method === "HEAD" ? new Response(null, hit) : hit;
+  if (hit) {
+    // A copy from the edge cache comes back with the zone's browser lifetime (four hours) in place of ours: set it again.
+    const res = new Response(req.method === "HEAD" ? null : hit.body, hit);
+    res.headers.set("cache-control", `public, max-age=${CACHE_S}`);
+    return res;
+  }
   try {
     const days = await peaksFrom(env, station);
     const res = json

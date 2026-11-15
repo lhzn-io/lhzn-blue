@@ -294,8 +294,13 @@ export const METHODS: Record<string, Method> = {
       "[[chen2006fvcom]].",
     caveats:
       "The radar measures roughly the top meter, averaged over the hour and the cell; the model's top layer is a thin " +
-      "fraction of the local depth. The comparison covers the radar's last 72 hours, so it is not a score. The radar " +
-      "reaches the western Sound only. The day-ahead forecast fills in once the site has kept runs for two days.",
+      "fraction of the local depth. Neither line is a reference for the tide's strength here, so the shading is a " +
+      "difference, not the forecast's error: against NOAA's current survey meters in the western Sound, the radar's tidal " +
+      "current has read from about two-thirds to 1.2 times as strong, by cell and season, and at some cells it runs at an " +
+      "angle to the Sound, while the model's has run 10 to 16% stronger. A change at the same cell from one week to the " +
+      "next, such as ebbs weakened by a northeast wind, is better evidence than a single gap. The comparison covers the " +
+      "radar's last 72 hours, so it is not a score. The radar reaches the western Sound only. The day-ahead forecast " +
+      "fills in once the site has kept runs for two days.",
   },
   vsst: {
     title: "Water temperature, last 90 days",
@@ -353,7 +358,7 @@ export const METHODS: Record<string, Method> = {
     title: "Surface currents (HF radar)",
     shows:
       "Measured surface currents, hourly, on 1 km cells, shaded by speed, with arrows in the direction of flow; the last " +
-      "72 hours the network has published. Gold, from 0 to 0.5 m/s and the darkest gold above, is the site's colour for " +
+      "72 hours the network has published. Gold, from 0 to 0.5 m/s and the darkest gold above, is the site's color for " +
       "measured currents; the model's currents are teal, so the two layers are never confused.",
     method:
       "Shore-based high-frequency radar measures the speed of the surface water toward or away from each site (a radial). " +
@@ -362,10 +367,12 @@ export const METHODS: Record<string, Method> = {
       "the University of Connecticut's (LISICOS). The network keeps cells whose geometric dilution of precision is at " +
       "most 1.25. Cells are drawn at the grid's own resolution; an hour with no total in a cell leaves it empty.",
     caveats:
-      "The top metre or so of the water, averaged over the hour and the cell. Coverage stops east of about Norwalk, and " +
+      "The top meter or so of the water, averaged over the hour and the cell. Coverage stops east of about Norwalk, and " +
       "thins at the edges and near the shore. A click's readout flags a cell at the edge of that hour's coverage (a side " +
-      "neighbour without a total) and a total with weak geometry (GDOP above 1.0), where the speed and direction are less " +
-      "certain. The network publishes a few hours behind real time.",
+      "neighbor without a total) and a total with weak geometry (GDOP above 1.0), where the speed and direction are less " +
+      "certain. Across the Sound the sites face each other, so the along-Sound part of the flow is the least constrained: " +
+      "against NOAA's current survey meters the tidal current has read weak at some cells and strong at others, and turned " +
+      "toward north-south at some, varying with season. The network publishes a few hours behind real time.",
   },
   "map-waves": {
     title: "Waves (NWS model)",

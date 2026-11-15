@@ -11,7 +11,7 @@
  */
 import type maplibregl from "maplibre-gl";
 import { alertsNow, zoneForecastUrl } from "./advisory";
-import { BOATS, COMFORT_WORDS, boatIcon, type Boat } from "./comfort-thresholds";
+import { BOATS, COMFORT_WORDS, SCORE_TOP, boatIcon, comfortLevel, type Boat, type ComfortKey } from "./comfort-thresholds";
 import { SST_STOPS, SST_STOPS_DARK, isothermStep, isotherms, stopColour } from "./sst-scale";
 import { CURRENTS_FLOOR, CURRENTS_KNOTS, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURRENTS_TOP } from "@lhzn-io/timecharts/currents-ramp";
 import { MEASURED_RAMP, MEASURED_RAMP_DARK, MEASURED_TOP } from "@lhzn-io/timecharts/measured-ramp";
@@ -182,6 +182,21 @@ export interface PointSources {
   waves?: WindField;
   currents?: { mesh: CurrentsMesh; currents: CurrentsField };
   wat?: WatField;
+  /** HRRR's 2 m air temperature (F) at the page's forecast stations, for the kayak's 120 rule: a point takes its
+   * nearest station's (the map's HRRR layer carries wind only). */
+  air?: { places: { id: string; lat: number; lon: number }[]; at(id: string, t: number): number };
+}
+
+/** The forecast station nearest a point (index into air.places), or -1. */
+function airPlaceOf(air: NonNullable<PointSources["air"]>, lng: number, lat: number): number {
+  const cos = Math.cos((lat * Math.PI) / 180);
+  let best = -1;
+  let d2 = Infinity;
+  air.places.forEach((p, i) => {
+    const d = ((p.lon - lng) * cos) ** 2 + (p.lat - lat) ** 2;
+    if (d < d2) [best, d2] = [i, d];
+  });
+  return best;
 }
 
 /** Controls the page passes in: the layer picker and the full-width toggle. */
@@ -280,7 +295,7 @@ const META: Record<FieldKind, Meta> = {
   radar: { title: "Surface currents (HF radar)", short: "Currents, HF radar", ramp: "currents", log: false, range: [0, MEASURED_TOP * 100], unit: "cm/s", digits: 0, note: "Measured by shore-based HF radar: hourly totals on 1 km cells, where two sites both see the water. The radar reaches the western Sound only; cells with no total that hour are left empty, not filled in. Gold marks a measurement, as on the site's other measured currents; the model layer is teal." },
   waves: { title: "Waves (NWS NWPS)", short: "Waves, NWPS", ramp: "wind", log: false, range: [0, WAVE_TOP], unit: "m", digits: 2, note: "Model forecast (NWS Nearshore Wave Prediction System, SWAN): significant wave height on the model's own 1.8 km cells; arrows show where the waves travel. The runs exclude currents; steepening where wind opposes the tide is not represented." },
   wat: { title: "Wind against tide", short: "Wind against tide", ramp: "wind", log: false, unit: "", digits: 0, note: "A model-derived index, not an observation and not an NWS product: where the NECOFS current runs against the NWPS waves and steepens them (linear theory). Excludes shoals, rips and overfalls finer than the 1.8 km cells." },
-  comfort: { title: "Comfort index", short: "Comfort", ramp: "wind", log: false, unit: "", digits: 0, note: "How the water suits the boat set in the byline, cell by cell, as a score from 0 to 7 (1 Moderate, 2 Uncomfortable, 3 Discomfort, then one point for each half of that step again): the worst of HRRR wind, NWPS waves, wind against tide and, for kayaks, the NECOFS current, raised by cold water, as in a click's readout. Advisories are not in the shading: the masthead and the zone lines show them, and a click's readout includes them. Shore cells (harbours, coves) carry wind only. No shading beyond HRRR's 48 hours." },
+  comfort: { title: "Comfort index", short: "Comfort", ramp: "wind", log: false, unit: "", digits: 0, note: "How the water suits the boat set in the byline, cell by cell, as a score from 0 to 7 (1 Moderate, 2 Uncomfortable, 3 Discomfort, then one point for each half of that step again): the worst of HRRR wind, NWPS waves and wind against tide (for kayaks also the NECOFS current, and a level more when air and water together are under 120 F), as in a click's readout. Advisories are not in the shading: the masthead and the zone lines show them, and a click's readout includes them. Shore cells (harbours, coves) carry wind only. No shading beyond HRRR's 48 hours." },
   wind: { title: "Wind (HRRR)", short: "Wind, HRRR", ramp: "wind", log: false, range: [0, WIND_TOP], unit: "m/s", digits: 1, note: "Model forecast (NOAA HRRR), 10 m above the surface, on the model's own 3 km cells; arrows show where the wind blows toward. Cells HRRR counts as land are fainter inland; on the shore (harbours, coves) they are drawn like water." },
 };
 
@@ -1328,20 +1343,6 @@ function watText(w: WatField, cell: number): string {
 /* ---------- Small-craft comfort index ---------- */
 
 export type { Boat } from "./comfort-thresholds";
-const stepLevel = (v: number, steps: number[]) => (v >= steps[2] ? 3 : v >= steps[1] ? 2 : v >= steps[0] ? 1 : 0);
-
-/** The continuous score behind a step level: 0 to 1 across Comfortable, 1 to 2 across Moderate, 2 to 3 across
- * Uncomfortable, then from 3 at the Discomfort step on past it, one point for each half of that step again (for a
- * center console 30, 40 and 50 kt; 1.5, 2 and 2.5 m), to 7. Its whole part is
- * stepLevel's level up to 3, so the score and the words never disagree. */
-function stepScore(v: number, s: number[]): number {
-  if (!(v > 0)) return 0;
-  if (v < s[0]) return v / s[0];
-  if (v < s[1]) return 1 + (v - s[0]) / (s[1] - s[0]);
-  if (v < s[2]) return 2 + (v - s[1]) / (s[2] - s[1]);
-  return 3 + Math.min(3.99, (v - s[2]) / (0.5 * s[2]));
-}
-
 /** The NWS zone (id) containing a point, from the zone outlines. */
 function zoneAt(zones: PointSources["zones"], lng: number, lat: number): string | null {
   const inRing = (ring: number[][]) => {
@@ -1374,39 +1375,6 @@ function advisoryAt(zone: string | null, t: number): { rank: number; name: strin
     if (rank > best.rank) best = { rank, name: a.event.toLowerCase() };
   }
   return best;
-}
-
-type ComfortKey = "wind" | "waves" | "current" | "wat" | "rule30" | "advisory" | "cold";
-
-/** The comfort rules for one place and hour, shared by a click's readout and the map: wind, waves, current (kayaks)
- * and wind against tide (wl, 0 to 4) each set a level by the boat's steps; the worst wins; three at Uncomfortable make
- * it Discomfort; an advisory floor (the readout only; 0 for none) applies; cold water (sst, C) raises it one step. */
-function comfortLevel(x: { kt: number; hs: number; curKt: number; wl: number; sst: number }, boat: Boat, floor = 0): { level: number; score: number; f: { level: number; score: number; key: ComfortKey }[] } | null {
-  const b = BOATS[boat];
-  const f: { level: number; score: number; key: ComfortKey }[] = [];
-  const step = (v: number, steps: number[], key: ComfortKey) => f.push({ level: stepLevel(v, steps), score: stepScore(v, steps), key });
-  if (Number.isFinite(x.kt)) step(x.kt, b.wind, "wind");
-  if (Number.isFinite(x.hs)) step(x.hs, b.hs, "waves");
-  if (b.current && Number.isFinite(x.curKt)) step(x.curKt, b.current, "current");
-  if (x.wl > 0) f.push({ level: b.wat[x.wl], score: b.wat[x.wl], key: "wat" });
-  // Breaking waves near 30% of the boat's length can capsize it beam-on (model tests after the 1979 Fastnet race).
-  if (x.wl >= 3 && Number.isFinite(x.hs) && 1.8 * x.hs >= 0.3 * b.loa) f.push({ level: 3, score: 3, key: "rule30" });
-  if (!f.length) return null;
-  let level = Math.max(...f.map((y) => y.level));
-  let score = Math.max(...f.map((y) => y.score));
-  if (f.filter((y) => y.level >= 2).length >= 3) [level, score] = [3, Math.max(score, 3)]; // three factors at Uncomfortable compound
-  if (floor > 0) {
-    level = Math.max(level, floor);
-    score = Math.max(score, floor);
-    f.push({ level: floor, score: floor, key: "advisory" });
-  }
-  // Cold water: under 15 C raises the level by one where anything else is already Moderate or worse (always for kayaks).
-  if (Number.isFinite(x.sst) && x.sst < 15 && (level >= 1 || boat === "kayak") && level < 3) {
-    level += 1;
-    score += 1;
-    f.push({ level, score, key: "cold" });
-  }
-  return { level, score: Math.min(score, SCORE_TOP - 0.01), f };
 }
 
 /** The comfort level at a point and time for a boat class, with the factors that set it. */
@@ -1461,7 +1429,9 @@ function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat:
   const zone = zoneAt(src.zones, lng, lat);
   const adv = advisoryAt(zone, t);
   const sst = src.sst ? rasterValueAt(src.sst, lng, lat)?.v ?? NaN : NaN;
-  const c = comfortLevel({ kt, hs, curKt, wl, sst }, boat, adv.rank === 2 ? 3 : adv.rank === 1 ? b.sca : 0);
+  const ap = boat === "kayak" && src.air ? airPlaceOf(src.air, lng, lat) : -1;
+  const airF = ap >= 0 ? src.air!.at(src.air!.places[ap].id, t) : NaN;
+  const c = comfortLevel({ kt, hs, curKt, wl, sst, airF }, boat, adv.rank === 2 ? 3 : adv.rank === 1 ? b.sca : 0);
   if (!c) return null;
   const text = (k: ComfortKey): string =>
     k === "wind" ? `wind ${(kt / 1.943844 * un.perMs).toFixed(un.digits)} ${un.label}`
@@ -1470,7 +1440,9 @@ function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat:
     : k === "wat" ? WAT_LABELS[wl].toLowerCase()
     : k === "rule30" ? "breaking waves near 30% of the boat's length"
     : k === "advisory" ? (adv.rank === 2 ? adv.name : "small craft advisory")
-    : `water ${metric ? `${sst.toFixed(0)} C` : `${((sst * 9) / 5 + 32).toFixed(0)} F`}`;
+    : Number.isFinite(airF)
+      ? `air and water ${metric ? `${((airF - 32) * 5 / 9).toFixed(0)} C and ${sst.toFixed(0)} C` : `${(airF + (sst * 9) / 5 + 32).toFixed(0)} F together, under 120`}`
+      : `water ${metric ? `${sst.toFixed(0)} C` : `${((sst * 9) / 5 + 32).toFixed(0)} F`}`;
   const f = c.f.map((x) => ({ level: x.level, text: text(x.key) }));
   const level = c.level;
   const why = f.filter((x) => x.level >= level).map((x) => x.text);
@@ -1481,7 +1453,7 @@ function comfortAt(src: PointSources, lng: number, lat: number, t: number, boat:
 
 /** Per NWPS mesh: the cells the field shades (water, and shore cells that touch water) and, for each, its HRRR cell,
  * its NECOFS element (kayaks; within 2 km) and its sea surface temperature, worked out once per set of models. */
-interface ComfortGrid { cells: number[]; hrrr: Int32Array; elem: Int32Array | null; sst: Float32Array; windMesh: unknown; curMesh: unknown; sstRef: unknown }
+interface ComfortGrid { cells: number[]; hrrr: Int32Array; elem: Int32Array | null; sst: Float32Array; air: Int32Array | null; windMesh: unknown; curMesh: unknown; sstRef: unknown; airRef: unknown }
 const comfortGrids = new WeakMap<WindField["mesh"], ComfortGrid>();
 
 function comfortGridOf(src: PointSources): ComfortGrid | null {
@@ -1494,7 +1466,7 @@ function comfortGridOf(src: PointSources): ComfortGrid | null {
     const shore = shoreOf(m);
     const cells: number[] = [];
     for (let i = 0; i < m.land.length; i++) if (!m.land[i] || shore[i]) cells.push(i);
-    g = { cells, hrrr: new Int32Array(0), elem: null, sst: new Float32Array(0), windMesh: null, curMesh: null, sstRef: null };
+    g = { cells, hrrr: new Int32Array(0), elem: null, sst: new Float32Array(0), air: null, windMesh: null, curMesh: null, sstRef: null, airRef: null };
     comfortGrids.set(m, g);
   }
   if (g.windMesh !== w.mesh) {
@@ -1504,6 +1476,11 @@ function comfortGridOf(src: PointSources): ComfortGrid | null {
   if (g.sstRef !== (src.sst ?? null)) {
     g.sst = Float32Array.from(g.cells, (id) => (src.sst ? rasterValueAt(src.sst, m.centre_lon[id], m.centre_lat[id])?.v ?? NaN : NaN));
     g.sstRef = src.sst ?? null;
+  }
+  const places = src.air?.places ?? null;
+  if (g.airRef !== places) {
+    g.air = places ? Int32Array.from(g.cells, (id) => airPlaceOf(src.air!, m.centre_lon[id], m.centre_lat[id])) : null;
+    g.airRef = places;
   }
   const cm = src.currents?.mesh ?? null;
   if (g.curMesh !== cm) {
@@ -1592,13 +1569,16 @@ function comfortLevels(src: PointSources, t: number, boat: Boat): { g: ComfortGr
   const wat = src.wat ? watLevelsAt(src.wat, t) : null;
   const cur = BOATS[boat].current && src.currents && g.elem ? currentKtAt(src.currents.currents, t) : null;
   const land = src.waves!.mesh.land;
+  // Air at each forecast station at t, once (kayaks: the 120 rule).
+  const airs = boat === "kayak" && src.air && g.air ? src.air.places.map((p) => src.air!.at(p.id, t)) : null;
   g.cells.forEach((id, n) => {
     const h = g.hrrr[n];
     const kt = h >= 0 ? wind[h] * 1.943844 : NaN;
     if (!Number.isFinite(kt)) return;
     const hs = waves && !land[id] ? waves[id] : NaN;
     const e = g.elem ? g.elem[n] : -1;
-    const c = comfortLevel({ kt, hs, curKt: cur && e >= 0 ? cur[e] : NaN, wl: wat ? wat[id] : 0, sst: g.sst[n] }, boat);
+    const airF = airs && g.air && g.air[n] >= 0 ? airs[g.air[n]] : NaN;
+    const c = comfortLevel({ kt, hs, curKt: cur && e >= 0 ? cur[e] : NaN, wl: wat ? wat[id] : 0, sst: g.sst[n], airF }, boat);
     if (c) lv[n] = c.score;
   });
   return { g, lv };
@@ -1624,7 +1604,6 @@ function comfortCellsGeoJSON(m: WindField["mesh"], cells: number[]) {
  * keep the brick (map.ts), so a forecast advisory and the water's comfort never share a colour; lightness is
  * monotonic, so the order holds for colour-blind readers. The discomfort zones overlay adds a crosshatch
  * (comfortHatch) in the Discomfort rose. */
-const SCORE_TOP = 7;
 type ComfortStop = [number, string, number];
 const COMFORT_STOPS: Record<"light" | "dark", ComfortStop[]> = {
   light: [[0, "#ffb3cc", 0], [1, "#ffb3cc", 0.28], [2, "#f77fa8", 0.34], [3, "#e8487f", 0.42], [4, "#cf2670", 0.5], [5, "#a81563", 0.58], [6, "#7f0f56", 0.66], [7, "#560a45", 0.74]],

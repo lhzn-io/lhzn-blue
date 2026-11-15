@@ -1921,19 +1921,29 @@ const fieldCache = new Map<FieldKind, Promise<FieldData>>();
 /** Comfort on the map: the models it reads (the NECOFS current only for kayaks), each from its own cache, as one
  * payload object per set so a redraw for the same set keeps the open readout. */
 const comfortCache = new Map<string, Promise<FieldData>>();
+
+/** HRRR's 2 m air temperature (F) at the forecast stations, for the kayak's 120 rule in the comfort index; undefined if
+ * the forecast does not load (the rule then falls back to the water alone). */
+async function airSource(): Promise<import("../fields").PointSources["air"]> {
+  if (!FCST) await loadForecast().catch(() => undefined);
+  if (!FCST) return undefined;
+  const places = STATIONS.filter((d) => FCST!.runs[d.meta.id]?.length).map((d) => ({ id: d.meta.id, lat: d.meta.lat, lon: d.meta.lon }));
+  return places.length ? { places, at: (id, t) => forecastAt(id, t)?.air ?? NaN } : undefined;
+}
+
 function comfortData(): Promise<FieldData> {
   const key = BOAT === "kayak" ? "kayak" : "boat";
   if (!comfortCache.has(key)) {
     const ok = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : undefined);
     comfortCache.set(
       key,
-      Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("wat"), fieldData("sst"), key === "kayak" ? fieldData("currents") : Promise.resolve({} as FieldData)]).then(([w, v, t, s, c]) => {
+      Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("wat"), fieldData("sst"), key === "kayak" ? fieldData("currents") : Promise.resolve({} as FieldData)]).then(async ([w, v, t, s, c]) => {
         const cur = ok(c);
         if (!ok(w)?.wind || !ok(v)?.wind) {
           comfortCache.delete(key); // try again next time
           throw new Error("comfort: wind or waves did not load");
         }
-        return { comfort: { wind: ok(w)?.wind, waves: ok(v)?.wind, wat: ok(t)?.wat, sst: ok(s)?.raster, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined } };
+        return { comfort: { wind: ok(w)?.wind, waves: ok(v)?.wind, wat: ok(t)?.wat, sst: ok(s)?.raster, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined, air: key === "kayak" ? await airSource() : undefined } };
       }),
     );
   }
@@ -2098,7 +2108,7 @@ function fieldControls(): import("../fields").FieldControls {
           const [w, v, c, t, s, z] = await Promise.allSettled([fieldData("wind"), fieldData("waves"), fieldData("currents"), fieldData("wat"), fieldData("sst"), getJson<NonNullable<import("../fields").PointSources["zones"]>>("/nws-zones-lis.json")]);
           const ok = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : undefined);
           const cur = ok(c);
-          return { wind: ok(w)?.wind, waves: ok(v)?.wind, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined, wat: ok(t)?.wat, sst: ok(s)?.raster, zones: ok(z) };
+          return { wind: ok(w)?.wind, waves: ok(v)?.wind, currents: cur?.mesh && cur.currents ? { mesh: cur.mesh, currents: cur.currents } : undefined, wat: ok(t)?.wat, sst: ok(s)?.raster, zones: ok(z), air: await airSource() };
         }
       : undefined,
     windHistory: VIEW_LAYERS[VK].overlay ? windHistoryData : undefined,

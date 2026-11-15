@@ -91,10 +91,69 @@ export function comfortTableHtml(selected: Boat, metric: boolean): string {
   const rules =
     `<p class="ct-rules">Discomfort (3) also with a small craft advisory (cruiser: Moderate), a gale warning, three uncomfortable factors, ` +
     `or breaking waves of 30% of your length (${metric ? `${(0.3 * b.loa).toFixed(1)} m` : `${(0.3 * b.loa * 3.28084).toFixed(0)} ft`}). ` +
-    `Water under 15 C (59 F) adds a level; steepening seas count as moderate (kayak and skiff: uncomfortable).</p>`;
+    `Kayak: air and water together under 120 F (the paddlers' dry-suit rule) add a level; steepening seas count as moderate (kayak and skiff: uncomfortable).</p>`;
   return `<div class="comfort-chart"><div class="ct-top">${boatPickerHtml(selected)}${legend}</div>` +
     strip("Wind, kt", 30, [0, 10, 20, 30], (x) => x.wind, (v) => `${v}`) +
     strip(`Waves, ${metric ? "m" : "ft"}`, metric ? 2 : 6, metric ? [0, 0.5, 1, 1.5, 2] : [0, 2, 4, 6], (x) => x.hs.map(ft), (v) => `${v}`) +
     strip("Current, kt", 3, [0, 1, 2, 3], (x) => x.current, (v) => `${v}`) +
     rules + `</div>`;
+}
+
+/* ---------- The index's rules ----------
+ * Pure functions, shared by the map and a click's readout (fields.ts) and the methodology page's worked example
+ * (comfort-index-page.ts), so the page's arithmetic is the index's own. */
+
+/** The top of the score scale (the map's colour ramp runs 0 to SCORE_TOP). */
+export const SCORE_TOP = 7;
+
+export const stepLevel = (v: number, steps: number[]) => (v >= steps[2] ? 3 : v >= steps[1] ? 2 : v >= steps[0] ? 1 : 0);
+
+/** The continuous score behind a step level: 0 to 1 across Comfortable, 1 to 2 across Moderate, 2 to 3 across
+ * Uncomfortable, then from 3 at the Discomfort step on past it, one point for each half of that step again (for a
+ * center console 30, 40 and 50 kt; 1.5, 2 and 2.5 m), to 7. Its whole part is
+ * stepLevel's level up to 3, so the score and the words never disagree. */
+export function stepScore(v: number, s: number[]): number {
+  if (!(v > 0)) return 0;
+  if (v < s[0]) return v / s[0];
+  if (v < s[1]) return 1 + (v - s[0]) / (s[1] - s[0]);
+  if (v < s[2]) return 2 + (v - s[1]) / (s[2] - s[1]);
+  return 3 + Math.min(3.99, (v - s[2]) / (0.5 * s[2]));
+}
+
+export type ComfortKey = "wind" | "waves" | "current" | "wat" | "rule30" | "advisory" | "cold";
+
+/** The comfort rules for one place and hour, shared by a click's readout and the map: wind, waves, current (kayaks)
+ * and wind against tide (wl, 0 to 4) each set a level by the boat's steps; the worst wins; three at Uncomfortable make
+ * it Discomfort; an advisory floor (the readout only; 0 for none) applies; for a kayak, cold (the 120 rule: air and
+ * water together under 120 F, from airF and sst in C) raises it one step. */
+export function comfortLevel(x: { kt: number; hs: number; curKt: number; wl: number; sst: number; airF: number }, boat: Boat, floor = 0): { level: number; score: number; f: { level: number; score: number; key: ComfortKey }[] } | null {
+  const b = BOATS[boat];
+  const f: { level: number; score: number; key: ComfortKey }[] = [];
+  const step = (v: number, steps: number[], key: ComfortKey) => f.push({ level: stepLevel(v, steps), score: stepScore(v, steps), key });
+  if (Number.isFinite(x.kt)) step(x.kt, b.wind, "wind");
+  if (Number.isFinite(x.hs)) step(x.hs, b.hs, "waves");
+  if (b.current && Number.isFinite(x.curKt)) step(x.curKt, b.current, "current");
+  if (x.wl > 0) f.push({ level: b.wat[x.wl], score: b.wat[x.wl], key: "wat" });
+  // Breaking waves near 30% of the boat's length can capsize it beam-on (model tests after the 1979 Fastnet race).
+  if (x.wl >= 3 && Number.isFinite(x.hs) && 1.8 * x.hs >= 0.3 * b.loa) f.push({ level: 3, score: 3, key: "rule30" });
+  if (!f.length) return null;
+  let level = Math.max(...f.map((y) => y.level));
+  let score = Math.max(...f.map((y) => y.score));
+  if (f.filter((y) => y.level >= 2).length >= 3) [level, score] = [3, Math.max(score, 3)]; // three factors at Uncomfortable compound
+  if (floor > 0) {
+    level = Math.max(level, floor);
+    score = Math.max(score, floor);
+    f.push({ level: floor, score: floor, key: "advisory" });
+  }
+  // Cold, kayaks only: the paddlers' 120 rule (air and water temperature together under 120 F call for a dry suit) raises
+  // the level by one; without an air temperature, water under 15 C (59 F) alone. A paddler may well end up in the water;
+  // on a boat the water's temperature is not a matter of comfort, so it does not count.
+  const waterF = (x.sst * 9) / 5 + 32;
+  const cold = Number.isFinite(x.airF) ? x.airF + waterF < 120 : x.sst < 15;
+  if (boat === "kayak" && Number.isFinite(x.sst) && cold && level < 3) {
+    level += 1;
+    score += 1;
+    f.push({ level, score, key: "cold" });
+  }
+  return { level, score: Math.min(score, SCORE_TOP - 0.01), f };
 }

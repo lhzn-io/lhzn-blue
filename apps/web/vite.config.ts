@@ -92,6 +92,7 @@ export default defineConfig(({ mode }) => ({
         terms: resolve(import.meta.dirname, "terms/index.html"),
         references: resolve(import.meta.dirname, "references/index.html"),
         about: resolve(import.meta.dirname, "about/index.html"),
+        "comfort-index": resolve(import.meta.dirname, "about/comfort-index/index.html"),
         forecast: resolve(import.meta.dirname, "long-island-sound/forecast/index.html"),
         tides: resolve(import.meta.dirname, "long-island-sound/tides/index.html"),
         models: resolve(import.meta.dirname, "long-island-sound/models/index.html"),

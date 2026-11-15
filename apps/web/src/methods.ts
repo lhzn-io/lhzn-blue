@@ -509,12 +509,14 @@ METHODS.comfort = {
   shows: "",
   method:
     "The worst factor below for your boat, from HRRR wind, NWPS waves, the wave-current level and (kayaks) NECOFS " +
-    "current. Steps follow Beaufort, WMO sea states and the NWS small craft advisory; the 30% rule, post-Fastnet (1979) " +
-    "capsize tests.",
+    "current; for kayaks, the paddlers' 120 rule (air and water temperature together under 120 °F, when a dry suit is " +
+    "called for) raises a level. Water temperature does not count for the other boats. " +
+    "Steps follow Beaufort, WMO sea states and the NWS small craft advisory; the 30% rule, post-Fastnet (1979) capsize tests.",
   caveats:
     "An indicative index derived from forecasts, not a determination of whether to go. Excludes gusts, visibility and " +
     "thunderstorms. More than 24 hours back it rests on wind alone. The thresholds are judgements for typical boats of each length, not a standard; the code is open " +
     "source (github.com/lhzn-io/lhzn-blue), so anyone can set their own and build an index on the same method.",
+  more: { href: "/about/comfort-index/", text: "How the index is computed, with a worked example", on: ["/"] },
 };
 
 METHODS["map-comfort"] = {
@@ -523,7 +525,7 @@ METHODS["map-comfort"] = {
   method:
     "The comfort index of a click's readout, for every NWPS wave cell (1.8 km) at the time bar's hour: HRRR wind from the " +
     "nearest HRRR cell, NWPS waves, the wind-against-tide level and, for kayaks, the NECOFS current, by the steps for " +
-    "the boat set in the byline; cold water raises a level. Shore cells (harbours, coves) carry wind only. Shown as a " +
+    "the boat set in the byline; for kayaks, air and water together under 120 °F (HRRR's air at the nearest forecast station) raise a level. Shore cells (harbours, coves) carry wind only. Shown as a " +
     "score from 0 to 7: each factor runs linearly between its steps, so 1 is the Moderate step, 2 Uncomfortable and 3 " +
     "Discomfort; past Discomfort it gains a point for each half of that step again (for a center console, 30, 40 and " +
     "50 kt of wind, or 1.5, 2 and 2.5 m of waves), and the worst factor sets the score. The shading runs from clear at 0 " +

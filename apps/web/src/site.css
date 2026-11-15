@@ -1134,6 +1134,15 @@ input[type="range"]:not(.tl-range):focus-visible { outline: 1px dotted var(--dim
 .ct-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 4px; font: 10px/1.3 var(--mono); color: var(--dim); }
 .ct-legend i { display: inline-block; width: 14px; height: 10px; margin-right: 5px; vertical-align: -1px; background: var(--ink); }
 .ct-rules { margin: 6px 0 0; font: 12px/1.5 var(--sans); color: var(--ink-soft); }
+/* The comfort index method page: the formula and the worked example, monospace so columns line up, each line wrapping
+   under a hanging indent on a phone rather than scrolling. */
+.ci-pre { margin: 10px 0 14px; padding: 10px 12px; font: 11px/1.55 var(--mono); color: var(--ink-soft); background: var(--panel); border-radius: 4px; }
+.ci-pre span { display: block; white-space: pre-wrap; padding-left: 6ch; text-indent: -6ch; }
+.ci-boats { margin: 8px 0 0; }
+.ci-inputs { border-collapse: collapse; margin: 8px 0; font: 12px/1.45 var(--sans); color: var(--ink-soft); }
+.ci-inputs th { padding: 3px 12px 3px 0; text-align: left; font: 600 12px/1.45 var(--mono); color: var(--ink); vertical-align: top; }
+.ci-inputs td { padding: 3px 12px 3px 0; vertical-align: top; }
+.ci-inputs td:nth-child(2) { white-space: nowrap; font-family: var(--mono); color: var(--ink); }
 
 /* The boat picker: three icon buttons in the ink, the chosen one pressed. */
 .boat-pick { display: inline-flex; border: 1px solid var(--rule); }

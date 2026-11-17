@@ -159,12 +159,14 @@ export const NEXT48: Fig = {
     });
     const reachTitle = (r: { rank: 0 | 1; x0: number; x1: number }) =>
       `Forecast at the ${r.rank ? "gale warning level, 34 kt" : "small craft advisory level, 25 kt"} (sustained): ${fmtRun.format(new Date(r.x0 * 1000))} to ${fmtRun.format(new Date(r.x1 * 1000))}`;
-    // A virtual buoy has no measurement: before now, HRRR's newest run for each hour stands in its place, labelled.
-    const past = virtual ? xs.map((t) => (t < nowH0 ? (forecastAt(d.meta.id, t)?.spd ?? NaN) : NaN)) : [];
+    // Before now, HRRR's last forecast for each hour (its newest run issued before the hour). A virtual buoy has no
+    // measurement, so there it is drawn in the measurement's place; at a station it is read at the cursor only, beside
+    // GFS's last forecast, and not drawn (the earlier runs are already there, faint).
+    const past = xs.map((t) => (t < nowH0 ? (forecastAt(d.meta.id, t)?.spd ?? NaN) : NaN));
     const lines: Line[] = [
       ...runLines,
       ...gfsRunLines,
-      ...(virtual ? [{ ys: past.map((v) => windVal(v)), color: M.palette().line, width: 1.4, opacity: 0.7, label: "HRRR before now", tipLabel: "HRRR", fmt: fmtU }] : []),
+      { ys: past.map((v) => windVal(v)), color: M.palette().line, width: 1.4, opacity: virtual ? 0.7 : 0, label: "HRRR before now", tipLabel: "HRRR", fmt: fmtU },
       { ys: fc.map((_, i) => err(xs[i])), color: M.palette().miss, label: vm?.label ?? "Typical miss at the buoys", hidden: true, tip: false, fmt: (v) => `&plusmn;${windFmt(v)} ${u.label}` },
       { ys: gErr, color: M.palette().gfs, label: "GFS typical miss", hidden: true, tip: false, fmt: (v) => `&plusmn;${windFmt(v)} ${u.label}` },
       // Forecast gusts in their model's color; over HRRR's last day both, as both lines are drawn there.
@@ -217,7 +219,7 @@ export const NEXT48: Fig = {
       note: vm ? vm.note : `NOAA HRRR, raw &middot; the shading is HRRR's typical miss at each lead, ${verTag()}` +
         (hasGfs ? ` &middot; past HRRR's 48 hours, NOAA GFS (0.25&deg;, raw), shaded with its own typical miss, ${gfsTag()}` : "") +
         (hasBeside ? ` &middot; GFS also runs beside HRRR from now: where they part, the step at the handoff is the models' difference` : "") +
-        (hasPast ? ` &middot; before now, GFS's last forecast before each hour` : "") +
+        (hasPast ? ` &middot; before now, GFS's last forecast before each hour; the cursor also reads HRRR's` : "") +
         ` &middot; gusts: gray measured, lavender HRRR, green GFS` +
         (inForce.length ? ` &middot; brick along the bottom: an NWS advisory in force for zone ${zone}` : "") +
         (reach.length ? ` &middot; the fainter, thinner strip along the bottom: the hours the forecast reaches NWS's small craft level (25 kt sustained${reach.some((r) => r.rank) ? "; darker, gale, 34 kt" : ""})` : ""),

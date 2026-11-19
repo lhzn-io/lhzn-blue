@@ -65,6 +65,7 @@ interface Model {
   cells: number;
   wide_cells?: number;
   tiles?: Record<string, [number, number, number]>; // offset, length, elements
+  depths?: Record<string, Partial<Model>>; // the same model at a fixed depth (m): its own files and counts
 }
 type Models = Partial<Record<Id, Model>>;
 interface Latest {
@@ -94,8 +95,8 @@ interface Cells {
 interface Source {
   key: string;
   models: Models;
-  wide: Partial<Record<Id, Cells | null>>;
-  loading: Promise<void> | null;
+  wide: Record<string, Cells | null>; // "<model>@<depth>"
+  loading: Record<number, Promise<void>>; // by depth
 }
 type Frame = { t: number; s: number }; // epoch seconds, and the source that holds it
 
@@ -162,19 +163,33 @@ async function getJson<T>(path: string, init?: RequestInit): Promise<T | null> {
   }
 }
 
-/** A source's two whole files (DOPPIO's grid, NECOFS's averaged view), fetched once. */
+const DEPTHS = [0, 10, 25, 50, 100, 200, 500]; // m below the surface; 0 is the top layer
+let depth = 0;
+const wideKey = (id: Id) => `${id}@${depth}`;
+
+/** A source's model at the chosen depth: the surface entry, or its depth entry over it (none if not made). */
+function modelAt(src: Source | null, id: Id): Model | undefined {
+  const m = src?.models[id];
+  if (!m || depth === 0) return m;
+  const e = m.depths?.[String(depth)];
+  return e ? ({ ...m, ...e } as Model) : undefined;
+}
+
+/** A source's two whole files at the chosen depth (DOPPIO's grid, NECOFS's averaged view), fetched once. */
 function ensureWide(src: Source): Promise<void> {
-  src.loading ??= Promise.all(
+  const d = depth;
+  src.loading[d] ??= Promise.all(
     (["necofs", "doppio"] as Id[]).map(async (id) => {
-      const m = src.models[id];
+      const m = modelAt(src, id);
+      const key = `${id}@${d}`;
       try {
-        src.wide[id] = m ? await loadWhole(m.wide) : null;
+        src.wide[key] = m ? await loadWhole(m.wide) : null;
       } catch {
-        src.wide[id] = null;
+        src.wide[key] = null;
       }
     }),
   ).then(() => undefined);
-  return src.loading;
+  return src.loading[d];
 }
 
 // ---------- Tiles in view ----------
@@ -263,6 +278,14 @@ interface Panel {
   map: maplibregl.Map | null;
 }
 type Period = { kind: "forecast" } | { kind: "days"; from: string; to: string };
+/** What each map draws, the same on both: the currents (cells by speed, arrows), the cell outlines, the depth lines. */
+type Layer = "currents" | "grid" | "depth";
+const LAYERS: Layer[] = ["currents", "grid", "depth"];
+const LAYER_IDS: Record<Layer, string[]> = {
+  currents: ["cells", "arrows"],
+  grid: ["cell-lines"],
+  depth: ["isobaths", "isobaths-50", "isobath-labels"],
+};
 
 const panels: Panel[] = [];
 let period: Period = { kind: "forecast" };
@@ -279,17 +302,18 @@ let lod: "wide" | "native" = "wide";
 let tooMany = false; // zoomed in, but more NECOFS cells in view than the page draws at once
 let inViewKeys: string[] = [];
 let doppioInView = -1;
+let shown = new Set<Layer>(LAYERS);
 const tileCache = new Map<string, Cells>(); // "<source>|<tile>"
 const pending = new Map<string, Promise<void>>();
 
 const cur = (): Source | null => (frames.length && frame >= 0 ? sources[frames[frame].s] : null);
-const tileKey = (src: Source, key: string) => `${src.key}|${key}`;
+const tileKey = (src: Source, key: string) => `${src.key}|${depth}|${key}`;
 
 /** The blobs a panel draws now. */
 function drawn(p: Panel): Cells[] {
   const src = cur();
   if (!src) return [];
-  const wide = src.wide[p.id];
+  const wide = src.wide[wideKey(p.id)];
   if (p.id === "doppio" || lod === "wide") return wide ? [wide] : [];
   const loaded = inViewKeys.map((k) => tileCache.get(tileKey(src, k))).filter((c): c is Cells => !!c);
   return loaded.length ? loaded : wide ? [wide] : [];
@@ -301,7 +325,7 @@ const nativeNow = (p: Panel) => {
 
 /** The panel's step at the current frame, or -1 where its model has none. */
 function stepOf(p: Panel): number {
-  const m = cur()?.models[p.id];
+  const m = modelAt(cur(), p.id);
   if (!m) return -1;
   const j = Math.round((frames[frame].t - Date.parse(m.t0) / 1000) / m.step);
   return j >= 0 && j < m.steps ? j : -1;
@@ -358,6 +382,8 @@ interface Wanted {
   period: Period | null;
   t: number | null;
   bbox: [number, number, number, number] | null;
+  layers: Set<Layer> | null;
+  depth: number;
 }
 function readUrl(): Wanted {
   const q = new URLSearchParams(location.search);
@@ -367,7 +393,10 @@ function readUrl(): Wanted {
   const b = q.get("bbox")?.split(",").map(Number);
   const bbox = b?.length === 4 && b.every(Number.isFinite) && b[0] < b[2] && b[1] < b[3] ? (b as [number, number, number, number]) : null;
   const days = isDay(from) && isDay(to) && dayMs(to) >= dayMs(from);
-  return { period: days ? { kind: "days", from, to } : null, t, bbox };
+  const ls = q.get("layers");
+  const layers = ls === null ? null : new Set(ls.split(",").filter((x): x is Layer => (LAYERS as string[]).includes(x)));
+  const dq = Number(q.get("depth"));
+  return { period: days ? { kind: "days", from, to } : null, t, bbox, layers, depth: DEPTHS.includes(dq) ? dq : 0 };
 }
 
 let userTime = false; // the reader chose the hour: it goes to the address bar
@@ -379,6 +408,8 @@ function writeUrl(): void {
   }
   if (userTime && frames.length) q.set("t", hourParam(frames[frame].t));
   if (shownBox) q.set("bbox", shownBox);
+  if (shown.size < LAYERS.length) q.set("layers", LAYERS.filter((l) => shown.has(l)).join(","));
+  if (depth) q.set("depth", String(depth));
   const s = q.toString().replace(/%2C/g, ",");
   const url = `${location.pathname}${s ? `?${s}` : ""}${location.hash}`;
   if (url !== location.pathname + location.search + location.hash) history.replaceState(null, "", url);
@@ -478,6 +509,45 @@ function addLayers(p: Panel): void {
     },
     before,
   );
+  applyLayers(map);
+}
+
+function applyLayers(map: maplibregl.Map): void {
+  for (const l of LAYERS)
+    for (const id of LAYER_IDS[l]) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", shown.has(l) ? "visible" : "none");
+}
+
+/** The depth menu: redraw both maps from that depth's files, at the same hour and view. */
+function wireDepth(): void {
+  const sel = $("depth") as HTMLSelectElement;
+  sel.value = String(depth);
+  sel.addEventListener("change", async () => {
+    depth = Number(sel.value);
+    legend();
+    writeUrl();
+    if (!frames.length) return;
+    const k = frame;
+    frame = -1; // no current source: setFrame refreshes the level of detail and the counts
+    inViewKeys = [];
+    await setFrame(k);
+  });
+}
+
+function wireLayers(): void {
+  const boxes = [...document.querySelectorAll<HTMLInputElement>("#layers input[type=checkbox]")];
+  const show = () => {
+    for (const b of boxes) b.checked = shown.has(b.value as Layer);
+    $("key").classList.toggle("sh-off", !shown.has("currents")); // the speed key, faint while the currents are off
+  };
+  show();
+  for (const b of boxes)
+    b.addEventListener("change", () => {
+      if (b.checked) shown.add(b.value as Layer);
+      else shown.delete(b.value as Layer);
+      show();
+      for (const p of panels) if (p.map) applyLayers(p.map);
+      writeUrl();
+    });
 }
 
 function webglOk(): boolean {
@@ -568,7 +638,7 @@ function remember(key: string, c: Cells): void {
 /** DOPPIO's cells whose centers are in view, for its caption. */
 function countDoppio(): void {
   const p = panels.find((x) => x.id === "doppio");
-  const c = cur()?.wide.doppio;
+  const c = cur()?.wide[wideKey("doppio")];
   if (!p?.map || !c) return;
   const b = p.map.getBounds();
   const [w, s, e, n] = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
@@ -585,8 +655,8 @@ let lodRun = 0;
 async function updateLod(): Promise<void> {
   const p = panels.find((x) => x.id === "necofs");
   const src = cur();
-  const index = src?.models.necofs?.tiles;
-  const pack = src?.models.necofs?.pack;
+  const index = modelAt(src, "necofs")?.tiles;
+  const pack = modelAt(src, "necofs")?.pack;
   if (!p?.map || !src || !index || !pack) return;
   const run = ++lodRun;
   const { keys, count } = p.map.getZoom() >= NATIVE_MIN_ZOOM ? inView(p.map, index) : { keys: [], count: 0 };
@@ -625,10 +695,10 @@ async function updateLod(): Promise<void> {
 /** One phrase per panel, the same shape for both: its cells and how many are in view, or why there are none. */
 function caption(p: Panel): string {
   const src = cur();
-  const m = src?.models[p.id];
+  const m = modelAt(src, p.id);
   let sub: string;
   if (!src) sub = "no data";
-  else if (!m) sub = "no data for this period";
+  else if (!m) sub = depth ? `no data at ${depth} m for this ${period.kind === "days" ? "day" : "run"}` : "no data for this period";
   else if (stepOf(p) < 0) {
     const end = Date.parse(m.t0) / 1000 + (m.steps - 1) * m.step;
     sub = period.kind === "forecast" && frames[frame].t > end ? `forecast ends ${eastern(new Date(end * 1000))}` : "no data for this hour";
@@ -701,7 +771,7 @@ async function loadPeriod(p: Period): Promise<{ sources: Source[]; frames: Frame
     const ms = Object.values(latest?.models ?? {}).filter((m): m is Model => !!m);
     const longest = ms.sort((a, b) => b.steps - a.steps)[0];
     if (!latest || !longest) return out;
-    out.sources.push({ key: longest.run, models: latest.models, wide: {}, loading: null });
+    out.sources.push({ key: longest.run, models: latest.models, wide: {}, loading: {} });
     const t0 = Date.parse(longest.t0) / 1000;
     for (let k = 0; k < longest.steps; k++) out.frames.push({ t: t0 + k * longest.step, s: 0 });
     return out;
@@ -712,7 +782,7 @@ async function loadPeriod(p: Period): Promise<{ sources: Source[]; frames: Frame
   idx.forEach((e, i) => {
     if (!e || !Object.keys(e.models).length) return;
     const s = out.sources.length;
-    out.sources.push({ key: `days/${days[i]}`, models: e.models, wide: {}, loading: null });
+    out.sources.push({ key: `days/${days[i]}`, models: e.models, wide: {}, loading: {} });
     const t0 = dayMs(days[i]) / 1000;
     for (let h = 0; h < 24; h++) out.frames.push({ t: t0 + h * 3600, s });
   });
@@ -805,7 +875,7 @@ function wirePeriod(): void {
 function legend(): void {
   const steps = [0.05, 0.1, 0.25, 0.5, 1, 1.5, 2, 3]; // kt
   $("key").innerHTML =
-    `<span>surface current, kt:</span>` + steps.map((v) => `<span><i class="sq" style="background:${speedColor(v / MS_TO_KT)}"></i>${v}</span>`).join("");
+    `<span>${depth ? `current at ${depth} m` : "surface current"}, kt:</span>` + steps.map((v) => `<span><i class="sq" style="background:${speedColor(v / MS_TO_KT)}"></i>${v}</span>`).join("");
 }
 
 function wireTheme(redraw: () => void): void {
@@ -859,6 +929,11 @@ async function main(): Promise<void> {
 
   const want = readUrl();
   shownBox = want.bbox?.join(",") ?? null;
+  if (want.layers) shown = want.layers;
+  wireLayers();
+  depth = want.depth;
+  wireDepth();
+  legend(); // the key names the depth
   const [l, d, ...isos] = await Promise.all([
     getJson<Latest>("latest.json", { cache: "no-cache" }),
     getJson<{ days: Record<string, boolean> }>("days.json", { cache: "no-cache" }),

@@ -115,8 +115,25 @@ def _fake_reads(monkeypatch, fail_doppio=False):
         h = 40.0 + 2000.0 * (nodes[:, 0] + 70)
         return nodes, np.array(tri), np.array(centers), np.array(cells), times, u, np.zeros((steps, m)), "https://example/necofs", h
 
+    def doppio_depths(start, hours, every, deadline):
+        if fail_doppio:
+            raise RuntimeError("server refused")
+        times = hourly if every == 1 else times2
+        n = int(wet.sum())
+        h = (40.0 + 2000.0 * (lon + 70))[wet]
+        z = {d: (np.full((times.size, n), 0.1, np.float32), np.full((times.size, n), 0.05, np.float32)) for d in shelf.DEPTHS}
+        return times, z, {d: h > d for d in shelf.DEPTHS}
+
+    def necofs_depths(glon, glat, gwet, start, hours, every, deadline):
+        nodes, tri, centers, cells, times, u, v, _, h = necofs_read(glon, glat, gwet, None, deadline, start, hours, every)
+        h_e = h[tri].mean(axis=1)
+        z = {d: (u.astype(np.float32) / 2, v.astype(np.float32)) for d in shelf.DEPTHS}
+        return nodes, tri, centers, cells, times, z, {d: h_e > d for d in shelf.DEPTHS}
+
     monkeypatch.setattr(shelf, "doppio_read", doppio_read)
     monkeypatch.setattr(shelf, "necofs_read", necofs_read)
+    monkeypatch.setattr(shelf, "doppio_depths", doppio_depths)
+    monkeypatch.setattr(shelf, "necofs_depths", necofs_depths)
     return wet
 
 
@@ -269,3 +286,49 @@ def test_necofs_pieces_use_the_forecast_only_within_its_reach(monkeypatch):
     assert [u for _, _, u in recent] == [None]
     old = shelf._necofs_pieces(pd.Timestamp("2022-07-31 20:00"), 30, now)
     assert [(str(t0), n, u) for t0, n, u in old] == [("2022-07-31 20:00:00", 4, "file-202207"), ("2022-08-01 00:00:00", 24, "file-202208"), ("2022-08-02 00:00:00", 2, "file-202208")]
+
+
+def test_at_depths_interpolates_between_layers_and_leaves_the_bed_out():
+    # Two columns, four layers at sigma -0.125, -0.375, -0.625, -0.875; u is the layer's index, v its negative.
+    frac = np.tile(np.array([-0.125, -0.375, -0.625, -0.875])[:, None], (1, 2))
+    u = np.tile(np.arange(4.0)[None, :, None], (1, 1, 2))
+    column = np.array([[80.0, 20.0]])  # centers at 10, 30, 50, 70 m and 2.5, 7.5, 12.5, 17.5 m
+    z = shelf.at_depths(u, -u, frac, column, depths=(5, 10, 40, 75, 25))
+    assert z[5][0][0, 0] == 0.0  # above the first center: the top layer
+    assert z[10][0][0, 0] == 0.0 and np.isclose(z[10][0][0, 1], 1.5)
+    assert np.isclose(z[40][0][0, 0], 1.5) and np.isclose(z[40][1][0, 0], -1.5)
+    assert z[75][0][0, 0] == 3.0  # between the deepest center and the bed: the bottom layer
+    assert np.isnan(z[25][0][0, 1]) and np.isnan(z[40][0][0, 1])  # deeper than the 20 m column
+
+
+def test_run_and_daily_archive_carry_depths_but_backfills_do_not(tmp_path, monkeypatch):
+    _fake_reads(monkeypatch)
+    ts = tiles.TileStore(str(tmp_path / "tiles"))
+    store = Store(str(tmp_path / "out"))
+    shelf.publish(store, pd.Timestamp("2026-11-18 13:50", tz="UTC"), ts)
+    latest = json.loads(ts.get(f"{shelf.BASE}/latest.json"))
+    for name in ("necofs", "doppio"):
+        dep = latest["models"][name]["depths"]
+        assert sorted(dep, key=int) == [str(d) for d in shelf.DEPTHS]
+        assert ts.get(f"{shelf.BASE}/{dep['50']['wide']}") is not None
+        assert dep["500"]["cells"] < dep["10"]["cells"]  # the eastward-deepening grid: fewer cells below 500 m
+    assert "tiles" in latest["models"]["necofs"]["depths"]["50"]
+    day = json.loads(ts.get(f"{shelf.BASE}/days/2026-11-17/index.json"))
+    assert day["complete"] and day["models"]["necofs"]["depths"]["100"]["steps"] == 24
+    shelf.backfill(store, "2022-08-11", "2022-08-11", ts)
+    old = json.loads(ts.get(f"{shelf.BASE}/days/2022-08-11/index.json"))
+    assert old["complete"] and "depths" not in old["models"]["necofs"] and "depths" not in old["models"]["doppio"]
+
+
+def test_failed_depths_leave_the_surface_published(tmp_path, monkeypatch):
+    _fake_reads(monkeypatch)
+
+    def broken(*a, **k):
+        raise RuntimeError("server refused")
+
+    monkeypatch.setattr(shelf, "necofs_depths", broken)
+    ts = tiles.TileStore(str(tmp_path / "tiles"))
+    failed = shelf.publish(Store(str(tmp_path / "out")), pd.Timestamp("2026-11-18 13:50", tz="UTC"), ts)
+    latest = json.loads(ts.get(f"{shelf.BASE}/latest.json"))
+    assert "depths" not in latest["models"]["necofs"] and "depths" in latest["models"]["doppio"]
+    assert any("necofs depths" in f for f in failed)

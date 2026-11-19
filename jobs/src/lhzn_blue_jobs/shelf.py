@@ -61,6 +61,12 @@ DAY_S = 86400
 IMMUTABLE_S = 365 * 86400
 LATEST_S = 300
 ISOBATHS = (50, 100, 200, 500, 1000, 2000, 3000)  # meters
+DEPTHS = (10, 25, 50, 100, 200, 500)  # meters below the surface, besides the top layer: the run and the daily archive
+DEPTH_READ_HOURS = 3  # NECOFS hours per whole-column read for hourly days (45 layers); 6 peaked at 3.6 GB
+# The run's 2-hourly steps are read one hour at a time, skipping the hours between: 5.7 s a step against 42 s per
+# 6 hours (measured 2026-11-19), about 5 minutes for the window.
+DEPTH_BUDGET_S = 25 * 60  # the run's depths (measured 2026-11-19: about 12 minutes)
+DAY_DEPTH_BUDGET_S = 10 * 60  # one archived day's depths (about 3 minutes)
 ISOBATH_TOL_DEG = 0.0015  # line simplification (about 150 m)
 CELL_KM2 = 49.0  # a DOPPIO cell (7 km): NECOFS elements larger than this are drawn as they are in the wide view
 KM_PER_DEG = 111.2
@@ -178,6 +184,21 @@ def _scaled(lon, lat) -> np.ndarray:
     return np.c_[np.asarray(lon) * np.cos(np.radians(40.0)), np.asarray(lat)]
 
 
+def _necofs_domain(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, start: pd.Timestamp, url: str | None) -> tuple[list[int], dict]:
+    """The NECOFS elements whose centers lie in DOPPIO's water cells, and the cell each belongs to."""
+    from forcingkit.fetchers import doppio as dfk
+    from forcingkit.fetchers import necofs as fk
+    from scipy.spatial import cKDTree
+
+    probe = fk.read_volume(list(dfk.DOMAIN_BBOX), start, 1, url, variables=["u"], layers=[0])
+    dist, cell = cKDTree(_scaled(lon[wet], lat[wet])).query(_scaled(probe["lonc"].values, probe["latc"].values), distance_upper_bound=NEAR_CELL_DEG)
+    inside = np.isfinite(dist)
+    ids = [int(x) for x in probe["element_id"].values[inside]]
+    if not ids:
+        raise ValueError("no NECOFS elements in DOPPIO's cells")
+    return ids, dict(zip(ids, cell[inside].tolist()))
+
+
 def necofs_read(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, end: datetime | None, deadline: float, start: pd.Timestamp | None = None, hours: int | None = None, every: int = STEP_HOURS):
     """The NECOFS elements whose centers lie in DOPPIO's water cells, and their surface forecast (steps, elements).
     Returns the elements' nodes, triangles and centers, the DOPPIO water cell each belongs to, and the forecast."""
@@ -188,13 +209,7 @@ def necofs_read(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, end: datetime
     if start is None:
         start, hours = window(end)
     pieces = _necofs_pieces(start, hours)
-    probe = fk.read_volume(list(dfk.DOMAIN_BBOX), start, 1, pieces[0][2], variables=["u"], layers=[0])
-    dist, cell = cKDTree(_scaled(lon[wet], lat[wet])).query(_scaled(probe["lonc"].values, probe["latc"].values), distance_upper_bound=NEAR_CELL_DEG)
-    inside = np.isfinite(dist)
-    ids = [int(x) for x in probe["element_id"].values[inside]]
-    if not ids:
-        raise ValueError("no NECOFS elements in DOPPIO's cells")
-    cell_of = dict(zip(ids, cell[inside].tolist()))
+    ids, cell_of = _necofs_domain(lon, lat, wet, start, pieces[0][2])
     parts = []
     for t0, n, url in pieces:
         if time.monotonic() > deadline:
@@ -211,6 +226,188 @@ def necofs_read(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, end: datetime
     cells = np.array([cell_of[int(e)] for e in ds["element_id"].values], dtype=np.int64)
     h = ds["h"].values.astype(np.float64) if "h" in ds else np.full(len(nodes), np.nan)
     return nodes, tri, centers, cells, times, u, v, ds.attrs.get("url"), h
+
+
+def at_depths(u: np.ndarray, v: np.ndarray, frac: np.ndarray, column: np.ndarray, depths=DEPTHS) -> dict:
+    """Velocity at fixed depths below the surface from a model's own layers. u, v (steps, layers, n) at layer centers;
+    frac (layers, n) the sigma of each center, surface first (negative); column (steps, n) the water column, depth plus
+    surface elevation. Linear between the two centers around a depth; the top layer above the first center; the
+    deepest layer between its center and the bed; NaN where the column is shorter than the depth. Returns
+    {depth: (u, v)}, each (steps, n), float32."""
+    below = -frac[None, :, :] * column[:, None, :]  # (steps, layers, n): each center's depth below the surface
+    last = u.shape[1] - 1
+    out = {}
+    for d in depths:
+        k = (below < d).sum(axis=1)  # centers above d
+        lo = np.clip(k - 1, 0, last)[:, None, :]
+        hi = np.clip(k, 0, last)[:, None, :]
+        b_lo = np.take_along_axis(below, lo, 1)[:, 0]
+        b_hi = np.take_along_axis(below, hi, 1)[:, 0]
+        gap = b_hi - b_lo
+        w = np.clip(np.where(gap > 0, (d - b_lo) / np.where(gap > 0, gap, 1.0), 0.0), 0.0, 1.0)
+        pair = []
+        for f in (u, v):
+            a = np.take_along_axis(f, lo, 1)[:, 0]
+            b = np.take_along_axis(f, hi, 1)[:, 0]
+            pair.append(np.where(d < column, a + (b - a) * w, np.nan).astype(np.float32))
+        out[d] = (pair[0], pair[1])
+    return out
+
+
+def _on_steps(times: pd.DatetimeIndex, start: pd.Timestamp, every: int, seen: set) -> list[int]:
+    """Indices of the hours on the window's steps that are not yet held."""
+    keep = []
+    for i, t in enumerate(times):
+        if int((t - start) / pd.Timedelta(hours=1)) % every == 0 and t not in seen:
+            seen.add(t)
+            keep.append(i)
+    return keep
+
+
+def doppio_depths(start: pd.Timestamp, hours: int, every: int, deadline: float):
+    """DOPPIO's whole grid at DEPTHS: the steps' times, {depth: (u, v)} over its water cells, and per depth the water
+    cells deeper than it."""
+    from forcingkit.fetchers import doppio as fk
+
+    acc: dict = {d: ([], []) for d in DEPTHS}
+    seen: set = set()
+    times: list = []
+    wet = h = None
+    for t0, n in _pieces(start, hours):
+        if time.monotonic() > deadline:
+            if times:
+                log.warning("shelf doppio depths: budget spent at %s; kept %d steps", t0, len(times))
+                break
+            raise TimeoutError("shelf depth budget spent")
+        try:
+            ds = fk.read_volume(list(fk.DOMAIN_BBOX), t0, n, variables=["u", "v", "zeta"])
+        except RuntimeError as exc:  # a piece wholly past the forecast's end
+            if times and "none of" in str(exc):
+                break
+            raise
+        if wet is None:
+            wet = ds["mask"].values.astype(bool) if "mask" in ds else np.ones(ds["lon"].shape, bool)
+            h = ds["h"].values[wet].astype(np.float64)
+        tt = pd.DatetimeIndex(ds["time"].values)
+        keep = _on_steps(tt, start, every, seen)
+        if not keep:
+            continue
+        column = h[None, :] + ds["zeta"].values[keep][:, wet]
+        z = at_depths(ds["u"].values[keep][:, :, wet], ds["v"].values[keep][:, :, wet], ds["siglay"].values[:, wet], column)
+        for d, (ud, vd) in z.items():
+            acc[d][0].append(ud)
+            acc[d][1].append(vd)
+        times.extend(tt[keep])
+    if not times:
+        raise ValueError("no DOPPIO hours at depth in the window")
+    fields_ = {d: (np.concatenate(acc[d][0]), np.concatenate(acc[d][1])) for d in DEPTHS}
+    return pd.DatetimeIndex(times), fields_, {d: h > d for d in DEPTHS}
+
+
+def necofs_depths(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, start: pd.Timestamp, hours: int, every: int, deadline: float):
+    """NECOFS at DEPTHS on the same elements as necofs_read (centers in DOPPIO's water cells), read DEPTH_READ_HOURS
+    at a time. Returns nodes, triangles, centers, DOPPIO cell per element, the steps' times, {depth: (u, v)} and per
+    depth the elements deeper than it."""
+    from forcingkit.fetchers import necofs as fk
+
+    pieces = []
+    for t0, n, url in _necofs_pieces(start, hours):
+        if every > 1:  # one hour per step
+            for k in range(n):
+                t = t0 + pd.Timedelta(hours=k)
+                if int((t - start) / pd.Timedelta(hours=1)) % every == 0:
+                    pieces.append((t, 1, url))
+        else:
+            for k in range(0, n, DEPTH_READ_HOURS):
+                pieces.append((t0 + pd.Timedelta(hours=k), min(DEPTH_READ_HOURS, n - k), url))
+    ids, cell_of = _necofs_domain(lon, lat, wet, start, pieces[0][2])
+    acc: dict = {d: ([], []) for d in DEPTHS}
+    seen: set = set()
+    times: list = []
+    geo = None
+    for t0, n, url in pieces:
+        if time.monotonic() > deadline:
+            if times:
+                log.warning("shelf necofs depths: budget spent at %s; kept %d steps", t0, len(times))
+                break
+            raise TimeoutError("shelf depth budget spent")
+        try:
+            ds = fk.read_volume(None, t0, n, url, variables=["u", "v", "zeta"], elements=ids)
+        except RuntimeError as exc:  # hours past the forecast's end
+            if times and "none of" in str(exc):
+                break
+            raise
+        if geo is None:
+            tri = ds["triangles"].values.astype(np.int64)
+            nodes = np.stack([ds["node_lon"].values, ds["node_lat"].values], axis=1).astype(np.float64)
+            centers = np.stack([ds["lonc"].values, ds["latc"].values], axis=1).astype(np.float64)
+            cells = np.array([cell_of[int(e)] for e in ds["element_id"].values], dtype=np.int64)
+            h_e = ds["h"].values[tri].mean(axis=1).astype(np.float64)
+            frac = ds["siglay"].values[:, tri].mean(axis=2)  # (layers, element)
+            geo = (nodes, tri, centers, cells)
+        tt = pd.DatetimeIndex(ds["time"].values)
+        keep = _on_steps(tt, start, every, seen)
+        if not keep:
+            continue
+        column = h_e[None, :] + ds["zeta"].values[keep][:, tri].mean(axis=2)
+        z = at_depths(ds["u"].values[keep], ds["v"].values[keep], frac, column)
+        for d, (ud, vd) in z.items():
+            acc[d][0].append(ud)
+            acc[d][1].append(vd)
+        times.extend(tt[keep])
+        del ds, z
+    if geo is None or not times:
+        raise ValueError("no NECOFS hours at depth in the window")
+    fields_ = {d: (np.concatenate(acc[d][0]), np.concatenate(acc[d][1])) for d in DEPTHS}
+    return (*geo, pd.DatetimeIndex(times), fields_, {d: h_e > d for d in DEPTHS})
+
+
+def _depth_entries(models: dict, grid, start: pd.Timestamp, hours: int, every: int, deadline: float, prefix: str, put, failed: list, label: str) -> bool:
+    """Both models at DEPTHS into files under `prefix` (relative to the tile base), and a `depths` entry on each model
+    in `models` that has a surface entry from this same window. Returns whether any depth was added."""
+    added = False
+    lon, lat, wet = grid
+    if "doppio" in models:
+        try:
+            times, z, deeper = doppio_depths(start, hours, every, deadline)
+            entry = {}
+            for d in DEPTHS:
+                k = deeper[d]
+                sub = wet.copy()
+                sub[wet] = k
+                name = f"depth/{d}m/doppio.bin"
+                put(name, _doppio_files(lon, lat, sub, z[d][0][:, k], z[d][1][:, k]))
+                entry[str(d)] = {"t0": iso(times[0].tz_localize("UTC")), "step": every * 3600, "steps": int(times.size), "wide": prefix + name, "cells": int(k.sum())}
+            models["doppio"]["depths"] = entry
+            added = True
+            log.info("shelf %s doppio depths: %d steps", label, times.size)
+        except Exception as exc:
+            outages.record(failed, f"shelf {label} doppio depths", exc, log)
+    if "necofs" in models:
+        try:
+            nodes, tri, centers, cells, times, z, deeper = necofs_depths(lon, lat, wet, start, hours, every, deadline)
+            entry = {}
+            for d in DEPTHS:
+                k = deeper[d]
+                pack, index, wide, n_held = _necofs_files(grid, nodes, tri[k], centers[k], cells[k], z[d][0][:, k], z[d][1][:, k])
+                put(f"depth/{d}m/necofs.bin", pack)
+                put(f"depth/{d}m/necofs-wide.bin", wide)
+                entry[str(d)] = {
+                    "t0": iso(times[0].tz_localize("UTC")),
+                    "step": every * 3600,
+                    "steps": int(times.size),
+                    "wide": f"{prefix}depth/{d}m/necofs-wide.bin",
+                    "pack": f"{prefix}depth/{d}m/necofs.bin",
+                    "cells": int(k.sum()),
+                    "wide_cells": n_held,
+                    "tiles": index,
+                }
+            models["necofs"]["depths"] = entry
+            added = True
+            log.info("shelf %s necofs depths: %d elements at 10 m, %d steps", label, int(deeper[DEPTHS[0]].sum()), times.size)
+        except Exception as exc:
+            outages.record(failed, f"shelf {label} necofs depths", exc, log)
+    return added
 
 
 def areas(nodes: np.ndarray, tri: np.ndarray) -> np.ndarray:
@@ -459,9 +656,17 @@ def publish(store: Store, end: datetime | None = None, ts: tiles.TileStore | Non
         except Exception as exc:  # old runs stay a day longer; nothing is lost
             log.warning("shelf cleanup: %s", exc)
     try:
-        failed.extend(archive(ts, end, deadline, grid))
+        failed.extend(archive(ts, end, time.monotonic() + TIME_BUDGET_S, grid))
     except Exception as exc:
         outages.record(failed, "shelf archive", exc, log)
+
+    # The run's depths last, with their own budget: the surface is published first and never waits on them.
+    fresh = {k: m for k, m in models.items() if m.get("run") == run}
+    if grid is not None and fresh:
+        start, hours = window(end)
+        if _depth_entries(fresh, grid, start, hours, STEP_HOURS, time.monotonic() + DEPTH_BUDGET_S, f"runs/{run}/", put, failed, "run"):
+            latest = {"schema": SCHEMA, "generated_at": iso(end), "base_zoom": tiles.BASE_ZOOM, "models": {**models, **fresh}}
+            ts.put(f"{BASE}/latest.json", json.dumps(latest, separators=(",", ":")).encode(), LATEST_S, "application/json")
     return failed
 
 
@@ -470,9 +675,11 @@ def _utc_day(t) -> pd.Timestamp:
     return (t.tz_convert("UTC").tz_localize(None) if t.tzinfo is not None else t).normalize()
 
 
-def archive_day(ts: tiles.TileStore, day, deadline: float, grid=None) -> tuple[dict, list[str]]:
-    """One UTC day, hourly, both models, into days/<day>/ with its index.json. A model that fails is left out (the
-    index says the day is incomplete, so a later run tries it again). Returns the index and the faults."""
+def archive_day(ts: tiles.TileStore, day, deadline: float, grid=None, depths: bool = False) -> tuple[dict, list[str]]:
+    """One UTC day, hourly, both models, into days/<day>/ with its index.json; with `depths`, also at DEPTHS (the
+    daily run's days; backfills stay at the surface). A model that fails is left out (the index says the day is
+    incomplete, so a later run tries it again); missing depths do not make a day incomplete. Returns the index and
+    the faults."""
     failed: list[str] = []
     start = _utc_day(day)
     rel = f"days/{start:%Y-%m-%d}"
@@ -504,13 +711,15 @@ def archive_day(ts: tiles.TileStore, day, deadline: float, grid=None) -> tuple[d
     except Exception as exc:
         outages.record(failed, f"shelf archive {start:%Y-%m-%d} necofs", exc, log)
     complete = set(models) == {"necofs", "doppio"} and all(m["steps"] == 24 for m in models.values())
+    if depths and grid is not None and models:
+        _depth_entries(models, grid, start, 24, 1, time.monotonic() + DAY_DEPTH_BUDGET_S, f"{rel}/", put, failed, f"archive {start:%Y-%m-%d}")
     entry = {"schema": SCHEMA, "day": f"{start:%Y-%m-%d}", "complete": complete, "base_zoom": tiles.BASE_ZOOM, "models": models}
     if models:
         put("index.json", json.dumps(entry, separators=(",", ":")).encode())
     return entry, failed
 
 
-def _fill_days(ts: tiles.TileStore, keys: list[str], deadline_of, grid=None) -> list[str]:
+def _fill_days(ts: tiles.TileStore, keys: list[str], deadline_of, grid=None, depths: bool = False) -> list[str]:
     """Archive each day in `keys` not yet complete, then merge them into days.json (day -> complete)."""
     failed: list[str] = []
     days = dict(json.loads(ts.get(f"{BASE}/days.json") or b"{}").get("days", {}))
@@ -522,7 +731,7 @@ def _fill_days(ts: tiles.TileStore, keys: list[str], deadline_of, grid=None) -> 
         if time.monotonic() > deadline:
             failed.append(f"shelf archive {key}: time budget spent")
             break
-        entry, faults = archive_day(ts, key, deadline, grid)
+        entry, faults = archive_day(ts, key, deadline, grid, depths)
         failed.extend(faults)
         if entry["models"]:
             days[key] = entry["complete"]
@@ -537,7 +746,7 @@ def archive(ts: tiles.TileStore, end: datetime, deadline: float, grid=None) -> l
     """The previous UTC day, and the ARCHIVE_LOOKBACK days before it that are missing or incomplete; then days.json."""
     today = _utc_day(end)
     keys = [f"{today - pd.Timedelta(days=k):%Y-%m-%d}" for k in range(ARCHIVE_LOOKBACK, 0, -1)]
-    return _fill_days(ts, keys, lambda: deadline, grid)
+    return _fill_days(ts, keys, lambda: deadline, grid, depths=True)
 
 
 def backfill(store: Store, first: str, last: str, ts: tiles.TileStore | None = None) -> list[str]:

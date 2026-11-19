@@ -68,7 +68,27 @@
         <button class="fig-info" type="button" id="sh-info" aria-label="About this page" title="About this page">i</button>
       </div>
 
-      <div class="legend mg-key sh-key" id="key"></div>
+      <div class="sh-keyrow">
+        <div class="legend mg-key sh-key" id="key"></div>
+        <label class="sh-depth"
+          >Depth
+          <select id="depth">
+            <option value="0">Surface</option>
+            <option value="10">10 m</option>
+            <option value="25">25 m</option>
+            <option value="50">50 m</option>
+            <option value="100">100 m</option>
+            <option value="200">200 m</option>
+            <option value="500">500 m</option>
+          </select></label
+        >
+        <fieldset class="sh-layers" id="layers">
+          <legend>Show</legend>
+          <label><input type="checkbox" value="currents" checked /> Currents</label>
+          <label><input type="checkbox" value="grid" checked /> Cells</label>
+          <label><input type="checkbox" value="depth" checked /> Depth lines</label>
+        </fieldset>
+      </div>
       <div class="mg-grid sh-grid" id="panels"></div>
 
       <dialog class="about-dialog" id="about-dialog" aria-labelledby="about-dialog-title">
@@ -85,12 +105,15 @@
             DOPPIO's water cells and the NECOFS elements centered in them.
           </p>
           <p>
-            <b>Values.</b> Top-layer velocity. Color: speed. Arrow: direction, fixed length. Gray lines: each model's
-            own depth, 100 to 3000 m (50 m from zoom 7).
+            <b>Values.</b> Velocity in each model's top layer (Surface), or at a fixed depth below the surface,
+            interpolated between the model's own layers; cells shallower than that depth are left out. Color: speed. Arrow: direction, fixed length. Gray lines: each model's
+            own depth, 100 to 3000 m (50 m from zoom 7). Show: currents, cell outlines and depth lines, each on or
+            off on both maps; with the currents off, the two models' depths compare alone.
           </p>
           <p>
             <b>Time.</b> Latest forecast: every 2 hours, from 24 hours before the latest daily run to 72 hours after
-            (DOPPIO: about 48 hours). Past days: hourly, by UTC day, up to 7 at a time, from each model's archive:
+            (DOPPIO: about 48 hours). Past days: hourly, by UTC day, up to 7 at a time; at depth from the first day
+            the daily run archived them (2026-11-20), at the surface from each model's archive:
             NECOFS's <a href="/references/#necofs_archive">hindcast and GOM7 archive</a>, DOPPIO's
             <a href="/references/#wilkin2022doppio">reanalysis</a> (to 2024) and forecast history. The address holds
             the period, hour and map area, so a copied link opens the same view.

@@ -2,7 +2,17 @@
    as the window leaves under the controls. */
 .sh-main { max-width: none; }
 .sh-map { height: clamp(420px, calc(100svh - 230px), 1100px); }
-.sh-key { margin: 0 0 10px; }
+.sh-keyrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 24px; margin: 0 0 10px; }
+.sh-key { margin: 0; transition: opacity 0.2s; }
+.sh-key.sh-off { opacity: 0.35; }
+.sh-depth { display: inline-flex; align-items: center; gap: 6px; font: 700 9.5px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim); }
+.sh-depth select { padding: 3px 6px; font: 12px var(--mono); letter-spacing: 0; text-transform: none; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); }
+.sh-layers { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 0; padding: 0; border: 0; font: 12px/1.3 var(--sans); color: var(--ink-soft); }
+.sh-layers legend {
+  float: left; margin-right: 2px; padding: 0; font: 700 9.5px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim);
+}
+.sh-layers label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.sh-layers input { margin: 0; accent-color: var(--accent); }
 
 /* Controls: play, step back, the time track, step forward, the time, the period, (i). */
 .sh-controls {

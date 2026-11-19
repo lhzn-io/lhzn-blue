@@ -72,16 +72,16 @@ for mode in live latest history fields snapshot forecast panels region-live regi
     --cpu 1 --memory "${MEMORY[$mode]}"
 done
 
-# The Northeast U.S. Shelf (shelf.py): its own job, with its own memory (1.4 GB at its peak), and the only one given
-# the R2 keys (Object Read and Write on the tile bucket alone).
+# The Northeast U.S. Shelf (shelf.py): its own job, with its own memory (3.3 GB at its peak, reading NECOFS's 45 layers
+# for the depths), and the only one given the R2 keys (Object Read and Write on the tile bucket alone).
 if [ -n "${TILES_R2_BUCKET:-}" ] && [ -n "${TILES_R2_ENDPOINT:-}" ]; then
   gcloud run jobs deploy "lhzn-blue-shelf" \
     --project "$GCP_PROJECT" --region "$GCP_REGION" --image "$IMAGE" \
     --service-account "$JOB_SA" --args "shelf" \
     --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_TILES=r2://${TILES_R2_BUCKET},TILES_R2_ENDPOINT=${TILES_R2_ENDPOINT}" \
     --set-secrets "${SECRETS},TILES_R2_ACCESS_KEY_ID=lhzn-blue-r2-key-id:latest,TILES_R2_SECRET_ACCESS_KEY=lhzn-blue-r2-secret:latest" \
-    --tasks 1 --max-retries 1 --task-timeout 30m \
-    --cpu 1 --memory 2Gi
+    --tasks 1 --max-retries 1 --task-timeout 60m \
+    --cpu 1 --memory 4Gi
 else
   echo "TILES_R2_BUCKET or TILES_R2_ENDPOINT not set: lhzn-blue-shelf not deployed"
 fi

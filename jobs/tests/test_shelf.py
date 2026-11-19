@@ -95,7 +95,8 @@ def _fake_reads(monkeypatch, fail_doppio=False):
         n = int(wet.sum())
         times = hourly if every == 1 else times2
         steps = times.size
-        return lon, lat, wet, times, np.full((steps, n), 0.2), np.full((steps, n), -0.1), "https://example/doppio"
+        h = 40.0 + 2000.0 * (lon + 70)  # deepening eastward: 40 m to about 1,000 m
+        return lon, lat, wet, times, np.full((steps, n), 0.2), np.full((steps, n), -0.1), "https://example/doppio", h
 
     def necofs_read(glon, glat, gwet, end, deadline, start=None, hours=None, every=2):
         cx, cy = glon[gwet], glat[gwet]
@@ -110,7 +111,9 @@ def _fake_reads(monkeypatch, fail_doppio=False):
         times = hourly if every == 1 else times2
         steps = times.size
         u = np.tile(np.r_[[0.4, 0.0] * (m // 2)], (steps, 1))
-        return np.array(nodes), np.array(tri), np.array(centers), np.array(cells), times, u, np.zeros((steps, m)), "https://example/necofs"
+        nodes = np.array(nodes)
+        h = 40.0 + 2000.0 * (nodes[:, 0] + 70)
+        return nodes, np.array(tri), np.array(centers), np.array(cells), times, u, np.zeros((steps, m)), "https://example/necofs", h
 
     monkeypatch.setattr(shelf, "doppio_read", doppio_read)
     monkeypatch.setattr(shelf, "necofs_read", necofs_read)
@@ -218,3 +221,23 @@ def test_archive_retries_a_missing_day(tmp_path, monkeypatch):
     _fake_reads(monkeypatch)
     shelf.publish(store, pd.Timestamp("2026-11-18 14:50", tz="UTC"), ts)
     assert json.loads(ts.get("shelf/v1/days.json"))["days"]["2026-11-17"] is True
+
+
+def test_isobaths_each_model_on_its_own_grid(tmp_path, monkeypatch):
+    _fake_reads(monkeypatch)
+    ts = tiles.TileStore(str(tmp_path / "tiles"))
+    shelf.publish(Store(str(tmp_path / "out")), pd.Timestamp("2026-11-18 13:50", tz="UTC"), ts)
+    for model in ("necofs", "doppio"):
+        fc = json.loads(ts.get(f"shelf/v1/isobaths-{model}.json"))
+        depths = [f["properties"]["d"] for f in fc["features"]]
+        assert depths[:4] == [50, 100, 200, 500] and set(depths) <= set(shelf.ISOBATHS), (model, depths)
+        for f in fc["features"]:  # depth grows eastward, 2000 m per degree: each contour near its longitude
+            xs = [p[0] for line in f["geometry"]["coordinates"] for p in line]
+            assert abs(np.mean(xs) - (-70 + (f["properties"]["d"] - 40) / 2000)) < 0.06
+    before = ts.get("shelf/v1/isobaths-doppio.json")
+    assert not shelf._put_if_changed(ts, "shelf/v1/isobaths-doppio.json", json.loads(before))
+
+
+def test_simplify_keeps_corners_and_drops_collinear_points():
+    xy = np.array([[0, 0], [1, 0.0001], [2, 0], [2, 1], [2, 2]], dtype=float)
+    assert shelf._simplify(xy, 0.001).tolist() == [[0, 0], [2, 0], [2, 2]]

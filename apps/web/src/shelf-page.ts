@@ -198,6 +198,7 @@ interface Panel {
   grid: string;
   model: Model | null;
   wide: Cells | null;
+  iso: FeatureCollection | null; // the model's own depth contours
   box: HTMLElement;
   cap: HTMLElement;
   map: maplibregl.Map | null;
@@ -285,6 +286,7 @@ function addLayers(p: Panel): void {
   // No simplification: at a wide zoom it drops NECOFS's smallest triangles (canyon heads) and leaves holes.
   map.addSource("cells", { type: "geojson", data: data.cells, tolerance: 0 });
   map.addSource("arrows", { type: "geojson", data: data.arrows });
+  map.addSource("isobaths", { type: "geojson", data: p.iso ?? EMPTY });
   // Over the basemap's land, water and roads but under its labels.
   const layers = map.getStyle().layers;
   let last = -1;
@@ -304,6 +306,10 @@ function addLayers(p: Panel): void {
     },
     before,
   );
+  // The model's own depth contours, over its cells and under the arrows; 50 m only once the coast is resolved.
+  const iso = { "line-color": ink, "line-opacity": 0.45, "line-width": 0.7 };
+  map.addLayer({ id: "isobaths", type: "line", source: "isobaths", filter: [">=", ["get", "d"], 100], paint: iso }, before);
+  map.addLayer({ id: "isobaths-50", type: "line", source: "isobaths", minzoom: 7, filter: ["==", ["get", "d"], 50], paint: iso }, before);
   map.addLayer(
     {
       id: "arrows",
@@ -319,6 +325,26 @@ function addLayers(p: Panel): void {
         "symbol-sort-key": ["get", "lvl"],
       },
       paint: { "icon-color": ARROW[theme()], "icon-opacity": 0.55 },
+    },
+    before,
+  );
+  // Above the arrows: symbols on top are placed first, so a label wins its place and the arrows under it give way.
+  map.addLayer(
+    {
+      id: "isobath-labels",
+      type: "symbol",
+      source: "isobaths",
+      minzoom: 6,
+      filter: ["any", [">=", ["get", "d"], 100], [">=", ["zoom"], 7]],
+      layout: {
+        "symbol-placement": "line",
+        "symbol-spacing": 400,
+        "text-field": ["concat", ["to-string", ["get", "d"]], " m"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 10,
+        "text-max-angle": 30,
+      },
+      paint: { "text-color": ink, "text-opacity": 0.7, "text-halo-color": theme() === "light" ? "#ffffff" : "#1c2a48", "text-halo-width": 1.2 },
     },
     before,
   );
@@ -531,6 +557,16 @@ async function main(): Promise<void> {
   } catch {
     /* shown below */
   }
+  const isos = await Promise.all(
+    PANELS.map(async ([id]) => {
+      try {
+        const r = await fetch(`${TILES}isobaths-${id}.json`);
+        return r.ok ? ((await r.json()) as FeatureCollection) : null;
+      } catch {
+        return null; // the currents still draw without the contours
+      }
+    }),
+  );
   const wides = await Promise.all(
     PANELS.map(async ([id]) => {
       const m = latest?.models[id];
@@ -569,7 +605,7 @@ async function main(): Promise<void> {
     box.dataset.model = id;
     f.append(cap, box);
     host.append(f);
-    const p: Panel = { id, label, grid, model: models[i], wide: wides[i], box, cap, map: null };
+    const p: Panel = { id, label, grid, model: models[i], wide: wides[i], iso: isos[i], box, cap, map: null };
     panels.push(p);
     cap.innerHTML = caption(p);
     if (!gl) {

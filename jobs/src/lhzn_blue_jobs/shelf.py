@@ -17,6 +17,9 @@ Published to the tile store (tiles.py: an R2 bucket, served from its own host), 
   after another; the page fetches the tiles in view by range once zoomed in.
 - ``latest.json``: the current run's files per model, their time steps and the NECOFS tile index (offset, length,
   elements per tile). Written last; a model that fails keeps its previous entry and files.
+- ``isobaths-necofs.json``, ``isobaths-doppio.json``: each model's own depth contours (ISOBATHS, meters), traced on
+  its own grid (NECOFS's triangles; DOPPIO's cell centers), as GeoJSON lines with a ``d`` (depth) property. Written
+  only when they change.
 - ``doppio-grid.npz``: DOPPIO's cell centers and water mask, so NECOFS can still be published on a day DOPPIO's
   server does not answer.
 - ``days/<YYYY-MM-DD>/``: the archive, one UTC day hourly (24 steps) per model, in the same files as a run
@@ -54,6 +57,8 @@ ARCHIVE_LOOKBACK = 3  # days back that a run fills in when missing or incomplete
 DAY_S = 86400
 IMMUTABLE_S = 365 * 86400
 LATEST_S = 300
+ISOBATHS = (50, 100, 200, 500, 1000, 2000, 3000)  # meters
+ISOBATH_TOL_DEG = 0.0015  # line simplification (about 150 m)
 CELL_KM2 = 49.0  # a DOPPIO cell (7 km): NECOFS elements larger than this are drawn as they are in the wide view
 KM_PER_DEG = 111.2
 NEAR_CELL_DEG = 0.06  # a NECOFS center belongs to the nearest DOPPIO water cell within this (cos-lat scaled degrees)
@@ -139,7 +144,8 @@ def doppio_read(end: datetime | None, deadline: float, start: pd.Timestamp | Non
     u = np.concatenate([p["u"].values[:, 0][:, wet] for p in parts])
     v = np.concatenate([p["v"].values[:, 0][:, wet] for p in parts])
     times, u, v = _two_hourly(times, u, v, start, every)
-    return lon, lat, wet, times, u, v, ds.attrs.get("url")
+    h = ds["h"].values.astype(np.float64) if "h" in ds else np.full(lon.shape, np.nan)
+    return lon, lat, wet, times, u, v, ds.attrs.get("url"), h
 
 
 def _scaled(lon, lat) -> np.ndarray:
@@ -176,7 +182,8 @@ def necofs_read(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, end: datetime
     tri = ds["triangles"].values.astype(np.int64)
     centers = np.stack([ds["lonc"].values, ds["latc"].values], axis=1).astype(np.float64)
     cells = np.array([cell_of[int(e)] for e in ds["element_id"].values], dtype=np.int64)
-    return nodes, tri, centers, cells, times, u, v, ds.attrs.get("url")
+    h = ds["h"].values.astype(np.float64) if "h" in ds else np.full(len(nodes), np.nan)
+    return nodes, tri, centers, cells, times, u, v, ds.attrs.get("url"), h
 
 
 def areas(nodes: np.ndarray, tri: np.ndarray) -> np.ndarray:
@@ -260,6 +267,91 @@ def _necofs_files(grid, nodes, tri, centers, cells, u, v) -> tuple[bytes, dict, 
     return pack, index, wide, int(w_elems.shape[0])
 
 
+def _simplify(xy: np.ndarray, tol: float) -> np.ndarray:
+    """Douglas-Peucker: the points of a line kept so none dropped lies farther than tol from the kept line."""
+    if len(xy) < 3:
+        return xy
+    keep = np.zeros(len(xy), bool)
+    keep[[0, -1]] = True
+    stack = [(0, len(xy) - 1)]
+    while stack:
+        a, b = stack.pop()
+        if b - a < 2:
+            continue
+        p, q = xy[a], xy[b]
+        seg = q - p
+        n = np.hypot(*seg)
+        pts = xy[a + 1 : b] - p
+        d = np.abs(seg[0] * pts[:, 1] - seg[1] * pts[:, 0]) / n if n > 0 else np.hypot(pts[:, 0], pts[:, 1])
+        i = int(np.argmax(d))
+        if d[i] > tol:
+            k = a + 1 + i
+            keep[k] = True
+            stack += [(a, k), (k, b)]
+    return xy[keep]
+
+
+def _paths_to_lines(cs, levels) -> list[dict]:
+    """A matplotlib contour set to GeoJSON features, one MultiLineString per level (lon, lat to 4 decimals)."""
+    feats = []
+    for level, path in zip(levels, cs.get_paths()):
+        v, codes = path.vertices, path.codes
+        starts = [0] if codes is None else list(np.flatnonzero(codes == 1))
+        bounds = starts + [len(v)]
+        lines = []
+        for a, b in zip(bounds[:-1], bounds[1:]):
+            seg = _simplify(v[a:b], ISOBATH_TOL_DEG)
+            if len(seg) >= 2 and np.hypot(*np.ptp(seg, axis=0)) > 3 * ISOBATH_TOL_DEG:  # drop specks
+                lines.append(np.round(seg, 4).tolist())
+        if lines:
+            feats.append({"type": "Feature", "properties": {"d": int(level)}, "geometry": {"type": "MultiLineString", "coordinates": lines}})
+    return feats
+
+
+def isobaths_necofs(nodes: np.ndarray, tri: np.ndarray, h: np.ndarray) -> dict:
+    """NECOFS's own depth contours, traced on its triangles (h at nodes, meters, positive down)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.tri import Triangulation
+
+    levels = [d for d in ISOBATHS if np.nanmin(h) < d < np.nanmax(h)]
+    fig, ax = plt.subplots()
+    try:
+        cs = ax.tricontour(Triangulation(nodes[:, 0], nodes[:, 1], tri), h, levels=levels)
+        feats = _paths_to_lines(cs, levels)
+    finally:
+        plt.close(fig)
+    return {"type": "FeatureCollection", "source": NECOFS_SOURCE, "units": "m", "features": feats}
+
+
+def isobaths_doppio(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, h: np.ndarray) -> dict:
+    """DOPPIO's own depth contours, traced between its water cells' centers (h, meters, positive down)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    z = np.ma.masked_where(~wet | ~np.isfinite(h), h)
+    levels = [d for d in ISOBATHS if z.min() < d < z.max()]
+    fig, ax = plt.subplots()
+    try:
+        cs = ax.contour(lon, lat, z, levels=levels)
+        feats = _paths_to_lines(cs, levels)
+    finally:
+        plt.close(fig)
+    return {"type": "FeatureCollection", "source": DOPPIO_SOURCE, "units": "m", "features": feats}
+
+
+def _put_if_changed(ts: tiles.TileStore, rel: str, obj: dict) -> bool:
+    blob = json.dumps(obj, separators=(",", ":")).encode()
+    if ts.get(rel) == blob:
+        return False
+    ts.put(rel, blob, DAY_S, "application/json")
+    return True
+
+
 def _grid_npz(lon, lat, wet) -> bytes:
     buf = io.BytesIO()
     np.savez_compressed(buf, lon=lon.astype(np.float32), lat=lat.astype(np.float32), wet=wet)
@@ -291,9 +383,13 @@ def publish(store: Store, end: datetime | None = None, ts: tiles.TileStore | Non
 
     grid = None
     try:
-        lon, lat, wet, times, u, v, url = doppio_read(end, deadline)
+        lon, lat, wet, times, u, v, url, h = doppio_read(end, deadline)
         grid = (lon, lat, wet)
         put("doppio.bin", _doppio_files(lon, lat, wet, u, v))
+        try:
+            _put_if_changed(ts, f"{BASE}/isobaths-doppio.json", isobaths_doppio(lon, lat, wet, h))
+        except Exception as exc:
+            outages.record(failed, "shelf isobaths doppio", exc, log)
         ts.put(f"{BASE}/doppio-grid.npz", _grid_npz(lon, lat, wet), 86400)
         models["doppio"] = {**_header(DOPPIO_SOURCE, url, times, run), "wide": f"runs/{run}/doppio.bin", "cells": int(wet.sum())}
         log.info("shelf doppio: %d cells, %d steps", wet.sum(), times.size)
@@ -308,10 +404,14 @@ def publish(store: Store, end: datetime | None = None, ts: tiles.TileStore | Non
         if grid is None:
             raise ValueError("no DOPPIO grid for the NECOFS domain")
         lon, lat, wet = grid
-        nodes, tri, centers, cells, times, u, v, url = necofs_read(lon, lat, wet, end, deadline)
+        nodes, tri, centers, cells, times, u, v, url, h = necofs_read(lon, lat, wet, end, deadline)
         pack, index, wide, n_held = _necofs_files(grid, nodes, tri, centers, cells, u, v)
         put("necofs.bin", pack)
         put("necofs-wide.bin", wide)
+        try:
+            _put_if_changed(ts, f"{BASE}/isobaths-necofs.json", isobaths_necofs(nodes, tri, h))
+        except Exception as exc:
+            outages.record(failed, "shelf isobaths necofs", exc, log)
         models["necofs"] = {
             **_header(NECOFS_SOURCE, url, times, run),
             "wide": f"runs/{run}/necofs-wide.bin",
@@ -352,7 +452,7 @@ def archive_day(ts: tiles.TileStore, day, deadline: float, grid=None) -> tuple[d
     models: dict = {}
     put = lambda name, blob: ts.put(f"{BASE}/{rel}/{name}", blob, DAY_S)  # noqa: E731
     try:
-        lon, lat, wet, times, u, v, url = doppio_read(None, deadline, start, 24, 1)
+        lon, lat, wet, times, u, v, url, _ = doppio_read(None, deadline, start, 24, 1)
         grid = (lon, lat, wet)
         put("doppio.bin", _doppio_files(lon, lat, wet, u, v))
         models["doppio"] = {**_header(DOPPIO_SOURCE, url, times, rel), "step": 3600, "wide": f"{rel}/doppio.bin", "cells": int(wet.sum())}
@@ -361,7 +461,7 @@ def archive_day(ts: tiles.TileStore, day, deadline: float, grid=None) -> tuple[d
     try:
         if grid is None:
             raise ValueError("no DOPPIO grid for the NECOFS domain")
-        nodes, tri, centers, cells, times, u, v, url = necofs_read(*grid, None, deadline, start, 24, 1)
+        nodes, tri, centers, cells, times, u, v, url, _ = necofs_read(*grid, None, deadline, start, 24, 1)
         pack, index, wide, n_held = _necofs_files(grid, nodes, tri, centers, cells, u, v)
         put("necofs.bin", pack)
         put("necofs-wide.bin", wide)

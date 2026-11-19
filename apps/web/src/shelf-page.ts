@@ -365,6 +365,8 @@ let archived: Record<string, boolean> = {}; // day -> complete
 let syncing = false;
 let viewReady = false; // the opening view is set: moves from here on are the reader's
 let shownBox: string | null = null; // the map's box for the address bar: the link's own until the reader moves
+// The arrow level of a wide-view piece that draws none: the part of a DOPPIO cell left outside NECOFS's large triangles.
+const NO_ARROW = 255;
 // NECOFS's level of detail: "wide" (averaged into DOPPIO's cells) or "native" (its own cells, the tiles in view).
 let lod: "wide" | "native" = "wide";
 let tooMany = false; // zoomed in, but more NECOFS cells in view than the page draws at once
@@ -433,7 +435,7 @@ function features(p: Panel): { cells: FeatureCollection; arrows: FeatureCollecti
       const dir = ((Math.atan2(u, v) * 180) / Math.PI + 360) % 360;
       const color = x === null ? speedColor(ms) : scalarColor(field as "temp" | "salt", x);
       cells.push({ type: "Feature", properties: { c: color, s: ms, d: dir, x }, geometry: { type: "Polygon", coordinates: [ring] } });
-      if (ms >= 0.03)
+      if (ms >= 0.03 && c.levels[i] !== NO_ARROW)
         arrows.push({
           type: "Feature",
           properties: { dir, lvl: c.levels[i] },

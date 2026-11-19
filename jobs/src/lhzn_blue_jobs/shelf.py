@@ -74,6 +74,7 @@ READ_RETRY_S = 15
 ISOBATH_TOL_DEG = 0.0015  # line simplification (about 150 m)
 CELL_KM2 = 49.0  # a DOPPIO cell (7 km): NECOFS elements larger than this are drawn as they are in the wide view
 KM_PER_DEG = 111.2
+NO_ARROW = 255  # arrow level of a wide-view piece that draws no arrow (the page skips it)
 NEAR_CELL_DEG = 0.06  # a NECOFS center belongs to the nearest DOPPIO water cell within this (cos-lat scaled degrees)
 NECOFS_SOURCE = "NECOFS/UMASSD (FVCOM GOM7, UMass Dartmouth SMAST)"
 DOPPIO_SOURCE = "DOPPIO ROMS, Rutgers University Ocean Modeling Group for MARACOOS"
@@ -492,11 +493,90 @@ def containing(nodes, tri, x, y) -> np.ndarray:
         return np.full(np.asarray(x).shape, -1, dtype=np.int64)
 
 
+def _half(poly: np.ndarray, a: np.ndarray, b: np.ndarray, left: bool) -> np.ndarray | None:
+    """The part of a convex polygon (k, 2) on one side of the line through a and b (Sutherland-Hodgman), or None."""
+    d = (b[0] - a[0]) * (poly[:, 1] - a[1]) - (b[1] - a[1]) * (poly[:, 0] - a[0])
+    if not left:
+        d = -d
+    out = []
+    for i in range(len(poly)):
+        j = (i + 1) % len(poly)
+        if d[i] >= 0:
+            out.append(poly[i])
+        if (d[i] >= 0) != (d[j] >= 0):
+            out.append(poly[i] + d[i] / (d[i] - d[j]) * (poly[j] - poly[i]))
+    return np.array(out) if len(out) >= 3 else None
+
+
+def _outside(poly: np.ndarray, t: np.ndarray) -> list[np.ndarray]:
+    """A convex polygon less a counter-clockwise triangle t (3, 2), as convex pieces."""
+    pieces, rest = [], poly
+    for i in range(3):
+        a, b = t[i], t[(i + 1) % 3]
+        out = _half(rest, a, b, left=False)
+        if out is not None:
+            pieces.append(out)
+        rest = _half(rest, a, b, left=True)
+        if rest is None:
+            break
+    return pieces
+
+
+def _area(poly: np.ndarray) -> float:
+    x, y = poly[:, 0], poly[:, 1]
+    return 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+
+
+def _seam(c_nodes, c_quad, b_nodes, b_tri, cen_big) -> tuple[np.ndarray, dict]:
+    """Where DOPPIO's cells meet NECOFS's large triangles. Per cell, the large triangles that may overlap it: those
+    holding its center or a corner, those with a corner inside it, and their neighbors. Returns which cells lie wholly
+    under large triangles, and for the cells partly under them the convex pieces left outside."""
+    n = len(c_quad)
+    corner_big = containing(b_nodes, b_tri, c_nodes[:, 0], c_nodes[:, 1])[c_quad]  # (cells, 4)
+    halves = np.vstack([c_quad[:, [0, 1, 2]], c_quad[:, [0, 2, 3]]])
+    poke = containing(c_nodes, halves, b_nodes[:, 0], b_nodes[:, 1])  # big-triangle corners inside a cell
+    poke = np.where(poke >= 0, poke % n, -1)
+    by_node: dict[int, list[int]] = {}
+    for t, row in enumerate(b_tri):
+        for nd in row:
+            by_node.setdefault(int(nd), []).append(t)
+    cands: dict[int, set] = {}
+    for i in np.flatnonzero((corner_big >= 0).any(axis=1) | (cen_big >= 0)):
+        cands[int(i)] = {int(t) for t in corner_big[i] if t >= 0} | ({int(cen_big[i])} if cen_big[i] >= 0 else set())
+    for nd in np.flatnonzero(poke >= 0):
+        cands.setdefault(int(poke[nd]), set()).update(by_node.get(int(nd), []))
+    covered = np.zeros(n, bool)
+    partial: dict[int, list[np.ndarray]] = {}
+    for i, ts in cands.items():
+        near = set(ts)
+        for t in ts:
+            for nd in b_tri[t]:
+                near.update(by_node[int(nd)])
+        cell = c_nodes[c_quad[i]]
+        whole = _area(cell)
+        pieces = [cell]
+        for t in near:
+            pieces = [r for q in pieces for r in _outside(q, b_nodes[b_tri[t]])]
+            if not pieces:
+                break
+        pieces = [q for q in pieces if _area(q) > 1e-6 * whole]
+        left = sum(_area(q) for q in pieces)
+        if left < 1e-3 * whole:
+            covered[i] = True
+        elif left < (1 - 1e-6) * whole:
+            partial[i] = pieces
+    return covered, partial
+
+
 def wide_view(grid, nodes, tri, centers, cells, u, v):
     """NECOFS at DOPPIO's resolution, never finer than NECOFS: elements larger than a DOPPIO cell are kept as they
-    are (and the cells whose centers they hold are left out); every other cell takes the area-weighted mean of the
-    smaller elements centered in it, or, holding none, the element containing its center. Returns nodes, four-node
-    elements (a triangle repeats its last node), centers, u and v (steps, elements)."""
+    are; every other cell takes the area-weighted mean of the smaller elements centered in it, or, holding none, the
+    element containing its center. A cell wholly under the large triangles is left out, and one partly under them is
+    cut to the part outside, as triangles, so the view covers the water once, without gaps or overlaps (the cells
+    are drawn translucent). A cut cell keeps its own value and one arrow; a cell centered under a large triangle and
+    holding no smaller element takes, for each piece, the element under the piece's center, and draws no arrow.
+    Returns nodes, four-node elements (a triangle repeats its last node), centers, u and v (steps, elements), and
+    which elements draw no arrow."""
     lon, lat, wet = grid
     n_wet = int(wet.sum())
     km2 = areas(nodes, tri) * KM_PER_DEG**2
@@ -508,16 +588,50 @@ def wide_view(grid, nodes, tri, centers, cells, u, v):
     fill = ~held & ~under_big & (at >= 0)
     au[:, fill], av[:, fill] = u[:, at[fill]], v[:, at[fill]]
     keep = (held | fill) & ~under_big
+    big_ids = np.flatnonzero(big)
+    t_nodes, t_tri = tiles.subset(nodes, tri, big_ids)
+    partial: dict[int, list[np.ndarray]] = {}
+    if big_ids.size:
+        p = t_nodes[t_tri]
+        cw = (p[:, 1, 0] - p[:, 0, 0]) * (p[:, 2, 1] - p[:, 0, 1]) - (p[:, 2, 0] - p[:, 0, 0]) * (p[:, 1, 1] - p[:, 0, 1]) < 0
+        t_tri[cw] = t_tri[cw][:, [0, 2, 1]]
+        c_nodes, c_quad = quads(lon, lat, wet)  # every water cell, row-major as keep is
+        cen_big = np.where(under_big, containing(t_nodes, t_tri, lon[wet], lat[wet]), -1)
+        covered, partial = _seam(c_nodes, c_quad, t_nodes, t_tri, cen_big)
+        keep &= ~covered
+        partial = {i: q for i, q in partial.items() if keep[i] or held[i] or at[i] >= 0}
+        keep[list(partial)] = False
     rows, cols = np.nonzero(wet)
     mask = np.zeros(wet.shape, bool)
     mask[rows[keep], cols[keep]] = True
     q_nodes, q_quad = quads(lon, lat, mask)  # row-major, as keep is
-    big_ids = np.flatnonzero(big)
-    t_nodes, t_tri = tiles.subset(nodes, tri, big_ids)
-    elems = np.vstack([q_quad, np.c_[t_tri, t_tri[:, 2]] + len(q_nodes)]) if big_ids.size else q_quad
-    all_nodes = np.vstack([q_nodes, t_nodes]) if big_ids.size else q_nodes
-    ctr = np.vstack([np.c_[lon[mask], lat[mask]], centers[big_ids]])
-    return all_nodes, elems, ctr, np.hstack([au[:, keep], u[:, big_ids]]), np.hstack([av[:, keep], v[:, big_ids]])
+    # The cut cells' pieces, fanned into triangles: (cell, triangle corners, whether it carries the cell's arrow).
+    pieces = []
+    for i, polys in sorted(partial.items()):
+        fan = [np.stack([q[0], q[k], q[k + 1]]) for q in polys for k in range(1, len(q) - 1)]
+        fan = [f for f in fan if _area(f) > 0]
+        first = int(np.argmax([_area(f) for f in fan])) if not under_big[i] else -1
+        pieces += [(i, f, k == first) for k, f in enumerate(fan)]
+    p_xy = np.array([f for _, f, _ in pieces]).reshape(-1, 3, 2)
+    p_ctr = p_xy.mean(axis=1)
+    p_cell = np.array([i for i, _, _ in pieces], dtype=np.int64)
+    own = np.array([not under_big[i] or held[i] for i in p_cell], bool)
+    p_at = containing(nodes, tri, p_ctr[:, 0], p_ctr[:, 1]) if len(pieces) else np.zeros(0, np.int64)
+    p_at = np.where(p_at >= 0, p_at, at[p_cell] if len(pieces) else p_at)
+    pu = np.where(own, au[:, p_cell], u[:, np.clip(p_at, 0, None)])
+    pv = np.where(own, av[:, p_cell], v[:, np.clip(p_at, 0, None)])
+    p_quiet = np.array([not a for _, _, a in pieces], bool)
+    n_q = len(q_nodes)
+    p_elems = (n_q + np.arange(3 * len(pieces))).reshape(-1, 3)
+    p_elems = np.c_[p_elems, p_elems[:, 2]]
+    off = n_q + 3 * len(pieces)
+    elems = np.vstack([q_quad, p_elems, np.c_[t_tri, t_tri[:, 2]] + off])
+    all_nodes = np.vstack([q_nodes, p_xy.reshape(-1, 2), t_nodes])
+    ctr = np.vstack([np.c_[lon[mask], lat[mask]], p_ctr, centers[big_ids]])
+    quiet = np.r_[np.zeros(len(q_quad), bool), p_quiet, np.zeros(big_ids.size, bool)]
+    wu = np.hstack([au[:, keep], pu, u[:, big_ids]])
+    wv = np.hstack([av[:, keep], pv, v[:, big_ids]])
+    return all_nodes, elems, ctr, wu, wv, quiet
 
 
 def _pack(nodes, tri, centers, levels, u, v) -> tuple[bytes, dict]:
@@ -542,7 +656,7 @@ def _necofs_values(grid, nodes, tri, centers, cells, scal: dict) -> tuple[bytes,
         index[key] = [off, len(blob), int(members.size)]
         blobs.append(blob)
         off += len(blob)
-    *_, w0, w1 = wide_view(grid, nodes, tri, centers, cells, scal[names[0]], scal[names[1]])
+    w0, w1 = wide_view(grid, nodes, tri, centers, cells, scal[names[0]], scal[names[1]])[3:5]
     return b"".join(blobs), index, tiles.encode_values({names[0]: w0, names[1]: w1})
 
 
@@ -554,8 +668,10 @@ def _doppio_files(lon, lat, wet, u, v) -> bytes:
 def _necofs_files(grid, nodes, tri, centers, cells, u, v) -> tuple[bytes, dict, bytes, int]:
     """The NECOFS tile pack and its index, and the wide file (wide_view) with its element count."""
     pack, index = _pack(nodes, tri, centers, fields.arrow_levels(centers[:, 0], centers[:, 1]), u, v)
-    w_nodes, w_elems, w_ctr, wu, wv = wide_view(grid, nodes, tri, centers, cells, u, v)
-    wide = tiles.encode(w_nodes, w_elems, fields.arrow_levels(w_ctr[:, 0], w_ctr[:, 1]), wu, wv)
+    w_nodes, w_elems, w_ctr, wu, wv, quiet = wide_view(grid, nodes, tri, centers, cells, u, v)
+    levels = np.full(len(w_elems), NO_ARROW, dtype=np.int16)
+    levels[~quiet] = fields.arrow_levels(w_ctr[~quiet, 0], w_ctr[~quiet, 1])
+    wide = tiles.encode(w_nodes, w_elems, levels, wu, wv)
     return pack, index, wide, int(w_elems.shape[0])
 
 

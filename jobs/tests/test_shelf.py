@@ -213,10 +213,21 @@ def test_wide_view_keeps_large_triangles_and_averages_small_ones():
     centers = nodes[tri].mean(axis=1)
     u = np.array([[0.1, 0.3, 0.2, 0.4, 0.9]])
     v = np.zeros_like(u)
-    w_nodes, w_elems, w_ctr, wu, wv = shelf.wide_view((lon, lat, wet), nodes, tri, centers, np.array(cells), u, v)
-    assert w_elems.shape == (3, 4)  # two cells and the large triangle
-    assert w_elems[2, 3] == w_elems[2, 2]  # the triangle repeats its last node
-    np.testing.assert_allclose(wu[0], [0.2, 0.3, 0.9], atol=1e-3)  # small pairs averaged by area; the large one as it is
+    w_nodes, w_elems, w_ctr, wu, wv, quiet = shelf.wide_view((lon, lat, wet), nodes, tri, centers, np.array(cells), u, v)
+    assert w_elems[-1, 3] == w_elems[-1, 2]  # the large triangle, last, repeats its last node
+    np.testing.assert_allclose(wu[0, [0, 1, -1]], [0.2, 0.3, 0.9], atol=1e-3)  # small pairs averaged by area; the large one as it is
+    # The east cells stick out of the large triangle: the parts outside are kept as pieces, with no arrow of their own.
+    assert len(w_elems) > 3 and quiet[2:-1].all() and not quiet[[0, 1, -1]].any()
+    # Every point of the four cells is covered once: no gaps, no overlaps.
+    gx, gy = np.meshgrid(np.linspace(-70.0493, -69.6517, 81), np.linspace(39.9511, 40.0489, 21))
+    pts = np.c_[gx.ravel(), gy.ravel()]
+    hits = np.zeros(len(pts), int)
+    for el in w_elems:
+        ring = w_nodes[el[[0, 1, 2]] if el[3] == el[2] else el]
+        area2 = np.sum(ring[:, 0] * np.roll(ring[:, 1], -1) - ring[:, 1] * np.roll(ring[:, 0], -1))
+        side = [(b[0] - a[0]) * (pts[:, 1] - a[1]) - (b[1] - a[1]) * (pts[:, 0] - a[0]) for a, b in zip(ring, np.roll(ring, -1, axis=0))]
+        hits += np.all(np.sign(area2) * np.array(side) > -1e-12, axis=0)
+    assert hits.min() == 1 and hits.max() == 1
 
 
 def test_archive_keeps_past_days_hourly(tmp_path, monkeypatch):

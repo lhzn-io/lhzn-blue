@@ -138,14 +138,23 @@ function tileBounds(key: string): [number, number, number, number] {
 }
 
 const tileBox = new Map<string, [number, number, number, number]>();
-function inView(map: maplibregl.Map, index: Record<string, [number, number, number]>): string[] {
+/** The tiles touching the view, and about how many of their elements are in it (each tile's count times the share of
+ * its box in view): a tile mostly outside the view counts for little. */
+function inView(map: maplibregl.Map, index: Record<string, [number, number, number]>): { keys: string[]; count: number } {
   const b = map.getBounds();
   const [w, s, e, n] = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
-  return Object.keys(index).filter((key) => {
+  const keys: string[] = [];
+  let count = 0;
+  for (const key of Object.keys(index)) {
     let t = tileBox.get(key);
     if (!t) tileBox.set(key, (t = tileBounds(key)));
-    return t[0] < e && t[2] > w && t[1] < n && t[3] > s;
-  });
+    const dx = Math.min(t[2], e) - Math.max(t[0], w);
+    const dy = Math.min(t[3], n) - Math.max(t[1], s);
+    if (dx <= 0 || dy <= 0) continue;
+    keys.push(key);
+    count += (index[key][2] * dx * dy) / ((t[2] - t[0]) * (t[3] - t[1]));
+  }
+  return { keys, count };
 }
 
 // ---------- Color ----------
@@ -388,11 +397,11 @@ async function updateLod(): Promise<void> {
   const pack = p?.model?.pack;
   if (!p?.map || !index || !pack) return;
   const run = ++lodRun;
-  const keys = p.map.getZoom() >= NATIVE_MIN_ZOOM ? inView(p.map, index) : [];
-  const count = keys.reduce((s, k) => s + index[k][2], 0);
+  const { keys, count } = p.map.getZoom() >= NATIVE_MIN_ZOOM ? inView(p.map, index) : { keys: [], count: 0 };
+  const wasTooMany = tooMany;
   tooMany = keys.length > 0 && count > MAX_NATIVE;
   const next = keys.length && !tooMany ? "native" : "wide";
-  const changed = next !== lod || keys.join() !== inViewKeys.join();
+  const changed = next !== lod || tooMany !== wasTooMany || keys.join() !== inViewKeys.join();
   lod = next;
   inViewKeys = lod === "native" ? keys : [];
   if (changed) drawPanel(p);

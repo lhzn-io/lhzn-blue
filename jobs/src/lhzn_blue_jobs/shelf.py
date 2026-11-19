@@ -54,6 +54,9 @@ READ_HOURS = 24  # hours per read: a whole window in one request can outlast the
 TIME_BUDGET_S = 15 * 60  # the whole shelf step, inside the fields job's hour
 KEEP_RUNS = 3  # runs kept in the store (latest.json's runs always)
 ARCHIVE_LOOKBACK = 3  # days back that a run fills in when missing or incomplete
+FORECAST_HOLDS_DAYS = 3  # NECOFS's rolling forecast file holds about 4 days back; older hours come from SMAST's archive
+BACKFILL_MAX_DAYS = 62  # days one backfill command may write
+BACKFILL_DAY_S = 20 * 60  # time budget per backfilled day
 DAY_S = 86400
 IMMUTABLE_S = 365 * 86400
 LATEST_S = 300
@@ -148,6 +151,29 @@ def doppio_read(end: datetime | None, deadline: float, start: pd.Timestamp | Non
     return lon, lat, wet, times, u, v, ds.attrs.get("url"), h
 
 
+def _necofs_pieces(start: pd.Timestamp, hours: int, now: pd.Timestamp | None = None) -> list[tuple[pd.Timestamp, int, str | None]]:
+    """The reads for `hours` hourly records from `start`: (first hour, hours, file). Within the rolling forecast's
+    reach the file is None (the forecast); before it, SMAST's archive file that holds each hour (the daily GOM7
+    history, the monthly hindcast or the monthly GOM7 archive, per forcingkit), consecutive hours in one file
+    read together."""
+    from forcingkit.fetchers import necofs as fk
+
+    now = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")
+    now = now.tz_convert("UTC").tz_localize(None) if now.tzinfo is not None else now
+    if start >= now.normalize() - pd.Timedelta(days=FORECAST_HOLDS_DAYS):
+        return [(t0, n, None) for t0, n in _pieces(start, hours)]
+    out: list[tuple[pd.Timestamp, int, str | None]] = []
+    by_day: dict = {}
+    for k in range(hours):
+        t = start + pd.Timedelta(hours=k)
+        url = fk.necofs_url_for_hour(t, by_day)
+        if out and out[-1][2] == url and out[-1][1] < READ_HOURS:
+            out[-1] = (out[-1][0], out[-1][1] + 1, url)
+        else:
+            out.append((t, 1, url))
+    return out
+
+
 def _scaled(lon, lat) -> np.ndarray:
     return np.c_[np.asarray(lon) * np.cos(np.radians(40.0)), np.asarray(lat)]
 
@@ -161,7 +187,8 @@ def necofs_read(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, end: datetime
 
     if start is None:
         start, hours = window(end)
-    probe = fk.read_volume(list(dfk.DOMAIN_BBOX), start, 1, variables=["u"], layers=[0])
+    pieces = _necofs_pieces(start, hours)
+    probe = fk.read_volume(list(dfk.DOMAIN_BBOX), start, 1, pieces[0][2], variables=["u"], layers=[0])
     dist, cell = cKDTree(_scaled(lon[wet], lat[wet])).query(_scaled(probe["lonc"].values, probe["latc"].values), distance_upper_bound=NEAR_CELL_DEG)
     inside = np.isfinite(dist)
     ids = [int(x) for x in probe["element_id"].values[inside]]
@@ -169,10 +196,10 @@ def necofs_read(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, end: datetime
         raise ValueError("no NECOFS elements in DOPPIO's cells")
     cell_of = dict(zip(ids, cell[inside].tolist()))
     parts = []
-    for t0, n in _pieces(start, hours):
+    for t0, n, url in pieces:
         if time.monotonic() > deadline:
             raise TimeoutError("shelf time budget spent")
-        parts.append(fk.read_volume(None, t0, n, variables=["u", "v"], layers=[0], elements=ids))
+        parts.append(fk.read_volume(None, t0, n, url, variables=["u", "v"], layers=[0], elements=ids))
     ds = parts[0]
     times = pd.DatetimeIndex(np.concatenate([p["time"].values for p in parts]))
     u = np.concatenate([p["u"].values[:, 0, :] for p in parts])
@@ -483,16 +510,15 @@ def archive_day(ts: tiles.TileStore, day, deadline: float, grid=None) -> tuple[d
     return entry, failed
 
 
-def archive(ts: tiles.TileStore, end: datetime, deadline: float, grid=None) -> list[str]:
-    """The previous UTC day, and the ARCHIVE_LOOKBACK days before it that are missing or incomplete; then days.json."""
+def _fill_days(ts: tiles.TileStore, keys: list[str], deadline_of, grid=None) -> list[str]:
+    """Archive each day in `keys` not yet complete, then merge them into days.json (day -> complete)."""
     failed: list[str] = []
-    today = _utc_day(end)
-    days = dict(json.loads(ts.get(f"{BASE}/days.json") or b"{}").get("days", {}))  # day -> complete
+    days = dict(json.loads(ts.get(f"{BASE}/days.json") or b"{}").get("days", {}))
     changed = False
-    for k in range(ARCHIVE_LOOKBACK, 0, -1):
-        key = f"{today - pd.Timedelta(days=k):%Y-%m-%d}"
+    for key in keys:
         if days.get(key) is True:
             continue
+        deadline = deadline_of()
         if time.monotonic() > deadline:
             failed.append(f"shelf archive {key}: time budget spent")
             break
@@ -505,3 +531,25 @@ def archive(ts: tiles.TileStore, end: datetime, deadline: float, grid=None) -> l
     if changed:
         ts.put(f"{BASE}/days.json", json.dumps({"schema": SCHEMA, "days": dict(sorted(days.items()))}, separators=(",", ":")).encode(), 3600, "application/json")
     return failed
+
+
+def archive(ts: tiles.TileStore, end: datetime, deadline: float, grid=None) -> list[str]:
+    """The previous UTC day, and the ARCHIVE_LOOKBACK days before it that are missing or incomplete; then days.json."""
+    today = _utc_day(end)
+    keys = [f"{today - pd.Timedelta(days=k):%Y-%m-%d}" for k in range(ARCHIVE_LOOKBACK, 0, -1)]
+    return _fill_days(ts, keys, lambda: deadline, grid)
+
+
+def backfill(store: Store, first: str, last: str, ts: tiles.TileStore | None = None) -> list[str]:
+    """Past UTC days `first` to `last` (inclusive) into the day archive, from the models' own archives (NECOFS's
+    hindcast or GOM7 archive, DOPPIO's reanalysis or forecast history), each day with its own time budget."""
+    ts = ts or tiles.store_for(store.root)
+    if ts is None:
+        return ["shelf backfill: no tile store configured (LHZN_BLUE_TILES)"]
+    a, b = _utc_day(first), _utc_day(last)
+    if b < a or (b - a).days + 1 > BACKFILL_MAX_DAYS:
+        raise ValueError(f"shelf backfill: {first} to {last} is not 1 to {BACKFILL_MAX_DAYS} days")
+    if b >= _utc_day(now_utc()):
+        raise ValueError("shelf backfill: past days only (the daily run archives yesterday)")
+    keys = [f"{d:%Y-%m-%d}" for d in pd.date_range(a, b, freq="D")]
+    return _fill_days(ts, keys, lambda: time.monotonic() + BACKFILL_DAY_S)

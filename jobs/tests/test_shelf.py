@@ -241,3 +241,31 @@ def test_isobaths_each_model_on_its_own_grid(tmp_path, monkeypatch):
 def test_simplify_keeps_corners_and_drops_collinear_points():
     xy = np.array([[0, 0], [1, 0.0001], [2, 0], [2, 1], [2, 2]], dtype=float)
     assert shelf._simplify(xy, 0.001).tolist() == [[0, 0], [2, 0], [2, 2]]
+
+
+def test_backfill_merges_past_days_into_days_json(tmp_path, monkeypatch):
+    _fake_reads(monkeypatch)
+    ts = tiles.TileStore(str(tmp_path / "tiles"))
+    store = Store(str(tmp_path / "out"))
+    shelf.publish(store, pd.Timestamp("2026-11-18 13:50", tz="UTC"), ts)  # the daily run's own days
+    before = json.loads(ts.get(f"{shelf.BASE}/days.json"))["days"]
+    assert shelf.backfill(store, "2022-08-11", "2022-08-12", ts) == []
+    days = json.loads(ts.get(f"{shelf.BASE}/days.json"))["days"]
+    assert days == {**before, "2022-08-11": True, "2022-08-12": True}
+    idx = json.loads(ts.get(f"{shelf.BASE}/days/2022-08-11/index.json"))
+    assert idx["complete"] and {m["steps"] for m in idx["models"].values()} == {24}
+    with pytest.raises(ValueError):
+        shelf.backfill(store, "2022-08-12", "2022-08-11", ts)
+    with pytest.raises(ValueError):
+        shelf.backfill(store, "2022-01-01", "2022-12-31", ts)
+
+
+def test_necofs_pieces_use_the_forecast_only_within_its_reach(monkeypatch):
+    from forcingkit.fetchers import necofs as fk
+
+    monkeypatch.setattr(fk, "necofs_url_for_hour", lambda t, by_day=None: f"file-{t:%Y%m}")
+    now = pd.Timestamp("2026-11-19 14:00", tz="UTC")
+    recent = shelf._necofs_pieces(pd.Timestamp("2026-11-17"), 24, now)
+    assert [u for _, _, u in recent] == [None]
+    old = shelf._necofs_pieces(pd.Timestamp("2022-07-31 20:00"), 30, now)
+    assert [(str(t0), n, u) for t0, n, u in old] == [("2022-07-31 20:00:00", 4, "file-202207"), ("2022-08-01 00:00:00", 24, "file-202208"), ("2022-08-02 00:00:00", 2, "file-202208")]

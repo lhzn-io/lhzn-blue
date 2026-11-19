@@ -18,11 +18,15 @@ from . import build, merlin, outages, rivers, shore, tides, turbidity, usgs_tida
 
 def _main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "latest", "fields", "shelf", "snapshot", "forecast", "forecast-backfill", "gfs-backfill", "hrdps-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "panels", "region-live", "region-daily", "region-wind", "import-verification", "import-archive", "import-waves", "import-weather", "hfradar"])
+    parser.add_argument("command", choices=["history", "live", "latest", "fields", "shelf", "shelf-days", "snapshot", "forecast", "forecast-backfill", "gfs-backfill", "hrdps-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "panels", "region-live", "region-daily", "region-wind", "import-verification", "import-archive", "import-waves", "import-weather", "hfradar"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
         help="local directory or gs://bucket[/prefix] (env LHZN_BLUE_OUT)",
+    )
+    parser.add_argument(
+        "--span",
+        help="shelf-days: past UTC days FIRST:LAST (YYYY-MM-DD:YYYY-MM-DD, inclusive) for the shelf's day archive",
     )
     parser.add_argument(
         "--archive-dir",
@@ -112,6 +116,13 @@ def _main() -> None:
         from . import shelf  # the Northeast U.S. Shelf, to the tile store (tiles.py)
 
         _failed.extend(shelf.publish(store))
+    elif args.command == "shelf-days":
+        from . import shelf
+
+        if not args.span or ":" not in args.span:
+            parser.error("shelf-days needs --span FIRST:LAST")
+        first, last = args.span.split(":", 1)
+        _failed.extend(shelf.backfill(store, first, last))
     elif args.command == "forecast":
         from . import forecast  # forcingkit's HRRR reader is needed only here
 

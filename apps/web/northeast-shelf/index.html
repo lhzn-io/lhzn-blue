@@ -35,21 +35,41 @@
       </nav>
     </header>
 
-    <main class="mg-main">
-      <p class="mg-lede">
-        NECOFS and DOPPIO, Cape Hatteras to Nova Scotia, 24 hours back to 72 hours ahead.
-        <button class="fig-info" type="button" id="sh-info" aria-label="About this page" title="About this page">i</button>
-      </p>
+    <main class="mg-main sh-main">
       <p class="outage" id="load-error" role="status" hidden></p>
 
-      <div class="mg-controls" id="controls">
+      <div class="mg-controls sh-controls" id="controls">
         <button class="tl-play mg-play" id="play" type="button" aria-pressed="false" aria-label="Play"></button>
-        <input type="range" id="slider" min="0" max="0" step="1" value="0" aria-label="Forecast hour" />
+        <button class="sh-step" id="step-back" type="button" aria-label="Previous step" title="Previous step">&minus;</button>
+        <input type="range" id="slider" min="0" max="0" step="1" value="0" aria-label="Time" />
+        <button class="sh-step" id="step-fwd" type="button" aria-label="Next step" title="Next step">+</button>
         <span class="mg-time" id="tlabel" aria-live="polite"></span>
+        <details class="sh-period" id="period">
+          <summary aria-label="Period"><span id="period-now">Latest forecast</span></summary>
+          <div class="sh-pop">
+            <button class="tab" type="button" id="p-latest">Latest forecast</button>
+            <form id="p-form">
+              <label>From <input type="date" id="p-from" required /></label>
+              <label
+                >Days
+                <select id="p-len">
+                  <option>1</option>
+                  <option>2</option>
+                  <option selected>3</option>
+                  <option>5</option>
+                  <option>7</option>
+                </select></label
+              >
+              <button class="tab" type="submit" id="p-show">Show</button>
+            </form>
+            <p class="sh-note" id="p-note"></p>
+          </div>
+        </details>
+        <button class="fig-info" type="button" id="sh-info" aria-label="About this page" title="About this page">i</button>
       </div>
 
+      <div class="legend mg-key sh-key" id="key"></div>
       <div class="mg-grid sh-grid" id="panels"></div>
-      <div class="legend mg-key" id="key"></div>
 
       <dialog class="about-dialog" id="about-dialog" aria-labelledby="about-dialog-title">
         <div class="about-head">
@@ -65,9 +85,15 @@
             DOPPIO's water cells and the NECOFS elements centered in them.
           </p>
           <p>
-            <b>Values.</b> Top-layer velocity, every 2 hours from 24 hours before the latest daily run to 72 hours after
-            (DOPPIO: about 48 hours). Color: speed. Arrow: direction, fixed length. Gray lines: each model's own depth,
-            100 to 3000 m (50 m from zoom 7).
+            <b>Values.</b> Top-layer velocity. Color: speed. Arrow: direction, fixed length. Gray lines: each model's
+            own depth, 100 to 3000 m (50 m from zoom 7).
+          </p>
+          <p>
+            <b>Time.</b> Latest forecast: every 2 hours, from 24 hours before the latest daily run to 72 hours after
+            (DOPPIO: about 48 hours). Past days: hourly, by UTC day, up to 7 at a time, from each model's archive:
+            NECOFS's <a href="/references/#necofs_archive">hindcast and GOM7 archive</a>, DOPPIO's
+            <a href="/references/#wilkin2022doppio">reanalysis</a> (to 2024) and forecast history. The address holds
+            the period, hour and map area, so a copied link opens the same view.
           </p>
           <p>
             <b>Zoom.</b> Below map zoom 7, NECOFS is the area-weighted mean of its elements in each DOPPIO cell; where its

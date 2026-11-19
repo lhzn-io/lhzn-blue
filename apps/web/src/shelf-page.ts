@@ -4,16 +4,20 @@
  * and DOPPIO (ROMS, a 7 km curvilinear grid, Rutgers for MARACOOS). Each panel is a small MapLibre map, as on the
  * wind models page: the cells as a translucent fill colored by speed, thin cell outlines, and a light arrow per cell
  * for the direction only (MapLibre's symbol collision thins them, the coarse lattice first). One slider steps both
- * through the same 2-hourly frames; pan or zoom one map and the other follows.
+ * through the same frames; pan or zoom one map and the other follows.
+ *
+ * Period: the latest daily run (2-hourly, 24 hours back to 72 ahead), or a span of archived UTC days (hourly), each
+ * day its own files. A period is a list of sources (the run, or one per day) and the frames point into them. The
+ * address bar holds the period, the hour and the map's box (?from=&to=&t=&bbox=), so a link reopens the same view.
  *
  * Level of detail: DOPPIO's whole grid (about 19,500 cells) is one file, drawn at every zoom. NECOFS's 265,000 cells
  * are cut into tiles; at a wide view, where they are smaller than a pixel, the page draws NECOFS averaged into
  * DOPPIO's cells (labeled so), and once zoomed in it fetches only the tiles in view, by HTTP range from one pack.
  *
  * Data: the tile store (jobs: shelf.py, tiles.py), served from its own host. latest.json names the current files and
- * indexes the NECOFS tiles; each blob is gzip of "LHZT", a uint32 header length, a JSON header, float32 node lon, lat
- * pairs, the element node indices (uint16 or uint32), a uint8 arrow level per element, then per step one int8 per
- * element east and one north, in step_cms cm/s.
+ * indexes the NECOFS tiles; days.json lists the archived days, each with its own index.json. Each blob is gzip of
+ * "LHZT", a uint32 header length, a JSON header, float32 node lon, lat pairs, the element node indices (uint16 or
+ * uint32), a uint8 arrow level per element, then per step one int8 per element east and one north, in step_cms cm/s.
  */
 import "./site.css";
 import "./away-links";
@@ -41,11 +45,14 @@ const NATIVE_MIN_ZOOM = 7; // below this, NECOFS's cells are a pixel or less: th
 const MAX_NATIVE = window.matchMedia("(pointer: coarse)").matches ? 25_000 : 50_000; // NECOFS cells drawn at once
 const CACHE_CELLS = 250_000; // NECOFS tile cells kept in memory, oldest dropped first
 const FETCHES = 6;
+const MAX_DAYS = 7; // archived days shown at once
+const DAY_MS = 86_400_000;
 const theme = (): Theme => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
 // ---------- Data ----------
 
+type Id = "necofs" | "doppio";
 interface Model {
   source: string;
   url: string | null;
@@ -59,10 +66,16 @@ interface Model {
   wide_cells?: number;
   tiles?: Record<string, [number, number, number]>; // offset, length, elements
 }
+type Models = Partial<Record<Id, Model>>;
 interface Latest {
   generated_at: string;
   base_zoom: number;
-  models: { necofs?: Model; doppio?: Model };
+  models: Models;
+}
+interface DayIndex {
+  day: string;
+  complete: boolean;
+  models: Models;
 }
 /** One blob's cells and forecast. */
 interface Cells {
@@ -77,6 +90,14 @@ interface Cells {
   k: number; // cm/s per unit
   q: Int8Array; // per step: m east, then m north
 }
+/** The files behind some of the frames: the latest run, or one archived day. */
+interface Source {
+  key: string;
+  models: Models;
+  wide: Partial<Record<Id, Cells | null>>;
+  loading: Promise<void> | null;
+}
+type Frame = { t: number; s: number }; // epoch seconds, and the source that holds it
 
 async function gunzip(buf: ArrayBuffer): Promise<Uint8Array> {
   const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"));
@@ -130,6 +151,30 @@ async function loadTile(pack: string, off: number, len: number): Promise<Cells> 
   let buf = await r.arrayBuffer();
   if (r.status === 200) buf = buf.slice(off, off + len); // a server that ignored the range sent the whole pack
   return parse(await gunzip(buf));
+}
+
+async function getJson<T>(path: string, init?: RequestInit): Promise<T | null> {
+  try {
+    const r = await fetch(TILES + path, init);
+    return r.ok ? ((await r.json()) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A source's two whole files (DOPPIO's grid, NECOFS's averaged view), fetched once. */
+function ensureWide(src: Source): Promise<void> {
+  src.loading ??= Promise.all(
+    (["necofs", "doppio"] as Id[]).map(async (id) => {
+      const m = src.models[id];
+      try {
+        src.wide[id] = m ? await loadWhole(m.wide) : null;
+      } catch {
+        src.wide[id] = null;
+      }
+    }),
+  ).then(() => undefined);
+  return src.loading;
 }
 
 // ---------- Tiles in view ----------
@@ -187,46 +232,85 @@ function speedColor(ms: number): string {
 // ---------- Formatting ----------
 
 const fmtEastern = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric" });
+const fmtEasternYear = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric" });
+const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
+const fmtUtcDay = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric" });
+const fmtEasternHour = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric" });
+const fmtDayShort = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
 const fmtUtc = (d: Date) => `${String(d.getUTCHours()).padStart(2, "0")} UTC`;
+const eastern = (d: Date) => (d.getUTCFullYear() === new Date().getUTCFullYear() ? fmtEastern : fmtEasternYear).format(d);
 const nf = new Intl.NumberFormat("en-US");
+const dayMs = (day: string) => Date.parse(`${day}T00:00:00Z`);
+const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+/** "Aug 11 to 13, 2022", "Nov 30 to Dec 2, 2026", "Aug 11, 2022". */
+function dayRange(a: string, b: string): string {
+  const [x, y] = [new Date(dayMs(a)), new Date(dayMs(b))];
+  if (a === b) return fmtDay.format(x);
+  if (x.getUTCFullYear() !== y.getUTCFullYear()) return `${fmtDay.format(x)} to ${fmtDay.format(y)}`;
+  const end = x.getUTCMonth() === y.getUTCMonth() ? String(y.getUTCDate()) : fmtDayShort.format(y);
+  return `${fmtDayShort.format(x)} to ${end}, ${y.getUTCFullYear()}`;
+}
 
 // ---------- State ----------
 
 interface Panel {
-  id: "necofs" | "doppio";
+  id: Id;
   label: string;
-  grid: string;
-  model: Model | null;
-  wide: Cells | null;
+  unit: string; // what its cells are called in the caption
   iso: FeatureCollection | null; // the model's own depth contours
   box: HTMLElement;
   cap: HTMLElement;
   map: maplibregl.Map | null;
 }
+type Period = { kind: "forecast" } | { kind: "days"; from: string; to: string };
+
 const panels: Panel[] = [];
-let times: number[] = []; // epoch seconds of the frames (both models share the window's 2-hourly steps)
+let period: Period = { kind: "forecast" };
+let sources: Source[] = [];
+let frames: Frame[] = [];
 let frame = 0;
+let latest: Latest | null = null;
+let archived: Record<string, boolean> = {}; // day -> complete
 let syncing = false;
+let viewReady = false; // the opening view is set: moves from here on are the reader's
+let shownBox: string | null = null; // the map's box for the address bar: the link's own until the reader moves
 // NECOFS's level of detail: "wide" (averaged into DOPPIO's cells) or "native" (its own cells, the tiles in view).
 let lod: "wide" | "native" = "wide";
 let tooMany = false; // zoomed in, but more NECOFS cells in view than the page draws at once
 let inViewKeys: string[] = [];
-const tileCache = new Map<string, Cells>();
+let doppioInView = -1;
+const tileCache = new Map<string, Cells>(); // "<source>|<tile>"
 const pending = new Map<string, Promise<void>>();
+
+const cur = (): Source | null => (frames.length && frame >= 0 ? sources[frames[frame].s] : null);
+const tileKey = (src: Source, key: string) => `${src.key}|${key}`;
 
 /** The blobs a panel draws now. */
 function drawn(p: Panel): Cells[] {
-  if (p.id === "doppio" || lod === "wide") return p.wide ? [p.wide] : [];
-  const loaded = inViewKeys.map((k) => tileCache.get(k)).filter((c): c is Cells => !!c);
-  return loaded.length ? loaded : p.wide ? [p.wide] : [];
+  const src = cur();
+  if (!src) return [];
+  const wide = src.wide[p.id];
+  if (p.id === "doppio" || lod === "wide") return wide ? [wide] : [];
+  const loaded = inViewKeys.map((k) => tileCache.get(tileKey(src, k))).filter((c): c is Cells => !!c);
+  return loaded.length ? loaded : wide ? [wide] : [];
 }
-const nativeNow = (p: Panel) => p.id === "necofs" && lod === "native" && inViewKeys.some((k) => tileCache.has(k));
+const nativeNow = (p: Panel) => {
+  const src = cur();
+  return !!src && p.id === "necofs" && lod === "native" && inViewKeys.some((k) => tileCache.has(tileKey(src, k)));
+};
 
-/** The panel's cells and arrows at the current frame (empty where its forecast does not reach). */
+/** The panel's step at the current frame, or -1 where its model has none. */
+function stepOf(p: Panel): number {
+  const m = cur()?.models[p.id];
+  if (!m) return -1;
+  const j = Math.round((frames[frame].t - Date.parse(m.t0) / 1000) / m.step);
+  return j >= 0 && j < m.steps ? j : -1;
+}
+
+/** The panel's cells and arrows at the current frame (empty where its model does not reach). */
 function features(p: Panel): { cells: FeatureCollection; arrows: FeatureCollection } {
-  if (!p.model) return { cells: EMPTY, arrows: EMPTY };
-  const j = Math.round((times[frame] - Date.parse(p.model.t0) / 1000) / p.model.step);
-  if (j < 0 || j >= p.model.steps) return { cells: EMPTY, arrows: EMPTY };
+  const j = stepOf(p);
+  if (j < 0) return { cells: EMPTY, arrows: EMPTY };
   const cells: Feature[] = [];
   const arrows: Feature[] = [];
   for (const c of drawn(p)) {
@@ -252,6 +336,52 @@ function features(p: Panel): { cells: FeatureCollection; arrows: FeatureCollecti
     }
   }
   return { cells: { type: "FeatureCollection", features: cells }, arrows: { type: "FeatureCollection", features: arrows } };
+}
+
+// ---------- Address bar ----------
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/** "2022-08-12T14Z": an hour, UTC. */
+const hourParam = (t: number) => {
+  const d = new Date(t * 1000);
+  return `${d.toISOString().slice(0, 10)}T${pad2(d.getUTCHours())}Z`;
+};
+function readHour(s: string | null): number | null {
+  const m = s?.match(/^(\d{4}-\d{2}-\d{2})T(\d{1,2})(?::00)?Z?$/);
+  if (!m) return null;
+  const t = Date.parse(`${m[1]}T${pad2(Number(m[2]))}:00:00Z`);
+  return Number.isFinite(t) ? t / 1000 : null;
+}
+const isDay = (s: string | null): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && Number.isFinite(dayMs(s));
+
+interface Wanted {
+  period: Period | null;
+  t: number | null;
+  bbox: [number, number, number, number] | null;
+}
+function readUrl(): Wanted {
+  const q = new URLSearchParams(location.search);
+  const from = q.get("from");
+  const to = q.get("to") ?? from;
+  const t = readHour(q.get("t"));
+  const b = q.get("bbox")?.split(",").map(Number);
+  const bbox = b?.length === 4 && b.every(Number.isFinite) && b[0] < b[2] && b[1] < b[3] ? (b as [number, number, number, number]) : null;
+  const days = isDay(from) && isDay(to) && dayMs(to) >= dayMs(from);
+  return { period: days ? { kind: "days", from, to } : null, t, bbox };
+}
+
+let userTime = false; // the reader chose the hour: it goes to the address bar
+function writeUrl(): void {
+  const q = new URLSearchParams();
+  if (period.kind === "days") {
+    q.set("from", period.from);
+    if (period.to !== period.from) q.set("to", period.to);
+  }
+  if (userTime && frames.length) q.set("t", hourParam(frames[frame].t));
+  if (shownBox) q.set("bbox", shownBox);
+  const s = q.toString().replace(/%2C/g, ",");
+  const url = `${location.pathname}${s ? `?${s}` : ""}${location.hash}`;
+  if (url !== location.pathname + location.search + location.hash) history.replaceState(null, "", url);
 }
 
 // ---------- Maps ----------
@@ -370,12 +500,12 @@ function sync(from: maplibregl.Map): void {
   }
 }
 
-function makeMap(p: Panel): void {
+function makeMap(p: Panel, bounds: [number, number, number, number]): void {
   const box = p.box;
   const map = new maplibregl.Map({
     container: box,
     style: STYLES[theme()],
-    bounds: OPEN_BOUNDS,
+    bounds,
     fitBoundsOptions: { padding: 4 },
     attributionControl: { compact: true },
     cooperativeGestures: !window.matchMedia("(pointer: fine)").matches,
@@ -390,7 +520,21 @@ function makeMap(p: Panel): void {
   map.once("idle", collapse);
   map.on("style.load", () => addLayers(p)); // a theme switch drops custom layers: add them back at the current frame
   map.on("move", () => sync(map));
-  if (p.id === "necofs") map.on("moveend", () => void updateLod());
+  if (p.id === "necofs") {
+    map.on("moveend", () => {
+      void updateLod();
+      countDoppio();
+      if (!viewReady) return;
+      const b = map.getBounds();
+      shownBox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => v.toFixed(3)).join(",");
+      writeUrl();
+    });
+    map.once("idle", () => {
+      viewReady = true;
+      countDoppio();
+      void updateLod(); // a link may open zoomed in
+    });
+  }
   new ResizeObserver(() => map.resize()).observe(box);
 }
 
@@ -411,41 +555,59 @@ function remember(key: string, c: Cells): void {
   tileCache.set(key, c);
   let total = 0;
   for (const v of tileCache.values()) total += v.m;
+  const src = cur();
+  const keep = new Set(src ? inViewKeys.map((k) => tileKey(src, k)) : []);
   for (const [k, v] of tileCache) {
     if (total <= CACHE_CELLS) break;
-    if (inViewKeys.includes(k)) continue;
+    if (keep.has(k)) continue;
     tileCache.delete(k);
     total -= v.m;
   }
 }
 
+/** DOPPIO's cells whose centers are in view, for its caption. */
+function countDoppio(): void {
+  const p = panels.find((x) => x.id === "doppio");
+  const c = cur()?.wide.doppio;
+  if (!p?.map || !c) return;
+  const b = p.map.getBounds();
+  const [w, s, e, n] = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+  let k = 0;
+  for (let i = 0; i < c.m; i++) if (c.cx[i] >= w && c.cx[i] <= e && c.cy[i] >= s && c.cy[i] <= n) k++;
+  if (k !== doppioInView) {
+    doppioInView = k;
+    p.cap.innerHTML = caption(p);
+  }
+}
+
 let lodRun = 0;
-/** After a move: pick NECOFS's level of detail and fetch the tiles in view it lacks (a few at a time). */
+/** After a move or a change of source: pick NECOFS's level of detail and fetch the tiles in view it lacks. */
 async function updateLod(): Promise<void> {
   const p = panels.find((x) => x.id === "necofs");
-  const index = p?.model?.tiles;
-  const pack = p?.model?.pack;
-  if (!p?.map || !index || !pack) return;
+  const src = cur();
+  const index = src?.models.necofs?.tiles;
+  const pack = src?.models.necofs?.pack;
+  if (!p?.map || !src || !index || !pack) return;
   const run = ++lodRun;
   const { keys, count } = p.map.getZoom() >= NATIVE_MIN_ZOOM ? inView(p.map, index) : { keys: [], count: 0 };
-  const wasTooMany = tooMany;
   tooMany = keys.length > 0 && count > MAX_NATIVE;
   const next = keys.length && !tooMany ? "native" : "wide";
-  const changed = next !== lod || tooMany !== wasTooMany || keys.join() !== inViewKeys.join();
   lod = next;
   inViewKeys = lod === "native" ? keys : [];
-  if (changed) drawPanel(p);
+  drawPanel(p); // cheap next to a move, and a change of source always needs it
   if (lod !== "native") return;
-  const missing = keys.filter((k) => !tileCache.has(k));
+  const missing = keys.filter((k) => !tileCache.has(tileKey(src, k)));
+  if (!missing.length) return;
   let i = 0;
   const worker = async () => {
     while (i < missing.length && run === lodRun) {
       const key = missing[i++];
+      const ck = tileKey(src, key);
       const [off, len] = index[key];
-      let job = pending.get(key);
+      let job = pending.get(ck);
       if (!job) {
-        job = loadTile(pack, off, len).then((c) => remember(key, c)).finally(() => pending.delete(key));
-        pending.set(key, job);
+        job = loadTile(pack, off, len).then((c) => remember(ck, c)).finally(() => pending.delete(ck));
+        pending.set(ck, job);
       }
       try {
         await job;
@@ -455,34 +617,62 @@ async function updateLod(): Promise<void> {
     }
   };
   await Promise.all(Array.from({ length: FETCHES }, worker));
-  if (run === lodRun) drawPanel(p);
+  if (run === lodRun && cur() === src) drawPanel(p);
 }
 
 // ---------- Frames ----------
 
+/** One phrase per panel, the same shape for both: its cells and how many are in view, or why there are none. */
 function caption(p: Panel): string {
-  let sub = "not available";
-  if (p.model) {
-    const end = Date.parse(p.model.t0) / 1000 + (p.model.steps - 1) * p.model.step;
-    if (times[frame] > end) sub = `its forecast ends ${fmtEastern.format(new Date(end * 1000))} Eastern`;
-    else if (p.id === "doppio") sub = `${p.grid}, ${nf.format(p.model.cells)} cells`;
-    else if (nativeNow(p)) {
-      const n = inViewKeys.reduce((s, k) => s + (tileCache.get(k)?.m ?? 0), 0);
-      const loading = inViewKeys.some((k) => !tileCache.has(k));
-      sub = `${p.grid}, ${nf.format(n)} elements in view${loading ? "; loading" : ""}`;
-    } else if (lod === "native") sub = "at DOPPIO resolution; loading native mesh";
-    else sub = tooMany ? "at DOPPIO resolution; zoom in further for native mesh" : "at DOPPIO resolution; zoom in for native mesh";
-  }
+  const src = cur();
+  const m = src?.models[p.id];
+  let sub: string;
+  if (!src) sub = "no data";
+  else if (!m) sub = "no data for this period";
+  else if (stepOf(p) < 0) {
+    const end = Date.parse(m.t0) / 1000 + (m.steps - 1) * m.step;
+    sub = period.kind === "forecast" && frames[frame].t > end ? `forecast ends ${eastern(new Date(end * 1000))}` : "no data for this hour";
+  } else if (p.id === "doppio") sub = `${p.unit}, ${nf.format(doppioInView >= 0 ? doppioInView : m.cells)} in view`;
+  else if (nativeNow(p)) {
+    const n = inViewKeys.reduce((s, k) => s + (tileCache.get(tileKey(src, k))?.m ?? 0), 0);
+    const loading = inViewKeys.some((k) => !tileCache.has(tileKey(src, k)));
+    sub = `${p.unit}, ${nf.format(n)} in view${loading ? "; loading" : ""}`;
+  } else if (lod === "native") sub = "averaged to DOPPIO cells; loading triangles";
+  else sub = `averaged to DOPPIO cells; zoom in${tooMany ? " further" : ""} for triangles`;
   return `<span class="cap-label">${p.label}</span><span class="cap-sub">${sub}</span>`;
 }
 
-function setFrame(i: number): void {
-  if (!times.length) return;
-  frame = Math.max(0, Math.min(times.length - 1, i));
+/** The forecast in Eastern time with the hours from now; archived days, which are UTC days, in UTC first. */
+function timeLabel(): void {
+  const t = new Date(frames[frame].t * 1000);
+  if (period.kind === "days") {
+    $("tlabel").innerHTML = `<b>${fmtUtcDay.format(t)}, ${fmtUtc(t)}</b> (${fmtEasternHour.format(t)} Eastern)`;
+    return;
+  }
+  const ahead = Math.round((frames[frame].t - Date.now() / 1000) / 3600);
+  $("tlabel").innerHTML = `<b>${eastern(t)} Eastern</b> (${fmtUtc(t)}, ${ahead === 0 ? "now" : `${ahead > 0 ? "+" : ""}${ahead} h`})`;
+}
+
+let frameRun = 0;
+async function setFrame(i: number): Promise<void> {
+  if (!frames.length) return;
+  const before = cur();
+  frame = Math.max(0, Math.min(frames.length - 1, i));
   ($("slider") as HTMLInputElement).value = String(frame);
-  const t = new Date(times[frame] * 1000);
-  const ahead = Math.round((times[frame] - Date.now() / 1000) / 3600);
-  $("tlabel").innerHTML = `<b>${fmtEastern.format(t)} Eastern</b> (${fmtUtc(t)}, ${ahead === 0 ? "now" : `${ahead > 0 ? "+" : ""}${ahead} h`})`;
+  ($("step-back") as HTMLButtonElement).disabled = frame === 0;
+  ($("step-fwd") as HTMLButtonElement).disabled = frame === frames.length - 1;
+  timeLabel();
+  const src = cur()!;
+  const run = ++frameRun;
+  await ensureWide(src);
+  if (run !== frameRun) return; // a later step won
+  if (src !== before) {
+    countDoppio();
+    void updateLod();
+    // The next day's files while this one shows, so playing across midnight does not stall.
+    const next = sources[sources.indexOf(src) + 1];
+    if (next) void ensureWide(next);
+  }
   for (const p of panels) drawPanel(p);
 }
 
@@ -490,7 +680,124 @@ let timer = 0;
 function setPlaying(on: boolean): void {
   window.clearInterval(timer);
   setPlayButton($("play"), on);
-  if (on && times.length) timer = window.setInterval(() => setFrame((frame + 1) % times.length), PLAY_MS);
+  if (on && frames.length) {
+    userTime = true;
+    timer = window.setInterval(() => void setFrame((frame + 1) % frames.length), PLAY_MS);
+  } else writeUrl();
+}
+
+function step(by: number): void {
+  setPlaying(false);
+  userTime = true;
+  void setFrame(frame + by).then(writeUrl);
+}
+
+// ---------- Periods ----------
+
+/** The frames and sources of a period; none when nothing is available for it. */
+async function loadPeriod(p: Period): Promise<{ sources: Source[]; frames: Frame[] }> {
+  const out: { sources: Source[]; frames: Frame[] } = { sources: [], frames: [] };
+  if (p.kind === "forecast") {
+    const ms = Object.values(latest?.models ?? {}).filter((m): m is Model => !!m);
+    const longest = ms.sort((a, b) => b.steps - a.steps)[0];
+    if (!latest || !longest) return out;
+    out.sources.push({ key: longest.run, models: latest.models, wide: {}, loading: null });
+    const t0 = Date.parse(longest.t0) / 1000;
+    for (let k = 0; k < longest.steps; k++) out.frames.push({ t: t0 + k * longest.step, s: 0 });
+    return out;
+  }
+  const days: string[] = [];
+  for (let t = dayMs(p.from); t <= dayMs(p.to) && days.length < MAX_DAYS; t += DAY_MS) if (dayOf(t) in archived) days.push(dayOf(t));
+  const idx = await Promise.all(days.map((d) => getJson<DayIndex>(`days/${d}/index.json`)));
+  idx.forEach((e, i) => {
+    if (!e || !Object.keys(e.models).length) return;
+    const s = out.sources.length;
+    out.sources.push({ key: `days/${days[i]}`, models: e.models, wide: {}, loading: null });
+    const t0 = dayMs(days[i]) / 1000;
+    for (let h = 0; h < 24; h++) out.frames.push({ t: t0 + h * 3600, s });
+  });
+  return out;
+}
+
+/** Switch to a period, opening on the hour `t` if it holds it (else the hour nearest now, or its first). */
+async function showPeriod(p: Period, t: number | null = null): Promise<boolean> {
+  const got = await loadPeriod(p);
+  if (!got.frames.length) return false;
+  window.clearInterval(timer);
+  setPlayButton($("play"), false);
+  period = p.kind === "days" ? { kind: "days", from: dayOf(got.frames[0].t * 1000), to: dayOf(got.frames[got.frames.length - 1].t * 1000) } : p;
+  sources = got.sources;
+  frames = got.frames;
+  frame = -1; // no current source: setFrame refreshes the level of detail and the counts
+  inViewKeys = [];
+  const slider = $("slider") as HTMLInputElement;
+  slider.max = String(frames.length - 1);
+  const target = t ?? (p.kind === "forecast" ? Date.now() / 1000 : frames[0].t);
+  const k = frames.reduce((best, f, i) => (Math.abs(f.t - target) < Math.abs(frames[best].t - target) ? i : best), 0);
+  periodLabel();
+  await setFrame(k);
+  writeUrl();
+  return true;
+}
+
+/** Archived days as runs of consecutive dates: [first, last]. */
+function runs(): [string, string][] {
+  const out: [string, string][] = [];
+  for (const d of Object.keys(archived).sort()) {
+    const last = out[out.length - 1];
+    if (last && dayMs(d) - dayMs(last[1]) === DAY_MS) last[1] = d;
+    else out.push([d, d]);
+  }
+  return out;
+}
+
+function periodLabel(): void {
+  $("period-now").textContent = period.kind === "forecast" ? "Latest forecast" : dayRange(period.from, period.to);
+  if (period.kind === "days") {
+    ($("p-from") as HTMLInputElement).value = period.from;
+    const n = Math.round((dayMs(period.to) - dayMs(period.from)) / DAY_MS) + 1;
+    const len = $("p-len") as HTMLSelectElement;
+    if ([...len.options].some((o) => o.value === String(n))) len.value = String(n);
+  }
+}
+
+function wirePeriod(): void {
+  const box = $("period") as HTMLDetailsElement;
+  const from = $("p-from") as HTMLInputElement;
+  const len = $("p-len") as HTMLSelectElement;
+  const note = $("p-note");
+  const spans = runs();
+  const held = `Archived: ${spans.map(([a, b]) => dayRange(a, b)).join("; ")}.`;
+  if (spans.length) {
+    from.min = spans[0][0];
+    from.max = spans[spans.length - 1][1];
+    if (!from.value) from.value = from.max;
+    note.textContent = held;
+  } else {
+    from.disabled = len.disabled = ($("p-show") as HTMLButtonElement).disabled = true;
+    note.textContent = "No days archived yet.";
+  }
+  $("p-latest").addEventListener("click", async () => {
+    box.open = false;
+    userTime = false;
+    await showPeriod({ kind: "forecast" });
+  });
+  $("p-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!isDay(from.value)) return;
+    const to = dayOf(dayMs(from.value) + (Number(len.value) - 1) * DAY_MS);
+    userTime = false;
+    if (await showPeriod({ kind: "days", from: from.value, to })) {
+      box.open = false;
+      note.textContent = held;
+    } else note.textContent = `Nothing archived for ${dayRange(from.value, to)}. ${held}`;
+  });
+  document.addEventListener("click", (e) => {
+    if (box.open && !box.contains(e.target as Node)) box.open = false;
+  });
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") box.open = false;
+  });
 }
 
 // ---------- Page ----------
@@ -528,9 +835,9 @@ function wireTheme(redraw: () => void): void {
   });
 }
 
-const PANELS: [Panel["id"], string, string][] = [
-  ["necofs", "NECOFS", "native mesh"],
-  ["doppio", "DOPPIO", "native 7 km grid"],
+const PANELS: [Id, string, string][] = [
+  ["necofs", "NECOFS", "triangles"],
+  ["doppio", "DOPPIO", "7 km cells"],
 ];
 
 function failed(): void {
@@ -550,53 +857,33 @@ async function main(): Promise<void> {
   about.addEventListener("click", (e) => e.target === about && about.close()); // a click on the backdrop
   legend();
 
-  let latest: Latest | null = null;
-  try {
-    const r = await fetch(TILES + "latest.json", { cache: "no-cache" });
-    if (r.ok) latest = (await r.json()) as Latest;
-  } catch {
-    /* shown below */
-  }
-  const isos = await Promise.all(
-    PANELS.map(async ([id]) => {
-      try {
-        const r = await fetch(`${TILES}isobaths-${id}.json`);
-        return r.ok ? ((await r.json()) as FeatureCollection) : null;
-      } catch {
-        return null; // the currents still draw without the contours
-      }
-    }),
-  );
-  const wides = await Promise.all(
-    PANELS.map(async ([id]) => {
-      const m = latest?.models[id];
-      try {
-        return m ? await loadWhole(m.wide) : null;
-      } catch {
-        return null;
-      }
-    }),
-  );
-  // The frames: the longer forecast's 2-hourly steps (both start at the window's first hour).
-  const models = PANELS.map(([id], i) => (wides[i] ? latest?.models[id] ?? null : null));
-  const longest = models.filter((m): m is Model => !!m).sort((a, b) => b.steps - a.steps)[0];
-  if (longest) times = Array.from({ length: longest.steps }, (_, k) => Date.parse(longest.t0) / 1000 + k * longest.step);
-  if (!times.length) failed();
-  else {
-    const slider = $("slider") as HTMLInputElement;
-    slider.max = String(times.length - 1);
-    timeTrack(slider, (v) => times[Math.round(v)]);
-    slider.addEventListener("input", () => {
-      setPlaying(false);
-      setFrame(Number(slider.value));
-    });
-    $("play").addEventListener("click", () => setPlaying($("play").getAttribute("aria-pressed") !== "true"));
-    setPlaying(false);
-  }
+  const want = readUrl();
+  shownBox = want.bbox?.join(",") ?? null;
+  const [l, d, ...isos] = await Promise.all([
+    getJson<Latest>("latest.json", { cache: "no-cache" }),
+    getJson<{ days: Record<string, boolean> }>("days.json", { cache: "no-cache" }),
+    ...PANELS.map(([id]) => getJson<FeatureCollection>(`isobaths-${id}.json`)), // the currents still draw without them
+  ]);
+  latest = l as Latest | null;
+  archived = (d as { days: Record<string, boolean> } | null)?.days ?? {};
 
-  const gl = webglOk();
+  const slider = $("slider") as HTMLInputElement;
+  timeTrack(slider, (v) => frames[Math.round(v)]?.t ?? NaN);
+  slider.addEventListener("input", () => {
+    window.clearInterval(timer);
+    setPlayButton($("play"), false);
+    userTime = true;
+    void setFrame(Number(slider.value));
+  });
+  slider.addEventListener("change", writeUrl);
+  $("play").addEventListener("click", () => setPlaying($("play").getAttribute("aria-pressed") !== "true"));
+  $("step-back").addEventListener("click", () => step(-1));
+  $("step-fwd").addEventListener("click", () => step(1));
+  setPlayButton($("play"), false);
+  wirePeriod();
+
   const host = $("panels");
-  PANELS.forEach(([id, label, grid], i) => {
+  PANELS.forEach(([id, label, unit], i) => {
     const f = document.createElement("figure");
     f.className = "mg-panel";
     const cap = document.createElement("figcaption");
@@ -605,18 +892,34 @@ async function main(): Promise<void> {
     box.dataset.model = id;
     f.append(cap, box);
     host.append(f);
-    const p: Panel = { id, label, grid, model: models[i], wide: wides[i], iso: isos[i], box, cap, map: null };
-    panels.push(p);
-    cap.innerHTML = caption(p);
-    if (!gl) {
-      box.innerHTML = `<p class="mg-fallback">This map needs WebGL, which this browser has turned off.</p>`;
-      return;
-    }
-    makeMap(p);
+    panels.push({ id, label, unit, iso: (isos[i] as FeatureCollection | null) ?? null, box, cap, map: null });
   });
-  // Open on the frame nearest now.
-  const now = Date.now() / 1000;
-  setFrame(times.reduce((best, t, k) => (Math.abs(t - now) < Math.abs(times[best] - now) ? k : best), 0));
+
+  // The period the address asks for: its days; or, for an hour alone, the forecast if it holds it, else its day.
+  userTime = want.t !== null;
+  let ok = false;
+  if (want.period) ok = await showPeriod(want.period, want.t);
+  else if (want.t !== null) {
+    const held = latest && (await loadPeriod({ kind: "forecast" })).frames.some((f) => f.t === want.t);
+    const day = dayOf(want.t * 1000);
+    ok = held ? await showPeriod({ kind: "forecast" }, want.t) : day in archived && (await showPeriod({ kind: "days", from: day, to: day }, want.t));
+  }
+  if (!ok && (want.period || want.t !== null)) {
+    // A link to days the archive does not hold: say so, and show the latest forecast.
+    const asked = want.period?.kind === "days" ? dayRange(want.period.from, want.period.to) : dayRange(dayOf(want.t! * 1000), dayOf(want.t! * 1000));
+    const e = $("load-error");
+    e.hidden = false;
+    e.textContent = `Nothing archived for ${asked}; showing the latest forecast.`;
+  }
+  if (!ok) ok = await showPeriod({ kind: "forecast" });
+  if (!ok) failed();
+
+  const gl = webglOk();
+  for (const p of panels) {
+    p.cap.innerHTML = caption(p);
+    if (!gl) p.box.innerHTML = `<p class="mg-fallback">This map needs WebGL, which this browser has turned off.</p>`;
+    else makeMap(p, want.bbox ?? OPEN_BOUNDS);
+  }
 
   if (import.meta.env.DEV) {
     const w = window as unknown as Record<string, unknown>;
@@ -625,6 +928,7 @@ async function main(): Promise<void> {
     w.__shCaptions = () => panels.map((p) => p.cap.textContent ?? "");
     w.__shCounts = () => panels.map((p) => features(p).cells.features.length);
     w.__shLod = () => ({ lod, tooMany, inView: inViewKeys.length, cached: tileCache.size });
+    w.__shPeriod = () => ({ period, frames: frames.length, sources: sources.map((s) => s.key) });
   }
 }
 

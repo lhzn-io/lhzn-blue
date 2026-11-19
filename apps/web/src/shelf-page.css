@@ -1,5 +1,55 @@
-/* "Northeast Shelf": the wind models page's layout (models-page.css), with two taller maps side by side. */
-.sh-map { height: 460px; }
+/* "Northeast Shelf": the wind models page's layout (models-page.css), across the whole window, the two maps as tall
+   as the window leaves under the controls. */
+.sh-main { max-width: none; }
+.sh-map { height: clamp(420px, calc(100svh - 230px), 1100px); }
+.sh-key { margin: 0 0 10px; }
+
+/* Controls: play, step back, the time track, step forward, the time, the period, (i). */
+.sh-controls {
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto auto;
+  grid-template-areas: "play back track fwd time period info";
+}
+.sh-controls .tl-play { grid-area: play; }
+.sh-controls #step-back { grid-area: back; }
+.sh-controls .tl-track { grid-area: track; }
+.sh-controls #step-fwd { grid-area: fwd; }
+.sh-controls .mg-time { grid-area: time; }
+.sh-controls .sh-period { grid-area: period; }
+.sh-controls .fig-info { grid-area: info; margin: 0; }
+.sh-step {
+  width: 26px; height: 26px; padding: 0; border: 1px solid var(--rule); border-radius: 50%; background: var(--bg); color: var(--ink);
+  font: 500 15px/1 var(--sans); cursor: pointer;
+}
+.sh-step:hover:not(:disabled), .sh-step:focus-visible { border-color: var(--accent); color: var(--accent-hi); }
+.sh-step:disabled { opacity: 0.35; cursor: default; }
+
+/* The period: its name as the button; a small panel under it for the latest forecast or a span of archived days. */
+.sh-period { position: relative; }
+.sh-period summary {
+  list-style: none; padding: 6px 10px; border: 1px solid var(--accent-line); border-radius: 3px; cursor: pointer; white-space: nowrap;
+  font: 700 9.5px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent);
+}
+.sh-period summary::-webkit-details-marker { display: none; }
+.sh-period summary::after { content: "\25BE"; margin-left: 6px; }
+.sh-period summary:hover, .sh-period[open] summary { color: var(--accent-hi); border-color: var(--accent); }
+.sh-pop {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; display: grid; gap: 10px; width: 290px; max-width: calc(100vw - 32px);
+  padding: 12px; background: var(--panel); border: 1px solid var(--rule); box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+}
+.sh-pop .tab { justify-self: start; }
+.sh-pop form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.sh-pop label { display: grid; gap: 3px; font: 11px/1.2 var(--sans); color: var(--dim); }
+.sh-pop input, .sh-pop select { padding: 4px 6px; font: 12px var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); }
+.sh-note { margin: 0; font: 12px/1.4 var(--sans); color: var(--dim); }
+
 @media (max-width: 860px) {
   .sh-map { height: 340px; }
+  .sh-grid figcaption .cap-sub { display: inline; } /* the site hides it on phones; here it says what is drawn */
+}
+@media (max-width: 760px) {
+  .sh-controls {
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "play back track fwd fwd" "time time time period info";
+  }
+  .sh-controls .mg-time { white-space: normal; }
 }

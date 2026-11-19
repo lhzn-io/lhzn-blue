@@ -1,9 +1,10 @@
 /* "Northeast Shelf": the wind models page's layout (models-page.css), across the whole window, the two maps as tall
    as the window leaves under the controls. */
-.sh-main { max-width: none; }
-.sh-map { height: clamp(420px, calc(100svh - 230px), 1100px); }
+/* Compound selectors (.mg-x.sh-x): the build may load models-page.css after this file, and these must win. */
+.mg-main.sh-main { max-width: none; }
+.mg-map.sh-map { height: clamp(420px, calc(100svh - 230px), 1100px); }
 .sh-keyrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 24px; margin: 0 0 10px; }
-.sh-key { margin: 0; transition: opacity 0.2s; }
+.mg-key.sh-key { margin: 0; transition: opacity 0.2s; }
 .sh-key.sh-off { opacity: 0.35; }
 .sh-depth { display: inline-flex; align-items: center; gap: 6px; font: 700 9.5px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim); }
 .sh-depth select { padding: 3px 6px; font: 12px var(--mono); letter-spacing: 0; text-transform: none; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); }
@@ -15,7 +16,7 @@
 .sh-layers input { margin: 0; accent-color: var(--accent); }
 
 /* Controls: play, step back, the time track, step forward, the time, the period, (i). */
-.sh-controls {
+.mg-controls.sh-controls {
   grid-template-columns: auto auto minmax(0, 1fr) auto auto auto auto;
   grid-template-areas: "play back track fwd time period info";
 }
@@ -53,13 +54,21 @@
 .sh-note { margin: 0; font: 12px/1.4 var(--sans); color: var(--dim); }
 
 @media (max-width: 860px) {
-  .sh-map { height: 340px; }
+  .mg-map.sh-map { height: 340px; }
   .sh-grid figcaption .cap-sub { display: inline; } /* the site hides it on phones; here it says what is drawn */
 }
 @media (max-width: 760px) {
-  .sh-controls {
+  .mg-controls.sh-controls {
     grid-template-columns: auto auto minmax(0, 1fr) auto auto;
     grid-template-areas: "play back track fwd fwd" "time time time period info";
   }
   .sh-controls .mg-time { white-space: normal; }
+}
+@media (max-width: 560px) {
+  /* The track across the whole width; the buttons under it, then the time. */
+  .mg-controls.sh-controls {
+    grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "track track track track track" "play back fwd period info" "time time time time time";
+  }
+  .sh-controls .sh-period { justify-self: end; }
 }

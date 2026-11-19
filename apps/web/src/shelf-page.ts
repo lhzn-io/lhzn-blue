@@ -1,5 +1,5 @@
 /**
- * "Northeast U.S. Shelf" (/northeast-shelf/): two regional ocean models' surface currents side by side, each on its
+ * "Ocean models compared" (/northeast-shelf/): two regional ocean models' currents side by side, each on its
  * own cells, from Cape Hatteras to Nova Scotia: NECOFS (FVCOM, an unstructured triangle mesh, UMass Dartmouth)
  * and DOPPIO (ROMS, a 7 km curvilinear grid, Rutgers for MARACOOS). Each panel is a small MapLibre map, as on the
  * wind models page: the cells as a translucent fill colored by speed, thin cell outlines, and a light arrow per cell
@@ -276,6 +276,7 @@ interface Panel {
   box: HTMLElement;
   cap: HTMLElement;
   map: maplibregl.Map | null;
+  popup: maplibregl.Popup | null; // the cell's values at the reader's point
 }
 type Period = { kind: "forecast" } | { kind: "days"; from: string; to: string };
 /** What each map draws, the same on both: the currents (cells by speed, arrows), the cell outlines, the depth lines. */
@@ -350,11 +351,12 @@ function features(p: Panel): { cells: FeatureCollection; arrows: FeatureCollecti
         ring.push([c.nodes[2 * nd], c.nodes[2 * nd + 1]]);
       }
       ring.push(ring[0]);
-      cells.push({ type: "Feature", properties: { c: speedColor(ms) }, geometry: { type: "Polygon", coordinates: [ring] } });
+      const dir = ((Math.atan2(u, v) * 180) / Math.PI + 360) % 360;
+      cells.push({ type: "Feature", properties: { c: speedColor(ms), s: ms, d: dir }, geometry: { type: "Polygon", coordinates: [ring] } });
       if (ms >= 0.03)
         arrows.push({
           type: "Feature",
-          properties: { dir: ((Math.atan2(u, v) * 180) / Math.PI + 360) % 360, lvl: c.levels[i] },
+          properties: { dir, lvl: c.levels[i] },
           geometry: { type: "Point", coordinates: [c.cx[i], c.cy[i]] },
         });
     }
@@ -546,6 +548,7 @@ function wireLayers(): void {
       else shown.delete(b.value as Layer);
       show();
       for (const p of panels) if (p.map) applyLayers(p.map);
+      if (valuesAt) showValues(valuesAt);
       writeUrl();
     });
 }
@@ -590,6 +593,10 @@ function makeMap(p: Panel, bounds: [number, number, number, number]): void {
   map.once("idle", collapse);
   map.on("style.load", () => addLayers(p)); // a theme switch drops custom layers: add them back at the current frame
   map.on("move", () => sync(map));
+  if (window.matchMedia("(hover: hover)").matches) {
+    map.on("mousemove", (e) => showValues(e.lngLat));
+    map.getCanvas().addEventListener("mouseleave", hideValues);
+  } else map.on("click", (e) => showValues(e.lngLat));
   if (p.id === "necofs") {
     map.on("moveend", () => {
       void updateLod();
@@ -610,6 +617,43 @@ function makeMap(p: Panel, bounds: [number, number, number, number]): void {
 
 // ---------- Level of detail ----------
 
+// ---------- Values at a point ----------
+
+const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+let valuesAt: maplibregl.LngLat | null = null;
+
+/** The cell under one point, on both maps: speed and the direction it flows toward, from the drawn cells. */
+function showValues(at: maplibregl.LngLat): void {
+  valuesAt = at;
+  if (!shown.has("currents")) return hideValues();
+  const where = depth ? `at ${depth} m` : "surface";
+  for (const p of panels) {
+    const map = p.map;
+    if (!map?.getLayer("cells")) continue;
+    const f = map.queryRenderedFeatures(map.project(at), { layers: ["cells"] })[0];
+    let body: string;
+    if (f) {
+      const ms = Number(f.properties.s);
+      const d = Number(f.properties.d);
+      const avg = p.id === "necofs" && !nativeNow(p) ? "; averaged to DOPPIO cell" : "";
+      body = `<b>${(ms * MS_TO_KT).toFixed(2)} kt</b> (${ms.toFixed(2)} m/s)<br>toward ${Math.round(d)}&deg; ${COMPASS[Math.round(d / 22.5) % 16]}, ${where}${avg}`;
+    } else body = stepOf(p) < 0 ? "no data for this hour" : `no cell here ${where}`;
+    p.popup ??= new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "pin-pop hover-pop sh-val", offset: 12, maxWidth: "none" });
+    p.popup.setLngLat(at).setHTML(`<span class="sh-val-model">${p.label}</span> ${body}`).addTo(map);
+  }
+}
+
+function hideValues(): void {
+  valuesAt = null;
+  for (const p of panels) p.popup?.remove();
+}
+
+/** After a redraw: the values at the same point, once the new cells are on the map. */
+function refreshValues(p: Panel): void {
+  const at = valuesAt;
+  if (at && p.map) p.map.once("idle", () => valuesAt === at && showValues(at));
+}
+
 function drawPanel(p: Panel): void {
   p.cap.innerHTML = caption(p);
   if (!p.map) return;
@@ -619,6 +663,7 @@ function drawPanel(p: Panel): void {
   const d = features(p);
   cells.setData(d.cells);
   arrows.setData(d.arrows);
+  refreshValues(p);
 }
 
 function remember(key: string, c: Cells): void {
@@ -967,7 +1012,7 @@ async function main(): Promise<void> {
     box.dataset.model = id;
     f.append(cap, box);
     host.append(f);
-    panels.push({ id, label, unit, iso: (isos[i] as FeatureCollection | null) ?? null, box, cap, map: null });
+    panels.push({ id, label, unit, iso: (isos[i] as FeatureCollection | null) ?? null, box, cap, map: null, popup: null });
   });
 
   // The period the address asks for: its days; or, for an hour alone, the forecast if it holds it, else its day.

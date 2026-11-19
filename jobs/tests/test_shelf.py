@@ -332,3 +332,18 @@ def test_failed_depths_leave_the_surface_published(tmp_path, monkeypatch):
     latest = json.loads(ts.get(f"{shelf.BASE}/latest.json"))
     assert "depths" not in latest["models"]["necofs"] and "depths" in latest["models"]["doppio"]
     assert any("necofs depths" in f for f in failed)
+
+
+def test_backfill_with_depths_adds_them_to_days_held_at_the_surface(tmp_path, monkeypatch):
+    _fake_reads(monkeypatch)
+    ts = tiles.TileStore(str(tmp_path / "tiles"))
+    store = Store(str(tmp_path / "out"))
+    shelf.backfill(store, "2022-08-11", "2022-08-12", ts)
+    assert "depths" not in json.loads(ts.get(f"{shelf.BASE}/days/2022-08-11/index.json"))["models"]["necofs"]
+    assert shelf.backfill(store, "2022-08-11", "2022-08-12", ts, depths=True) == []
+    for day in ("2022-08-11", "2022-08-12"):
+        idx = json.loads(ts.get(f"{shelf.BASE}/days/{day}/index.json"))
+        assert idx["complete"] and all(m["depths"]["50"]["steps"] == 24 for m in idx["models"].values())
+    assert json.loads(ts.get(f"{shelf.BASE}/days.json"))["days"] == {"2022-08-11": True, "2022-08-12": True}
+    with pytest.raises(ValueError):
+        shelf.backfill(store, "2022-08-01", "2022-08-31", ts, depths=True)

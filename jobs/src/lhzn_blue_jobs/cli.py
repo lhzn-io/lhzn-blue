@@ -24,6 +24,7 @@ def _main() -> None:
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
         help="local directory or gs://bucket[/prefix] (env LHZN_BLUE_OUT)",
     )
+    parser.add_argument("--with-depths", action="store_true", help="shelf-days: also at the shelf's fixed depths (at most 7 days)")
     parser.add_argument(
         "--span",
         help="shelf-days: past UTC days FIRST:LAST (YYYY-MM-DD:YYYY-MM-DD, inclusive) for the shelf's day archive",
@@ -122,7 +123,7 @@ def _main() -> None:
         if not args.span or ":" not in args.span:
             parser.error("shelf-days needs --span FIRST:LAST")
         first, last = args.span.split(":", 1)
-        _failed.extend(shelf.backfill(store, first, last))
+        _failed.extend(shelf.backfill(store, first, last, depths=args.with_depths))
     elif args.command == "forecast":
         from . import forecast  # forcingkit's HRRR reader is needed only here
 

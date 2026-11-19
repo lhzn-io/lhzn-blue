@@ -12,8 +12,8 @@
         if (localStorage.getItem("lhzn-blue-theme") === "dark") delete document.documentElement.dataset.theme;
       } catch (e) {}
     </script>
-    <title>Northeast U.S. Shelf surface currents, NECOFS and DOPPIO (alpha) | longhorizon.blue</title>
-    <meta name="description" content="Surface currents from Cape Hatteras to Nova Scotia from two ocean models, NECOFS and DOPPIO, each on its own grid, 24 hours back to 72 hours ahead." />
+    <title>Ocean models compared, Northeast U.S. Shelf (alpha) | longhorizon.blue</title>
+    <meta name="description" content="Currents from Cape Hatteras to Nova Scotia, at the surface and at depth, from two ocean models, NECOFS and DOPPIO, each on its own grid." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -25,7 +25,7 @@
     <header class="mast mg-mast">
       <div class="mast-id">
         <span class="mg-eyebrow">Northeast U.S. Shelf</span>
-        <h1 class="mg-title">Surface currents</h1>
+        <h1 class="mg-title">Ocean models compared</h1>
         <p class="mast-by"><a class="lho" href="https://longhorizon.eco/observatory">Long Horizon Observatory</a> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span></p>
       </div>
       <nav class="mg-nav" aria-label="Page">
@@ -107,7 +107,7 @@
           <p>
             <b>Values.</b> Velocity in each model's top layer (Surface), or at a fixed depth below the surface,
             interpolated between the model's own layers; cells shallower than that depth are left out. Color: speed. Arrow: direction, fixed length. Gray lines: each model's
-            own depth, 100 to 3000 m (50 m from zoom 7). Show: currents, cell outlines and depth lines, each on or
+            own depth, 100 to 3000 m (50 m from zoom 7). Hover over a cell, or tap it, for its values on both maps. Show: currents, cell outlines and depth lines, each on or
             off on both maps; with the currents off, the two models' depths compare alone.
           </p>
           <p>

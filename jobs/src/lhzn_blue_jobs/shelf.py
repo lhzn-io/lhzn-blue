@@ -57,6 +57,7 @@ ARCHIVE_LOOKBACK = 3  # days back that a run fills in when missing or incomplete
 FORECAST_HOLDS_DAYS = 3  # NECOFS's rolling forecast file holds about 4 days back; older hours come from SMAST's archive
 BACKFILL_MAX_DAYS = 62  # days one backfill command may write
 BACKFILL_DAY_S = 20 * 60  # time budget per backfilled day
+BACKFILL_DEPTH_MAX_DAYS = 7  # days one backfill may write at depth (about 17 MB and 3 minutes a day)
 DAY_S = 86400
 IMMUTABLE_S = 365 * 86400
 LATEST_S = 300
@@ -725,7 +726,7 @@ def _fill_days(ts: tiles.TileStore, keys: list[str], deadline_of, grid=None, dep
     days = dict(json.loads(ts.get(f"{BASE}/days.json") or b"{}").get("days", {}))
     changed = False
     for key in keys:
-        if days.get(key) is True:
+        if days.get(key) is True and not (depths and not _has_depths(ts, key)):
             continue
         deadline = deadline_of()
         if time.monotonic() > deadline:
@@ -742,6 +743,13 @@ def _fill_days(ts: tiles.TileStore, keys: list[str], deadline_of, grid=None, dep
     return failed
 
 
+def _has_depths(ts: tiles.TileStore, key: str) -> bool:
+    """Whether an archived day already holds both models at depth."""
+    raw = ts.get(f"{BASE}/days/{key}/index.json")
+    models = json.loads(raw).get("models", {}) if raw else {}
+    return bool(models) and all("depths" in m for m in models.values())
+
+
 def archive(ts: tiles.TileStore, end: datetime, deadline: float, grid=None) -> list[str]:
     """The previous UTC day, and the ARCHIVE_LOOKBACK days before it that are missing or incomplete; then days.json."""
     today = _utc_day(end)
@@ -749,9 +757,11 @@ def archive(ts: tiles.TileStore, end: datetime, deadline: float, grid=None) -> l
     return _fill_days(ts, keys, lambda: deadline, grid, depths=True)
 
 
-def backfill(store: Store, first: str, last: str, ts: tiles.TileStore | None = None) -> list[str]:
+def backfill(store: Store, first: str, last: str, ts: tiles.TileStore | None = None, depths: bool = False) -> list[str]:
     """Past UTC days `first` to `last` (inclusive) into the day archive, from the models' own archives (NECOFS's
-    hindcast or GOM7 archive, DOPPIO's reanalysis or forecast history), each day with its own time budget."""
+    hindcast or GOM7 archive, DOPPIO's reanalysis or forecast history), each day with its own time budget. With
+    `depths`, also at DEPTHS (at most BACKFILL_DEPTH_MAX_DAYS days), adding them to days already archived at the
+    surface."""
     ts = ts or tiles.store_for(store.root)
     if ts is None:
         return ["shelf backfill: no tile store configured (LHZN_BLUE_TILES)"]
@@ -760,5 +770,7 @@ def backfill(store: Store, first: str, last: str, ts: tiles.TileStore | None = N
         raise ValueError(f"shelf backfill: {first} to {last} is not 1 to {BACKFILL_MAX_DAYS} days")
     if b >= _utc_day(now_utc()):
         raise ValueError("shelf backfill: past days only (the daily run archives yesterday)")
+    if depths and (b - a).days + 1 > BACKFILL_DEPTH_MAX_DAYS:
+        raise ValueError(f"shelf backfill: at most {BACKFILL_DEPTH_MAX_DAYS} days at depth at once")
     keys = [f"{d:%Y-%m-%d}" for d in pd.date_range(a, b, freq="D")]
-    return _fill_days(ts, keys, lambda: time.monotonic() + BACKFILL_DAY_S)
+    return _fill_days(ts, keys, lambda: time.monotonic() + BACKFILL_DAY_S, depths=depths)

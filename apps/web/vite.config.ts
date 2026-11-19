@@ -29,6 +29,23 @@ function localData(stationPages: string[]): Plugin {
         if (base) req.url = base + (query ? `?${query}` : "");
         next();
       });
+      // The tile store's local copy (`lhzn-blue-jobs shelf --out out` writes out/tiles/), with byte ranges, as R2 serves it.
+      server.middlewares.use("/tiles/", async (req, res, next) => {
+        try {
+          const path = (req.url ?? "").replace(/^\/+/, "").split("?")[0];
+          const body = await readFile(resolve(REPO, "out/tiles", path));
+          res.setHeader("content-type", path.endsWith(".json") ? "application/json" : "application/octet-stream");
+          const range = /^bytes=(\d+)-(\d+)$/.exec(String(req.headers.range ?? ""));
+          if (range) {
+            const [a, b] = [Number(range[1]), Math.min(Number(range[2]), body.length - 1)];
+            res.statusCode = 206;
+            res.setHeader("content-range", `bytes ${a}-${b}/${body.length}`);
+            res.end(body.subarray(a, b + 1));
+          } else res.end(body);
+        } catch {
+          next();
+        }
+      });
       server.middlewares.use("/data/", async (req, res, next) => {
         try {
           const body = await readFile(resolve(REPO, "out", (req.url ?? "").replace(/^\/+/, "").split("?")[0]));
@@ -93,6 +110,7 @@ export default defineConfig(({ mode }) => ({
         references: resolve(import.meta.dirname, "references/index.html"),
         about: resolve(import.meta.dirname, "about/index.html"),
         "comfort-index": resolve(import.meta.dirname, "about/comfort-index/index.html"),
+        "northeast-shelf": resolve(import.meta.dirname, "northeast-shelf/index.html"),
         forecast: resolve(import.meta.dirname, "long-island-sound/forecast/index.html"),
         tides: resolve(import.meta.dirname, "long-island-sound/tides/index.html"),
         models: resolve(import.meta.dirname, "long-island-sound/models/index.html"),

@@ -1,0 +1,5 @@
+/* "Northeast Shelf": the wind models page's layout (models-page.css), with two taller maps side by side. */
+.sh-map { height: 460px; }
+@media (max-width: 860px) {
+  .sh-map { height: 340px; }
+}

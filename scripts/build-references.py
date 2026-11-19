@@ -40,6 +40,15 @@ WATERWAYS = [
             ("programs", "Monitoring programs"),
         ],
     },
+    {
+        "id": "northeast-shelf",
+        "name": "Northeast U.S. Shelf",
+        "intro": "The two ocean models on the Northeast U.S. Shelf page, each shown on its own grid. FVCOM, which NECOFS runs, is listed under the methods above.",
+        "sections": [
+            ("shelf-models", "The models"),
+            ("shelf-programs", "Research on the shelf"),
+        ],
+    },
 ]
 CONTACT = "hello@longhorizon.blue"
 

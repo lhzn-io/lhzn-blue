@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href="https://longhorizon.blue/northeast-shelf/" />
+    <script>
+      // Light by default; a saved choice of dark is applied before first paint so the page never flashes.
+      document.documentElement.dataset.theme = "light";
+      try {
+        if (localStorage.getItem("lhzn-blue-theme") === "dark") delete document.documentElement.dataset.theme;
+      } catch (e) {}
+    </script>
+    <title>Northeast U.S. Shelf surface currents, NECOFS and DOPPIO (alpha) | longhorizon.blue</title>
+    <meta name="description" content="Surface currents from Cape Hatteras to Nova Scotia from two ocean models, NECOFS and DOPPIO, each on its own grid, 24 hours back to 72 hours ahead." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Josefin+Sans:wght@300;400;600;700&family=Martian+Mono:wght@300;400;500&display=swap"
+    />
+  </head>
+  <body class="mg">
+    <header class="mast mg-mast">
+      <div class="mast-id">
+        <span class="mg-eyebrow">Northeast U.S. Shelf</span>
+        <h1 class="mg-title">Surface currents</h1>
+        <p class="mast-by"><a class="lho" href="https://longhorizon.eco/observatory">Long Horizon Observatory</a> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span></p>
+      </div>
+      <nav class="mg-nav" aria-label="Page">
+        <a class="mg-back" href="/about/">About</a>
+        <a class="mg-back" href="/">longhorizon.blue</a>
+        <button class="theme-icon" id="theme-toggle" type="button" aria-pressed="false"></button>
+      </nav>
+    </header>
+
+    <main class="mg-main">
+      <p class="mg-lede">
+        NECOFS and DOPPIO, Cape Hatteras to Nova Scotia, 24 hours back to 72 hours ahead.
+        <button class="fig-info" type="button" id="sh-info" aria-label="About this page" title="About this page">i</button>
+      </p>
+      <p class="outage" id="load-error" role="status" hidden></p>
+
+      <div class="mg-controls" id="controls">
+        <button class="tl-play mg-play" id="play" type="button" aria-pressed="false" aria-label="Play"></button>
+        <input type="range" id="slider" min="0" max="0" step="1" value="0" aria-label="Forecast hour" />
+        <span class="mg-time" id="tlabel" aria-live="polite"></span>
+      </div>
+
+      <div class="mg-grid sh-grid" id="panels"></div>
+      <div class="legend mg-key" id="key"></div>
+
+      <dialog class="about-dialog" id="about-dialog" aria-labelledby="about-dialog-title">
+        <div class="about-head">
+          <h2 id="about-dialog-title">About this page</h2>
+          <span class="about-actions"><button class="tab" type="button" id="about-close" aria-label="Close">Close</button></span>
+        </div>
+        <div id="about-dialog-body">
+          <p>
+            <b>Models.</b> <a href="/references/#necofs_thredds">NECOFS</a>:
+            <a href="/references/#chen2006fvcom">FVCOM</a> GOM7, SMAST; triangular mesh, elements 80 m to 37 km across.
+            <a href="/references/#lopez2020doppio">DOPPIO</a>: <a href="/references/#shchepetkin2005roms">ROMS</a>,
+            Rutgers, for MARACOOS; 7 km curvilinear grid. Each is shown on its own grid, not interpolated. Area:
+            DOPPIO's water cells and the NECOFS elements centered in them.
+          </p>
+          <p>
+            <b>Values.</b> Top-layer velocity, every 2 hours from 24 hours before the latest daily run to 72 hours after
+            (DOPPIO: about 48 hours). Color: speed. Arrow: direction, fixed length.
+          </p>
+          <p>
+            <b>Zoom.</b> Below map zoom 7, NECOFS is the area-weighted mean of its elements in each DOPPIO cell (offshore,
+            where elements are larger, the element at the cell center). From zoom 7, its own elements in view.
+          </p>
+          <p>
+            Model output, updated daily; not observations, not for navigation. The area overlaps the
+            <a href="/references/#neslter">NES-LTER</a> site; this page is not affiliated with it.
+          </p>
+        </div>
+      </dialog>
+
+      <footer class="credits">
+        <p>
+          <b>Data:</b> NECOFS/UMASSD (SMAST); DOPPIO (Rutgers, MARACOOS). Citations:
+          <a href="/references/#northeast-shelf">References</a>. Basemap: OpenFreeMap, OpenStreetMap contributors.
+        </p>
+        <p><b>Model output, not for navigation.</b> Use of this site is subject to the <a href="/terms/">Terms</a>.</p>
+        <p>
+          A <a href="/">longhorizon.blue</a> page by <a href="https://longhorizon.eco/observatory">Long Horizon Observatory</a>. Open source under the MIT license:
+          <a href="https://github.com/lhzn-io/lhzn-blue">code</a>.
+        </p>
+      </footer>
+    </main>
+
+    <script type="module" src="../src/shelf-page.ts"></script>
+  </body>
+</html>

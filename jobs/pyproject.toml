@@ -9,9 +9,10 @@ dependencies = [
     "pandas>=2.2",
     "requests>=2.32",
     "google-cloud-storage>=2.18",
+    "boto3>=1.35",  # the tile store: an R2 bucket through its S3 API (tiles.py)
     # Surface fields (the `fields` job): satellite fetches and the NECOFS surface and full-depth readers; and HRDPS at
     # the stations (the `forecast` job).
-    "forcingkit>=0.19,<0.20",  # 0.19: the HF radar fetcher and archive (hfradar.py)
+    "forcingkit>=0.22,<0.23",  # 0.19: the HF radar fetcher (hfradar.py); 0.21: DOPPIO on its own grid (shelf.py)
     "matplotlib>=3.8",  # point location on the model mesh (the shared coastline)
     "utide>=0.3",  # harmonic tide fits for the USGS tidal gauges (Codiga 2011)
     # The CO-OPS and ERDDAP clients and the guarded store (lhzn-io/insitukit; identified as this site in __init__.py).

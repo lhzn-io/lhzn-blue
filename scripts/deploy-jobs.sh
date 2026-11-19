@@ -16,6 +16,9 @@
 #   PANELS_STORE     optional: gs://bucket/prefix for the LISICOS panel images as fetched (default: lisicos-panels beside it)
 #   HFRADAR_STORE    optional: gs://bucket/prefix for the Sound's HF radar surface currents, kept by the snapshot job
 #                    (default: hfradar-usegc beside FORECAST_STORE)
+#   TILES_R2_BUCKET, TILES_R2_ENDPOINT  optional: the R2 bucket and S3 endpoint for the `shelf` job's tiles (shelf.py, tiles.py);
+#                    without them the `shelf` job is not deployed. Its keys are in Secret Manager (setup-gcp.sh).
+# `shelf` (daily): the Northeast U.S. Shelf's currents to the R2 tile store, only when R2 is configured.
 # Scheduling is separate (scripts/schedule-jobs.sh), so redeploying code does not touch triggers.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -68,6 +71,20 @@ for mode in live latest history fields snapshot forecast panels region-live regi
     --tasks 1 --max-retries 1 --task-timeout "${TIMEOUT[$mode]}" \
     --cpu 1 --memory "${MEMORY[$mode]}"
 done
+
+# The Northeast U.S. Shelf (shelf.py): its own job, with its own memory (1.4 GB at its peak), and the only one given
+# the R2 keys (Object Read and Write on the tile bucket alone).
+if [ -n "${TILES_R2_BUCKET:-}" ] && [ -n "${TILES_R2_ENDPOINT:-}" ]; then
+  gcloud run jobs deploy "lhzn-blue-shelf" \
+    --project "$GCP_PROJECT" --region "$GCP_REGION" --image "$IMAGE" \
+    --service-account "$JOB_SA" --args "shelf" \
+    --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_TILES=r2://${TILES_R2_BUCKET},TILES_R2_ENDPOINT=${TILES_R2_ENDPOINT}" \
+    --set-secrets "${SECRETS},TILES_R2_ACCESS_KEY_ID=lhzn-blue-r2-key-id:latest,TILES_R2_SECRET_ACCESS_KEY=lhzn-blue-r2-secret:latest" \
+    --tasks 1 --max-retries 1 --task-timeout 30m \
+    --cpu 1 --memory 2Gi
+else
+  echo "TILES_R2_BUCKET or TILES_R2_ENDPOINT not set: lhzn-blue-shelf not deployed"
+fi
 
 # The HRRR backfill: never scheduled; run by hand with its dates, e.g.
 #   gcloud run jobs execute lhzn-blue-forecast-backfill --tasks 250 \

@@ -18,7 +18,8 @@ trigger() { # name, cron, job
 }
 
 for job in lhzn-blue-live lhzn-blue-latest lhzn-blue-history lhzn-blue-fields lhzn-blue-snapshot lhzn-blue-forecast lhzn-blue-panels \
-  lhzn-blue-region-live lhzn-blue-region-daily lhzn-blue-region-wind; do
+  lhzn-blue-region-live lhzn-blue-region-daily lhzn-blue-region-wind lhzn-blue-shelf; do
+  gcloud run jobs describe "$job" --project "$GCP_PROJECT" --region "$GCP_REGION" >/dev/null 2>&1 || continue  # shelf: only with R2
   gcloud run jobs add-iam-policy-binding "$job" --project "$GCP_PROJECT" --region "$GCP_REGION" \
     --member "serviceAccount:$SCHEDULER_SA" --role roles/run.invoker >/dev/null
 done
@@ -45,3 +46,7 @@ trigger lhzn-blue-panels "*/10 * * * *" lhzn-blue-panels
 trigger lhzn-blue-region-live "25 * * * *" lhzn-blue-region-live
 trigger lhzn-blue-region-daily "45 8 * * *" lhzn-blue-region-daily
 trigger lhzn-blue-region-wind "10 */3 * * *" lhzn-blue-region-wind
+# The Northeast U.S. Shelf's currents to the R2 tile store, daily after the fields (both models' morning runs are up).
+if gcloud run jobs describe lhzn-blue-shelf --project "$GCP_PROJECT" --region "$GCP_REGION" >/dev/null 2>&1; then
+  trigger lhzn-blue-shelf "50 8 * * *" lhzn-blue-shelf
+fi

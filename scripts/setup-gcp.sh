@@ -69,4 +69,18 @@ cat > "$LIFECYCLE" <<JSON
 JSON
 gcloud storage buckets update "gs://$SNAP_BUCKET" "${P[@]}" --lifecycle-file "$LIFECYCLE" >/dev/null
 rm -f "$LIFECYCLE"
+# The R2 keys for the `shelf` job's tiles (TILES_R2_ACCESS_KEY_ID, TILES_R2_SECRET_ACCESS_KEY in the env file): copied into
+# Secret Manager as new versions when they differ, never printed.
+put_secret() { # secret name, value
+  gcloud secrets describe "$1" "${P[@]}" >/dev/null 2>&1 || gcloud secrets create "$1" "${P[@]}" --replication-policy automatic >/dev/null
+  if [ "$(gcloud secrets versions access latest --secret "$1" "${P[@]}" 2>/dev/null)" != "$2" ]; then
+    printf '%s' "$2" | gcloud secrets versions add "$1" --data-file=- "${P[@]}" >/dev/null
+  fi
+  gcloud secrets add-iam-policy-binding "$1" "${P[@]}"     --member "serviceAccount:$JOB_SA" --role roles/secretmanager.secretAccessor >/dev/null
+}
+if [ -n "${TILES_R2_ACCESS_KEY_ID:-}" ] && [ -n "${TILES_R2_SECRET_ACCESS_KEY:-}" ]; then
+  put_secret lhzn-blue-r2-key-id "$TILES_R2_ACCESS_KEY_ID"
+  put_secret lhzn-blue-r2-secret "$TILES_R2_SECRET_ACCESS_KEY"
+  echo "R2 keys in Secret Manager"
+fi
 echo "setup complete: $JOB_SA, secret $CF_TOKEN_SECRET, snapshots in $SNAPSHOT_STORE"

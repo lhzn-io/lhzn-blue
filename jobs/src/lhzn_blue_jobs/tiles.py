@@ -32,6 +32,7 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 MAGIC = b"LHZT"
+VALUES_MAGIC = b"LHZS"  # value-only blobs: scalar fields for the elements of the currents blob with the same key
 BASE_ZOOM = 8
 MAX_ZOOM = 13
 MAX_TILE_ELEMENTS = 6000
@@ -127,6 +128,42 @@ def decode(blob: bytes) -> dict:
     q = np.frombuffer(raw, np.int8, h["steps"] * 2 * h["elements"], off).reshape(h["steps"], 2, h["elements"])
     k = h["step_cms"] / 100.0
     return {**h, "node_xy": nodes, "elements_ix": elements, "levels": levels, "u": q[:, 0] * k, "v": q[:, 1] * k}
+
+
+def encode_values(fields: dict[str, np.ndarray]) -> bytes:
+    """Scalar fields (name -> (steps, m)) for the m elements of a currents blob, in its order, without geometry: gzip
+    of "LHZS", a uint32 header length, a JSON header {elements, steps, fields: [{name, offset, scale}]}, then per
+    field one uint8 per step and element, value = offset + q * scale, 255 where there is none (NaN). Each field's
+    offset and scale span its own range in this blob, so a tile keeps fine steps."""
+    arrays = {k: np.asarray(a, dtype=np.float64) for k, a in fields.items()}
+    steps, m = next(iter(arrays.values())).shape
+    meta, body = [], []
+    for name, a in arrays.items():
+        ok = np.isfinite(a)
+        lo = float(a[ok].min()) if ok.any() else 0.0
+        hi = float(a[ok].max()) if ok.any() else 0.0
+        scale = (hi - lo) / 254.0 if hi > lo else 1.0
+        q = np.clip(np.round((np.where(ok, a, lo) - lo) / scale), 0, 254)
+        meta.append({"name": name, "offset": lo, "scale": scale})
+        body.append(np.where(ok, q, 255).astype(np.uint8).tobytes())
+    head = json.dumps({"elements": int(m), "steps": int(steps), "fields": meta}, separators=(",", ":")).encode()
+    return gzip.compress(VALUES_MAGIC + struct.pack("<I", len(head)) + head + b"".join(body), compresslevel=9, mtime=0)
+
+
+def decode_values(blob: bytes) -> dict:
+    """A value blob back to arrays (NaN where there is none), for tests and checks."""
+    raw = gzip.decompress(blob)
+    if raw[:4] != VALUES_MAGIC:
+        raise ValueError("not a value blob")
+    (n,) = struct.unpack("<I", raw[4:8])
+    h = json.loads(raw[8 : 8 + n])
+    off, out = 8 + n, {}
+    size = h["steps"] * h["elements"]
+    for f in h["fields"]:
+        q = np.frombuffer(raw, np.uint8, size, off).reshape(h["steps"], h["elements"])
+        off += size
+        out[f["name"]] = np.where(q == 255, np.nan, f["offset"] + q * f["scale"])
+    return {**h, **out}
 
 
 def subset(nodes: np.ndarray, elements: np.ndarray, members: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

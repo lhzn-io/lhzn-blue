@@ -66,6 +66,7 @@ interface Model {
   wide_cells?: number;
   tiles?: Record<string, [number, number, number]>; // offset, length, elements
   depths?: Record<string, Partial<Model>>; // the same model at a fixed depth (m): its own files and counts
+  ts?: { wide: string; pack?: string; tiles?: Record<string, [number, number, number]> }; // temperature and salinity
 }
 type Models = Partial<Record<Id, Model>>;
 interface Latest {
@@ -97,6 +98,14 @@ interface Source {
   models: Models;
   wide: Record<string, Cells | null>; // "<model>@<depth>"
   loading: Record<number, Promise<void>>; // by depth
+  vals: Record<string, Vals | null>; // temperature and salinity for the wide files, "<model>@<depth>"
+  vloading: Record<number, Promise<void>>;
+}
+/** A value blob: scalar fields for the elements of the currents blob with the same key, in its order. */
+interface Vals {
+  m: number;
+  steps: number;
+  f: Record<string, { q: Uint8Array; offset: number; scale: number }>; // q: per step, m values; 255 is none
 }
 type Frame = { t: number; s: number }; // epoch seconds, and the source that holds it
 
@@ -140,6 +149,34 @@ function parse(raw: Uint8Array): Cells {
   return { m: h.elements, verts: h.verts, nodes, elems, levels, cx, cy, steps: h.steps, k: h.step_cms, q };
 }
 
+function parseValues(raw: Uint8Array): Vals {
+  if (String.fromCharCode(...raw.subarray(0, 4)) !== "LHZS") throw new Error("not a value blob");
+  const n = new DataView(raw.buffer, raw.byteOffset).getUint32(4, true);
+  const h = JSON.parse(new TextDecoder().decode(raw.subarray(8, 8 + n))) as { elements: number; steps: number; fields: { name: string; offset: number; scale: number }[] };
+  let off = raw.byteOffset + 8 + n;
+  const size = h.elements * h.steps;
+  const f: Vals["f"] = {};
+  for (const x of h.fields) {
+    f[x.name] = { q: new Uint8Array(raw.buffer.slice(off, off + size)), offset: x.offset, scale: x.scale };
+    off += size;
+  }
+  return { m: h.elements, steps: h.steps, f };
+}
+
+async function loadWholeValues(path: string): Promise<Vals> {
+  const r = await fetch(TILES + path);
+  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  return parseValues(await gunzip(await r.arrayBuffer()));
+}
+
+async function loadRange(pack: string, off: number, len: number): Promise<Uint8Array> {
+  const r = await fetch(TILES + pack, { headers: { Range: `bytes=${off}-${off + len - 1}` } });
+  if (!r.ok) throw new Error(`tile: HTTP ${r.status}`);
+  let buf = await r.arrayBuffer();
+  if (r.status === 200) buf = buf.slice(off, off + len); // a server that ignored the range sent the whole pack
+  return gunzip(buf);
+}
+
 async function loadWhole(path: string): Promise<Cells> {
   const r = await fetch(TILES + path);
   if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
@@ -147,11 +184,7 @@ async function loadWhole(path: string): Promise<Cells> {
 }
 
 async function loadTile(pack: string, off: number, len: number): Promise<Cells> {
-  const r = await fetch(TILES + pack, { headers: { Range: `bytes=${off}-${off + len - 1}` } });
-  if (!r.ok) throw new Error(`tile: HTTP ${r.status}`);
-  let buf = await r.arrayBuffer();
-  if (r.status === 200) buf = buf.slice(off, off + len); // a server that ignored the range sent the whole pack
-  return parse(await gunzip(buf));
+  return parse(await loadRange(pack, off, len));
 }
 
 async function getJson<T>(path: string, init?: RequestInit): Promise<T | null> {
@@ -165,6 +198,10 @@ async function getJson<T>(path: string, init?: RequestInit): Promise<T | null> {
 
 const DEPTHS = [0, 10, 25, 50, 100, 200, 500]; // m below the surface; 0 is the top layer
 let depth = 0;
+type Field = "currents" | "temp" | "salt";
+const FIELDS: Field[] = ["currents", "temp", "salt"];
+let field: Field = "currents";
+const FIELD_NAME: Record<Field, string> = { currents: "current", temp: "temperature", salt: "salinity" };
 const wideKey = (id: Id) => `${id}@${depth}`;
 
 /** A source's model at the chosen depth: the surface entry, or its depth entry over it (none if not made). */
@@ -172,7 +209,24 @@ function modelAt(src: Source | null, id: Id): Model | undefined {
   const m = src?.models[id];
   if (!m || depth === 0) return m;
   const e = m.depths?.[String(depth)];
-  return e ? ({ ...m, ...e } as Model) : undefined;
+  return e ? ({ ...m, ...e, ts: e.ts } as Model) : undefined; // never the surface's values at a depth
+}
+
+/** A source's temperature and salinity for its wide files at the chosen depth, fetched once. */
+function ensureVals(src: Source): Promise<void> {
+  const d = depth;
+  src.vloading[d] ??= Promise.all(
+    (["necofs", "doppio"] as Id[]).map(async (id) => {
+      const w = modelAt(src, id)?.ts?.wide;
+      const key = `${id}@${d}`;
+      try {
+        src.vals[key] = w ? await loadWholeValues(w) : null;
+      } catch {
+        src.vals[key] = null;
+      }
+    }),
+  ).then(() => undefined);
+  return src.vloading[d];
 }
 
 /** A source's two whole files at the chosen depth (DOPPIO's grid, NECOFS's averaged view), fetched once. */
@@ -244,6 +298,18 @@ function speedColor(ms: number): string {
   return ramp[ramp.length - 1][1];
 }
 
+/** Temperature and salinity on fixed scales: colors after cmocean's thermal and haline (Thyng et al. 2016). */
+const SCALAR_RAMPS = {
+  temp: { lo: 0, hi: 30, stops: ["#042333", "#2c3395", "#744992", "#b15f82", "#eb7655", "#fbb43d", "#e8fa5b"] },
+  salt: { lo: 29, hi: 37, stops: ["#2a186c", "#14439c", "#206e8b", "#3c9387", "#5ab978", "#aad85c", "#fdef9a"] },
+};
+function scalarColor(f: "temp" | "salt", x: number): string {
+  const r = SCALAR_RAMPS[f];
+  const t = Math.max(0, Math.min(1, (x - r.lo) / (r.hi - r.lo))) * (r.stops.length - 1);
+  const k = Math.min(r.stops.length - 2, Math.floor(t));
+  return mix(r.stops[k], r.stops[k + 1], t - k);
+}
+
 // ---------- Formatting ----------
 
 const fmtEastern = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric" });
@@ -280,10 +346,11 @@ interface Panel {
 }
 type Period = { kind: "forecast" } | { kind: "days"; from: string; to: string };
 /** What each map draws, the same on both: the currents (cells by speed, arrows), the cell outlines, the depth lines. */
-type Layer = "currents" | "grid" | "depth";
-const LAYERS: Layer[] = ["currents", "grid", "depth"];
+type Layer = "color" | "arrows" | "grid" | "depth";
+const LAYERS: Layer[] = ["color", "arrows", "grid", "depth"];
 const LAYER_IDS: Record<Layer, string[]> = {
-  currents: ["cells", "arrows"],
+  color: ["cells"],
+  arrows: ["arrows"],
   grid: ["cell-lines"],
   depth: ["isobaths", "isobaths-50", "isobath-labels"],
 };
@@ -304,20 +371,24 @@ let tooMany = false; // zoomed in, but more NECOFS cells in view than the page d
 let inViewKeys: string[] = [];
 let doppioInView = -1;
 let shown = new Set<Layer>(LAYERS);
-const tileCache = new Map<string, Cells>(); // "<source>|<tile>"
+const tileCache = new Map<string, Cells>(); // "<source>|<depth>|<tile>"
+const valCache = new Map<string, Vals>(); // the same keys, for temperature and salinity
 const pending = new Map<string, Promise<void>>();
 
 const cur = (): Source | null => (frames.length && frame >= 0 ? sources[frames[frame].s] : null);
 const tileKey = (src: Source, key: string) => `${src.key}|${depth}|${key}`;
 
-/** The blobs a panel draws now. */
-function drawn(p: Panel): Cells[] {
+/** The blobs a panel draws now, each with its temperature and salinity when they are loaded. */
+function drawn(p: Panel): { c: Cells; v: Vals | null }[] {
   const src = cur();
   if (!src) return [];
   const wide = src.wide[wideKey(p.id)];
-  if (p.id === "doppio" || lod === "wide") return wide ? [wide] : [];
-  const loaded = inViewKeys.map((k) => tileCache.get(tileKey(src, k))).filter((c): c is Cells => !!c);
-  return loaded.length ? loaded : wide ? [wide] : [];
+  const whole = wide ? [{ c: wide, v: src.vals[wideKey(p.id)] ?? null }] : [];
+  if (p.id === "doppio" || lod === "wide") return whole;
+  const loaded = inViewKeys
+    .map((k) => ({ c: tileCache.get(tileKey(src, k)), v: valCache.get(tileKey(src, k)) ?? null }))
+    .filter((x): x is { c: Cells; v: Vals | null } => !!x.c);
+  return loaded.length ? loaded : whole;
 }
 const nativeNow = (p: Panel) => {
   const src = cur();
@@ -338,10 +409,18 @@ function features(p: Panel): { cells: FeatureCollection; arrows: FeatureCollecti
   if (j < 0) return { cells: EMPTY, arrows: EMPTY };
   const cells: Feature[] = [];
   const arrows: Feature[] = [];
-  for (const c of drawn(p)) {
+  for (const { c, v: vals } of drawn(p)) {
     if (j >= c.steps) continue;
+    const vf = field !== "currents" && vals && vals.m === c.m && j < vals.steps ? vals.f[field] : undefined;
+    if (field !== "currents" && !vf) continue; // no values for this blob (yet): nothing drawn rather than currents
     const base = j * 2 * c.m;
     for (let i = 0; i < c.m; i++) {
+      let x: number | null = null;
+      if (vf) {
+        const q = vf.q[j * c.m + i];
+        if (q === 255) continue;
+        x = vf.offset + q * vf.scale;
+      }
       const u = c.q[base + i] * c.k;
       const v = c.q[base + c.m + i] * c.k;
       const ms = Math.hypot(u, v) / 100;
@@ -352,7 +431,8 @@ function features(p: Panel): { cells: FeatureCollection; arrows: FeatureCollecti
       }
       ring.push(ring[0]);
       const dir = ((Math.atan2(u, v) * 180) / Math.PI + 360) % 360;
-      cells.push({ type: "Feature", properties: { c: speedColor(ms), s: ms, d: dir }, geometry: { type: "Polygon", coordinates: [ring] } });
+      const color = x === null ? speedColor(ms) : scalarColor(field as "temp" | "salt", x);
+      cells.push({ type: "Feature", properties: { c: color, s: ms, d: dir, x }, geometry: { type: "Polygon", coordinates: [ring] } });
       if (ms >= 0.03)
         arrows.push({
           type: "Feature",
@@ -386,6 +466,7 @@ interface Wanted {
   bbox: [number, number, number, number] | null;
   layers: Set<Layer> | null;
   depth: number;
+  field: Field;
 }
 function readUrl(): Wanted {
   const q = new URLSearchParams(location.search);
@@ -398,7 +479,8 @@ function readUrl(): Wanted {
   const ls = q.get("layers");
   const layers = ls === null ? null : new Set(ls.split(",").filter((x): x is Layer => (LAYERS as string[]).includes(x)));
   const dq = Number(q.get("depth"));
-  return { period: days ? { kind: "days", from, to } : null, t, bbox, layers, depth: DEPTHS.includes(dq) ? dq : 0 };
+  const fq = q.get("field") as Field | null;
+  return { period: days ? { kind: "days", from, to } : null, t, bbox, layers, depth: DEPTHS.includes(dq) ? dq : 0, field: fq && FIELDS.includes(fq) ? fq : "currents" };
 }
 
 let userTime = false; // the reader chose the hour: it goes to the address bar
@@ -412,6 +494,7 @@ function writeUrl(): void {
   if (shownBox) q.set("bbox", shownBox);
   if (shown.size < LAYERS.length) q.set("layers", LAYERS.filter((l) => shown.has(l)).join(","));
   if (depth) q.set("depth", String(depth));
+  if (field !== "currents") q.set("field", field);
   const s = q.toString().replace(/%2C/g, ",");
   const url = `${location.pathname}${s ? `?${s}` : ""}${location.hash}`;
   if (url !== location.pathname + location.search + location.hash) history.replaceState(null, "", url);
@@ -519,6 +602,22 @@ function applyLayers(map: maplibregl.Map): void {
     for (const id of LAYER_IDS[l]) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", shown.has(l) ? "visible" : "none");
 }
 
+/** The field menu: currents, temperature or salinity, from the same depth and hour. */
+function wireField(): void {
+  const sel = $("field") as HTMLSelectElement;
+  sel.value = field;
+  sel.addEventListener("change", async () => {
+    field = sel.value as Field;
+    legend();
+    writeUrl();
+    if (!frames.length) return;
+    const k = frame;
+    frame = -1;
+    inViewKeys = [];
+    await setFrame(k);
+  });
+}
+
 /** The depth menu: redraw both maps from that depth's files, at the same hour and view. */
 function wireDepth(): void {
   const sel = $("depth") as HTMLSelectElement;
@@ -539,7 +638,7 @@ function wireLayers(): void {
   const boxes = [...document.querySelectorAll<HTMLInputElement>("#layers input[type=checkbox]")];
   const show = () => {
     for (const b of boxes) b.checked = shown.has(b.value as Layer);
-    $("key").classList.toggle("sh-off", !shown.has("currents")); // the speed key, faint while the currents are off
+    $("key").classList.toggle("sh-off", !shown.has("color")); // the key, faint while the colors are off
   };
   show();
   for (const b of boxes)
@@ -625,7 +724,7 @@ let valuesAt: maplibregl.LngLat | null = null;
 /** The cell under one point, on both maps: speed and the direction it flows toward, from the drawn cells. */
 function showValues(at: maplibregl.LngLat): void {
   valuesAt = at;
-  if (!shown.has("currents")) return hideValues();
+  if (!shown.has("color")) return hideValues();
   const where = depth ? `at ${depth} m` : "surface";
   for (const p of panels) {
     const map = p.map;
@@ -636,7 +735,10 @@ function showValues(at: maplibregl.LngLat): void {
       const ms = Number(f.properties.s);
       const d = Number(f.properties.d);
       const avg = p.id === "necofs" && !nativeNow(p) ? "; averaged to DOPPIO cell" : "";
-      body = `<b>${(ms * MS_TO_KT).toFixed(2)} kt</b> (${ms.toFixed(2)} m/s)<br>toward ${Math.round(d)}&deg; ${COMPASS[Math.round(d / 22.5) % 16]}, ${where}${avg}`;
+      const x = f.properties.x === null || f.properties.x === undefined ? null : Number(f.properties.x);
+      const flow = `${(ms * MS_TO_KT).toFixed(2)} kt (${ms.toFixed(2)} m/s) toward ${Math.round(d)}&deg; ${COMPASS[Math.round(d / 22.5) % 16]}`;
+      const head = x === null ? "" : field === "temp" ? `<b>${x.toFixed(1)} &deg;C</b><br>` : `<b>salinity ${x.toFixed(2)}</b><br>`;
+      body = x === null ? `<b>${flow.replace(" kt", " kt</b>")}<br>${where}${avg}` : `${head}${flow}, ${where}${avg}`;
     } else body = stepOf(p) < 0 ? "no data for this hour" : `no cell here ${where}`;
     p.popup ??= new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "pin-pop hover-pop sh-val", offset: 12, maxWidth: "none" });
     p.popup.setLngLat(at).setHTML(`<span class="sh-val-model">${p.label}</span> ${body}`).addTo(map);
@@ -712,7 +814,7 @@ async function updateLod(): Promise<void> {
   drawPanel(p); // cheap next to a move, and a change of source always needs it
   if (lod !== "native") return;
   const missing = keys.filter((k) => !tileCache.has(tileKey(src, k)));
-  if (!missing.length) return;
+  if (!missing.length) return loadValueTiles(p, src, keys, run);
   let i = 0;
   const worker = async () => {
     while (i < missing.length && run === lodRun) {
@@ -733,6 +835,28 @@ async function updateLod(): Promise<void> {
   };
   await Promise.all(Array.from({ length: FETCHES }, worker));
   if (run === lodRun && cur() === src) drawPanel(p);
+  await loadValueTiles(p, src, keys, run);
+}
+
+/** Temperature and salinity for the NECOFS tiles in view, when one of them is the field shown. */
+async function loadValueTiles(p: Panel, src: Source, keys: string[], run: number): Promise<void> {
+  const ts = modelAt(src, "necofs")?.ts;
+  if (field === "currents" || !ts?.pack || !ts.tiles) return;
+  const missing = keys.filter((k) => ts.tiles![k] && !valCache.has(tileKey(src, k)));
+  let i = 0;
+  const worker = async () => {
+    while (i < missing.length && run === lodRun) {
+      const key = missing[i++];
+      const [off, len] = ts.tiles![key];
+      try {
+        valCache.set(tileKey(src, key), parseValues(await loadRange(ts.pack!, off, len)));
+      } catch {
+        /* drawn without colors there; the next move tries again */
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: FETCHES }, worker));
+  if (run === lodRun && cur() === src) drawPanel(p);
 }
 
 // ---------- Frames ----------
@@ -744,6 +868,7 @@ function caption(p: Panel): string {
   let sub: string;
   if (!src) sub = "no data";
   else if (!m) sub = depth ? `no data at ${depth} m for this ${period.kind === "days" ? "day" : "run"}` : "no data for this period";
+  else if (field !== "currents" && !m.ts) sub = `no ${FIELD_NAME[field]} for this ${period.kind === "days" ? "day" : "run"}${depth ? ` at ${depth} m` : ""}`;
   else if (stepOf(p) < 0) {
     const end = Date.parse(m.t0) / 1000 + (m.steps - 1) * m.step;
     sub = period.kind === "forecast" && frames[frame].t > end ? `forecast ends ${eastern(new Date(end * 1000))}` : "no data for this hour";
@@ -780,13 +905,14 @@ async function setFrame(i: number): Promise<void> {
   const src = cur()!;
   const run = ++frameRun;
   await ensureWide(src);
+  if (field !== "currents") await ensureVals(src);
   if (run !== frameRun) return; // a later step won
   if (src !== before) {
     countDoppio();
     void updateLod();
     // The next day's files while this one shows, so playing across midnight does not stall.
     const next = sources[sources.indexOf(src) + 1];
-    if (next) void ensureWide(next);
+    if (next) void ensureWide(next).then(() => (field !== "currents" ? ensureVals(next) : undefined));
   }
   for (const p of panels) drawPanel(p);
 }
@@ -816,7 +942,7 @@ async function loadPeriod(p: Period): Promise<{ sources: Source[]; frames: Frame
     const ms = Object.values(latest?.models ?? {}).filter((m): m is Model => !!m);
     const longest = ms.sort((a, b) => b.steps - a.steps)[0];
     if (!latest || !longest) return out;
-    out.sources.push({ key: longest.run, models: latest.models, wide: {}, loading: {} });
+    out.sources.push({ key: longest.run, models: latest.models, wide: {}, loading: {}, vals: {}, vloading: {} });
     const t0 = Date.parse(longest.t0) / 1000;
     for (let k = 0; k < longest.steps; k++) out.frames.push({ t: t0 + k * longest.step, s: 0 });
     return out;
@@ -827,7 +953,7 @@ async function loadPeriod(p: Period): Promise<{ sources: Source[]; frames: Frame
   idx.forEach((e, i) => {
     if (!e || !Object.keys(e.models).length) return;
     const s = out.sources.length;
-    out.sources.push({ key: `days/${days[i]}`, models: e.models, wide: {}, loading: {} });
+    out.sources.push({ key: `days/${days[i]}`, models: e.models, wide: {}, loading: {}, vals: {}, vloading: {} });
     const t0 = dayMs(days[i]) / 1000;
     for (let h = 0; h < 24; h++) out.frames.push({ t: t0 + h * 3600, s });
   });
@@ -919,6 +1045,14 @@ function wirePeriod(): void {
 
 function legend(): void {
   const steps = [0.05, 0.1, 0.25, 0.5, 1, 1.5, 2, 3]; // kt
+  if (field !== "currents") {
+    const r = SCALAR_RAMPS[field];
+    const steps = field === "temp" ? [0, 5, 10, 15, 20, 25, 30] : [29, 31, 33, 35, 37];
+    $("key").innerHTML =
+      `<span>${depth ? `${FIELD_NAME[field]} at ${depth} m` : `surface ${FIELD_NAME[field]}`}${field === "temp" ? ", &deg;C" : ""}:</span>` +
+      steps.map((v) => `<span><i class="sq" style="background:${scalarColor(field as "temp" | "salt", v)}"></i>${v === r.hi ? `${v}+` : v}</span>`).join("");
+    return;
+  }
   $("key").innerHTML =
     `<span>${depth ? `current at ${depth} m` : "surface current"}, kt:</span>` + steps.map((v) => `<span><i class="sq" style="background:${speedColor(v / MS_TO_KT)}"></i>${v}</span>`).join("");
 }
@@ -978,6 +1112,8 @@ async function main(): Promise<void> {
   wireLayers();
   depth = want.depth;
   wireDepth();
+  field = want.field;
+  wireField();
   legend(); // the key names the depth
   const [l, d, ...isos] = await Promise.all([
     getJson<Latest>("latest.json", { cache: "no-cache" }),

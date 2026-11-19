@@ -1233,6 +1233,13 @@ body.embed .embed-credit a { color: inherit; text-underline-offset: 2px; }
 .pick-band .tab, .pick-band .place-menu > summary { padding: 0 0 2px; border: 0; border-bottom: 1px solid transparent; border-radius: 0; background: none;
   font: 600 10.5px/1.4 var(--sans); letter-spacing: 0.18em; color: var(--dim); }
 .pick-band .tab:hover { color: var(--ink); }
+/* The Sound's link to its currents in 3D: outlined, so it reads as a way to another view rather than a tab. */
+.pb-3d { margin: 0; }
+.pb-3d-link {
+  display: inline-block; padding: 5px 12px; border: 1px solid var(--accent-line); border-radius: 3px; text-decoration: none;
+  font: 600 10.5px/1.4 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent);
+}
+.pb-3d-link:hover, .pb-3d-link:focus-visible { border-color: var(--accent); color: var(--accent-hi); outline: none; }
 .pick-band a.place[aria-current="page"], .pick-band .place-menu > summary.current, .pick-band .tab[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 .topbar .place-pick { display: none; }
 html.sel-compact .topbar > * { order: 2; }

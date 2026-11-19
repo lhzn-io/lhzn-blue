@@ -73,12 +73,10 @@ def test_averaged_is_area_weighted_and_marks_held_cells():
     np.testing.assert_allclose(av[0, [0, 2]], [0.75, 0.0])
 
 
-def test_two_hourly_keeps_each_step_once():
+def test_step_index_keeps_each_step_once():
     start = pd.Timestamp("2026-11-18 00:00")
     times = pd.DatetimeIndex([start + pd.Timedelta(hours=h) for h in [0, 1, 2, 2, 3, 4]])
-    u = np.arange(6.0)[:, None]
-    t, uu, _ = shelf._two_hourly(times, u, u, start)
-    assert [x.hour for x in t] == [0, 2, 4] and uu[:, 0].tolist() == [0, 2, 5]  # the second 02:00 dropped
+    assert shelf._step_index(times, start, 2) == [0, 2, 5]  # the second 02:00 dropped
 
 
 def _fake_reads(monkeypatch, fail_doppio=False):
@@ -96,7 +94,8 @@ def _fake_reads(monkeypatch, fail_doppio=False):
         times = hourly if every == 1 else times2
         steps = times.size
         h = 40.0 + 2000.0 * (lon + 70)  # deepening eastward: 40 m to about 1,000 m
-        return lon, lat, wet, times, np.full((steps, n), 0.2), np.full((steps, n), -0.1), "https://example/doppio", h
+        scal = {"temp": np.full((steps, n), 12.0), "salt": np.full((steps, n), 32.5)}
+        return lon, lat, wet, times, np.full((steps, n), 0.2), np.full((steps, n), -0.1), "https://example/doppio", h, scal
 
     def necofs_read(glon, glat, gwet, end, deadline, start=None, hours=None, every=2):
         cx, cy = glon[gwet], glat[gwet]
@@ -113,7 +112,8 @@ def _fake_reads(monkeypatch, fail_doppio=False):
         u = np.tile(np.r_[[0.4, 0.0] * (m // 2)], (steps, 1))
         nodes = np.array(nodes)
         h = 40.0 + 2000.0 * (nodes[:, 0] + 70)
-        return nodes, np.array(tri), np.array(centers), np.array(cells), times, u, np.zeros((steps, m)), "https://example/necofs", h
+        scal = {"temp": np.tile(np.linspace(8, 20, m), (steps, 1)), "salt": np.full((steps, m), 33.0)}
+        return nodes, np.array(tri), np.array(centers), np.array(cells), times, u, np.zeros((steps, m)), "https://example/necofs", h, scal
 
     def doppio_depths(start, hours, every, deadline):
         if fail_doppio:
@@ -121,14 +121,18 @@ def _fake_reads(monkeypatch, fail_doppio=False):
         times = hourly if every == 1 else times2
         n = int(wet.sum())
         h = (40.0 + 2000.0 * (lon + 70))[wet]
-        z = {d: (np.full((times.size, n), 0.1, np.float32), np.full((times.size, n), 0.05, np.float32)) for d in shelf.DEPTHS}
-        return times, z, {d: h > d for d in shelf.DEPTHS}
+        deeper = {d: h > d for d in shelf.DEPTHS}
+        z = {d: (np.full((times.size, int(k.sum())), 0.1, np.float32), np.full((times.size, int(k.sum())), 0.05, np.float32)) for d, k in deeper.items()}
+        zs = {d: {"temp": np.full((times.size, int(k.sum())), 9.0), "salt": np.full((times.size, int(k.sum())), 34.0)} for d, k in deeper.items()}
+        return times, z, deeper, zs
 
     def necofs_depths(glon, glat, gwet, start, hours, every, deadline):
-        nodes, tri, centers, cells, times, u, v, _, h = necofs_read(glon, glat, gwet, None, deadline, start, hours, every)
+        nodes, tri, centers, cells, times, u, v, _, h, scal = necofs_read(glon, glat, gwet, None, deadline, start, hours, every)
         h_e = h[tri].mean(axis=1)
-        z = {d: (u.astype(np.float32) / 2, v.astype(np.float32)) for d in shelf.DEPTHS}
-        return nodes, tri, centers, cells, times, z, {d: h_e > d for d in shelf.DEPTHS}
+        deeper = {d: h_e > d for d in shelf.DEPTHS}
+        z = {d: (u[:, k].astype(np.float32) / 2, v[:, k].astype(np.float32)) for d, k in deeper.items()}
+        zs = {d: {"temp": scal["temp"][:, k] - d / 100, "salt": scal["salt"][:, k]} for d, k in deeper.items()}
+        return nodes, tri, centers, cells, times, z, deeper, zs
 
     monkeypatch.setattr(shelf, "doppio_read", doppio_read)
     monkeypatch.setattr(shelf, "necofs_read", necofs_read)
@@ -347,3 +351,63 @@ def test_backfill_with_depths_adds_them_to_days_held_at_the_surface(tmp_path, mo
     assert json.loads(ts.get(f"{shelf.BASE}/days.json"))["days"] == {"2022-08-11": True, "2022-08-12": True}
     with pytest.raises(ValueError):
         shelf.backfill(store, "2022-08-01", "2022-08-31", ts, depths=True)
+
+
+def test_value_blobs_round_trip_with_gaps():
+    a = np.array([[10.0, 12.5, np.nan], [11.0, 13.0, 14.0]])
+    b = np.array([[30.0, 30.0, 30.0], [31.0, np.nan, 32.0]])
+    d = tiles.decode_values(tiles.encode_values({"temp": a, "salt": b}))
+    assert d["elements"] == 3 and d["steps"] == 2
+    assert np.isnan(d["temp"][0, 2]) and np.isnan(d["salt"][1, 1])
+    ok = np.isfinite(a)
+    assert np.allclose(d["temp"][ok], a[ok], atol=(14 - 10) / 254 / 2 + 1e-9)
+    assert np.allclose(tiles.decode_values(tiles.encode_values({"c": np.full((1, 2), 5.0)}))["c"], 5.0)
+
+
+def test_temperature_and_salinity_follow_the_currents_files(tmp_path, monkeypatch):
+    _fake_reads(monkeypatch)
+    ts = tiles.TileStore(str(tmp_path / "tiles"))
+    shelf.publish(Store(str(tmp_path / "out")), pd.Timestamp("2026-11-18 13:50", tz="UTC"), ts)
+    latest = json.loads(ts.get(f"{shelf.BASE}/latest.json"))
+    nec, dop = latest["models"]["necofs"], latest["models"]["doppio"]
+    # The value tiles have the currents tiles' keys and element counts, so the page pairs them.
+    assert {k: v[2] for k, v in nec["ts"]["tiles"].items()} == {k: v[2] for k, v in nec["tiles"].items()}
+    wide = tiles.decode(ts.get(f"{shelf.BASE}/{nec['wide']}"))
+    vwide = tiles.decode_values(ts.get(f"{shelf.BASE}/{nec['ts']['wide']}"))
+    assert vwide["elements"] == wide["elements"] and 8 - 0.1 <= np.nanmin(vwide["temp"]) <= np.nanmax(vwide["temp"]) <= 20 + 0.1
+    d = tiles.decode_values(ts.get(f"{shelf.BASE}/{dop['ts']['wide']}"))
+    assert np.allclose(d["temp"], 12.0) and np.allclose(d["salt"], 32.5)
+    at50 = nec["depths"]["50"]
+    assert {k: v[2] for k, v in at50["ts"]["tiles"].items()} == {k: v[2] for k, v in at50["tiles"].items()}
+    assert ts.get(f"{shelf.BASE}/{dop['depths']['200']['ts']['wide']}") is not None
+    day = json.loads(ts.get(f"{shelf.BASE}/days/2026-11-17/index.json"))
+    assert "ts" in day["models"]["necofs"] and "ts" in day["models"]["necofs"]["depths"]["10"]
+
+
+def test_interp_carries_any_field():
+    frac = np.tile(np.array([-0.25, -0.75])[:, None], (1, 1))
+    temp = np.array([[[20.0], [10.0]]])  # centers at 25 and 75 m in a 100 m column
+    z = shelf._interp({"temp": temp}, frac, np.array([[100.0]]), depths=(50, 150))
+    assert np.isclose(z[50]["temp"][0, 0], 15.0) and np.isnan(z[150]["temp"][0, 0])
+
+
+def test_a_failed_read_is_tried_again(monkeypatch):
+    monkeypatch.setattr(shelf, "READ_RETRY_S", 0)
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise TimeoutError("server timed out")
+        return "ds"
+
+    assert shelf._read_tries(flaky, "test") == "ds" and len(calls) == 3
+    calls.clear()
+
+    def down():
+        calls.append(1)
+        raise TimeoutError("server timed out")
+
+    with pytest.raises(TimeoutError):
+        shelf._read_tries(down, "test")
+    assert len(calls) == shelf.READ_TRIES

@@ -716,7 +716,8 @@ def archive_day(ts: tiles.TileStore, day, deadline: float, grid=None, depths: bo
         _depth_entries(models, grid, start, 24, 1, time.monotonic() + DAY_DEPTH_BUDGET_S, f"{rel}/", put, failed, f"archive {start:%Y-%m-%d}")
     entry = {"schema": SCHEMA, "day": f"{start:%Y-%m-%d}", "complete": complete, "base_zoom": tiles.BASE_ZOOM, "models": models}
     if models:
-        put("index.json", json.dumps(entry, separators=(",", ":")).encode())
+        # Five minutes, not a day: a day's index is rewritten when depths are added or a failed model is retried.
+        ts.put(f"{BASE}/{rel}/index.json", json.dumps(entry, separators=(",", ":")).encode(), LATEST_S, "application/json")
     return entry, failed
 
 

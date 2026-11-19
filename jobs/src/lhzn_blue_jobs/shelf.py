@@ -8,9 +8,10 @@ and the NECOFS elements whose centers lie in them (about 265,000). Only model fi
 Published to the tile store (tiles.py: an R2 bucket, served from its own host), under ``shelf/v1/``:
 
 - ``runs/<run>/doppio.bin``: DOPPIO's whole grid, one blob (about 19,500 cells). The page shows it at every zoom.
-- ``runs/<run>/necofs-wide.bin``: NECOFS averaged into DOPPIO's cells (area-weighted vector mean of the elements
-  whose centers each cell holds; where NECOFS's triangles are larger than the cells, offshore, the value of the
-  triangle holding the cell's center), for a wide view, where NECOFS's own cells are smaller than a screen pixel. The page
+- ``runs/<run>/necofs-wide.bin``: NECOFS at DOPPIO's resolution, for a wide view: where NECOFS's elements are
+  smaller than a DOPPIO cell, their area-weighted vector mean in each cell; where they are larger (offshore), the
+  elements themselves, and not the cells under them, so the view never looks finer than NECOFS is. Its elements are
+  DOPPIO quadrilaterals and NECOFS triangles (stored as four nodes, the last repeated); where NECOFS's own cells are smaller than a screen pixel. The page
   labels it as averaged.
 - ``runs/<run>/necofs.bin``: NECOFS on its own cells, cut into Web Mercator tiles (tiles.pyramid), the blobs one
   after another; the page fetches the tiles in view by range once zoomed in.
@@ -18,6 +19,10 @@ Published to the tile store (tiles.py: an R2 bucket, served from its own host), 
   elements per tile). Written last; a model that fails keeps its previous entry and files.
 - ``doppio-grid.npz``: DOPPIO's cell centers and water mask, so NECOFS can still be published on a day DOPPIO's
   server does not answer.
+- ``days/<YYYY-MM-DD>/``: the archive, one UTC day hourly (24 steps) per model, in the same files as a run
+  (``necofs.bin`` tiles, ``necofs-wide.bin``, ``doppio.bin``) with its own ``index.json``; ``days.json`` lists the
+  days kept. Each run archives the previous UTC day, and retries the ARCHIVE_LOOKBACK days before it that are missing
+  or incomplete (a model's server did not answer). Kept indefinitely.
 
 Each blob holds the 2-hourly forecast from 24 hours back to 72 hours ahead (DOPPIO's ends about 2 days ahead).
 """
@@ -45,8 +50,12 @@ STEP_HOURS = fields.CURRENT_STEP_HOURS
 READ_HOURS = 24  # hours per read: a whole window in one request can outlast the servers' timeouts
 TIME_BUDGET_S = 15 * 60  # the whole shelf step, inside the fields job's hour
 KEEP_RUNS = 3  # runs kept in the store (latest.json's runs always)
+ARCHIVE_LOOKBACK = 3  # days back that a run fills in when missing or incomplete
+DAY_S = 86400
 IMMUTABLE_S = 365 * 86400
 LATEST_S = 300
+CELL_KM2 = 49.0  # a DOPPIO cell (7 km): NECOFS elements larger than this are drawn as they are in the wide view
+KM_PER_DEG = 111.2
 NEAR_CELL_DEG = 0.06  # a NECOFS center belongs to the nearest DOPPIO water cell within this (cos-lat scaled degrees)
 NECOFS_SOURCE = "NECOFS/UMASSD (FVCOM GOM7, UMass Dartmouth SMAST)"
 DOPPIO_SOURCE = "DOPPIO ROMS, Rutgers University Ocean Modeling Group for MARACOOS"
@@ -61,9 +70,9 @@ def _pieces(start: pd.Timestamp, hours: int) -> list[tuple[pd.Timestamp, int]]:
     return [(start + pd.Timedelta(hours=h), min(READ_HOURS, hours - h)) for h in range(0, hours, READ_HOURS)]
 
 
-def _two_hourly(times: pd.DatetimeIndex, u: np.ndarray, v: np.ndarray, start: pd.Timestamp):
-    """Keep the hours on the window's 2-hour steps (from start), in order, without repeats."""
-    keep = [i for i, t in enumerate(times) if int((t - start) / pd.Timedelta(hours=1)) % STEP_HOURS == 0]
+def _two_hourly(times: pd.DatetimeIndex, u: np.ndarray, v: np.ndarray, start: pd.Timestamp, every: int = STEP_HOURS):
+    """Keep the hours on the window's steps of `every` hours (from start), in order, without repeats."""
+    keep = [i for i, t in enumerate(times) if int((t - start) / pd.Timedelta(hours=1)) % every == 0]
     keep = [i for k, i in enumerate(keep) if k == 0 or times[i] != times[keep[k - 1]]]
     return times[keep], u[keep], v[keep]
 
@@ -102,11 +111,13 @@ def _header(source: str, url: str | None, times: pd.DatetimeIndex, run: str) -> 
     }
 
 
-def doppio_read(end: datetime, deadline: float):
-    """DOPPIO's whole grid: centers, water mask, and the surface forecast at the water cells (steps, cells)."""
+def doppio_read(end: datetime | None, deadline: float, start: pd.Timestamp | None = None, hours: int | None = None, every: int = STEP_HOURS):
+    """DOPPIO's whole grid: centers, water mask, and the surface forecast at the water cells (steps, cells). The
+    window is the run's (from `end`) unless `start` and `hours` are given; steps every `every` hours."""
     from forcingkit.fetchers import doppio as fk
 
-    start, hours = window(end)
+    if start is None:
+        start, hours = window(end)
     parts = []
     for t0, n in _pieces(start, hours):
         if time.monotonic() > deadline:
@@ -127,7 +138,7 @@ def doppio_read(end: datetime, deadline: float):
     times = pd.DatetimeIndex(np.concatenate([p["time"].values for p in parts]))
     u = np.concatenate([p["u"].values[:, 0][:, wet] for p in parts])
     v = np.concatenate([p["v"].values[:, 0][:, wet] for p in parts])
-    times, u, v = _two_hourly(times, u, v, start)
+    times, u, v = _two_hourly(times, u, v, start, every)
     return lon, lat, wet, times, u, v, ds.attrs.get("url")
 
 
@@ -135,14 +146,15 @@ def _scaled(lon, lat) -> np.ndarray:
     return np.c_[np.asarray(lon) * np.cos(np.radians(40.0)), np.asarray(lat)]
 
 
-def necofs_read(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, end: datetime, deadline: float):
+def necofs_read(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, end: datetime | None, deadline: float, start: pd.Timestamp | None = None, hours: int | None = None, every: int = STEP_HOURS):
     """The NECOFS elements whose centers lie in DOPPIO's water cells, and their surface forecast (steps, elements).
     Returns the elements' nodes, triangles and centers, the DOPPIO water cell each belongs to, and the forecast."""
     from forcingkit.fetchers import doppio as dfk
     from forcingkit.fetchers import necofs as fk
     from scipy.spatial import cKDTree
 
-    start, hours = window(end)
+    if start is None:
+        start, hours = window(end)
     probe = fk.read_volume(list(dfk.DOMAIN_BBOX), start, 1, variables=["u"], layers=[0])
     dist, cell = cKDTree(_scaled(lon[wet], lat[wet])).query(_scaled(probe["lonc"].values, probe["latc"].values), distance_upper_bound=NEAR_CELL_DEG)
     inside = np.isfinite(dist)
@@ -159,7 +171,7 @@ def necofs_read(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, end: datetime
     times = pd.DatetimeIndex(np.concatenate([p["time"].values for p in parts]))
     u = np.concatenate([p["u"].values[:, 0, :] for p in parts])
     v = np.concatenate([p["v"].values[:, 0, :] for p in parts])
-    times, u, v = _two_hourly(times, u, v, start)
+    times, u, v = _two_hourly(times, u, v, start, every)
     nodes = np.stack([ds["node_lon"].values, ds["node_lat"].values], axis=1).astype(np.float64)
     tri = ds["triangles"].values.astype(np.int64)
     centers = np.stack([ds["lonc"].values, ds["latc"].values], axis=1).astype(np.float64)
@@ -184,19 +196,43 @@ def averaged(cells: np.ndarray, weights: np.ndarray, u: np.ndarray, v: np.ndarra
     return mean(u), mean(v), held
 
 
-def fill_coarse(nodes, tri, x, y, held, au, av, u, v) -> None:
-    """Where a cell holds no element center (NECOFS's offshore triangles are larger than DOPPIO's cells), the value of
-    the element that contains the cell's center, if any. In place."""
+def containing(nodes, tri, x, y) -> np.ndarray:
+    """The element containing each point, or -1 (outside the mesh, or a mesh the point finder will not take)."""
     from matplotlib.tri import Triangulation
 
-    miss = np.flatnonzero(~held)
-    if not miss.size:
-        return
-    e = Triangulation(nodes[:, 0], nodes[:, 1], tri).get_trifinder()(x[miss], y[miss])
-    ok = e >= 0
-    cells, elems = miss[ok], e[ok]
-    au[:, cells], av[:, cells] = u[:, elems], v[:, elems]
-    held[cells] = True
+    try:
+        return Triangulation(nodes[:, 0], nodes[:, 1], tri).get_trifinder()(x, y).astype(np.int64)
+    except Exception as exc:
+        log.warning("shelf necofs: point finder failed: %s", exc)
+        return np.full(np.asarray(x).shape, -1, dtype=np.int64)
+
+
+def wide_view(grid, nodes, tri, centers, cells, u, v):
+    """NECOFS at DOPPIO's resolution, never finer than NECOFS: elements larger than a DOPPIO cell are kept as they
+    are (and the cells whose centers they hold are left out); every other cell takes the area-weighted mean of the
+    smaller elements centered in it, or, holding none, the element containing its center. Returns nodes, four-node
+    elements (a triangle repeats its last node), centers, u and v (steps, elements)."""
+    lon, lat, wet = grid
+    n_wet = int(wet.sum())
+    km2 = areas(nodes, tri) * KM_PER_DEG**2
+    big = km2 > CELL_KM2
+    small = ~big
+    au, av, held = averaged(cells[small], km2[small], u[:, small], v[:, small], n_wet)
+    at = containing(nodes, tri, lon[wet], lat[wet])
+    under_big = (at >= 0) & big[np.clip(at, 0, None)]
+    fill = ~held & ~under_big & (at >= 0)
+    au[:, fill], av[:, fill] = u[:, at[fill]], v[:, at[fill]]
+    keep = (held | fill) & ~under_big
+    rows, cols = np.nonzero(wet)
+    mask = np.zeros(wet.shape, bool)
+    mask[rows[keep], cols[keep]] = True
+    q_nodes, q_quad = quads(lon, lat, mask)  # row-major, as keep is
+    big_ids = np.flatnonzero(big)
+    t_nodes, t_tri = tiles.subset(nodes, tri, big_ids)
+    elems = np.vstack([q_quad, np.c_[t_tri, t_tri[:, 2]] + len(q_nodes)]) if big_ids.size else q_quad
+    all_nodes = np.vstack([q_nodes, t_nodes]) if big_ids.size else q_nodes
+    ctr = np.vstack([np.c_[lon[mask], lat[mask]], centers[big_ids]])
+    return all_nodes, elems, ctr, np.hstack([au[:, keep], u[:, big_ids]]), np.hstack([av[:, keep], v[:, big_ids]])
 
 
 def _pack(nodes, tri, centers, levels, u, v) -> tuple[bytes, dict]:
@@ -209,6 +245,19 @@ def _pack(nodes, tri, centers, levels, u, v) -> tuple[bytes, dict]:
         blobs.append(blob)
         off += len(blob)
     return b"".join(blobs), index
+
+
+def _doppio_files(lon, lat, wet, u, v) -> bytes:
+    nodes, quad = quads(lon, lat, wet)
+    return tiles.encode(nodes, quad, fields.arrow_levels(lon[wet], lat[wet]), u, v)
+
+
+def _necofs_files(grid, nodes, tri, centers, cells, u, v) -> tuple[bytes, dict, bytes, int]:
+    """The NECOFS tile pack and its index, and the wide file (wide_view) with its element count."""
+    pack, index = _pack(nodes, tri, centers, fields.arrow_levels(centers[:, 0], centers[:, 1]), u, v)
+    w_nodes, w_elems, w_ctr, wu, wv = wide_view(grid, nodes, tri, centers, cells, u, v)
+    wide = tiles.encode(w_nodes, w_elems, fields.arrow_levels(w_ctr[:, 0], w_ctr[:, 1]), wu, wv)
+    return pack, index, wide, int(w_elems.shape[0])
 
 
 def _grid_npz(lon, lat, wet) -> bytes:
@@ -244,9 +293,7 @@ def publish(store: Store, end: datetime | None = None, ts: tiles.TileStore | Non
     try:
         lon, lat, wet, times, u, v, url = doppio_read(end, deadline)
         grid = (lon, lat, wet)
-        nodes, quad = quads(lon, lat, wet)
-        levels = fields.arrow_levels(lon[wet], lat[wet])
-        put("doppio.bin", tiles.encode(nodes, quad, levels, u, v))
+        put("doppio.bin", _doppio_files(lon, lat, wet, u, v))
         ts.put(f"{BASE}/doppio-grid.npz", _grid_npz(lon, lat, wet), 86400)
         models["doppio"] = {**_header(DOPPIO_SOURCE, url, times, run), "wide": f"runs/{run}/doppio.bin", "cells": int(wet.sum())}
         log.info("shelf doppio: %d cells, %d steps", wet.sum(), times.size)
@@ -262,28 +309,15 @@ def publish(store: Store, end: datetime | None = None, ts: tiles.TileStore | Non
             raise ValueError("no DOPPIO grid for the NECOFS domain")
         lon, lat, wet = grid
         nodes, tri, centers, cells, times, u, v, url = necofs_read(lon, lat, wet, end, deadline)
-        levels = fields.arrow_levels(centers[:, 0], centers[:, 1])
-        pack, index = _pack(nodes, tri, centers, levels, u, v)
-        # The wide view: NECOFS averaged into DOPPIO's water cells (only those holding a NECOFS center).
-        n_wet = int(wet.sum())
-        au, av, held = averaged(cells, areas(nodes, tri), u, v, n_wet)
-        try:
-            fill_coarse(nodes, tri, lon[wet], lat[wet], held, au, av, u, v)
-        except Exception as exc:  # a mesh the point finder will not take: those cells stay empty
-            log.warning("shelf necofs: coarse cells not filled: %s", exc)
-        rows, cols = np.nonzero(wet)
-        cell_mask = np.zeros(wet.shape, bool)
-        cell_mask[rows[held], cols[held]] = True
-        q_nodes, q_quad = quads(lon, lat, cell_mask)
-        q_levels = fields.arrow_levels(lon[cell_mask], lat[cell_mask])
+        pack, index, wide, n_held = _necofs_files(grid, nodes, tri, centers, cells, u, v)
         put("necofs.bin", pack)
-        put("necofs-wide.bin", tiles.encode(q_nodes, q_quad, q_levels, au[:, held], av[:, held]))
+        put("necofs-wide.bin", wide)
         models["necofs"] = {
             **_header(NECOFS_SOURCE, url, times, run),
             "wide": f"runs/{run}/necofs-wide.bin",
             "pack": f"runs/{run}/necofs.bin",
             "cells": int(tri.shape[0]),
-            "wide_cells": int(held.sum()),
+            "wide_cells": n_held,
             "tiles": index,
         }
         log.info("shelf necofs: %d elements in %d tiles (%.1f MB), %d steps", tri.shape[0], len(index), len(pack) / 1e6, times.size)
@@ -297,4 +331,77 @@ def publish(store: Store, end: datetime | None = None, ts: tiles.TileStore | Non
             _cleanup(ts, latest)
         except Exception as exc:  # old runs stay a day longer; nothing is lost
             log.warning("shelf cleanup: %s", exc)
+    try:
+        failed.extend(archive(ts, end, deadline, grid))
+    except Exception as exc:
+        outages.record(failed, "shelf archive", exc, log)
+    return failed
+
+
+def _utc_day(t) -> pd.Timestamp:
+    t = pd.Timestamp(t)
+    return (t.tz_convert("UTC").tz_localize(None) if t.tzinfo is not None else t).normalize()
+
+
+def archive_day(ts: tiles.TileStore, day, deadline: float, grid=None) -> tuple[dict, list[str]]:
+    """One UTC day, hourly, both models, into days/<day>/ with its index.json. A model that fails is left out (the
+    index says the day is incomplete, so a later run tries it again). Returns the index and the faults."""
+    failed: list[str] = []
+    start = _utc_day(day)
+    rel = f"days/{start:%Y-%m-%d}"
+    models: dict = {}
+    put = lambda name, blob: ts.put(f"{BASE}/{rel}/{name}", blob, DAY_S)  # noqa: E731
+    try:
+        lon, lat, wet, times, u, v, url = doppio_read(None, deadline, start, 24, 1)
+        grid = (lon, lat, wet)
+        put("doppio.bin", _doppio_files(lon, lat, wet, u, v))
+        models["doppio"] = {**_header(DOPPIO_SOURCE, url, times, rel), "step": 3600, "wide": f"{rel}/doppio.bin", "cells": int(wet.sum())}
+    except Exception as exc:
+        outages.record(failed, f"shelf archive {start:%Y-%m-%d} doppio", exc, log)
+    try:
+        if grid is None:
+            raise ValueError("no DOPPIO grid for the NECOFS domain")
+        nodes, tri, centers, cells, times, u, v, url = necofs_read(*grid, None, deadline, start, 24, 1)
+        pack, index, wide, n_held = _necofs_files(grid, nodes, tri, centers, cells, u, v)
+        put("necofs.bin", pack)
+        put("necofs-wide.bin", wide)
+        models["necofs"] = {
+            **_header(NECOFS_SOURCE, url, times, rel),
+            "step": 3600,
+            "wide": f"{rel}/necofs-wide.bin",
+            "pack": f"{rel}/necofs.bin",
+            "cells": int(tri.shape[0]),
+            "wide_cells": n_held,
+            "tiles": index,
+        }
+    except Exception as exc:
+        outages.record(failed, f"shelf archive {start:%Y-%m-%d} necofs", exc, log)
+    complete = set(models) == {"necofs", "doppio"} and all(m["steps"] == 24 for m in models.values())
+    entry = {"schema": SCHEMA, "day": f"{start:%Y-%m-%d}", "complete": complete, "base_zoom": tiles.BASE_ZOOM, "models": models}
+    if models:
+        put("index.json", json.dumps(entry, separators=(",", ":")).encode())
+    return entry, failed
+
+
+def archive(ts: tiles.TileStore, end: datetime, deadline: float, grid=None) -> list[str]:
+    """The previous UTC day, and the ARCHIVE_LOOKBACK days before it that are missing or incomplete; then days.json."""
+    failed: list[str] = []
+    today = _utc_day(end)
+    days = dict(json.loads(ts.get(f"{BASE}/days.json") or b"{}").get("days", {}))  # day -> complete
+    changed = False
+    for k in range(ARCHIVE_LOOKBACK, 0, -1):
+        key = f"{today - pd.Timedelta(days=k):%Y-%m-%d}"
+        if days.get(key) is True:
+            continue
+        if time.monotonic() > deadline:
+            failed.append(f"shelf archive {key}: time budget spent")
+            break
+        entry, faults = archive_day(ts, key, deadline, grid)
+        failed.extend(faults)
+        if entry["models"]:
+            days[key] = entry["complete"]
+            changed = True
+            log.info("shelf archive %s: %s", key, "complete" if entry["complete"] else f"partial ({', '.join(entry['models'])})")
+    if changed:
+        ts.put(f"{BASE}/days.json", json.dumps({"schema": SCHEMA, "days": dict(sorted(days.items()))}, separators=(",", ":")).encode(), 3600, "application/json")
     return failed

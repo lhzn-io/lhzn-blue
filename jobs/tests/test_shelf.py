@@ -86,16 +86,18 @@ def _fake_reads(monkeypatch, fail_doppio=False):
     lon, lat = np.meshgrid(-70 + 0.07 * np.arange(8), 40 + 0.06 * np.arange(6))
     wet = np.ones(lon.shape, bool)
     wet[0, :2] = False
-    times = pd.date_range("2026-11-17 00:00", periods=5, freq="2h")
-    steps = times.size
+    times2 = pd.date_range("2026-11-17 00:00", periods=5, freq="2h")
+    hourly = pd.date_range("2026-11-17 00:00", periods=24, freq="h")
 
-    def doppio_read(end, deadline):
+    def doppio_read(end, deadline, start=None, hours=None, every=2):
         if fail_doppio:
             raise RuntimeError("server refused")
         n = int(wet.sum())
+        times = hourly if every == 1 else times2
+        steps = times.size
         return lon, lat, wet, times, np.full((steps, n), 0.2), np.full((steps, n), -0.1), "https://example/doppio"
 
-    def necofs_read(glon, glat, gwet, end, deadline):
+    def necofs_read(glon, glat, gwet, end, deadline, start=None, hours=None, every=2):
         cx, cy = glon[gwet], glat[gwet]
         nodes, tri, centers, cells = [], [], [], []
         for i, (x, y) in enumerate(zip(cx, cy)):
@@ -105,6 +107,8 @@ def _fake_reads(monkeypatch, fail_doppio=False):
             centers += [[x + 0.01, y - 0.01], [x - 0.01, y + 0.01]]
             cells += [i, i]
         m = len(tri)
+        times = hourly if every == 1 else times2
+        steps = times.size
         u = np.tile(np.r_[[0.4, 0.0] * (m // 2)], (steps, 1))
         return np.array(nodes), np.array(tri), np.array(centers), np.array(cells), times, u, np.zeros((steps, m)), "https://example/necofs"
 
@@ -167,11 +171,50 @@ def test_index_width(n):
     assert tiles.decode(blob)["index"] == ("u16" if n <= 65535 else "u32")
 
 
-def test_fill_coarse_takes_the_containing_triangle():
-    nodes = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
-    tri = np.array([[0, 1, 2], [1, 3, 2]])
-    x, y = np.array([0.2, 0.8, 5.0]), np.array([0.2, 0.8, 5.0])  # one cell in each triangle, one outside the mesh
-    held = np.array([False, False, False])
-    au, av = np.zeros((1, 3)), np.zeros((1, 3))
-    shelf.fill_coarse(nodes, tri, x, y, held, au, av, np.array([[1.0, 2.0]]), np.array([[3.0, 4.0]]))
-    assert held.tolist() == [True, True, False] and au[0].tolist() == [1.0, 2.0, 0.0] and av[0].tolist() == [3.0, 4.0, 0.0]
+def test_wide_view_keeps_large_triangles_and_averages_small_ones():
+    # A 1 x 4 row of 0.1 degree cells near 40 N (about 72 km2 each). The west two cells are each two small triangles
+    # (shared nodes); the east two cells' centers lie under one large triangle, which is drawn as itself and the cells
+    # under it left out.
+    lon, lat = np.meshgrid(-70 + 0.1 * np.arange(4), np.array([40.0, 40.1]))
+    wet = np.zeros(lon.shape, bool)
+    wet[0] = True  # the second row is land: the grid needs two rows for its corners
+    xs = [-70.05, -69.95, -69.85]
+    nodes = [[x, 39.95] for x in xs] + [[x, 40.05] for x in xs]  # 0 1 2 along the south edge, 3 4 5 along the north
+    tri = [[0, 1, 4], [0, 4, 3], [1, 2, 5], [1, 5, 4]]
+    cells = [0, 0, 1, 1]
+    nodes += [[-69.5, 40.0]]  # 6: with 2 and 5, a large triangle over the east cells' centers
+    tri += [[2, 6, 5]]
+    cells += [2]
+    nodes, tri = np.array(nodes), np.array(tri)
+    centers = nodes[tri].mean(axis=1)
+    u = np.array([[0.1, 0.3, 0.2, 0.4, 0.9]])
+    v = np.zeros_like(u)
+    w_nodes, w_elems, w_ctr, wu, wv = shelf.wide_view((lon, lat, wet), nodes, tri, centers, np.array(cells), u, v)
+    assert w_elems.shape == (3, 4)  # two cells and the large triangle
+    assert w_elems[2, 3] == w_elems[2, 2]  # the triangle repeats its last node
+    np.testing.assert_allclose(wu[0], [0.2, 0.3, 0.9], atol=1e-3)  # small pairs averaged by area; the large one as it is
+
+
+def test_archive_keeps_past_days_hourly(tmp_path, monkeypatch):
+    _fake_reads(monkeypatch)
+    ts = tiles.TileStore(str(tmp_path / "tiles"))
+    assert shelf.publish(Store(str(tmp_path / "out")), pd.Timestamp("2026-11-18 13:50", tz="UTC"), ts) == []
+    days = json.loads(ts.get("shelf/v1/days.json"))["days"]
+    assert days == {"2026-11-15": True, "2026-11-16": True, "2026-11-17": True}
+    idx = json.loads(ts.get("shelf/v1/days/2026-11-17/index.json"))
+    nec = idx["models"]["necofs"]
+    assert idx["complete"] and nec["steps"] == 24 and nec["step"] == 3600
+    pack = ts.get(f"shelf/v1/{nec['pack']}")
+    off, length, n = next(iter(nec["tiles"].values()))
+    assert tiles.decode(pack[off : off + length])["steps"] == 24
+
+
+def test_archive_retries_a_missing_day(tmp_path, monkeypatch):
+    _fake_reads(monkeypatch, fail_doppio=True)
+    ts = tiles.TileStore(str(tmp_path / "tiles"))
+    store = Store(str(tmp_path / "out"))
+    shelf.publish(store, pd.Timestamp("2026-11-18 13:50", tz="UTC"), ts)  # no DOPPIO grid at all: nothing archived
+    assert ts.get("shelf/v1/days.json") is None
+    _fake_reads(monkeypatch)
+    shelf.publish(store, pd.Timestamp("2026-11-18 14:50", tz="UTC"), ts)
+    assert json.loads(ts.get("shelf/v1/days.json"))["days"]["2026-11-17"] is True

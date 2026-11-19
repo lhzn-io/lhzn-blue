@@ -101,15 +101,19 @@ function parse(raw: Uint8Array): Cells {
   const cx = new Float32Array(h.elements);
   const cy = new Float32Array(h.elements);
   for (let i = 0; i < h.elements; i++) {
+    // The mean of its distinct nodes: the wide view stores NECOFS's large triangles as four nodes, the last repeated.
     let x = 0;
     let y = 0;
+    let k = 0;
     for (let j = 0; j < h.verts; j++) {
       const nd = elems[i * h.verts + j];
+      if (j > 0 && nd === elems[i * h.verts + j - 1]) continue;
       x += nodes[2 * nd];
       y += nodes[2 * nd + 1];
+      k++;
     }
-    cx[i] = x / h.verts;
-    cy[i] = y / h.verts;
+    cx[i] = x / k;
+    cy[i] = y / k;
   }
   return { m: h.elements, verts: h.verts, nodes, elems, levels, cx, cy, steps: h.steps, k: h.step_cms, q };
 }
@@ -440,8 +444,8 @@ function caption(p: Panel): string {
       const n = inViewKeys.reduce((s, k) => s + (tileCache.get(k)?.m ?? 0), 0);
       const loading = inViewKeys.some((k) => !tileCache.has(k));
       sub = `${p.grid}, ${nf.format(n)} elements in view${loading ? "; loading" : ""}`;
-    } else if (lod === "native") sub = "mean over DOPPIO cells; loading native mesh";
-    else sub = tooMany ? "mean over DOPPIO cells; zoom in further for native mesh" : "mean over DOPPIO cells; zoom in for native mesh";
+    } else if (lod === "native") sub = "at DOPPIO resolution; loading native mesh";
+    else sub = tooMany ? "at DOPPIO resolution; zoom in further for native mesh" : "at DOPPIO resolution; zoom in for native mesh";
   }
   return `<span class="cap-label">${p.label}</span><span class="cap-sub">${sub}</span>`;
 }

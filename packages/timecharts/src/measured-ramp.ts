@@ -1,6 +1,6 @@
 /**
  * Measured currents (a current profiler's own readings): a gilded ramp, so measurements never share a colour with
- * a model's currents (the teal currents ramp). Gold is the site's colour for observations (the "now" line, the live
+ * a model's currents (the currents ramp, after cmocean tempo). Gold is the site's colour for observations (the "now" line, the live
  * pin's rim); this ramp runs from the page ground to deep gilt on the light theme and from dark bronze to the brand
  * yellow on the dark one, lightness monotonic in both. One fixed linear scale, 0 to MEASURED_TOP m/s;
  * never rescaled.

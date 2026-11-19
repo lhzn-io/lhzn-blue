@@ -262,7 +262,7 @@ const curFill = (): maplibregl.ExpressionSpecification => [
   ...curRamp().flatMap(([ms, c]) => [Math.log(ms), c]),
 ] as maplibregl.ExpressionSpecification;
 /** Measured currents (HF radar): the gilded ramp, linear from 0 to MEASURED_TOP m/s and the last colour above, so a
- * measurement never shares a colour with the model's teal. */
+ * measurement never shares a colour with the model's currents ramp (after cmocean tempo). */
 const goldRamp = () => (mapTheme() === "dark" ? MEASURED_RAMP_DARK : MEASURED_RAMP);
 const goldFill = (): maplibregl.ExpressionSpecification => [
   "interpolate",
@@ -292,7 +292,7 @@ const META: Record<FieldKind, Meta> = {
   chl: { title: "Chlorophyll-a", short: "Chlorophyll-a", ramp: "algae", log: true, range: [0.5, 30], unit: "mg/m³", digits: 1, note: "Satellite estimate of the surface; biased high in turbid water and near the shore (a band along the coast is left out)." },
   kd490: { title: "Water clarity (Kd490)", short: "Clarity, Kd490", ramp: "turbid", log: true, range: [0.1, 2], unit: "m⁻¹", digits: 2, note: "Light attenuation at 490 nm, a satellite proxy for murkiness, not a turbidity reading in NTU. Higher is murkier." },
   currents: { title: "Surface currents", short: "Currents", ramp: "currents", log: true, range: [CURRENTS_FLOOR * 100, CURRENTS_TOP * 100], unit: "cm/s", digits: 0, note: "Model forecast (NECOFS FVCOM), top layer; arrows show where the water is going." },
-  radar: { title: "Surface currents (HF radar)", short: "Currents, HF radar", ramp: "currents", log: false, range: [0, MEASURED_TOP * 100], unit: "cm/s", digits: 0, note: "Measured by shore-based HF radar: hourly totals on 1 km cells, where two sites both see the water. The radar reaches the western Sound only; cells with no total that hour are left empty, not filled in. Gold marks a measurement, as on the site's other measured currents; the model layer is teal." },
+  radar: { title: "Surface currents (HF radar)", short: "Currents, HF radar", ramp: "currents", log: false, range: [0, MEASURED_TOP * 100], unit: "cm/s", digits: 0, note: "Measured by shore-based HF radar: hourly totals on 1 km cells, where two sites both see the water. The radar reaches the western Sound only; cells with no total that hour are left empty, not filled in. Gold marks a measurement, as on the site's other measured currents; the model layer runs from pale sage through teal to navy." },
   waves: { title: "Waves (NWS NWPS)", short: "Waves, NWPS", ramp: "wind", log: false, range: [0, WAVE_TOP], unit: "m", digits: 2, note: "Model forecast (NWS Nearshore Wave Prediction System, SWAN): significant wave height on the model's own 1.8 km cells; arrows show where the waves travel. The runs exclude currents; steepening where wind opposes the tide is not represented." },
   wat: { title: "Wind against tide", short: "Wind against tide", ramp: "wind", log: false, unit: "", digits: 0, note: "A model-derived index, not an observation and not an NWS product: where the NECOFS current runs against the NWPS waves and steepens them (linear theory). Excludes shoals, rips and overfalls finer than the 1.8 km cells." },
   comfort: { title: "Comfort index", short: "Comfort", ramp: "wind", log: false, unit: "", digits: 0, note: "How the water suits the boat set in the byline, cell by cell, as a score from 0 to 7 (1 Moderate, 2 Uncomfortable, 3 Discomfort, then one point for each half of that step again): the worst of HRRR wind, NWPS waves and wind against tide (for kayaks also the NECOFS current, and a level more when air and water together are under 120 F), as in a click's readout. Advisories are not in the shading: the masthead and the zone lines show them, and a click's readout includes them. Shore cells (harbours, coves) carry wind only. No shading beyond HRRR's 48 hours." },
@@ -1914,7 +1914,7 @@ function cellSeries(w: WindField, id: number): [number, number][] {
     .sort((a, b) => a[0] - b[0]);
 }
 
-const sparkColours = () => (mapTheme() === "light" ? { wind: "#3f2477", waves: "#2d7aa3", current: "#08867c" } : { wind: "#b7a2dd", waves: "#7fb8d8", current: "#47cfc0" }); // currents: the teal ramps' 2.4 m/s knot
+const sparkColours = () => (mapTheme() === "light" ? { wind: "#3f2477", waves: "#2d7aa3", current: "#1c4d61" } : { wind: "#b7a2dd", waves: "#7fb8d8", current: "#b6cbaf" }); // currents: the currents ramps' 2.418 m/s knot
 
 function windLine(w: WindField, lng: number, lat: number): string | null {
   const id = windCellFor(w.mesh, lng, lat);

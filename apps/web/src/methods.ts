@@ -348,9 +348,10 @@ export const METHODS: Record<string, Method> = {
       "The NECOFS FVCOM forecast (NECOFS/UMASSD), every 2 hours [[chen2003fvcom]] [[chen2006fvcom]]. Colours follow one " +
       "fixed scale on a logarithmic speed axis, from 0.02 to 3.1 m/s, with knots from 2026 NOAA CO-OPS current predictions " +
       "(0.494 m/s, the median daily maximum across Long Island and Block Island Sound; 2.418 and 3.097 m/s, the median and " +
-      "annual daily maxima at Little Gull Island in the Race). The scale runs pale aqua to teal to deep blue-green, after " +
-      "cmocean [[thyng2016cmocean]], so faster water is darker; its hues stay clear of a chart's buff land and green drying " +
-      "ground. The dark theme uses a twin scale on the same speeds, deep blue-teal to pale seafoam, so faster water is lighter there.",
+      "annual daily maxima at Little Gull Island in the Race). The scale runs from near white through sage and teal to navy, " +
+      "after cmocean's tempo [[thyng2016cmocean]], so faster water is darker. The dark theme reverses it on the same speeds, navy " +
+      "to near white, so faster water is lighter there. The same scale colors the currents in the 3D view, the Northeast " +
+      "Shelf maps and the lab's other viewers.",
     caveats: "A model forecast, not a measurement. Speeds follow the Units switch.",
     more: { href: "/long-island-sound/currents-3d/", text: "The same model in 3D, below the surface", on: ["/long-island-sound/", "/about/"] },
   },
@@ -359,7 +360,7 @@ export const METHODS: Record<string, Method> = {
     shows:
       "Measured surface currents, hourly, on 1 km cells, shaded by speed, with arrows in the direction of flow; the last " +
       "72 hours the network has published. Gold, from 0 to 0.5 m/s and the darkest gold above, is the site's color for " +
-      "measured currents; the model's currents are teal, so the two layers are never confused.",
+      "measured currents; the model's currents run from sage through teal to navy, so the two layers are never confused.",
     method:
       "Shore-based high-frequency radar measures the speed of the surface water toward or away from each site (a radial). " +
       "Where two sites see the same cell at a good angle, the NOAA IOOS HF Radar National Network (HFRNet) combines their " +

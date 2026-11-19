@@ -1,8 +1,8 @@
 """Write packages/timecharts/src/currents-ramp.ts from the currents colour tables (speed_m_s,r,g,b rows).
 
-The tables are forcingkit's packaged ramps, copied into packages/timecharts/src: currents_lis.csv as
-currents-ramp.csv (light basemap) and currents_lis_dark.csv as currents-ramp-dark.csv (dark
-basemap). Rerun after updating either copy:
+The tables are forcingkit's packaged ramps, copied into packages/timecharts/src: currents_tempo.csv as
+currents-ramp.csv (light basemap) and currents_tempo_dark.csv as currents-ramp-dark.csv (dark
+basemap), after cmocean "tempo". Rerun after updating either copy:
 
     python3 scripts/build-currents-ramp.py [light.csv [dark.csv]]
 

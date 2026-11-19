@@ -15,7 +15,7 @@
 // Frame: east and north metres from the Groton meter (41.39180 N, 72.09230 W); scene x = east,
 // scene -z = north, scene y = elevation in metres times the vertical exaggeration.
 
-import { RAMP_HALINE } from './ramp.js';
+import { RAMP_DARK, RAMP_LIGHT } from './ramp.js';
 
 const THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.170.0/+esm';
 // Navigation: vantagekit (Long Horizon Observatory's shared viewer navigation) on camera-controls; it imports neither
@@ -97,7 +97,7 @@ const THEMES = {
         sea: [[11, 18, 22], [22, 32, 38], [36, 46, 52]],     // deep, mid, shallow (L* about 6 to 18)
         land: [[46, 43, 38], [70, 66, 58]],                  // low, high
         nbed: [[52, 55, 58], [150, 155, 159]],              // model bed gray, shallow to deep
-        ramp: RAMP_HALINE, tracer: TRACER_DARK, diverging: DIVERGING_DARK,
+        ramp: RAMP_DARK, tracer: TRACER_DARK, diverging: DIVERGING_DARK,
     },
     light: {
         bg: '#efebe2', ink: '#1c2a48', inkSoft: '#24345a', dim: '#56657f', faint: '#7b8496',
@@ -106,12 +106,12 @@ const THEMES = {
         sea: [[196, 206, 212], [214, 221, 224], [230, 233, 230]],
         land: [[236, 226, 198], [222, 207, 168]],
         nbed: [[150, 154, 158], [222, 224, 226]],
-        ramp: RAMP_HALINE, tracer: TRACER_LIGHT, diverging: DIVERGING_LIGHT,
+        ramp: RAMP_LIGHT, tracer: TRACER_LIGHT, diverging: DIVERGING_LIGHT,
     },
 };
 
-// Measured currents (a page-supplied profile) are gold; the model's cells take the full-breadth haline speed scale
-// (indigo to pale yellow, the same on either ground), the tracers their teal scales; the model bed is plain gray. One fixed linear scale, 0 to 0.5 m/s, as on longhorizon.blue.
+// Measured currents (a page-supplied profile) are gold; the model's cells take the site's currents scale (after cmocean
+// tempo, reversed on the dark ground), the tracers their teal scales; the model bed is plain gray. One fixed linear scale, 0 to 0.5 m/s, as on longhorizon.blue.
 export const MEASURED_TOP = 0.5; // m/s
 const MEASURED_LIGHT = ['#f7f0d8', '#ead28a', '#d0a930', '#a37b00', '#5f4600'];
 const MEASURED_DARK = ['#2b2410', '#5e4b10', '#9c7c0c', '#d6b30a', '#fde047'];
@@ -395,7 +395,8 @@ export function mountPane(el, opts = {}) {
         <div class="pqp-about-head"><b>About the 3D view</b><button class="pqp-btn" data-act="about-close">Close</button></div>
         <h5>Model cells</h5>
         <p>NECOFS (FVCOM GOM7) currents on the model's own triangles, each element-layer one flat colour by horizontal
-        speed on a log scale after cmocean's haline (indigo at slack, blue and green, pale yellow at 3 m/s). ${ALL_LAYERS ? 'The surface layer by default; all 45 sigma layers on request.'
+        speed on a log scale after cmocean's tempo, as on the site's maps (on the dark ground navy at slack through teal
+        to near white at 3 m/s; on the light ground the reverse). ${ALL_LAYERS ? 'The surface layer by default; all 45 sigma layers on request.'
         : 'The surface layer.'} Hourly records, each held until the next. Element
         sides are about 160 m in the Thames and at the Race's edges and 1 to 1.5 km in open water, coarser than the
         model's harbour meshes.</p>

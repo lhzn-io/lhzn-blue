@@ -16,7 +16,7 @@ KV:
 | File | Contents |
 | :--- | :--- |
 | `pane.js` | the module (ES module; lazy-loads three.js r170, camera-controls 3.1.2 and [vantagekit](https://github.com/lhzn-io/vantagekit) 0.8.2 from jsDelivr) |
-| `ramp.js` | the currents speed ramps: the site's teal pair (light and dark), and forcingkit's `currents_lis_haline`, which the cells use on either ground |
+| `ramp.js` | the currents speed ramps, the site's pair after cmocean tempo (forcingkit's `currents_tempo` and `currents_tempo_dark`): the cells take the one for the page's ground |
 | `mesh.json` | counts, record times (epoch s), sigma levels (`siglev` for drawing, `model_siglev` the model's, `layer_index` the layers held), the element holding the meter (`buoy_element`), the section's geometry, file names, statistics |
 | `nodes.f32` | per node: east, north (m from the meter), h (m, positive down), float32 |
 | `tri.u16` | per element: three node indices, uint16, counter-clockwise |

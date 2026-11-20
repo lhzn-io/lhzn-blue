@@ -422,3 +422,34 @@ def test_a_failed_read_is_tried_again(monkeypatch):
     with pytest.raises(TimeoutError):
         shelf._read_tries(down, "test")
     assert len(calls) == shelf.READ_TRIES
+
+
+def test_value_blobs_carry_a_static_depth_to_a_tenth_of_a_meter():
+    temp = np.array([[9.0, 10.0, 11.0]])
+    h = np.array([12.3, np.nan, 4987.6])
+    out = tiles.decode_values(tiles.encode_values({"temp": temp, "h": h}))
+    assert [f["name"] for f in out["static"]] == ["h"]
+    np.testing.assert_allclose(out["h"][[0, 2]], [12.3, 4987.6], atol=0.08)
+    assert np.isnan(out["h"][1])
+    np.testing.assert_allclose(out["temp"], temp, atol=0.01)
+    # without a static field the header is as before
+    assert "static" not in tiles.decode_values(tiles.encode_values({"temp": temp}))
+
+
+def test_wide_and_tile_values_hold_each_models_depth(monkeypatch):
+    # The wide view's depth rides as one more row of the first field: it comes out averaged like the values.
+    lon, lat = np.meshgrid(-70 + 0.1 * np.arange(4), np.array([40.0, 40.1]))
+    wet = np.zeros(lon.shape, bool)
+    wet[0] = True
+    xs = [-70.05, -69.95, -69.85]
+    nodes = np.array([[x, 39.95] for x in xs] + [[x, 40.05] for x in xs])
+    tri = np.array([[0, 1, 4], [0, 4, 3], [1, 2, 5], [1, 5, 4]])
+    centers = nodes[tri].mean(axis=1)
+    scal = {"temp": np.full((2, 4), 9.0), "salt": np.full((2, 4), 34.0), "h": np.array([10.0, 30.0, 50.0, 70.0])}
+    pack, index, wide = shelf._necofs_values((lon, lat, wet), nodes, tri, centers, np.array([0, 0, 1, 1]), scal)
+    w = tiles.decode_values(wide)
+    assert w["temp"].shape == (2, w["elements"]) and w["h"].shape == (w["elements"],)
+    np.testing.assert_allclose(w["h"][:2], [20.0, 60.0], atol=0.01)  # area-weighted means of each cell's pair
+    off, length, n = next(iter(index.values()))
+    tile = tiles.decode_values(pack[off : off + length])
+    assert sorted(np.round(tile["h"], 2)) == [10.0, 30.0, 50.0, 70.0]

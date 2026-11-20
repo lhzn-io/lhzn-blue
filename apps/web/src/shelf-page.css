@@ -53,6 +53,10 @@
 .sh-pop input, .sh-pop select { padding: 4px 6px; font: 12px var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); }
 /* A cell's values on both maps (site.css's pin-pop and hover-pop). */
 .sh-val .maplibregl-popup-content { white-space: nowrap; width: max-content; }
+/* On a phone the lines wrap, so the box stays inside the map. */
+@media (max-width: 600px) {
+  .sh-val .maplibregl-popup-content { white-space: normal; width: auto; max-width: min(300px, 76vw); }
+}
 .sh-val-model { font: 700 9.5px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
 .sh-note { margin: 0; font: 12px/1.4 var(--sans); color: var(--dim); }
 

@@ -131,11 +131,15 @@ def decode(blob: bytes) -> dict:
 
 
 def encode_values(fields: dict[str, np.ndarray]) -> bytes:
-    """Scalar fields (name -> (steps, m)) for the m elements of a currents blob, in its order, without geometry: gzip
-    of "LHZS", a uint32 header length, a JSON header {elements, steps, fields: [{name, offset, scale}]}, then per
-    field one uint8 per step and element, value = offset + q * scale, 255 where there is none (NaN). Each field's
-    offset and scale span its own range in this blob, so a tile keeps fine steps."""
+    """Scalar fields for the m elements of a currents blob, in its order, without geometry: gzip of "LHZS", a uint32
+    header length, a JSON header {elements, steps, fields: [{name, offset, scale}], static: [...]}, then per field
+    (name -> (steps, m)) one uint8 per step and element, value = offset + q * scale, 255 where there is none (NaN),
+    then per static field (name -> (m,), such as the model's depth) one little-endian uint16 per element, 65535 where
+    there is none. Each field's offset and scale span its own range in this blob, so a tile keeps fine steps; a
+    static field's 16 bits keep a 5,000 m depth range to under 0.1 m. "static" is left out when there are none."""
     arrays = {k: np.asarray(a, dtype=np.float64) for k, a in fields.items()}
+    still = {k: a for k, a in arrays.items() if a.ndim == 1}
+    arrays = {k: a for k, a in arrays.items() if a.ndim == 2}
     steps, m = next(iter(arrays.values())).shape
     meta, body = [], []
     for name, a in arrays.items():
@@ -146,7 +150,19 @@ def encode_values(fields: dict[str, np.ndarray]) -> bytes:
         q = np.clip(np.round((np.where(ok, a, lo) - lo) / scale), 0, 254)
         meta.append({"name": name, "offset": lo, "scale": scale})
         body.append(np.where(ok, q, 255).astype(np.uint8).tobytes())
-    head = json.dumps({"elements": int(m), "steps": int(steps), "fields": meta}, separators=(",", ":")).encode()
+    static = []
+    for name, a in still.items():
+        if a.shape != (m,):
+            raise ValueError(f"static field {name}: {a.shape} for {m} elements")
+        ok = np.isfinite(a)
+        lo = float(a[ok].min()) if ok.any() else 0.0
+        hi = float(a[ok].max()) if ok.any() else 0.0
+        scale = (hi - lo) / 65534.0 if hi > lo else 1.0
+        q = np.clip(np.round((np.where(ok, a, lo) - lo) / scale), 0, 65534)
+        static.append({"name": name, "offset": lo, "scale": scale})
+        body.append(np.where(ok, q, 65535).astype("<u2").tobytes())
+    header = {"elements": int(m), "steps": int(steps), "fields": meta, **({"static": static} if static else {})}
+    head = json.dumps(header, separators=(",", ":")).encode()
     return gzip.compress(VALUES_MAGIC + struct.pack("<I", len(head)) + head + b"".join(body), compresslevel=9, mtime=0)
 
 
@@ -163,6 +179,10 @@ def decode_values(blob: bytes) -> dict:
         q = np.frombuffer(raw, np.uint8, size, off).reshape(h["steps"], h["elements"])
         off += size
         out[f["name"]] = np.where(q == 255, np.nan, f["offset"] + q * f["scale"])
+    for f in h.get("static", []):
+        q = np.frombuffer(raw, "<u2", h["elements"], off)
+        off += 2 * h["elements"]
+        out[f["name"]] = np.where(q == 65535, np.nan, f["offset"] + q * f["scale"])
     return {**h, **out}
 
 

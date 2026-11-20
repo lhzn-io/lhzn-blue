@@ -154,6 +154,7 @@ def doppio_read(end: datetime | None, deadline: float, start: pd.Timestamp | Non
     scal = {k: np.concatenate([p[name].values[:, 0][:, wet] for p in parts])[keep] for k, name in SCALARS.items()}
     times, u, v = times[keep], u[keep], v[keep]
     h = ds["h"].values.astype(np.float64) if "h" in ds else np.full(lon.shape, np.nan)
+    scal["h"] = h[wet]  # the model's own depth per water cell (m), a static field of the value files
     return lon, lat, wet, times, u, v, ds.attrs.get("url"), h, scal
 
 
@@ -228,6 +229,7 @@ def necofs_read(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, end: datetime
     centers = np.stack([ds["lonc"].values, ds["latc"].values], axis=1).astype(np.float64)
     cells = np.array([cell_of[int(e)] for e in ds["element_id"].values], dtype=np.int64)
     h = ds["h"].values.astype(np.float64) if "h" in ds else np.full(len(nodes), np.nan)
+    scal["h"] = h[tri].mean(axis=1)  # the model's own depth per element (m): the mean of its nodes', as the depths use
     return nodes, tri, centers, cells, times, u, v, ds.attrs.get("url"), h, scal
 
 
@@ -293,7 +295,8 @@ def _read_tries(read, label: str):
 
 def doppio_depths(start: pd.Timestamp, hours: int, every: int, deadline: float):
     """DOPPIO's whole grid at DEPTHS: the steps' times, {depth: (u, v)} over the water cells deeper than each depth,
-    per depth that mask (over the water cells), and {depth: {temp, salt}} over the same cells."""
+    per depth that mask (over the water cells), and {depth: {temp, salt, h}} over the same cells (h, the model's
+    depth, one per cell)."""
     from forcingkit.fetchers import doppio as fk
 
     acc: dict = {d: {} for d in DEPTHS}
@@ -334,14 +337,15 @@ def doppio_depths(start: pd.Timestamp, hours: int, every: int, deadline: float):
     if not times:
         raise ValueError("no DOPPIO hours at depth in the window")
     fields_ = {d: (np.concatenate(acc[d]["u"]), np.concatenate(acc[d]["v"])) for d in DEPTHS}
-    scal = {d: {k: np.concatenate(acc[d][k]) for k in SCALARS} for d in DEPTHS}
+    scal = {d: {**{k: np.concatenate(acc[d][k]) for k in SCALARS}, "h": h[h > d]} for d in DEPTHS}
     return pd.DatetimeIndex(times), fields_, {d: h > d for d in DEPTHS}, scal
 
 
 def necofs_depths(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, start: pd.Timestamp, hours: int, every: int, deadline: float):
     """NECOFS at DEPTHS on the same elements as necofs_read (centers in DOPPIO's water cells), read DEPTH_READ_HOURS
     at a time. Returns nodes, triangles, centers, DOPPIO cell per element, the steps' times, {depth: (u, v)} over the
-    elements deeper than each depth, per depth that mask, and {depth: {temp, salt}} over the same elements."""
+    elements deeper than each depth, per depth that mask, and {depth: {temp, salt, h}} over the same elements (h, the
+    model's depth, one per element)."""
     from forcingkit.fetchers import necofs as fk
 
     pieces = []
@@ -401,7 +405,7 @@ def necofs_depths(lon: np.ndarray, lat: np.ndarray, wet: np.ndarray, start: pd.T
     if geo is None or not times:
         raise ValueError("no NECOFS hours at depth in the window")
     fields_ = {d: (np.concatenate(acc[d]["u"]), np.concatenate(acc[d]["v"])) for d in DEPTHS}
-    scal = {d: {k: np.concatenate(acc[d][k]) for k in SCALARS} for d in DEPTHS}
+    scal = {d: {**{k: np.concatenate(acc[d][k]) for k in SCALARS}, "h": h_e[h_e > d]} for d in DEPTHS}
     return (*geo, pd.DatetimeIndex(times), fields_, {d: h_e > d for d in DEPTHS}, scal)
 
 
@@ -647,17 +651,22 @@ def _pack(nodes, tri, centers, levels, u, v) -> tuple[bytes, dict]:
 
 
 def _necofs_values(grid, nodes, tri, centers, cells, scal: dict) -> tuple[bytes, dict, bytes]:
-    """Temperature and salinity for the NECOFS tiles (the same keys and element order as _pack's), and for the wide
-    view (the same averaging as the currents, through wide_view). Returns the value pack, its index, the wide blob."""
-    names = list(scal)
+    """Temperature, salinity and the model's depth for the NECOFS tiles (the same keys and element order as _pack's),
+    and for the wide view (the same averaging as the currents, through wide_view; the depth rides as one more row of
+    the first field, so the seam is cut once). Returns the value pack, its index, the wide blob."""
+    timed = [k for k, a in scal.items() if np.ndim(a) == 2]
+    still = [k for k, a in scal.items() if np.ndim(a) == 1]
     blobs, index, off = [], {}, 0
     for key, members in sorted(tiles.pyramid(centers[:, 0], centers[:, 1]).items()):
-        blob = tiles.encode_values({k: scal[k][:, members] for k in names})
+        blob = tiles.encode_values({k: scal[k][..., members] for k in scal})
         index[key] = [off, len(blob), int(members.size)]
         blobs.append(blob)
         off += len(blob)
-    w0, w1 = wide_view(grid, nodes, tri, centers, cells, scal[names[0]], scal[names[1]])[3:5]
-    return b"".join(blobs), index, tiles.encode_values({names[0]: w0, names[1]: w1})
+    steps = scal[timed[0]].shape[0]
+    first = np.vstack([scal[timed[0]], *[scal[k][None, :] for k in still]])
+    w0, w1 = wide_view(grid, nodes, tri, centers, cells, first, scal[timed[1]])[3:5]
+    wide = {timed[0]: w0[:steps], timed[1]: w1, **{k: w0[steps + i] for i, k in enumerate(still)}}
+    return b"".join(blobs), index, tiles.encode_values(wide)
 
 
 def _doppio_files(lon, lat, wet, u, v) -> bytes:

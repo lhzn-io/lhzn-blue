@@ -106,6 +106,7 @@ interface Vals {
   m: number;
   steps: number;
   f: Record<string, { q: Uint8Array; offset: number; scale: number }>; // q: per step, m values; 255 is none
+  s: Record<string, { q: Uint16Array; offset: number; scale: number }>; // static: one per element (the model's depth); 65535 is none
 }
 type Frame = { t: number; s: number }; // epoch seconds, and the source that holds it
 
@@ -152,7 +153,8 @@ function parse(raw: Uint8Array): Cells {
 function parseValues(raw: Uint8Array): Vals {
   if (String.fromCharCode(...raw.subarray(0, 4)) !== "LHZS") throw new Error("not a value blob");
   const n = new DataView(raw.buffer, raw.byteOffset).getUint32(4, true);
-  const h = JSON.parse(new TextDecoder().decode(raw.subarray(8, 8 + n))) as { elements: number; steps: number; fields: { name: string; offset: number; scale: number }[] };
+  type Meta = { name: string; offset: number; scale: number };
+  const h = JSON.parse(new TextDecoder().decode(raw.subarray(8, 8 + n))) as { elements: number; steps: number; fields: Meta[]; static?: Meta[] };
   let off = raw.byteOffset + 8 + n;
   const size = h.elements * h.steps;
   const f: Vals["f"] = {};
@@ -160,7 +162,13 @@ function parseValues(raw: Uint8Array): Vals {
     f[x.name] = { q: new Uint8Array(raw.buffer.slice(off, off + size)), offset: x.offset, scale: x.scale };
     off += size;
   }
-  return { m: h.elements, steps: h.steps, f };
+  const s: Vals["s"] = {};
+  for (const x of h.static ?? []) {
+    // uint16, little-endian as written; a copy, aligned for the typed array (every browser in use is little-endian)
+    s[x.name] = { q: new Uint16Array(raw.buffer.slice(off, off + 2 * h.elements)), offset: x.offset, scale: x.scale };
+    off += 2 * h.elements;
+  }
+  return { m: h.elements, steps: h.steps, f, s };
 }
 
 async function loadWholeValues(path: string): Promise<Vals> {
@@ -212,7 +220,7 @@ function modelAt(src: Source | null, id: Id): Model | undefined {
   return e ? ({ ...m, ...e, ts: e.ts } as Model) : undefined; // never the surface's values at a depth
 }
 
-/** A source's temperature and salinity for its wide files at the chosen depth, fetched once. */
+/** A source's values for its wide files at the chosen depth (temperature, salinity, each model's depth), fetched once. */
 function ensureVals(src: Source): Promise<void> {
   const d = depth;
   src.vloading[d] ??= Promise.all(
@@ -411,7 +419,7 @@ function features(p: Panel): { cells: FeatureCollection; arrows: FeatureCollecti
   if (j < 0) return { cells: EMPTY, arrows: EMPTY };
   const cells: Feature[] = [];
   const arrows: Feature[] = [];
-  for (const { c, v: vals } of drawn(p)) {
+  for (const [b, { c, v: vals }] of drawn(p).entries()) {
     if (j >= c.steps) continue;
     const vf = field !== "currents" && vals && vals.m === c.m && j < vals.steps ? vals.f[field] : undefined;
     if (field !== "currents" && !vf) continue; // no values for this blob (yet): nothing drawn rather than currents
@@ -434,7 +442,8 @@ function features(p: Panel): { cells: FeatureCollection; arrows: FeatureCollecti
       ring.push(ring[0]);
       const dir = ((Math.atan2(u, v) * 180) / Math.PI + 360) % 360;
       const color = x === null ? speedColor(ms) : scalarColor(field as "temp" | "salt", x);
-      cells.push({ type: "Feature", properties: { c: color, s: ms, d: dir, x }, geometry: { type: "Polygon", coordinates: [ring] } });
+      // b and i find the cell's blob and element again for the readout (its centroid and the model's depth).
+      cells.push({ type: "Feature", properties: { c: color, s: ms, d: dir, x, b, i }, geometry: { type: "Polygon", coordinates: [ring] } });
       if (ms >= 0.03 && c.levels[i] !== NO_ARROW)
         arrows.push({
           type: "Feature",
@@ -741,10 +750,26 @@ function showValues(at: maplibregl.LngLat): void {
       const flow = `${(ms * MS_TO_KT).toFixed(2)} kt (${ms.toFixed(2)} m/s) toward ${Math.round(d)}&deg; ${COMPASS[Math.round(d / 22.5) % 16]}`;
       const head = x === null ? "" : field === "temp" ? `<b>${x.toFixed(1)} &deg;C</b><br>` : `<b>salinity ${x.toFixed(2)}</b><br>`;
       body = x === null ? `<b>${flow.replace(" kt", " kt</b>")}<br>${where}${avg}` : `${head}${flow}, ${where}${avg}`;
+      body += `<br>${cellPlace(p, Number(f.properties.b), Number(f.properties.i))}`;
     } else body = stepOf(p) < 0 ? "no data for this hour" : `no cell here ${where}`;
     p.popup ??= new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "pin-pop hover-pop sh-val", offset: 12, maxWidth: "none" });
     p.popup.setLngLat(at).setHTML(`<span class="sh-val-model">${p.label}</span> ${body}`).addTo(map);
   }
+}
+
+/** A cell's centroid and the model's own depth there (the bottom of its water column), for the readout. */
+function cellPlace(p: Panel, b: number, i: number): string {
+  const blob = drawn(p)[b];
+  if (!blob || !(i < blob.c.m)) return "";
+  const lat = blob.c.cy[i];
+  const lon = blob.c.cx[i];
+  const at = `${Math.abs(lat).toFixed(3)}&deg; ${lat >= 0 ? "N" : "S"}, ${Math.abs(lon).toFixed(3)}&deg; ${lon >= 0 ? "E" : "W"}`;
+  const H = blob.v && blob.v.m === blob.c.m ? blob.v.s?.h : undefined;
+  const q = H ? H.q[i] : 65535;
+  if (q === 65535) return at;
+  const m = H!.offset + q * H!.scale;
+  const avg = p.id === "necofs" && !nativeNow(p) ? ", averaged" : "";
+  return `${at} &middot; model depth ${m < 10 ? m.toFixed(1) : Math.round(m).toLocaleString("en-US")} m${avg}`;
 }
 
 function hideValues(): void {
@@ -840,10 +865,10 @@ async function updateLod(): Promise<void> {
   await loadValueTiles(p, src, keys, run);
 }
 
-/** Temperature and salinity for the NECOFS tiles in view, when one of them is the field shown. */
+/** The values for the NECOFS tiles in view: the field shown, or, for currents, the model's depth in the readouts. */
 async function loadValueTiles(p: Panel, src: Source, keys: string[], run: number): Promise<void> {
   const ts = modelAt(src, "necofs")?.ts;
-  if (field === "currents" || !ts?.pack || !ts.tiles) return;
+  if (!ts?.pack || !ts.tiles) return;
   const missing = keys.filter((k) => ts.tiles![k] && !valCache.has(tileKey(src, k)));
   let i = 0;
   const worker = async () => {
@@ -907,14 +932,16 @@ async function setFrame(i: number): Promise<void> {
   const src = cur()!;
   const run = ++frameRun;
   await ensureWide(src);
+  // Values hold the field drawn, so wait for them; for currents they hold only the readouts' depth, so not.
   if (field !== "currents") await ensureVals(src);
+  else void ensureVals(src).then(() => valuesAt && showValues(valuesAt));
   if (run !== frameRun) return; // a later step won
   if (src !== before) {
     countDoppio();
     void updateLod();
     // The next day's files while this one shows, so playing across midnight does not stall.
     const next = sources[sources.indexOf(src) + 1];
-    if (next) void ensureWide(next).then(() => (field !== "currents" ? ensureVals(next) : undefined));
+    if (next) void ensureWide(next).then(() => ensureVals(next));
   }
   for (const p of panels) drawPanel(p);
 }

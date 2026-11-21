@@ -32,6 +32,7 @@ Each blob holds the 2-hourly forecast from 24 hours back to 72 hours ahead (DOPP
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import logging
@@ -502,6 +503,11 @@ def _half(poly: np.ndarray, a: np.ndarray, b: np.ndarray, left: bool) -> np.ndar
     d = (b[0] - a[0]) * (poly[:, 1] - a[1]) - (b[1] - a[1]) * (poly[:, 0] - a[0])
     if not left:
         d = -d
+    side = d >= 0
+    if side.all():  # wholly on this side (most calls): the loop below would copy it point for point
+        return poly
+    if not side.any():
+        return None
     out = []
     for i in range(len(poly)):
         j = (i + 1) % len(poly)
@@ -531,6 +537,26 @@ def _area(poly: np.ndarray) -> float:
     return 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
 
 
+_SEAMS: dict[bytes, tuple[np.ndarray, dict]] = {}  # _seam's cuts by their inputs: a run cuts each level's seam once
+_SEAMS_KEPT = 8  # the surface and the six depths
+
+
+def _seam_once(c_nodes, c_quad, b_nodes, b_tri, cen_big) -> tuple[np.ndarray, dict]:
+    """_seam, kept by its inputs: the currents and the values of a level share one geometry, and so do the run and
+    the archived day (the same elements), so a run's 28 wide views make 7 cuts or fewer."""
+    digest = hashlib.blake2b(digest_size=16)
+    for a in (c_nodes, c_quad, b_nodes, b_tri, cen_big):
+        a = np.ascontiguousarray(a)
+        digest.update(str((a.dtype, a.shape)).encode())
+        digest.update(a.tobytes())
+    key = digest.digest()
+    if key not in _SEAMS:
+        if len(_SEAMS) >= _SEAMS_KEPT:
+            _SEAMS.pop(next(iter(_SEAMS)))
+        _SEAMS[key] = _seam(c_nodes, c_quad, b_nodes, b_tri, cen_big)
+    return _SEAMS[key]
+
+
 def _seam(c_nodes, c_quad, b_nodes, b_tri, cen_big) -> tuple[np.ndarray, dict]:
     """Where DOPPIO's cells meet NECOFS's large triangles. Per cell, the large triangles that may overlap it: those
     holding its center or a corner, those with a corner inside it, and their neighbors. Returns which cells lie wholly
@@ -549,6 +575,7 @@ def _seam(c_nodes, c_quad, b_nodes, b_tri, cen_big) -> tuple[np.ndarray, dict]:
         cands[int(i)] = {int(t) for t in corner_big[i] if t >= 0} | ({int(cen_big[i])} if cen_big[i] >= 0 else set())
     for nd in np.flatnonzero(poke >= 0):
         cands.setdefault(int(poke[nd]), set()).update(by_node.get(int(nd), []))
+    b_lo, b_hi = b_nodes[b_tri].min(axis=1), b_nodes[b_tri].max(axis=1)
     covered = np.zeros(n, bool)
     partial: dict[int, list[np.ndarray]] = {}
     for i, ts in cands.items():
@@ -559,6 +586,10 @@ def _seam(c_nodes, c_quad, b_nodes, b_tri, cen_big) -> tuple[np.ndarray, dict]:
         cell = c_nodes[c_quad[i]]
         whole = _area(cell)
         pieces = [cell]
+        # A triangle clear of the cell cuts nothing; clipping by it would only split the cell along its edges' lines.
+        near = np.fromiter(near, np.int64)
+        lo, hi = cell.min(axis=0), cell.max(axis=0)
+        near = near[(b_lo[near] <= hi).all(axis=1) & (b_hi[near] >= lo).all(axis=1)]
         for t in near:
             pieces = [r for q in pieces for r in _outside(q, b_nodes[b_tri[t]])]
             if not pieces:
@@ -601,7 +632,7 @@ def wide_view(grid, nodes, tri, centers, cells, u, v):
         t_tri[cw] = t_tri[cw][:, [0, 2, 1]]
         c_nodes, c_quad = quads(lon, lat, wet)  # every water cell, row-major as keep is
         cen_big = np.where(under_big, containing(t_nodes, t_tri, lon[wet], lat[wet]), -1)
-        covered, partial = _seam(c_nodes, c_quad, t_nodes, t_tri, cen_big)
+        covered, partial = _seam_once(c_nodes, c_quad, t_nodes, t_tri, cen_big)
         keep &= ~covered
         partial = {i: q for i, q in partial.items() if keep[i] or held[i] or at[i] >= 0}
         keep[list(partial)] = False

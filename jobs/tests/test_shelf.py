@@ -230,6 +230,22 @@ def test_wide_view_keeps_large_triangles_and_averages_small_ones():
     assert hits.min() == 1 and hits.max() == 1
 
 
+
+def test_seam_cuts_only_by_triangles_that_reach_the_cell_and_cuts_each_geometry_once():
+    # One 1 x 1 cell. A large triangle overlaps its east half; its neighbor (sharing a corner) lies well clear of the
+    # cell, but one of its edges' lines (y = 0.2 to 0.3 across the cell) would split the part outside: it must cut
+    # nothing, leaving that part in one piece.
+    c_nodes = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
+    c_quad = np.array([[0, 1, 2, 3]])
+    b_nodes = np.array([[0.5, -1.0], [3.0, 0.5], [0.5, 2.0], [3.5, 1.5], [4.0, 0.6]])
+    b_tri = np.array([[0, 1, 2], [1, 4, 3]])  # both counter-clockwise; the neighbor shares node 1
+    covered, partial = shelf._seam(c_nodes, c_quad, b_nodes, b_tri, np.array([0]))
+    assert not covered[0] and len(partial[0]) == 1
+    np.testing.assert_allclose(shelf._area(partial[0][0]), 0.5)
+    shelf._SEAMS.clear()
+    first = shelf._seam_once(c_nodes, c_quad, b_nodes, b_tri, np.array([0]))
+    assert shelf._seam_once(c_nodes.copy(), c_quad, b_nodes, b_tri, np.array([0])) is first and len(shelf._SEAMS) == 1
+
 def test_archive_keeps_past_days_hourly(tmp_path, monkeypatch):
     _fake_reads(monkeypatch)
     ts = tiles.TileStore(str(tmp_path / "tiles"))

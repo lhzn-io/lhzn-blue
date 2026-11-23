@@ -74,10 +74,19 @@ EAST = lp.Place("east", "Eastern Sound", "v1/lis-pane/", BOX, None)
 
 def test_anchor_on_the_meter(tmp_path):
     (tmp_path / "v1").mkdir()
+    (tmp_path / "v1/shore.json").write_text(json.dumps({"meters": {"GRTN": {"last_obs": {"time": "2026-11-02T09:00:00Z"}}}}))
+    store = Store(str(tmp_path))
+    assert lp.anchor_time(store, END) == pd.Timestamp("2026-11-02T09:00")
+    assert lp.window_hours(lp.anchor_time(store, END))[-1] == pd.Timestamp("2026-11-04T09:00")
+
+
+def test_a_silent_meter_gives_way_to_now(tmp_path):
+    # more than METER_STALE_HOURS old: anchored on it, the window would end 48 hours after it, in the past
+    (tmp_path / "v1").mkdir()
     (tmp_path / "v1/shore.json").write_text(json.dumps({"meters": {"GRTN": {"last_obs": {"time": "2026-11-01T09:00:00Z"}}}}))
     store = Store(str(tmp_path))
-    assert lp.anchor_time(store, END) == pd.Timestamp("2026-11-01T09:00")
-    assert lp.window_hours(lp.anchor_time(store, END))[-1] == pd.Timestamp("2026-11-03T09:00")
+    assert lp.anchor_time(store, END) == pd.Timestamp("2026-11-02T14:30")
+    assert lp.window_hours(lp.anchor_time(store, END))[-1] == pd.Timestamp("2026-11-04T14:00")
 
 
 def test_anchor_without_the_meter_is_now(tmp_path):

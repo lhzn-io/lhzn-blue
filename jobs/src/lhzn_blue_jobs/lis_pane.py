@@ -1,6 +1,7 @@
 """NECOFS in 3D over Long Island Sound, for the /long-island-sound/currents-3d/ page: two places, each a rolling
 window from ``WINDOW_BACK_DAYS`` before the Groton current meter's latest record (NOAA CO-OPS nl0101, Thames River) to
-``WINDOW_AHEAD_HOURS`` after it (or around now when there is none), hourly. Both frames are east and north metres
+``WINDOW_AHEAD_HOURS`` after it (or around now when there is none, or when its latest record is more than
+``METER_STALE_HOURS`` old), hourly. Both frames are east and north metres
 from the meter.
 
 - ``east``, the eastern Sound (21 by 28 km, New London to The Race and Plum Gut): every layer of every element,
@@ -54,6 +55,9 @@ METER = "GRTN"
 EARTH_M = 6371000.0  # the frame: equirectangular about the meter
 WINDOW_BACK_DAYS = 5
 WINDOW_AHEAD_HOURS = 48
+# A meter silent longer than this no longer anchors the window: the window follows now, so the view keeps a
+# forecast ahead (nl0101 went quiet 2026-11-21 09:29Z and the window ran out 48 hours later).
+METER_STALE_HOURS = 24
 FORECAST_HOURS_PER_READ = 24  # as an archive day, which the server reads well within its timeout
 UV_STEP_MM = 20  # 2 cm/s: within 1 cm/s of the model, to 2.54 m/s (see stats: the Race in the model stays below)
 VARIABLES = ("u", "v", "zeta")  # what the view draws; forcingkit reads nothing else
@@ -271,10 +275,14 @@ def stats(hours: dict[pd.Timestamp, dict]) -> dict:
 # ---- the run ----
 
 def anchor_time(store: Store, now: datetime) -> pd.Timestamp:
-    """The meter's latest record (from v1/shore.json's meters), or now; never later than now."""
+    """The meter's latest record (from v1/shore.json's meters), or now when there is none or it is more than
+    METER_STALE_HOURS old; never later than now."""
     doc = store.read_json("v1/shore.json") or {}
     last = (((doc.get("meters") or {}).get(METER) or {}).get("last_obs") or {}).get("time")
-    return min(_naive(last), _naive(now)) if last else _naive(now)
+    t = _naive(now)
+    if not last or t - _naive(last) > pd.Timedelta(hours=METER_STALE_HOURS):
+        return t
+    return min(_naive(last), t)
 
 
 def update(store: Store, end: datetime | None = None, max_new_days: int = 2, reader=None, places=PLACES) -> dict:

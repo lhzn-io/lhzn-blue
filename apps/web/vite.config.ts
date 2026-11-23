@@ -112,6 +112,7 @@ export default defineConfig(({ mode }) => ({
         "comfort-index": resolve(import.meta.dirname, "about/comfort-index/index.html"),
         "northeast-shelf": resolve(import.meta.dirname, "northeast-shelf/index.html"),
         forecast: resolve(import.meta.dirname, "long-island-sound/forecast/index.html"),
+        forecasts: resolve(import.meta.dirname, "long-island-sound/forecasts/index.html"),
         tides: resolve(import.meta.dirname, "long-island-sound/tides/index.html"),
         models: resolve(import.meta.dirname, "long-island-sound/models/index.html"),
         "currents-3d": resolve(import.meta.dirname, "long-island-sound/currents-3d/index.html"),

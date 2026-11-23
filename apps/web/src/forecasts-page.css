@@ -1,0 +1,66 @@
+/* "About the forecasts": the models table, the grid panels (small multiples over one patch of the eastern Sound) and
+   the wind scores' sparklines. Built on site.css and models-page.css (masthead, lede, column). */
+
+:root { --fp-water: rgba(127, 184, 216, 0.14); --fp-edge: rgba(242, 246, 249, 0.5); --fp-isobath: rgba(169, 191, 208, 0.22); }
+:root[data-theme="light"] { --fp-water: rgba(74, 127, 174, 0.12); --fp-edge: rgba(28, 42, 72, 0.5); --fp-isobath: rgba(74, 127, 174, 0.3); }
+
+.fp-main { max-width: 1120px; }
+.fp-toc { margin: 0 0 8px; font-size: 13px; }
+.fp-h {
+  margin: 34px 0 10px; padding-top: 12px; border-top: 1px solid var(--rule);
+  font: 600 11px/1.3 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent);
+}
+.fp-prose { max-width: 90ch; margin: 0 0 12px; }
+.fp-note { max-width: 90ch; margin: 0 0 10px; }
+.fp-i { margin: -2px 0 0 8px; vertical-align: middle; }
+.fp-i[aria-expanded="true"] { color: var(--accent); border-color: var(--accent-line); }
+
+/* The models table: rules only between rows, figures in mono, right-aligned. */
+.fp-table-wrap { overflow-x: auto; }
+.fp-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.4; color: var(--ink-soft); }
+.fp-table th, .fp-table td { padding: 6px 12px 6px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--rule); }
+.fp-table thead th { font: 700 9px/1.4 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
+.fp-table tbody th { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.fp-table .num { font: 11.5px/1.5 var(--mono); white-space: nowrap; }
+
+/* The grid panels: same patch, same scale, finest first; three to a row, two on tablets, one on phones. */
+.fp-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 20px; }
+.fp-sub { margin: 18px 0 8px; font: 700 10px/1.3 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
+#grids-panels > .fp-sub:first-child { margin-top: 6px; }
+.fp-panel { min-width: 0; margin: 0; padding: 8px 10px 9px; border: 1px solid var(--rule); border-radius: 3px; }
+.fp-panel figcaption { display: flex; flex-wrap: nowrap; align-items: baseline; gap: 6px; margin-bottom: 5px; white-space: nowrap; overflow: hidden; }
+.fp-cap-label { font: 700 10px/1.3 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink); }
+.fp-cap-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 10.5px/1.3 var(--mono); color: var(--dim); }
+.fp-cap-n { margin-left: auto; font: 10.5px/1.3 var(--mono); color: var(--faint); }
+.fp-canvas { display: block; width: 100%; aspect-ratio: 50 / 27; background: var(--bg); }
+
+/* Time under each grid: one linear lead axis to 7 days; the bar, the step ticks, and the wind models' error line. */
+.fp-strip { margin-top: 4px; }
+.fp-strip-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.fp-strip-svg text { font: 8.5px var(--mono); fill: var(--faint); }
+.fp-strip-svg .fp-y { font-size: 8px; }
+.fp-strip-svg .fp-val { font-size: 9px; fill: var(--ink-soft); }
+.fp-strip-svg .fp-none { font-size: 9px; font-style: italic; fill: var(--faint); }
+.fp-base { stroke: var(--rule); stroke-width: 1; }
+.fp-horizon { stroke: var(--dim); stroke-opacity: 0.4; stroke-width: 4; }
+.fp-step { stroke: var(--dim); stroke-opacity: 0.55; stroke-width: 0.6; }
+.fp-zero { stroke: var(--rule); stroke-width: 0.8; stroke-dasharray: 1 2; }
+.fp-line { fill: none; stroke: var(--ink); stroke-width: 1.2; stroke-linejoin: round; }
+.fp-dot { fill: var(--accent); }
+.fp-meta { margin: 2px 0 0; font: 10px/1.4 var(--mono); color: var(--dim); }
+
+.fp-views { margin: 0 0 12px; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+
+@media (max-width: 860px) {
+  .fp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .fp-grid { grid-template-columns: 1fr; }
+  /* The table as one block per model: its name, then each figure under its column's name. */
+  .fp-table thead { display: none; }
+  .fp-table, .fp-table tbody, .fp-table tr { display: block; }
+  .fp-table tr { display: grid; grid-template-columns: 6.5em 1fr; gap: 2px 10px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+  .fp-table th, .fp-table td { display: contents; }
+  .fp-table tbody th { display: block; grid-column: 1 / -1; padding: 0 0 2px; border: 0; }
+  .fp-table td::before { content: attr(data-label); font: 700 8.5px/1.9 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+}

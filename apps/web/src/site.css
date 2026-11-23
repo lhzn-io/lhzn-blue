@@ -1210,7 +1210,7 @@ body.embed .figs { display: block; }
 body.embed .embed-credit { margin: 6px 0 0; font: 11px/1.4 var(--sans); color: var(--dim); }
 body.embed .embed-credit a { color: inherit; text-underline-offset: 2px; }
 
-/* Forecast verification in the top bar (wider screens; the menu holds it on phones) and as a tag beside a forecast. */
+/* About the forecasts (which leads to verification) in the top bar (wider screens; the menu holds it on phones) and as a tag beside a forecast. */
 .ver-link {
   flex: none; margin-right: 8px; padding: 3px 12px 5px; border-radius: 999px; text-decoration: none;
   font: 700 9px/1.2 var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent-line);
@@ -1234,12 +1234,6 @@ body.embed .embed-credit a { color: inherit; text-underline-offset: 2px; }
   font: 600 10.5px/1.4 var(--sans); letter-spacing: 0.18em; color: var(--dim); }
 .pick-band .tab:hover { color: var(--ink); }
 /* The Sound's link to its currents in 3D: outlined, so it reads as a way to another view rather than a tab. */
-.pb-3d { margin: 0; }
-.pb-3d-link {
-  display: inline-block; padding: 5px 12px; border: 1px solid var(--accent-line); border-radius: 3px; text-decoration: none;
-  font: 600 10.5px/1.4 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent);
-}
-.pb-3d-link:hover, .pb-3d-link:focus-visible { border-color: var(--accent); color: var(--accent-hi); outline: none; }
 .pick-band a.place[aria-current="page"], .pick-band .place-menu > summary.current, .pick-band .tab[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 .topbar .place-pick { display: none; }
 html.sel-compact .topbar > * { order: 2; }

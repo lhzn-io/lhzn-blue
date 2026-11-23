@@ -301,6 +301,7 @@ export const METHODS: Record<string, Method> = {
       "next, such as ebbs weakened by a northeast wind, is better evidence than a single gap. The comparison covers the " +
       "radar's last 72 hours, so it is not a score. The radar reaches the western Sound only. The day-ahead forecast " +
       "fills in once the site has kept runs for two days.",
+    more: { href: "/long-island-sound/forecasts/", text: "The models behind the forecasts, their grids and how they score", on: ["/long-island-sound/"] },
   },
   vsst: {
     title: "Water temperature, last 90 days",

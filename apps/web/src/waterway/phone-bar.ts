@@ -45,7 +45,7 @@ export function wireMore(): void {
     if (what === "theme") $("theme-toggle").click();
     else if (what === "collect") window.setTimeout(() => $("collect-open").click());
     else if (what === "locate") return; // its own handler (wireLocate)
-    // "About" is a link to /about/; "Forecast verification" a link too.
+    // "About" is a link to /about/; "About the forecasts", "Forecast verification" and the other pages are links too.
   });
   const count = $("collect-count");
   const show = () => {

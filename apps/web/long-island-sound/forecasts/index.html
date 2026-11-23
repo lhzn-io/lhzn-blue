@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href="https://longhorizon.blue/long-island-sound/forecasts/" />
+    <script>
+      // Light by default; a saved choice of dark is applied before first paint so the page never flashes.
+      document.documentElement.dataset.theme = "light";
+      try {
+        if (localStorage.getItem("lhzn-blue-theme") === "dark") delete document.documentElement.dataset.theme;
+      } catch (e) {}
+    </script>
+    <title>About the forecasts, Long Island Sound (alpha) | longhorizon.blue</title>
+    <meta name="description" content="The models behind longhorizon.blue's forecasts for Long Island Sound: what each gives, its grid at The Race, how often it runs, and how well it has scored against measurements." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Josefin+Sans:wght@300;400;600;700&family=Martian+Mono:wght@300;400;500&display=swap"
+    />
+  </head>
+  <body class="mg fp">
+    <header class="mast mg-mast">
+      <div class="mast-id">
+        <a class="mg-eyebrow" href="/long-island-sound/">Long Island Sound</a>
+        <h1 class="mg-title">About the forecasts</h1>
+        <p class="mast-by"><a class="lho" href="https://longhorizon.eco/observatory">Long Horizon Observatory</a> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span></p>
+      </div>
+      <nav class="mg-nav" aria-label="Page">
+        <a class="mg-back" href="/long-island-sound/forecast/">Forecast verification</a>
+        <a class="mg-back" href="/long-island-sound/models/">Wind models compared</a>
+        <a class="mg-back" href="/long-island-sound/">Back to the Sound</a>
+        <button class="theme-icon" id="theme-toggle" type="button" aria-pressed="false"></button>
+      </nav>
+    </header>
+
+    <main class="mg-main fp-main">
+      <p class="mg-lede">Every forecast here is a model's output, drawn on the model's own grid and, where measurements allow, scored.</p>
+      <nav class="prose fp-toc" aria-label="On this page">
+        <a href="#grids">At The Race</a> &middot; <a href="#models">Sources and schedules</a> &middot; <a href="#views">Other views</a> &middot;
+        <a href="#credits">Credits</a>
+      </nav>
+
+      <h2 class="fp-h" id="grids">The models at The Race<button type="button" class="fig-info fp-i" aria-expanded="false" aria-controls="grids-note" title="About the grids">i</button></h2>
+      <p class="note fp-note" id="grids-note" hidden>
+        A model cannot show anything smaller than its cells: the Race's jet, a few kilometers wide, falls inside one or two cells of
+        the global models and across dozens of NECOFS triangles. Shading: the water NECOFS models. Faint lines: its depths, every
+        10 m to 30 m, then 50 and 80 m. Under each map, on one axis to 7 days: the bar is how far ahead the site shows the model,
+        each tick one of its time steps, and the line, for the wind models, the mean absolute error of wind speed against the
+        buoys by lead, on one scale. The wind records cover different periods (HRDPS's only weeks, in autumn), so the lines
+        compare in kind; a comparison over the same hours is to come. NECOFS is set beside HF radar and NOAA's New London
+        current meter on the Sound's page; over October 3 to 20, 2026, it kept the tide's timing within about 10 minutes of
+        NOAA's predictions at the Race, the central Sound and Throgs Neck. By buoy, season and speed:
+        <a href="/long-island-sound/forecast/">Forecast verification</a>.
+      </p>
+      <p class="prose fp-prose">One 50 by 27 km patch in each model's own cells, by what it forecasts, finest first; under each, its reach in time and, for wind, its error.</p>
+      <div id="grids-panels"></div>
+      <p class="outage" id="grids-error" role="status" hidden></p>
+
+      <h2 class="fp-h" id="models">Sources and schedules<button type="button" class="fig-info fp-i" aria-expanded="false" aria-controls="models-note" title="About the table">i</button></h2>
+      <p class="note fp-note" id="models-note" hidden>
+        Grid: the spacing between cell centers near the Sound; NECOFS's triangles shrink where the water narrows. Runs: HRRR runs
+        hourly to 18 hours ahead and four times a day to 48. Ahead: how far ahead this site shows or scores each model.
+      </p>
+      <div class="fp-table-wrap">
+        <table class="fp-table">
+          <thead>
+            <tr><th scope="col">Model</th><th scope="col">From</th><th scope="col">Gives</th><th scope="col">Grid</th><th scope="col">Runs</th><th scope="col">Ahead</th><th scope="col">Scored</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">HRRR</th><td>NOAA</td><td>Wind; the map, outlook and comfort index</td><td class="num">3 km</td><td>Hourly</td><td class="num">48 h</td><td>Buoys, since January 2024</td></tr>
+            <tr><th scope="row">HRDPS</th><td>ECCC</td><td>Wind</td><td class="num">2.5 km</td><td>Every 6 h</td><td class="num">48 h</td><td>Buoys, since October 2026</td></tr>
+            <tr><th scope="row">GFS</th><td>NOAA</td><td>Wind</td><td class="num">0.25&deg;</td><td>Every 6 h</td><td class="num">168 h</td><td>Buoys, since January 2024</td></tr>
+            <tr><th scope="row">ICON</th><td>DWD</td><td>Wind, compared only</td><td class="num">13 km</td><td>Every 6 h</td><td class="num">48 h</td><td>No</td></tr>
+            <tr><th scope="row">ECMWF</th><td>ECMWF open data</td><td>Wind, compared only</td><td class="num">0.25&deg;</td><td>Every 6 h</td><td class="num">48 h</td><td>No</td></tr>
+            <tr><th scope="row">NWPS</th><td>NWS (SWAN)</td><td>Waves; wind against tide</td><td class="num">1.8 km</td><td>00, 12 UTC</td><td class="num">72 h</td><td>No</td></tr>
+            <tr><th scope="row">NECOFS</th><td>UMass Dartmouth SMAST (FVCOM)</td><td>Currents; 45 layers in 3D</td><td class="num">0.2 to 1.5 km</td><td>Read daily</td><td class="num">72 h</td><td>Compared: HF radar, current meter</td></tr>
+            <tr><th scope="row">DOPPIO</th><td>Rutgers (ROMS, MARACOOS)</td><td>Shelf currents</td><td class="num">7 km</td><td>Read daily</td><td class="num">72 h</td><td>No</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 class="fp-h" id="views">Other views</h2>
+      <ul class="prose fp-views">
+        <li><a href="/long-island-sound/models/">Wind models compared</a>: five models side by side, the next 48 hours.</li>
+        <li><a href="/long-island-sound/currents-3d/">Currents in 3D</a>: NECOFS, surface to bottom.</li>
+        <li><a href="/northeast-shelf/">Northeast Shelf</a>: NECOFS and DOPPIO along the shelf break.</li>
+      </ul>
+
+      <footer class="credits" id="credits">
+        <p>
+          <b>Data:</b> NOAA (HRRR, GFS, NWS NWPS); HRDPS, Data Source: Environment and Climate Change Canada
+          (<a href="https://eccc-msc.github.io/open-data/licence/readme_en/">licence</a>); Deutscher Wetterdienst (DWD), ICON, CC BY 4.0;
+          ECMWF open data, CC BY 4.0; NECOFS/UMASSD (FVCOM GOM7, UMass Dartmouth SMAST); DOPPIO ROMS, Rutgers University Ocean
+          Modeling Group for MARACOOS. Buoys: LISICOS, University of Connecticut.
+        </p>
+        <p>
+          <b>Model output as published, not for navigation.</b> Use of this site is subject to the <a href="/terms/">Terms</a>;
+          see the <a href="/about/#limits">limitations</a> and <a href="/about/#methods">methods</a>.
+        </p>
+        <p>
+          A <a href="/">longhorizon.blue</a> page by <a href="https://longhorizon.eco/observatory">Long Horizon Observatory</a>. Open source under the MIT license:
+          <a href="https://github.com/lhzn-io/lhzn-blue">code</a>.
+        </p>
+      </footer>
+    </main>
+
+
+    <script type="module" src="../../src/forecasts-page.ts"></script>
+  </body>
+</html>

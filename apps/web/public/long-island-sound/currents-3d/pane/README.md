@@ -15,7 +15,7 @@ KV:
 
 | File | Contents |
 | :--- | :--- |
-| `pane.js` | the module (ES module; lazy-loads three.js r170, camera-controls 3.1.2 and [vantagekit](https://github.com/lhzn-io/vantagekit) 0.8.2 from jsDelivr) |
+| `pane.js` | the module (ES module; lazy-loads three.js r170, camera-controls 3.1.2 and [vantagekit](https://github.com/lhzn-io/vantagekit) 0.8.3 from jsDelivr) |
 | `ramp.js` | the currents speed ramps, the site's pair after cmocean tempo (forcingkit's `currents_tempo` and `currents_tempo_dark`): the cells take the one for the page's ground |
 | `mesh.json` | counts, record times (epoch s), sigma levels (`siglev` for drawing, `model_siglev` the model's, `layer_index` the layers held), the element holding the meter (`buoy_element`), the section's geometry, file names, statistics |
 | `nodes.f32` | per node: east, north (m from the meter), h (m, positive down), float32 |
@@ -62,7 +62,7 @@ within 400 m of the line; its maximum 2.25 m/s); along the whole axis the 99th p
 
 ## Navigation
 
-vantagekit 0.8.2, orbit only: a drag turns the view, a right drag or two fingers pan along the ground, the wheel or a
+vantagekit 0.8.3, orbit only: a drag turns the view, a right drag or two fingers pan along the ground, the wheel or a
 pinch zooms (stopping 400 m from the orbit point), and the keys and a gamepad work while the view has focus. A
 double-click or double-tap on the water's surface or the bed turns the view about that point (no marker is drawn
 there). Changing the exaggeration keeps the orbit point on the surface or bed it was at.

@@ -46,6 +46,7 @@ WATERWAYS = [
         "intro": "The two ocean models on the Northeast U.S. Shelf page, each shown on its own grid. FVCOM, which NECOFS runs, is listed under the methods above.",
         "sections": [
             ("shelf-models", "The models"),
+            ("shelf-names", "Place names and protected areas"),
             ("shelf-programs", "Research on the shelf"),
         ],
     },

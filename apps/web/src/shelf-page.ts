@@ -354,14 +354,22 @@ interface Panel {
 }
 type Period = { kind: "forecast" } | { kind: "days"; from: string; to: string };
 /** What each map draws, the same on both: the currents (cells by speed, arrows), the cell outlines, the depth lines. */
-type Layer = "color" | "arrows" | "grid" | "depth";
-const LAYERS: Layer[] = ["color", "arrows", "grid", "depth"];
+type Layer = "color" | "arrows" | "grid" | "depth" | "names" | "mpa";
+const LAYERS: Layer[] = ["color", "arrows", "grid", "depth", "names", "mpa"];
+const DEFAULT_LAYERS: Layer[] = ["color", "arrows", "grid", "depth"]; // undersea names and protected areas are off until asked for
 const LAYER_IDS: Record<Layer, string[]> = {
   color: ["cells"],
   arrows: ["arrows"],
   grid: ["cell-lines"],
   depth: ["isobaths", "isobaths-50", "isobath-labels"],
+  names: ["names"],
+  mpa: ["mpa-hit", "mpa-line", "mpa-label"],
 };
+/** The overlays' static files (scripts/fetch-marine-names.py), fetched the first time each is shown. */
+type Overlay = "names" | "mpa";
+const OVERLAY_URL: Record<Overlay, string> = { names: "/northeast-shelf/names.geojson", mpa: "/northeast-shelf/mpa.geojson" };
+const overlay: Record<Overlay, FeatureCollection | null> = { names: null, mpa: null };
+const overlayLoading = new Set<Overlay>();
 
 const panels: Panel[] = [];
 let period: Period = { kind: "forecast" };
@@ -380,7 +388,7 @@ let lod: "wide" | "native" = "wide";
 let tooMany = false; // zoomed in, but more NECOFS cells in view than the page draws at once
 let inViewKeys: string[] = [];
 let doppioInView = -1;
-let shown = new Set<Layer>(LAYERS);
+let shown = new Set<Layer>(DEFAULT_LAYERS);
 const tileCache = new Map<string, Cells>(); // "<source>|<depth>|<tile>"
 const valCache = new Map<string, Vals>(); // the same keys, for temperature and salinity
 const pending = new Map<string, Promise<void>>();
@@ -503,7 +511,8 @@ function writeUrl(): void {
   }
   if (userTime && frames.length) q.set("t", hourParam(frames[frame].t));
   if (shownBox) q.set("bbox", shownBox);
-  if (shown.size < LAYERS.length) q.set("layers", LAYERS.filter((l) => shown.has(l)).join(","));
+  const asDefault = shown.size === DEFAULT_LAYERS.length && DEFAULT_LAYERS.every((l) => shown.has(l));
+  if (!asDefault) q.set("layers", LAYERS.filter((l) => shown.has(l)).join(","));
   if (depth) q.set("depth", String(depth));
   if (field !== "currents") q.set("field", field);
   const s = q.toString().replace(/%2C/g, ",");
@@ -544,6 +553,8 @@ function addLayers(p: Panel): void {
   map.addSource("cells", { type: "geojson", data: data.cells, tolerance: 0 });
   map.addSource("arrows", { type: "geojson", data: data.arrows });
   map.addSource("isobaths", { type: "geojson", data: p.iso ?? EMPTY });
+  map.addSource("names", { type: "geojson", data: overlay.names ?? EMPTY });
+  map.addSource("mpa", { type: "geojson", data: overlay.mpa ?? EMPTY, tolerance: 0.5 });
   // Over the basemap's land, water and roads but under its labels.
   const layers = map.getStyle().layers;
   let last = -1;
@@ -567,6 +578,12 @@ function addLayers(p: Panel): void {
   const iso = { "line-color": ink, "line-opacity": 0.45, "line-width": 0.7 };
   map.addLayer({ id: "isobaths", type: "line", source: "isobaths", filter: [">=", ["get", "d"], 100], paint: iso }, before);
   map.addLayer({ id: "isobaths-50", type: "line", source: "isobaths", minzoom: 7, filter: ["==", ["get", "d"], 50], paint: iso }, before);
+  // Protected areas: a dashed outline over the cells and under the arrows, and an invisible fill for the readout.
+  map.addLayer({ id: "mpa-hit", type: "fill", source: "mpa", paint: { "fill-color": ink, "fill-opacity": 0 } }, before);
+  map.addLayer(
+    { id: "mpa-line", type: "line", source: "mpa", paint: { "line-color": ink, "line-opacity": 0.7, "line-width": 1, "line-dasharray": [3, 2] } },
+    before,
+  );
   map.addLayer(
     {
       id: "arrows",
@@ -605,10 +622,65 @@ function addLayers(p: Panel): void {
     },
     before,
   );
+  // Protected-area names: the large sites from the opening view, the rest as the map closes in.
+  map.addLayer(
+    {
+      id: "mpa-label",
+      type: "symbol",
+      source: "mpa",
+      filter: ["any", [">=", ["get", "km2"], 1000], ["all", [">=", ["get", "km2"], 50], [">=", ["zoom"], 8]], [">=", ["zoom"], 10]],
+      layout: {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 10.5,
+        "text-max-width": 9,
+        "text-padding": 4,
+        "symbol-sort-key": ["-", 0, ["get", "km2"]],
+      },
+      paint: { "text-color": ink, "text-opacity": 0.8, "text-halo-color": theme() === "light" ? "#ffffff" : "#1c2a48", "text-halo-width": 1.4 },
+    },
+    before,
+  );
+  // Undersea feature names, in italic as charts set them; on top, so they win their place over the depth labels.
+  map.addLayer(
+    {
+      id: "names",
+      type: "symbol",
+      source: "names",
+      filter: ["any", ["==", ["get", "rank"], 1], ["all", ["==", ["get", "rank"], 2], [">=", ["zoom"], 6.5]], [">=", ["zoom"], 8.5]],
+      layout: {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Italic"],
+        "text-size": ["match", ["get", "rank"], 1, 13, 2, 11.5, 10.5],
+        "text-max-width": 8,
+        "text-padding": 3,
+        "symbol-sort-key": ["get", "rank"],
+      },
+      paint: { "text-color": ink, "text-halo-color": theme() === "light" ? "#ffffff" : "#1c2a48", "text-halo-width": 1.4 },
+    },
+    before,
+  );
   applyLayers(map);
 }
 
+/** An overlay's file, once: both maps get it as soon as it arrives. */
+async function loadOverlay(o: Overlay): Promise<void> {
+  if (overlay[o] || overlayLoading.has(o)) return;
+  overlayLoading.add(o);
+  try {
+    const r = await fetch(OVERLAY_URL[o]);
+    if (!r.ok) throw new Error(`${r.status}`);
+    overlay[o] = (await r.json()) as FeatureCollection;
+    for (const p of panels) (p.map?.getSource(o) as maplibregl.GeoJSONSource | undefined)?.setData(overlay[o]!);
+  } catch (e) {
+    console.warn(`overlay ${o}:`, e);
+  } finally {
+    overlayLoading.delete(o);
+  }
+}
+
 function applyLayers(map: maplibregl.Map): void {
+  for (const o of ["names", "mpa"] as const) if (shown.has(o)) void loadOverlay(o);
   for (const l of LAYERS)
     for (const id of LAYER_IDS[l]) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", shown.has(l) ? "visible" : "none");
 }
@@ -752,9 +824,33 @@ function showValues(at: maplibregl.LngLat): void {
       body = x === null ? `<b>${flow.replace(" kt", " kt</b>")}<br>${where}${avg}` : `${head}${flow}, ${where}${avg}`;
       body += `<br>${cellPlace(p, Number(f.properties.b), Number(f.properties.i))}`;
     } else body = stepOf(p) < 0 ? "no data for this hour" : `no cell here ${where}`;
+    body += overlayAt(map, at);
     p.popup ??= new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "pin-pop hover-pop sh-val", offset: 12, maxWidth: "none" });
     p.popup.setLngLat(at).setHTML(`<span class="sh-val-model">${p.label}</span> ${body}`).addTo(map);
   }
+}
+
+const esc = (t: unknown) => String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+const NAME_SOURCE: Record<string, string> = { ACUF: "US BGN ACUF", CGNDB: "Canadian Geographical Names Database", GEBCO: "GEBCO Gazetteer" };
+
+/** Readout lines for the overlays under a point: a named feature's label, and the protected areas it lies in. */
+function overlayAt(map: maplibregl.Map, at: maplibregl.LngLat): string {
+  let out = "";
+  const pt = map.project(at);
+  if (shown.has("names") && map.getLayer("names")) {
+    const n = map.queryRenderedFeatures([[pt.x - 6, pt.y - 6], [pt.x + 6, pt.y + 6]], { layers: ["names"] })[0];
+    if (n) out += `<br><i>${esc(n.properties.name)}</i>: ${esc(String(n.properties.kind).toLowerCase())}, name from ${esc(NAME_SOURCE[n.properties.src] ?? n.properties.src)}`;
+  }
+  if (shown.has("mpa") && map.getLayer("mpa-hit")) {
+    const seen = new Set<string>();
+    for (const a of map.queryRenderedFeatures(pt, { layers: ["mpa-hit"] })) {
+      const name = String(a.properties.name);
+      if (seen.has(name)) continue;
+      seen.add(name);
+      out += `<br>In ${esc(name)}${a.properties.agency ? ` (${esc(a.properties.agency)})` : ""}`;
+    }
+  }
+  return out;
 }
 
 /** A cell's centroid and the model's own depth there (the bottom of its water column), for the readout. */

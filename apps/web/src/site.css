@@ -349,6 +349,9 @@ figcaption { display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wra
 /* The plot, its labels, tooltip and cursor values are laid out by @lhzn-io/timecharts/charts.css; the sizes here are
    this site's. */
 .plot[data-fig="next48"] { height: 380px; } /* full width, so twice the height of the paired plots */
+/* Waves sits beside the surface current, a plot with a tide strip under it: on a two-column screen it grows to the
+   row's height rather than leaving the space below it empty. */
+@media (min-width: 901px) { .figs figure > .plot[data-fig="waves"] { flex: 1 0 auto; } }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-family: var(--mono); font-size: 9.5px; color: var(--chart-legend); }
 .legend i { display: inline-block; width: 14px; height: 2px; margin-right: 5px; vertical-align: 3px; }
 .legend i.shade { height: 4px; vertical-align: 2px; } /* shading, not a pen: twice a line's height */

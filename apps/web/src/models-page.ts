@@ -249,26 +249,26 @@ function waveFeatures(p: Panel, f: Frame): { cells: FeatureCollection; arrows: F
   return { cells: { type: "FeatureCollection", features: cells }, arrows: { type: "FeatureCollection", features: arrows } };
 }
 
-/** An arrow pointing north, as an alpha mask for an SDF icon (coloured by the layer). */
-function arrowImage(): ImageData {
-  const n = 32;
+/** An arrow pointing north in the theme's color: a fine shaft and an open chevron head, drawn at ARROW_RATIO times
+ * its 32 px size. A plain image, not an SDF icon: a pen under a pixel wide breaks up at an SDF's edge threshold. */
+const ARROW_RATIO = 2;
+function arrowImage(color: string): ImageData {
+  const n = 32 * ARROW_RATIO;
   const cv = document.createElement("canvas");
   cv.width = cv.height = n;
   const g = cv.getContext("2d")!;
-  g.strokeStyle = "#000";
-  g.fillStyle = "#000";
-  g.lineWidth = 3;
+  g.scale(ARROW_RATIO, ARROW_RATIO);
+  g.strokeStyle = color;
+  g.lineWidth = 2;
   g.lineCap = "round";
+  g.lineJoin = "round";
   g.beginPath();
   g.moveTo(16, 28);
-  g.lineTo(16, 9);
+  g.lineTo(16, 4.5);
+  g.moveTo(10, 11.5);
+  g.lineTo(16, 4.5);
+  g.lineTo(22, 11.5);
   g.stroke();
-  g.beginPath();
-  g.moveTo(16, 3);
-  g.lineTo(23, 13);
-  g.lineTo(9, 13);
-  g.closePath();
-  g.fill();
   return g.getImageData(0, 0, n, n);
 }
 
@@ -276,7 +276,8 @@ function addLayers(p: Panel): void {
   const map = p.map!;
   const data = features(p);
   const fine = (p.model?.grid.type === "quads" && p.model.grid.nx > 40) || p.model?.grid.type === "nodes";
-  if (!map.hasImage("mg-arrow")) map.addImage("mg-arrow", arrowImage(), { sdf: true });
+  const icon = `mg-arrow-${theme()}`;
+  if (!map.hasImage(icon)) map.addImage(icon, arrowImage(ARROW[theme()]), { pixelRatio: ARROW_RATIO });
   map.addSource("cells", { type: "geojson", data: data.cells });
   map.addSource("arrows", { type: "geojson", data: data.arrows });
   // Over the basemap's land, water and roads but under its labels, so place names stay readable and arrows give way
@@ -312,15 +313,15 @@ function addLayers(p: Panel): void {
       type: "symbol",
       source: "arrows",
       layout: {
-        "icon-image": "mg-arrow",
+        "icon-image": icon,
         "icon-rotate": ["get", "dir"],
         "icon-rotation-alignment": "map",
-        "icon-size": ["interpolate", ["linear"], ["get", "kt"], 0, 0.4, 25, 0.75],
+        "icon-size": ["interpolate", ["linear"], ["get", "kt"], 0, 0.45, 25, 0.75],
         "icon-allow-overlap": false,
         "icon-padding": 1,
         "symbol-sort-key": ["get", "lvl"],
       },
-      paint: { "icon-color": ARROW[theme()], "icon-opacity": 0.9 },
+      paint: { "icon-opacity": 0.8 },
     },
     before,
   );

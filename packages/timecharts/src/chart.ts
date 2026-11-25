@@ -499,7 +499,7 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     marks!.replaceChildren();
   };
   // A plot that sets the page's time (data-time-pick, a plot page): a tap or a drag across it moves the time to the
-  // hour under it, sent as "timepick" (epoch seconds); the page's reading line says the values, so no labels show.
+  // hour under it, sent as "timepick" (epoch seconds); the values follow that time (followAsOf), not the pointer.
   const pickTime = (clientX: number) => {
     const i = Math.max(0, Math.min(xs.length - 1, Math.round((timeAt(clientX) - x0) / (xs[1] - xs[0]))));
     plot.dispatchEvent(new CustomEvent("timepick", { detail: xs[i], bubbles: true }));
@@ -514,9 +514,9 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     }
     if (e.pointerType === "mouse" || plot.dataset.zoom === "1") show(e.clientX, e.clientY);
   };
-  // On a touch screen's plot page (no hover), the values stay at the page's time (now, until it is moved), as the
-  // pointer shows them on a desk: a tap or a drag moves the time and the labels with it.
-  const follows = () => plot.dataset.timePick === "1" && window.matchMedia("(hover: none)").matches;
+  // On a plot page the values stay at the page's time (now, until it is moved), on a touch screen and on a desk alike:
+  // a tap, click or drag moves the time and the labels with it (a mouse passing over the plot leaves them there).
+  const follows = () => plot.dataset.timePick === "1";
   followAsOf.set(asof, () => {
     if (!follows() || !svg.isConnected) return;
     const t = asOfT ?? Date.now() / 1000;
@@ -524,8 +524,9 @@ export function renderLines(plot: HTMLElement, o: ChartOptions): Rendered {
     else showAt(t);
   });
   requestAnimationFrame(() => followAsOf.get(asof)?.()); // once the page has marked the plot and laid it out
-  svg.onpointerleave = (e) => {
-    if (e.pointerType === "mouse" || !follows()) hide();
+  svg.onpointerleave = () => {
+    if (follows()) followAsOf.get(asof)?.();
+    else hide();
   };
   return rendered;
 }

@@ -38,9 +38,11 @@ trigger lhzn-blue-fields "30 8 * * *" lhzn-blue-fields
 trigger lhzn-blue-snapshot "45 4 * * 1,3,5" lhzn-blue-snapshot
 # HRRR at the stations, hourly: each run archives the complete cycles of the last 4 hours not yet kept.
 trigger lhzn-blue-forecast "40 * * * *" lhzn-blue-forecast
-# The LISICOS station panels while the data server is down (a stopgap): weather every 10 minutes, waves and water
-# quality every 30 (the job decides). Pause this trigger when the server returns, or if LISICOS asks.
-trigger lhzn-blue-panels "*/10 * * * *" lhzn-blue-panels
+# The LISICOS station panels are read by the latest and live runs while the data server is down (panels.failover),
+# so their own trigger is paused; the job stays deployed for a run by hand.
+if gcloud scheduler jobs describe lhzn-blue-panels --project "$GCP_PROJECT" --location "$GCP_REGION" >/dev/null 2>&1; then
+  gcloud scheduler jobs pause lhzn-blue-panels --project "$GCP_PROJECT" --location "$GCP_REGION" >/dev/null 2>&1 || true
+fi
 # The Piscataqua Region (region.py), about 37 Workers KV writes a day: its observations hourly, between the Sound's
 # runs; its rivers' record, currents and SST daily, after the Sound's fields; its HRRR wind every 3 hours.
 trigger lhzn-blue-region-live "25 * * * *" lhzn-blue-region-live

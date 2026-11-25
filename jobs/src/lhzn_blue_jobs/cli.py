@@ -71,6 +71,7 @@ def _main() -> None:
     args = parser.parse_args()
     # The region jobs and hfradar never read the Sound's LISICOS server: a budget of 0 makes a stray call fail instead of sending.
     merlin.set_budget(0 if args.command.startswith("region-") or args.command == "hfradar" else merlin.BUDGETS.get(args.command, merlin.DEFAULT_BUDGET))
+    merlin.set_job(args.command)
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -106,9 +107,11 @@ def _main() -> None:
         _shore(lambda: store.write_json(
             "v1/advisories-now.json", __import__("lhzn_blue_jobs.advisories", fromlist=["now"]).now(), max_age=300
         ), "advisories-now")
+        _shore(lambda: __import__("lhzn_blue_jobs.panels", fromlist=["failover"]).failover(store, args.panels), "panels failover")
     elif args.command == "latest":
         # The 15-minute refresh between hourly runs: the buoys' water and weather only.
         build.live(store, quick=True)
+        _shore(lambda: __import__("lhzn_blue_jobs.panels", fromlist=["failover"]).failover(store, args.panels), "panels failover")
     elif args.command == "fields":
         from . import fields  # forcingkit is needed only here
 

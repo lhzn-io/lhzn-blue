@@ -14,8 +14,15 @@ own with Tesseract (one line, upscaled, darkest channel) and checked before it i
 - layout: boxes are found on each image and matched to the field map (images drawn larger are scaled to the reference
   size first); a field with no box is a sensor the buoy does not carry, not an error.
 
+Only while the server is down. The ``latest`` and ``live`` runs (every 15 minutes between them) end with
+``failover``: it asks the server for its newest weather reading (``server_current``) and reads the panels only when
+none is younger than ``SERVER_FRESH_HOURS``. The server is intermittent, so this is decided afresh every run: the
+panels take over within 15 minutes of an outage and stop within 15 minutes of the server's return, with no job of
+their own to schedule. A run that skips them writes nothing (no KV write). The ``panels`` command still runs the
+same check first, for a run by hand.
+
 Requests are polite: one at a time, a few seconds apart, with a User-Agent naming the site and a contact; weather every
-run (every 10 minutes), waves and water quality every third run; a panel that fails is skipped for a growing number of
+run, waves and water quality every ``slow_every``-th run (about every 30 minutes); a panel that fails is skipped for a growing number of
 runs; a 403 or 429 stops all panel fetching for a day. Each image is archived as fetched (create-only, private; never
 served by the site) so the record can be re-read; ``v1/panels.json`` (KV) holds the last 10 days of readings and each
 panel's health. Values from here are LISICOS's observations as transcribed by us: provisional, credited to LISICOS,
@@ -53,6 +60,11 @@ EST = timezone(timedelta(hours=-5))
 KEEP_DAYS = 10
 STALE_HOURS = 3
 SPACING_S = 3.0
+# The server is current while a station's newest weather reading is younger than this. It normally posts readings 70
+# to 80 minutes late, so a server that has stopped taking in data shows after about an hour more; one that cannot be
+# reached, at once.
+SERVER_FRESH_HOURS = 2.5
+SERVER_PROBE = ("WLIS_MET", "CLIS_MET", "EXRX_MET")
 # Which panels to read: ARTG has no weather panel (404).
 PANELS = {"WLIS": ("wx", "wav", "wq"), "EXRX": ("wx", "wav", "wq"), "ARTG": ("wav", "wq"), "CLIS": ("wx", "wav", "wq")}
 # Image names that differ from <stn>_<panel>.png: EXRX's weather panel is exrx_wx1.png, as the LISICOS station page
@@ -335,9 +347,51 @@ class Archive:
             pass
 
 
-def publish(store: Store, archive_root: str | None, run_index: int | None = None) -> dict:
-    """One run: fetch the panels due, archive them, read and check them, and update v1/panels.json."""
+def server_current(end: datetime) -> str | None:
+    """The newest weather reading on the server, if one of the SERVER_PROBE stations has one younger than
+    SERVER_FRESH_HOURS; None when none does or the server does not answer (the panels are read then)."""
+    from . import merlin
+
+    for ds in SERVER_PROBE:
+        try:
+            r = merlin.get(f"{merlin.BASE_URL}/tabledap/{ds}.csv?time&orderByMax(%22time%22)", retries=2, timeout=20)
+        except Exception as exc:  # unreachable, stalled, an HTTP error: the server is not serving
+            log.warning("panels: server check %s failed (%s)", ds, exc)
+            if isinstance(exc, (merlin.ServerUnreachable, merlin.RequestBudgetExceeded)):
+                return None
+            continue
+        lines = r.text.strip().splitlines() if r is not None else []
+        try:
+            newest = datetime.fromisoformat(lines[2].strip().replace("Z", "+00:00"))
+        except (IndexError, ValueError):
+            continue
+        if end - newest < timedelta(hours=SERVER_FRESH_HOURS):
+            return iso(newest)
+    return None
+
+
+def failover(store: Store, archive_root: str | None, end: datetime | None = None) -> dict | None:
+    """The panels for this run if the server is not current, else nothing (see the module notes). Called at the end
+    of the latest and live runs, which come every 15 minutes between them; waves and water quality every second one."""
+    end = end or now_utc()
+    newest = server_current(end)
+    if newest is not None:
+        log.info("panels: the server is current (newest weather reading %s); no panel read", newest)
+        return None
+    log.warning("panels: the server is not current; reading the panels")
+    return publish(store, archive_root, run_index=int(end.timestamp() // 900), check_server=False, slow_every=2)
+
+
+def publish(store: Store, archive_root: str | None, run_index: int | None = None, check_server: bool = True,
+            slow_every: int = 3) -> dict:
+    """One run: unless the server is current, fetch the panels due, archive them, read and check them, and update
+    v1/panels.json."""
     end = now_utc()
+    if check_server:
+        newest = server_current(end)
+        if newest is not None:
+            log.info("panels: the server is current (newest weather reading %s); no panel read", newest)
+            return {"server_current": newest}
     prev = store.read_json(KV_KEY) or {}
     health: dict = dict(prev.get("health", {}))
     stations: dict = {k: dict(v) for k, v in prev.get("stations", {}).items()}
@@ -350,7 +404,7 @@ def publish(store: Store, archive_root: str | None, run_index: int | None = None
     sess = requests.Session()
     for stn, panels in PANELS.items():
         for panel in panels:
-            if panel not in EVERY_RUN and run % 3:
+            if panel not in EVERY_RUN and run % slow_every:
                 continue
             key = f"{stn}_{panel}"
             h = dict(health.get(key, {}))

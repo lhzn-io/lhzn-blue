@@ -1,7 +1,7 @@
 """Fetch observations from the UConn LISICOS ERDDAP server (Merlin), through one insitukit ``Erddap`` client.
 
-The server is plain HTTP on port 8080 and returns occasional 503s, so every request retries with
-backoff. A 404 whose body says "no matching results" means an empty time window, not a missing
+The server answers on HTTPS (port 8080 now redirects there) and returns occasional 503s, so every request
+retries with backoff. A 404 whose body says "no matching results" means an empty time window, not a missing
 dataset.
 
 Load on the server is bounded in this module, the only path the jobs use to reach it: requests run one
@@ -13,18 +13,23 @@ When the server cannot be reached at all (no connection within CONNECT_TIMEOUT, 
 rest of the run's requests fail at once with ServerUnreachable instead of each waiting through its own
 retries: on 2026-10-15 an outage made every live run wait out its task timeout before writing anything,
 which also froze the shore stations and rivers published after the buoys.
+
+A server that connects but then stalls is bounded too: the quick jobs (SERVER_SECONDS) stop asking once their
+requests have taken that long in all, and the rest fail at once with ServerUnreachable, as above. On 2026-11-16 and
+17 a stalled server held 42 live runs to their 20-minute task timeout and 128 latest runs to their 5-minute one.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 
 import pandas as pd
 import requests
 from insitukit import erddap
 
-BASE_URL = "http://merlin.dms.uconn.edu:8080/erddap"
+BASE_URL = "https://merlin.dms.uconn.edu/erddap"
 USER_AGENT = "lhzn-blue-ingest/0.2 (+https://longhorizon.blue; hello@longhorizon.blue)"
 OBS_COLUMNS = ["sea_water_temperature", "sea_water_salinity", "oxygen_concentration_in_sea_water"]
 
@@ -37,6 +42,12 @@ MIN_INTERVAL = 1.0  # seconds between the starts of two requests
 BUDGETS = {"latest": 40, "live": 80, "history": 800, "snapshot": 800, "import-archive": 0, "import-waves": 0,
            "import-weather": 400, "import-verification": 0, "fields": 0, "forecast": 0, "forecast-backfill": 0}
 DEFAULT_BUDGET = 50
+# Seconds of server time a quick job may spend in all (normal runs: latest about 20, live about 45), and the read
+# timeout of each of its attempts. Jobs not listed keep the client's 120 s read timeout and no cap: history and
+# snapshot fetch whole years and are not time-critical.
+SERVER_SECONDS = {"latest": 90, "live": 180, "panels": 30}
+QUICK_READ_TIMEOUT = 30
+READ_TIMEOUT = 120
 
 # The client's own exceptions, under the names the jobs and outages.is_outage use.
 DatasetMissing = erddap.DatasetMissing
@@ -44,30 +55,54 @@ ServerUnreachable = erddap.Unreachable
 RequestBudgetExceeded = erddap.BudgetExceeded
 
 _server = erddap.Erddap(BASE_URL, budget=DEFAULT_BUDGET, min_interval=MIN_INTERVAL, connect_timeout=CONNECT_TIMEOUT,
-                        user_agent=USER_AGENT, retries=4, timeout=120)
+                        user_agent=USER_AGENT, retries=4, timeout=READ_TIMEOUT)
+
+
+_spent = 0.0  # seconds this run's requests have taken
+_cap: float | None = None
 
 
 def set_budget(n: int) -> None:
     _server.budget = n
 
 
+def set_job(command: str) -> None:
+    """The command's server-time cap and read timeout (SERVER_SECONDS); none for the others."""
+    global _cap, _spent
+    _cap, _spent = SERVER_SECONDS.get(command), 0.0
+    _server.timeout = QUICK_READ_TIMEOUT if _cap is not None else READ_TIMEOUT
+
+
+def _timed(fn, *args, **kwargs):
+    """Run one client call under the run's cap: refused once the cap is spent, its own time added after."""
+    global _spent
+    if _cap is not None and _spent >= _cap:
+        raise ServerUnreachable(f"this run's server time ({_spent:.0f} s of {_cap:.0f} s) is spent; the server is stalling", BASE_URL)
+    t0 = time.monotonic()
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        _spent += time.monotonic() - t0
+
+
 def summary() -> str:
-    return f"server requests this run: {_server.requests} of a budget of {_server.budget}, {_server.bytes / 1e6:.1f} MB"
+    return (f"server requests this run: {_server.requests} of a budget of {_server.budget}, {_server.bytes / 1e6:.1f} MB, "
+            f"{_spent:.0f} s")
 
 
-def get(url: str, retries: int | None = None) -> requests.Response | None:
-    """GET any URL on the server under the job's budget and pacing; None for an empty result window."""
-    return _server.get(url, retries=retries)
+def get(url: str, retries: int | None = None, timeout: float | None = None) -> requests.Response | None:
+    """GET any URL on the server under the job's budget, pacing and time cap; None for an empty result window."""
+    return _timed(_server.get, url, retries=retries, timeout=timeout)
 
 
 def variables(dataset_id: str) -> list[str]:
     """Variable names the dataset publishes."""
-    return _server.variables(dataset_id)
+    return _timed(_server.variables, dataset_id)
 
 
 def fetch(dataset_id: str, start: datetime, end: datetime, columns: list[str]) -> pd.DataFrame:
     """Rows for ``start <= time < end`` with a UTC ``time`` column, ``depth`` and the requested columns."""
-    return _server.fetch(dataset_id, start, end, ["depth", *columns])
+    return _timed(_server.fetch, dataset_id, start, end, ["depth", *columns])
 
 
 def fetch_years(dataset_id: str, first_year: int, end: datetime, columns: list[str]) -> pd.DataFrame:

@@ -25,7 +25,7 @@
     <header class="mast mg-mast">
       <div class="mast-id">
         <a class="mg-eyebrow" href="/long-island-sound/">Long Island Sound</a>
-        <h1 class="mg-title">Wind models compared</h1>
+        <h1 class="mg-title" id="title">Wind models compared</h1>
         <p class="mast-by"><a class="lho" href="https://longhorizon.eco/observatory">Long Horizon Observatory</a> <span class="sep" aria-hidden="true">&middot;</span> <span class="stage" title="An early public version: views, wording and thresholds may change">Alpha</span></p>
       </div>
       <nav class="mg-nav" aria-label="Page">
@@ -36,6 +36,10 @@
     </header>
 
     <main class="mg-main">
+      <nav class="mg-views" aria-label="Forecast field">
+        <a href="./" data-view="wind">Wind</a>
+        <a href="./?view=waves" data-view="waves">Waves</a>
+      </nav>
       <p class="mg-lede" id="lede">HRDPS 2.5 km · HRRR 3 km · ICON 13 km · ECMWF 25 km · GFS 27 km: each on its own grid, the next 48 hours over Long Island Sound.</p>
       <p class="outage" id="load-error" role="status" hidden></p>
 
@@ -45,12 +49,17 @@
         <span class="mg-time" id="tlabel" aria-live="polite"></span>
       </div>
 
+      <p class="mg-readout note" id="readout" aria-live="polite"></p>
       <div class="mg-grid" id="panels"></div>
       <div class="legend mg-key" id="key"></div>
-      <p class="note mg-foot">Arrows point where the wind blows toward.</p>
+      <p class="note mg-foot" id="foot">Arrows point where the wind blows toward.</p>
 
       <footer class="credits">
-        <p>
+        <p data-only="waves" hidden>
+          <b>Data:</b> NWS Nearshore Wave Prediction System (NWPS), WFO New York, via NOAA NOMADS; NECOFS/UMASSD (UMass
+          Dartmouth SMAST), wave forecast on the GOM7 mesh. Basemap: OpenFreeMap, OpenStreetMap contributors.
+        </p>
+        <p data-only="wind">
           <b>Data:</b> NOAA (HRRR, GFS); HRDPS, Data Source: Environment and Climate Change Canada
           (<a href="https://eccc-msc.github.io/open-data/licence/readme_en/">licence</a>); Deutscher Wetterdienst (DWD), ICON, CC BY 4.0;
           ECMWF open data, CC BY 4.0. Basemap: OpenFreeMap, OpenStreetMap contributors.

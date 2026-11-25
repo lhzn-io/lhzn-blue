@@ -1,12 +1,15 @@
 /**
  * "Wind models compared" (/long-island-sound/models/): 10 m wind over the Sound for the next 48 hours on five models'
  * own grids, finest to coarsest: HRDPS (2.5 km, rotated), HRRR (3 km), ICON (13 km triangles), ECMWF open data and
- * GFS (0.25 degree). Each
+ * GFS (0.25 degree). The Waves view (?view=waves) shows significant wave height for the next 72 hours the same way on
+ * two: NWPS (1.8 km cells) and NECOFS (its mesh nodes, each drawn as its median dual cell). Each
  * panel is a small MapLibre map: the model's cells as a translucent fill under the basemap's labels, thin cell
  * outlines and an arrow per cell (thinned by MapLibre's symbol collision, the coarse lattice first). One slider (and
  * a play button) steps all five through the same 3-hourly frames; pan or zoom one map and the others follow.
  *
- * Data: v1/fields/model-grids.json, written by the jobs' model_grids module (a grid per model, frames of int8 u/v).
+ * Data: v1/fields/model-grids.json, written by the jobs' model_grids module (a grid per model, frames of int8 u/v);
+ * v1/fields/wave-grids.json for the waves (wave_grids module: frames of one byte per value for height, direction of
+ * travel and period).
  */
 import "./site.css";
 import "./away-links";
@@ -16,6 +19,7 @@ import { setPlayButton, timeTrack } from "@lhzn-io/timecharts/time-axis";
 import "maplibre-gl/dist/maplibre-gl.css";
 import maplibregl from "maplibre-gl";
 import type { Feature, FeatureCollection } from "geojson"; // types that come with maplibre-gl
+import { dualCells, pointLevels } from "./dual-cells";
 
 const DATA = "/data/v1";
 const $ = (id: string) => document.getElementById(id)!;
@@ -29,43 +33,65 @@ type Theme = keyof typeof STYLES;
 const VIEW: [number, number, number, number] = [-74.05, 40.75, -71.75, 41.45];
 const ARROW = { light: "#1c2a48", dark: "#f4f1e8" };
 const PLAY_MS = 900;
+const VIEW_MODE: "wind" | "waves" = new URLSearchParams(location.search).get("view") === "waves" ? "waves" : "wind";
+const WAVES = VIEW_MODE === "waves";
 
 // ---------- Data ----------
 
 interface Frame {
   valid_time: string;
-  issue_time: string;
-  lead_h: number;
-  u: string;
-  v: string;
+  issue_time: string | null; // NECOFS waves: no issue time or lead (its file does not give its run's start)
+  lead_h: number | null;
+  u?: string; // wind: int8 east and north
+  v?: string;
+  hs?: string; // waves: one byte each for height, direction of travel and period
+  dir?: string;
+  tp?: string;
 }
-type Grid = { type: "quads"; nx: number; ny: number; lon: number[]; lat: number[] } | { type: "tri"; n: number; tri: number[] };
+type Grid =
+  | { type: "quads"; nx: number; ny: number; lon: number[]; lat: number[]; land?: number[] }
+  | { type: "tri"; n: number; tri: number[] }
+  | { type: "nodes"; n: number; lon: number[]; lat: number[]; tri: number[] };
 interface Model {
   id: string;
   label: string;
   grid_label: string;
-  spacing_km: number;
+  spacing_km: number | null;
   attribution: string;
+  period?: string; // waves: "peak period" or "mean period (T0m1)"
+  run?: string; // waves: the newest run (NWPS) or the last hour the forecast reaches (NECOFS)
   grid: Grid;
   frames: Frame[];
 }
 interface ModelGrids {
   generated_at: string;
-  encoding: { step: number };
+  encoding: { step?: number; hs_step?: number; dir_step?: number; tp_step?: number; none?: number };
   times: string[];
-  models: Model[];
+  models: Model[] | Record<string, Model>;
 }
 
-/** A model's cells once: polygon rings, centres and the arrow thinning level (0 places first). */
+/** A model's cells once: polygon rings, centres, the arrow thinning level (0 places first) and cells left out (land). */
 interface Mesh {
   rings: [number, number][][];
   centres: [number, number][];
   level: number[];
+  skip?: Uint8Array;
 }
 function mesh(g: Grid): Mesh {
   const rings: [number, number][][] = [];
   const centres: [number, number][] = [];
   const level: number[] = [];
+  if (g.type === "nodes") {
+    // Each node's median dual cell, the area a node-centred wave model holds its value over.
+    const cells = dualCells(g.lon, g.lat, g.tri);
+    const skip = new Uint8Array(g.n);
+    cells.forEach((ring, i) => {
+      rings.push(ring);
+      centres.push([g.lon[i], g.lat[i]]);
+      if (!ring.length) skip[i] = 1;
+    });
+    return { rings, centres, level: pointLevels(g.lon, g.lat), skip };
+  }
   if (g.type === "quads") {
     const cw = g.nx + 1;
     const P = (r: number, q: number): [number, number] => [g.lon[r * cw + q], g.lat[r * cw + q]];
@@ -90,7 +116,18 @@ function mesh(g: Grid): Mesh {
       level.push(0);
     }
   }
-  return { rings, centres, level };
+  const skip = g.type === "quads" && g.land ? Uint8Array.from(g.land) : undefined;
+  return { rings, centres, level, skip };
+}
+/** One byte per value (waves): value = byte x step, NaN where the byte is `none`. */
+function decodeBytes(s: string, step: number, none: number): Float32Array {
+  const b = atob(s);
+  const out = new Float32Array(b.length);
+  for (let i = 0; i < b.length; i++) {
+    const q = b.charCodeAt(i);
+    out[i] = q === none ? NaN : q * step;
+  }
+  return out;
 }
 function decode(s: string, step: number): Float32Array {
   const b = atob(s);
@@ -128,6 +165,24 @@ function windColour(kt: number): string {
   return stops[stops.length - 1][1];
 }
 
+/** Wave height colours, m, as on the map's Waves layer: pale to deep blue-teal on the light basemap and the reverse on
+ * the dark one, fixed at 0 to 2.5 m (higher is the last colour). */
+const WAVE_STOPS: Record<"light" | "dark", [number, string][]> = {
+  light: [[0, "#eef6f8"], [0.3, "#cfe6ee"], [0.6, "#9dcbdc"], [1.0, "#5ea6c4"], [1.5, "#2d7aa3"], [2.5, "#16466e"]],
+  dark: [[0, "#16242c"], [0.3, "#1f3a48"], [0.6, "#2d5d73"], [1.0, "#4b8aa4"], [1.5, "#7fb8d8"], [2.5, "#cfe8f3"]],
+};
+const WAVE_TOP = 2.5;
+function waveColour(m: number): string {
+  const stops = WAVE_STOPS[theme() === "light" ? "light" : "dark"];
+  const k = Math.max(0, Math.min(WAVE_TOP, m));
+  for (let i = 1; i < stops.length; i++) {
+    const [a, ca] = stops[i - 1];
+    const [b, cb] = stops[i];
+    if (k <= b) return mix(ca, cb, (k - a) / (b - a));
+  }
+  return stops[stops.length - 1][1];
+}
+
 // ---------- Formatting ----------
 
 const fmtEastern = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", hour: "numeric" });
@@ -156,19 +211,40 @@ const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 function features(p: Panel): { cells: FeatureCollection; arrows: FeatureCollection } {
   const f = MG && p.mesh ? p.frames.get(MG.times[frame]) : undefined;
   if (!f || !p.mesh || !MG) return { cells: EMPTY, arrows: EMPTY };
-  const u = decode(f.u, MG.encoding.step);
-  const v = decode(f.v, MG.encoding.step);
+  if (WAVES) return waveFeatures(p, f);
+  const u = decode(f.u!, MG.encoding.step!);
+  const v = decode(f.v!, MG.encoding.step!);
   const cells: Feature[] = [];
   const arrows: Feature[] = [];
   p.mesh.rings.forEach((ring, i) => {
     const kt = Math.hypot(u[i], v[i]) * MS_TO_KT;
-    cells.push({ type: "Feature", properties: { c: windColour(kt) }, geometry: { type: "Polygon", coordinates: [ring] } });
+    const to = ((Math.atan2(u[i], v[i]) * 180) / Math.PI + 360) % 360;
+    cells.push({ type: "Feature", properties: { c: windColour(kt), kt, dir: to }, geometry: { type: "Polygon", coordinates: [ring] } });
     if (kt >= 0.2)
       arrows.push({
         type: "Feature",
         properties: { kt, dir: ((Math.atan2(u[i], v[i]) * 180) / Math.PI + 360) % 360, lvl: p.mesh!.level[i] },
         geometry: { type: "Point", coordinates: p.mesh!.centres[i] },
       });
+  });
+  return { cells: { type: "FeatureCollection", features: cells }, arrows: { type: "FeatureCollection", features: arrows } };
+}
+
+/** Waves: each cell coloured by its height, an arrow where the waves travel; land and empty cells left out. */
+function waveFeatures(p: Panel, f: Frame): { cells: FeatureCollection; arrows: FeatureCollection } {
+  const e = MG!.encoding;
+  const none = e.none ?? 255;
+  const hs = decodeBytes(f.hs!, e.hs_step!, none);
+  const dir = decodeBytes(f.dir!, e.dir_step!, none);
+  const tp = decodeBytes(f.tp!, e.tp_step!, none);
+  const m = p.mesh!;
+  const cells: Feature[] = [];
+  const arrows: Feature[] = [];
+  m.rings.forEach((ring, i) => {
+    if (m.skip?.[i] || !Number.isFinite(hs[i]) || ring.length < 4) return;
+    cells.push({ type: "Feature", properties: { c: waveColour(hs[i]), hs: hs[i], tp: tp[i], dir: dir[i] }, geometry: { type: "Polygon", coordinates: [ring] } });
+    if (hs[i] >= 0.05 && Number.isFinite(dir[i]))
+      arrows.push({ type: "Feature", properties: { kt: Math.min(25, hs[i] * 10), dir: dir[i], lvl: m.level[i] }, geometry: { type: "Point", coordinates: m.centres[i] } });
   });
   return { cells: { type: "FeatureCollection", features: cells }, arrows: { type: "FeatureCollection", features: arrows } };
 }
@@ -199,7 +275,7 @@ function arrowImage(): ImageData {
 function addLayers(p: Panel): void {
   const map = p.map!;
   const data = features(p);
-  const fine = p.model?.grid.type === "quads" && p.model.grid.nx > 40;
+  const fine = (p.model?.grid.type === "quads" && p.model.grid.nx > 40) || p.model?.grid.type === "nodes";
   if (!map.hasImage("mg-arrow")) map.addImage("mg-arrow", arrowImage(), { sdf: true });
   map.addSource("cells", { type: "geojson", data: data.cells });
   map.addSource("arrows", { type: "geojson", data: data.arrows });
@@ -292,6 +368,9 @@ function makeMap(p: Panel): void {
   // A new style (theme switch) drops custom layers: add them back at the current frame.
   if (p.mesh) map.on("style.load", () => addLayers(p));
   map.on("move", () => sync(map));
+  map.on("mousemove", (e) => readout(e.lngLat));
+  map.on("click", (e) => readout(e.lngLat));
+  map.getCanvasContainer().addEventListener("mouseleave", () => readout(null));
   new ResizeObserver(() => map.resize()).observe(box);
 }
 
@@ -299,11 +378,14 @@ function makeMap(p: Panel): void {
 
 function caption(p: Panel, label: string, gridLabel: string): string {
   const f = MG && p.model ? p.frames.get(MG.times[frame]) : undefined;
+  const ends = (iso: string) => `${fmtWeekday.format(new Date(iso))} ${hourUtc(new Date(iso))}`;
   const sub = !p.model
     ? "not available"
-    : f
-      ? `issued ${fmtWeekday.format(new Date(f.issue_time))} ${hourUtc(new Date(f.issue_time))}, ${f.lead_h} h ahead`
-      : "no run reaches this hour";
+    : f && f.issue_time
+      ? `issued ${fmtWeekday.format(new Date(f.issue_time.replace(/T(\d\d)Z$/, "T$1:00Z")))} ${hourUtc(new Date(f.issue_time.replace(/T(\d\d)Z$/, "T$1:00Z")))}, ${f.lead_h} h ahead`
+      : f && p.model.run
+        ? `forecast to ${ends(p.model.run)}`
+        : "no run reaches this hour";
   return `<span class="cap-label">${label}</span><span class="cap-sub">${gridLabel}, ${sub}</span>`;
 }
 
@@ -335,6 +417,12 @@ function setPlaying(on: boolean): void {
 // ---------- Page ----------
 
 function legend(): void {
+  if (WAVES) {
+    const steps = [0, 0.3, 0.6, 1, 1.5, 2, 2.5];
+    $("key").innerHTML =
+      `<span>significant wave height, m:</span>` + steps.map((v) => `<span><i class="sq" style="background:${waveColour(v)}"></i>${v === 2.5 ? "2.5+" : v}</span>`).join("");
+    return;
+  }
   const steps = [0, 5, 10, 15, 20, 25, 30, 35];
   $("key").innerHTML =
     `<span>wind at 10 m, kt:</span>` + steps.map((v) => `<span><i class="sq" style="background:${windColour(v)}"></i>${v === 35 ? "35+" : v}</span>`).join("");
@@ -366,38 +454,98 @@ function wireTheme(redraw: () => void): void {
   });
 }
 
-const PANELS: [string, string, string][] = [
-  ["hrdps", "HRDPS", "2.5 km"],
-  ["hrrr", "HRRR", "3 km"],
-  ["icon", "ICON", "13 km (triangles)"],
-  ["ecmwf", "ECMWF", "0.25° (open data)"],
-  ["gfs", "GFS", "0.25° (27 km)"],
-];
+const PANELS: [string, string, string][] = WAVES
+  ? [
+      ["nwps", "NWPS", "1.8 km cells"],
+      ["necofs", "NECOFS", "mesh nodes, 0.2 to 1.5 km"],
+    ]
+  : [
+      ["hrdps", "HRDPS", "2.5 km"],
+      ["hrrr", "HRRR", "3 km"],
+      ["icon", "ICON", "13 km (triangles)"],
+      ["ecmwf", "ECMWF", "0.25° (open data)"],
+      ["gfs", "GFS", "0.25° (27 km)"],
+    ];
+
+// ---------- Readout ----------
+
+const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+const compass = (deg: number) => COMPASS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
+
+/** Every panel's value at one place (the maps follow each other, so a point projects into each). */
+function readout(at: maplibregl.LngLat | null): void {
+  const el = $("readout");
+  if (!at) {
+    el.textContent = WAVES ? "Point at the water for both models' values there." : "Point at the map for each model's wind there.";
+    return;
+  }
+  const parts: string[] = [];
+  for (const p of panels) {
+    if (!p.map || !p.model || !p.map.getLayer("cells")) continue;
+    const hit = p.map.queryRenderedFeatures(p.map.project(at), { layers: ["cells"] })[0];
+    const q = hit?.properties as { hs?: number; tp?: number; dir?: number; kt?: number } | undefined;
+    if (!q) {
+      parts.push(`<b>${p.model.label}</b> none`);
+      continue;
+    }
+    if (WAVES) {
+      const period = Number.isFinite(q.tp) ? `, ${Number(q.tp).toFixed(1)} s ${p.model.period?.startsWith("mean") ? "mean" : "peak"}` : "";
+      const toward = Number.isFinite(q.dir) && Number(q.hs) >= 0.05 ? `, toward ${compass(Number(q.dir))}` : "";
+      parts.push(`<b>${p.model.label}</b> ${Number(q.hs).toFixed(2)} m (${(Number(q.hs) * 3.28084).toFixed(1)} ft)${period}${toward}`);
+    } else {
+      parts.push(`<b>${p.model.label}</b> ${Number(q.kt).toFixed(0)} kt toward ${compass(Number(q.dir))}`);
+    }
+  }
+  const lat = `${Math.abs(at.lat).toFixed(3)}° ${at.lat >= 0 ? "N" : "S"}`;
+  const lon = `${Math.abs(at.lng).toFixed(3)}° ${at.lng >= 0 ? "E" : "W"}`;
+  el.innerHTML = `${lat} ${lon}: ${parts.join(" · ")}`;
+}
+
+/** The page's words for the view: title, switch, lede until the data loads, the note under the maps and the credits. */
+function viewText(): void {
+  const title = WAVES ? "Wave models compared" : "Wind models compared";
+  $("title").textContent = title;
+  document.title = `${title}, Long Island Sound (alpha) | longhorizon.blue`;
+  for (const a of document.querySelectorAll<HTMLAnchorElement>(".mg-views a"))
+    if (a.dataset.view === VIEW_MODE) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  for (const el of document.querySelectorAll<HTMLElement>("[data-only]")) el.hidden = el.dataset.only !== VIEW_MODE;
+  if (WAVES) {
+    $("lede").textContent = "NWPS 1.8 km · NECOFS mesh nodes: each on its own grid, the next 72 hours over Long Island Sound.";
+    $("foot").textContent =
+      "Arrows point where the waves travel. Each NECOFS node is drawn over its dual cell, the area the model holds its value over. " +
+      "NWPS gives the peak period and NECOFS the mean period, so the two periods differ by definition. NWPS runs without currents.";
+  }
+  readout(null);
+}
 
 async function main(): Promise<void> {
   wireTheme(() => {
     for (const p of panels) p.map?.setStyle(STYLES[theme()]);
   });
+  viewText();
   legend();
   try {
-    const r = await fetch(`${DATA}/fields/model-grids.json`, { cache: "no-cache" });
+    const r = await fetch(`${DATA}/fields/${WAVES ? "wave-grids" : "model-grids"}.json`, { cache: "no-cache" });
     if (r.ok) MG = (await r.json()) as ModelGrids;
   } catch {
     MG = null;
   }
   if (MG && (!Array.isArray(MG.times) || !MG.times.length)) MG = null; // an older layout
-  const byId = new Map((MG?.models ?? []).map((m) => [m.id, m]));
+  const list = MG ? (Array.isArray(MG.models) ? MG.models : Object.values(MG.models)) : [];
+  const byId = new Map(list.map((m) => [m.id, m]));
   if (!MG) {
     const e = $("load-error");
     e.hidden = false;
-    e.textContent = "Model grids load with the next forecast update.";
+    e.textContent = WAVES ? "Wave grids load with the next forecast update." : "Model grids load with the next forecast update.";
     $("controls").hidden = true;
   } else {
-    $("lede").textContent =
-      PANELS.map(([id]) => byId.get(id))
-        .filter((m): m is Model => !!m)
-        .map((m) => `${m.label} ${m.spacing_km} km`)
-        .join(" · ") + ": each on its own grid, the next 48 hours over Long Island Sound.";
+    if (!WAVES)
+      $("lede").textContent =
+        PANELS.map(([id]) => byId.get(id))
+          .filter((m): m is Model => !!m)
+          .map((m) => `${m.label} ${m.spacing_km} km`)
+          .join(" · ") + ": each on its own grid, the next 48 hours over Long Island Sound.";
     const slider = $("slider") as HTMLInputElement;
     const times = MG.times;
     slider.max = String(times.length - 1);
@@ -436,10 +584,19 @@ async function main(): Promise<void> {
 
   // Test hooks for the page's own browser checks, in development only.
   if (import.meta.env.DEV) {
-    const w = window as unknown as { __mgMaps: maplibregl.Map[]; __mgFrame: () => number; __mgCaptions: () => string[] };
+    const w = window as unknown as {
+      __mgMaps: maplibregl.Map[];
+      __mgFrame: () => number;
+      __mgCaptions: () => string[];
+      __mgReadout: (lng: number, lat: number) => string;
+    };
     w.__mgMaps = panels.map((p) => p.map).filter((m): m is maplibregl.Map => !!m);
     w.__mgFrame = () => frame;
     w.__mgCaptions = () => panels.map((p) => p.cap.textContent ?? "");
+    w.__mgReadout = (lng, lat) => {
+      readout(new maplibregl.LngLat(lng, lat));
+      return $("readout").textContent ?? "";
+    };
   }
 }
 

@@ -14,6 +14,7 @@ import "./away-links";
 import { mountAdvisories } from "./advisory";
 import "./models-page.css"; // the masthead and lede shared with "Wind models compared"
 import "./forecasts-page.css";
+import { dualCells } from "./dual-cells";
 
 const DATA = "/data/v1";
 const $ = (id: string) => document.getElementById(id)!;
@@ -328,11 +329,12 @@ async function doppioHead(url: string, init: RequestInit): Promise<Ring[] | null
 }
 
 async function grids(): Promise<void> {
-  const [cm, nw, mg, dp] = await Promise.all([
+  const [cm, nw, mg, dp, wg] = await Promise.all([
     getJson<CurrentsMesh>("fields/currents-mesh"),
     getJson<{ mesh: NwpsMesh }>("fields/nwps-waves"),
     getJson<{ models: GridModel[] }>("fields/model-grids"),
     doppioRings(),
+    getJson<{ models: Record<string, { grid: { type: string; lon: number[]; lat: number[]; tri: number[] } }> }>("fields/wave-grids"),
   ]);
   const necofs = cm ? meshRings(cm).filter(touches) : null;
   WATER = necofs ?? [];
@@ -341,6 +343,9 @@ async function grids(): Promise<void> {
     const m = nw.mesh;
     nwps = quadRings(m.nx, m.ny, m.corner_lon, m.corner_lat, (r, q) => !m.land[r * m.nx + q]).filter(touches);
   }
+  // NECOFS's waves sit on its mesh nodes: each drawn as its median dual cell.
+  const ng = wg?.models?.necofs?.grid;
+  const necofsWaves = ng && ng.type === "nodes" ? dualCells(ng.lon, ng.lat, ng.tri).filter((r) => r.length > 3 && touches(r)) : null;
   const wind = new Map((mg?.models ?? []).map((m) => [m.id, m]));
   const windSpec = (id: string, label: string, spacing: string): PanelSpec => {
     const m = wind.get(id);
@@ -349,7 +354,13 @@ async function grids(): Promise<void> {
   // By what each forecasts, finest cells first in each group.
   const groups: [string, PanelSpec[]][] = [
     ["Wind", [windSpec("hrdps", "HRDPS", "2.5 km"), windSpec("hrrr", "HRRR", "3 km"), windSpec("icon", "ICON", "13 km triangles"), windSpec("ecmwf", "ECMWF", "0.25°"), windSpec("gfs", "GFS", "0.25°")]],
-    ["Waves", [{ id: "nwps", label: "NWPS", gives: "waves", spacing: "1.8 km, water cells", rings: nwps }]],
+    [
+      "Waves",
+      [
+        { id: "nwps", label: "NWPS", gives: "waves", spacing: "1.8 km, water cells", rings: nwps },
+        { id: "necofs-waves", label: "NECOFS", gives: "waves", spacing: "dual cells, 0.2 to 1.5 km", rings: necofsWaves },
+      ],
+    ],
     [
       "Currents",
       [
@@ -368,7 +379,7 @@ async function grids(): Promise<void> {
     for (const spec of specs) addPanel(spec, grid);
   }
   void isobaths();
-  if (!cm || !nw || !mg || !dp) {
+  if (!cm || !nw || !mg || !dp || !wg) {
     const e = $("grids-error");
     e.hidden = false;
     e.textContent = "Some model grids did not load; they show with the next forecast update.";
@@ -396,6 +407,7 @@ interface Strip {
 const STRIP: Record<string, Strip> = {
   necofs: { horizon: 72, step: 2, note: "to be scored against the current meter and HF radar" },
   nwps: { horizon: 72, step: 1, note: "to be scored against the buoys' wave heights" },
+  "necofs-waves": { horizon: 72, step: 3, note: "compared, not yet scored" },
   hrdps: { horizon: 48, step: 1, ver: "forecast-verification-hrdps" },
   hrrr: { horizon: 48, step: 1, ver: "forecast-verification" },
   doppio: { horizon: 72, step: 2, note: "not scored" },

@@ -13,6 +13,7 @@
 #   SNAPSHOT_STORE   gs://bucket/prefix the snapshot job saves the server's datasets to
 #   FORECAST_STORE   gs://bucket/prefix the forecast job archives HRRR at the stations to
 #   NWPS_STORE       optional: gs://bucket/prefix for the NWPS wave model runs (default: nwps-okx beside FORECAST_STORE)
+#   NECOFS_WAVES_STORE optional: gs://bucket/prefix for the NECOFS wave runs read (default: necofs-waves beside FORECAST_STORE)
 #   PANELS_STORE     optional: gs://bucket/prefix for the LISICOS panel images as fetched (default: lisicos-panels beside it)
 #   HFRADAR_STORE    optional: gs://bucket/prefix for the Sound's HF radar surface currents, kept by the snapshot job
 #                    (default: hfradar-usegc beside FORECAST_STORE)
@@ -49,6 +50,7 @@ gcloud builds submit "$CTX" --project "$GCP_PROJECT" --region "$GCP_REGION" \
   --config "$CTX/cloudbuild.yaml" --service-account "projects/${GCP_PROJECT}/serviceAccounts/${JOB_SA}"
 
 NWPS_STORE="${NWPS_STORE:-${FORECAST_STORE%/*}/nwps-okx}"
+NECOFS_WAVES_STORE="${NECOFS_WAVES_STORE:-${FORECAST_STORE%/*}/necofs-waves}"
 PANELS_STORE="${PANELS_STORE:-${FORECAST_STORE%/*}/lisicos-panels}"
 HFRADAR_STORE="${HFRADAR_STORE:-${FORECAST_STORE%/*}/hfradar-usegc}"
 SECRETS="CLOUDFLARE_API_TOKEN=${CF_TOKEN_SECRET}:latest"
@@ -67,7 +69,7 @@ for mode in live latest history fields snapshot forecast panels region-live regi
   gcloud run jobs deploy "lhzn-blue-${mode}" \
     --project "$GCP_PROJECT" --region "$GCP_REGION" --image "$IMAGE" \
     --service-account "$JOB_SA" --args "$mode" \
-    --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_SNAPSHOTS=${SNAPSHOT_STORE},LHZN_BLUE_FORECASTS=${FORECAST_STORE},LHZN_BLUE_NWPS=${NWPS_STORE},LHZN_BLUE_PANELS_ARCHIVE=${PANELS_STORE},LHZN_BLUE_HFRADAR=${HFRADAR_STORE}" \
+    --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_SNAPSHOTS=${SNAPSHOT_STORE},LHZN_BLUE_FORECASTS=${FORECAST_STORE},LHZN_BLUE_NWPS=${NWPS_STORE},LHZN_BLUE_NECOFS_WAVES=${NECOFS_WAVES_STORE},LHZN_BLUE_PANELS_ARCHIVE=${PANELS_STORE},LHZN_BLUE_HFRADAR=${HFRADAR_STORE}" \
     --set-secrets "$SECRETS" \
     --tasks 1 --max-retries 1 --task-timeout "${TIMEOUT[$mode]}" \
     --cpu 1 --memory "${MEMORY[$mode]}"

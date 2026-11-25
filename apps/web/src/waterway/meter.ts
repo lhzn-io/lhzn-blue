@@ -24,7 +24,9 @@ export interface MeterColours {
 const light = () => document.documentElement.dataset.theme === "light";
 const css = (v: string) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const PREDICTED = () => css("--fc-mid") || "#4a7fae";
-export const MODEL = () => (light() ? "#1f7f86" : "#5fc3c4");
+// NECOFS wherever it is drawn. Dark: a pale mint, apart by lightness from the pale blues beside it (NWPS waves,
+// NOAA predictions), which a teal at their lightness matched within OKLab dE 6 (3 under deuteranopia).
+export const MODEL = () => (light() ? "#1f7f86" : "#c4e8dc");
 
 /* ---------- The prediction and the model at the meter ---------- */
 

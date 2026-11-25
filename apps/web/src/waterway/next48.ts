@@ -45,7 +45,7 @@ export function mountLongRange(plot: HTMLElement): void {
   sw.type = "button";
   sw.className = "range-switch";
   sw.textContent = "7 days";
-  sw.title = "Show the next 7 days: GFS past HRRR's 48 hours";
+  sw.title = "Show the next 7 days: GFS past HRRR's 48 hours, and the wave models past 48 hours";
   sw.setAttribute("aria-pressed", String(long));
   plot.append(sw);
   for (const type of ["pointerdown", "mousedown", "touchstart"]) sw.addEventListener(type, (e) => e.stopPropagation());

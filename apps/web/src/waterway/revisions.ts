@@ -4,11 +4,15 @@
  * hour has passed, the wind measured then is a gold dot. The hour is the one under the pointer, else the page's time.
  * Past HRRR's reach the chart is GFS's, in its green: its runs of the last 30 hours (6 hours apart), the ones whose
  * every lead the page's file keeps.
- * Off until the reader turns it on ("Revisions", top right of the plot), remembered in this browser. */
+ * The waves plot has the same mode: its inset follows one hour's significant height through NWPS's runs (blue) and
+ * NECOFS's (green), with the buoy's measured height once the hour has passed.
+ * Off until the reader turns it on ("Revisions", top right of the plot), remembered in this browser; one switch for
+ * both plots. */
 import { renderLines, type Line } from "@lhzn-io/timecharts/chart";
 import { HOUR } from "@lhzn-io/timecharts/series";
 import { fmtRun, fmtWhen } from "./format";
-import { WIND_UNITS, windFmt, windVal, WU } from "./units";
+import { WIND_UNITS, waveUnit, windFmt, windVal, WU } from "./units";
+import { waveRevisions } from "./nwps";
 import { FCST, GFS, gfsRunWind, MS_KT, type FcRun } from "./forecast";
 import { M } from "./models";
 import { requestRedraw } from "./data";
@@ -26,7 +30,8 @@ let pageTime: number | null = null;
 /** Whether the mode is on: the run slider (which run the plot emphasises) is part of it. */
 export const revisionsOn = () => on;
 /** The next 48 hours plots with the mode mounted: what each needs to draw its inset. */
-const MOUNTED = new Map<HTMLElement, { d: StationData; x0: number; x1: number; hover: number | null }>();
+type Kind = "wind" | "waves";
+const MOUNTED = new Map<HTMLElement, { d: StationData; x0: number; x1: number; hover: number | null; kind: Kind }>();
 
 const hourOf = (t: number) => Math.round(t / HOUR) * HOUR;
 const nowHour = () => Math.floor(Date.now() / 1000 / HOUR) * HOUR;
@@ -63,10 +68,10 @@ export function setRevisionTime(t: number | null): void {
 }
 
 /** The mode on a next 48 hours plot (inline or expanded), drawn between x0 and x1: its switch and its inset. */
-export function mountRevisions(d: StationData, plot: HTMLElement, x0: number, x1: number): void {
+export function mountRevisions(d: StationData, plot: HTMLElement, x0: number, x1: number, kind: Kind = "wind"): void {
   for (const p of MOUNTED.keys()) if (!p.isConnected) MOUNTED.delete(p);
   const fresh = !MOUNTED.has(plot);
-  MOUNTED.set(plot, { d, x0, x1, hover: MOUNTED.get(plot)?.hover ?? null });
+  MOUNTED.set(plot, { d, x0, x1, hover: MOUNTED.get(plot)?.hover ?? null, kind });
   plot.querySelector(".rev-switch")?.remove();
   const sw = document.createElement("button");
   sw.type = "button";
@@ -122,6 +127,10 @@ function draw(plot: HTMLElement): void {
     for (const type of ["pointerdown", "mousedown", "touchstart", "click", "wheel"]) pop.addEventListener(type, (e) => e.stopPropagation());
     plot.append(pop);
   }
+  if (m.kind === "waves") {
+    drawWaves(pop, m.d, t);
+    return;
+  }
   const u = WIND_UNITS[WU];
   const { gfs, runs } = revisionsFor(m.d.meta.id, t);
   const measured = t <= nowHour() ? (m.d.met?.wind?.at(t) ?? NaN) : NaN;
@@ -165,4 +174,62 @@ function draw(plot: HTMLElement): void {
   const change = !Number.isFinite(delta) ? "" : Math.abs(delta) < 0.5 * 10 ** -u.digits ? ", unchanged over 6 h of runs" : `, ${delta > 0 ? "up" : "down"} ${windFmt(Math.abs(latest.kt - before!.kt))} over 6 h of runs`;
   head.innerHTML = `<b>${when}</b> ${gfs ? `<span class="rev-gfs" style="color: ${P.gfs}">GFS</span> ` : ""}${windFmt(latest.kt)} ${u.label} as of ${fmtRun.format(new Date(latest.issue * 1000))}${change}` +
     (Number.isFinite(measured) ? `; measured <span class="rev-m">${windFmt(measured)}</span>` : "");
+}
+
+/** A run-by-run series on the inset's hourly axis: dots at each run's issue time, joined straight between them. */
+function byRun(xs: number[], runs: { issue: number; v: number }[]): { dots: number[]; joined: number[] } {
+  const at = new Map(runs.map((r) => [r.issue, r.v]));
+  const dots = xs.map((x) => at.get(x) ?? NaN);
+  const joined = [...dots];
+  let a = -1;
+  dots.forEach((v, i) => {
+    if (!Number.isFinite(v)) return;
+    for (let j = a + 1; a >= 0 && j < i; j++) joined[j] = dots[a] + ((v - dots[a]) * (j - a)) / (i - a);
+    a = i;
+  });
+  return { dots, joined };
+}
+
+/** The waves inset: one hour's significant height in each NWPS run (00 and 12 UTC) and each NECOFS run (daily) issued
+ * before it, and what the buoy measured once the hour has passed. */
+function drawWaves(pop: HTMLElement, d: StationData, t: number): void {
+  const u = waveUnit();
+  const val = (m: number) => m * u.factor;
+  const fmt = (v: number) => `${v.toFixed(u.digits)} ${u.label}`;
+  const id = d.meta.id;
+  const nw = waveRevisions("nwps", id, t), ne = waveRevisions("necofs", id, t);
+  const measured = t <= nowHour() ? (d.waves?.hs?.at(t) ?? NaN) : NaN;
+  const head = pop.querySelector<HTMLElement>(".rev-h")!;
+  const plotEl = pop.querySelector<HTMLElement>(".rev-plot")!;
+  const when = fmtWhen.format(new Date(t * 1000));
+  if (!nw.length && !ne.length) {
+    head.textContent = `${when}: no wave model run reaches this hour`;
+    plotEl.hidden = true;
+    return;
+  }
+  plotEl.hidden = false;
+  const x0 = Math.min(...[...nw, ...ne].map((r) => r.issue)) - 12 * HOUR;
+  const x1 = Math.min(t, nowHour());
+  const xs: number[] = [];
+  for (let x = x0; x <= x1; x += HOUR) xs.push(x);
+  const P = M.palette();
+  const a = byRun(xs, nw.map((r) => ({ issue: r.issue, v: val(r.hs) })));
+  const b = byRun(xs, ne.map((r) => ({ issue: r.issue, v: val(r.hs) })));
+  const lines: Line[] = [
+    ...(nw.length ? [{ ys: a.joined, color: P.line, width: 1.6, label: "NWPS", tip: false }, { ys: a.dots, color: P.line, width: 3.5, dots: true, label: "NWPS, by the run then", fmt }] : []),
+    ...(ne.length ? [{ ys: b.joined, color: P.gfs, width: 1.6, label: "NECOFS", tip: false }, { ys: b.dots, color: P.gfs, width: 3.5, dots: true, label: "NECOFS, by the run then", fmt }] : []),
+    ...(Number.isFinite(measured) ? [{ ys: xs.map((x) => (x === t ? val(measured) : NaN)), color: P.now, width: 7, dots: true, label: "Measured", fmt }] : []),
+  ];
+  renderLines(plotEl, { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, minPad: 1 });
+  // Each model's newest run, NWPS's change since its run 12 hours before, and what was measured.
+  const part = (name: string, color: string, runs: { issue: number; hs: number }[], step: number) => {
+    if (!runs.length) return "";
+    const [latest] = runs;
+    const before = runs.find((r) => r.issue <= latest.issue - step * HOUR);
+    const delta = before ? val(latest.hs) - val(before.hs) : NaN;
+    const change = !Number.isFinite(delta) ? "" : Math.abs(delta) < 0.5 * 10 ** -u.digits ? `, unchanged over ${step} h of runs` : `, ${delta > 0 ? "up" : "down"} ${fmt(Math.abs(delta))} over ${step} h of runs`;
+    return `<span class="rev-gfs" style="color: ${color}">${name}</span> ${fmt(val(latest.hs))} as of ${fmtRun.format(new Date(latest.issue * 1000))}${change}`;
+  };
+  head.innerHTML = `<b>${when}</b> ` + [part("NWPS", P.line, nw, 12), part("NECOFS", P.gfs, ne, 24)].filter(Boolean).join("; ") +
+    (Number.isFinite(measured) ? `; measured <span class="rev-m">${fmt(val(measured))}</span>` : "");
 }

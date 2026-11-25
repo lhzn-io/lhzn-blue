@@ -166,11 +166,14 @@ export const METHODS: Record<string, Method> = {
     method:
       "Significant height is the mean of the highest third of the waves, close to what an observer reports. Ahead of the " +
       "last reading, and while the sensor is out, the NWS model line is the Nearshore Wave Prediction System (SWAN) at the " +
-      "buoy's nearest water cell, each hour from the newest run that covers it (runs at 00 and 12 UTC) [[booij1999swan]].",
+      "buoy's nearest water cell, each hour from the newest run that covers it (runs at 00 and 12 UTC) [[booij1999swan]]. " +
+      "The NECOFS line is NECOFS's wave forecast at the mesh node nearest the buoy, from its newest daily run (about 4.5 " +
+      "days ahead when posted); hovering gives its mean period, which runs shorter than a peak period by definition.",
     caveats:
       "The wave datasets have been unpublished on the data server for long stretches; the record before an outage comes from " +
       "our saved downloads, and the page checks every hour. Heights follow the Units switch. Wave growth in the western Sound " +
-      "is fetch-limited and larger under easterly winds [[shin2021waves]]. The NWS model line is a model, not a measurement.",
+      "is fetch-limited and larger under easterly winds [[shin2021waves]]. The model lines are models, not measurements; " +
+      "neither is yet scored against the buoys.",
   },
   model: {
     title: "Model values while a buoy is out",

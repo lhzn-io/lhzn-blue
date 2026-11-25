@@ -18,6 +18,21 @@ morning run), or when the frames held reach less than ``NECOFS_MIN_REACH_H`` hou
 kept from the previous file. The file is written only when a model has a newer run: NWPS twice a day, NECOFS once,
 so 2 to 3 Workers KV writes a day.
 
+The same NECOFS read gives the buoys' waves plots their NECOFS line (``v1/waves-necofs.json``, one more write a day,
+when a new run appears). Its file spans 72 h before to 120 h after 00 UTC of its run day, so the run's start is taken
+as its last hour less ``NECOFS_RUN_H``; the read starts at 00 UTC of the newest run day that can be posted, to hold the
+run's first hours. Each buoy reads its nearest node within ``nwps.MAX_KM``: the node's own value, which holds over its
+dual cell, with no interpolation. Layout, as ``waves-nwps.json``: ``{runs: {run start: {steps, points: {buoy: {hs,
+tp, dir}}}}, cells: {buoy: {lat, lon, km}}}``, hourly leads from 0, ``tp`` the mean period T0m1 and ``dir`` the
+direction the waves come from; runs kept ``nwps.KEEP_HOURS``.
+
+SMAST keeps no wave history, so each whole run read is also archived, privately, for verification: given an archive
+root (``--necofs-waves``, a local directory or gs://bucket/prefix), ``YYYY/MM/necofs_waves_gom7_YYYYMMDD_HH.nc`` keyed
+by the run start, create-only (a repeat read of the same run is refused). Only a read that starts at or before the
+run start is archived, so each file holds the whole run. Contents: the read as is (hs, wdir coming from, tpeak as the
+mean period T0m1, node coordinates, triangles), NetCDF4 through h5netcdf packed to int16 with zlib, crediting NECOFS/UMASSD. Never
+served.
+
 Published layout (``v1/fields/wave-grids.json``): ``{schema, generated_at, box, encoding, times, models}``. Each
 model: ``{id, label, grid_label, spacing_km, source, attribution, period, run, grid, frames}``. ``grid`` is
 ``{type: "quads", nx, ny, lon, lat, land}`` (NWPS: cell corners, (ny+1) x (nx+1), row-major from the south-west, and a
@@ -33,6 +48,9 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
+import re
+import tempfile
 import time
 from datetime import datetime
 
@@ -55,6 +73,10 @@ TP_STEP = 0.125  # s per unit (to 31.75 s)
 NONE = 255
 NECOFS_CHECK_UTC = range(11, 17)  # its daily forecast is posted by about 12:30 UTC
 NECOFS_MIN_REACH_H = 60
+NECOFS_RUN_H = 120  # hours its forecast reaches past its run start (00 UTC of the run day)
+NECOFS_POSTED_H = 12  # about when a run is posted, after its start
+BUOY_KEY = "v1/waves-necofs.json"
+ARCHIVE_NAME = re.compile(r"\d{4}/\d{2}/necofs_waves_gom7_\d{8}_\d{2}\.nc")
 NECOFS_SOURCE = "NECOFS/UMASSD wave forecast (UMass Dartmouth SMAST), on the GOM7 mesh's nodes"
 NWPS_SOURCE = "NWS Nearshore Wave Prediction System (SWAN), WFO New York grid CG1, on the model's own 1.8 km cells"
 
@@ -145,10 +167,17 @@ def necofs_model(ds, times: list[pd.Timestamp]) -> dict:
     }
 
 
-def _read_necofs(start: pd.Timestamp):
+def _read_necofs(start: pd.Timestamp, hours: int):
     from forcingkit.fetchers import necofs
 
-    return necofs.read_waves(list(BOX), start, READ_AHEAD_H, ("hs", "wdir", "tpeak"))
+    return necofs.read_waves(list(BOX), start, hours, ("hs", "wdir", "tpeak"))
+
+
+def read_window(now: pd.Timestamp, first: pd.Timestamp) -> tuple[pd.Timestamp, int]:
+    """The NECOFS read's start and hours: from 00 UTC of the newest run day that can be posted (or the first frame,
+    if earlier) to ``READ_AHEAD_H`` past the first frame."""
+    start = min(first, (now - pd.Timedelta(hours=NECOFS_POSTED_H)).floor("D"))
+    return start, int((first - start) / pd.Timedelta(hours=1)) + READ_AHEAD_H
 
 
 def _reach(model: dict | None) -> pd.Timestamp | None:
@@ -176,7 +205,7 @@ def build(prev: dict | None, nwps_doc: dict | None, end=None, read_necofs=_read_
     ask = old.get("necofs") is None or now.hour in NECOFS_CHECK_UTC or reach is None or reach < now + pd.Timedelta(hours=NECOFS_MIN_REACH_H)
     if ask:
         try:
-            models["necofs"] = necofs_model(read_necofs(times[0]), times)
+            models["necofs"] = necofs_model(read_necofs(*read_window(now, times[0])), times)
         except Exception as exc:  # the previous frames stay; the page shows what they reach
             log.warning("wave grids: NECOFS read failed: %s", exc)
     if "necofs" not in models and old.get("necofs"):
@@ -199,8 +228,126 @@ def build(prev: dict | None, nwps_doc: dict | None, end=None, read_necofs=_read_
     return out, summary
 
 
-def publish(store: Store, end: datetime | None = None) -> None:
-    out, summary = build(store.read_json(KEY), store.read_json(nwps.FIELD_KEY), end)
+def _value(v: float, digits: int) -> float | int | None:
+    if not np.isfinite(v):
+        return None
+    return round(float(v), digits) if digits else round(float(v))
+
+
+def buoy_file(prev: dict | None, ds, pts: dict[str, tuple[float, float]], end) -> dict | None:
+    """The NECOFS runs at the buoys after a read, or None when the read adds nothing (the run is already held)."""
+    held = pd.DatetimeIndex(ds.time.values)
+    if not len(held):
+        return None
+    run0 = held[-1] - pd.Timedelta(hours=NECOFS_RUN_H)
+    key = f"{run0:%Y-%m-%dT%HZ}"
+    idx = np.where(held >= run0)[0]
+    steps = [int((held[k] - run0) / pd.Timedelta(hours=1)) for k in idx]
+    lon, lat = ds["node_lon"].values.astype(np.float64), ds["node_lat"].values.astype(np.float64)
+    points: dict = {}
+    cells: dict = {}
+    for pid, (x, y) in pts.items():
+        dist = np.hypot((lon - x) * 111.2 * np.cos(np.radians(y)), (lat - y) * 111.2)
+        n = int(np.argmin(dist)) if dist.size else -1
+        if n < 0 or dist[n] > nwps.MAX_KM:
+            continue
+        cells[pid] = {"lat": round(float(lat[n]), 4), "lon": round(float(lon[n]), 4), "km": round(float(dist[n]), 1)}
+        series = {name: [_value(v, dec) for v in ds[var].values[idx, n]] for name, var, dec in (("hs", "hs", 2), ("tp", "tpeak", 1), ("dir", "wdir", 0))}
+        series["hs"] = [None if v is not None and v < 0 else v for v in series["hs"]]
+        points[pid] = series
+    if not points:
+        return None
+    runs = dict((prev or {}).get("runs", {}))
+    old = runs.get(key)
+    if old:  # a run read again: its earlier hours stay where this read starts later
+        by = {s: {pid: {k: p[k][i] for k in p} for pid, p in old["points"].items()} for i, s in enumerate(old["steps"])}
+        for i, s in enumerate(steps):
+            for pid, p in points.items():
+                by.setdefault(s, {})[pid] = {k: p[k][i] for k in p}
+        steps = sorted(by)
+        ids = sorted({pid for row in by.values() for pid in row})
+        points = {pid: {k: [by[s].get(pid, {}).get(k) for s in steps] for k in ("hs", "tp", "dir")} for pid in ids}
+    new_run = {"steps": steps, "points": points}
+    if old == new_run:
+        return None
+    runs[key] = new_run
+    cutoff = _naive(end) - pd.Timedelta(hours=nwps.KEEP_HOURS)
+    runs = {k: v for k, v in sorted(runs.items()) if pd.Timestamp(k.replace("Z", "")) >= cutoff}
+    return {
+        "schema": SCHEMA,
+        "generated_at": iso(pd.Timestamp(_naive(end)).tz_localize("UTC")),
+        "source": "NECOFS/UMASSD wave forecast (UMass Dartmouth SMAST), GOM7 mesh; read at the nearest node to each buoy",
+        "attribution": "NECOFS/UMASSD",
+        "units": {"hs": "m", "tp": "s, mean period (T0m1)", "dir": "deg true, from"},
+        "cells": {**(prev or {}).get("cells", {}), **cells},
+        "runs": runs,
+    }
+
+
+def archive_name(run0) -> str:
+    return f"{run0:%Y/%m}/necofs_waves_gom7_{run0:%Y%m%d_%H}.nc"
+
+
+def archive_bytes(ds, start, hours: int) -> bytes:
+    """The read as NetCDF4 (h5netcdf, zlib), with plain attributes and the source credited."""
+    out = ds.copy()
+    for v in out.variables.values():
+        v.encoding = {}
+        v.attrs = {k: a for k, a in v.attrs.items() if isinstance(a, (str, int, float))}
+    from forcingkit.fetchers import necofs
+
+    out.attrs = {
+        "source": necofs.NECOFS_WAVE_URL,
+        "attribution": "NECOFS/UMASSD",
+        "title": "NECOFS wave forecast over the Long Island Sound box, as read by longhorizon.blue",
+        "box": ", ".join(str(x) for x in BOX),
+        "read_start": str(pd.Timestamp(start)),
+        "read_hours": int(hours),
+        "notes": "wdir: direction the waves come from; tpeak: the mean period T0m1 (named tpeak in the source)",
+    }
+    # Packed to 1 mm, 0.02 degree and 1 ms (int16, shuffled, zlib): float32 noise left the file at 22 MB a run.
+    pack = {"hs": 0.001, "wdir": 0.02, "tpeak": 0.001}  # int16 reaches 32.7 m, 655 degrees, 32.7 s
+    enc = {k: {"zlib": True, "complevel": 4, "shuffle": True,
+               **({"dtype": "int16", "scale_factor": pack[k], "_FillValue": -32768} if k in pack else {})}
+           for k in out.data_vars}
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "run.nc")
+        out.to_netcdf(path, engine="h5netcdf", encoding=enc)
+        with open(path, "rb") as f:
+            return f.read()
+
+
+def archive(root: str, ds, start, hours: int) -> str | None:
+    """Archive a read's run; the path written, or None (already archived, or a read that misses the run's start)."""
+    held = pd.DatetimeIndex(ds.time.values)
+    if not len(held):
+        return None
+    run0 = held[-1] - pd.Timedelta(hours=NECOFS_RUN_H)
+    if _naive(start) > run0 or held[0] > run0:
+        return None
+    arch = nwps.Archive(root, name=archive_name, pattern=ARCHIVE_NAME, content_type="application/x-netcdf")
+    return archive_name(run0) if arch.put(run0, archive_bytes(ds, start, hours)) else None
+
+
+def publish(store: Store, end: datetime | None = None, archive_root: str | None = None) -> None:
+    read: dict = {}
+
+    def reading(start, hours):
+        read["ds"] = _read_necofs(start, hours)
+        read["start"], read["hours"] = start, hours
+        return read["ds"]
+
+    out, summary = build(store.read_json(KEY), store.read_json(nwps.FIELD_KEY), end, read_necofs=reading)
     log.info("wave grids: %s", summary)
     if out is not None:
         store.write_json(KEY, out, max_age=3600)
+    if "ds" in read:
+        doc = buoy_file(store.read_json(BUOY_KEY), read["ds"], nwps.buoys(), end or now_utc())
+        if doc is not None:
+            store.write_json(BUOY_KEY, doc, max_age=1800)
+            log.info("NECOFS waves at the buoys: runs %s, buoys %s", list(doc["runs"]), sorted(doc["cells"]))
+        if archive_root:
+            try:
+                log.info("NECOFS waves archived: %s", archive(archive_root, read["ds"], read["start"], read["hours"]) or "none new")
+            except Exception as exc:  # the page's files are written; the archive tries again on the next read
+                log.warning("NECOFS waves archive failed: %s", exc)

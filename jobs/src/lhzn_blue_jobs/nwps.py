@@ -69,9 +69,13 @@ def url(run: datetime) -> str:
 
 
 class Archive:
-    """Where the runs go: a local directory, or a gs://bucket/prefix (create-only)."""
+    """Where the runs go: a local directory, or a gs://bucket/prefix (create-only). ``name`` gives a run's path under
+    the root and ``pattern`` what a path must match (NWPS's by default; the NECOFS wave archive passes its own)."""
 
-    def __init__(self, root: str):
+    def __init__(self, root: str, name=None, pattern: re.Pattern = NAME, content_type: str = "application/octet-stream"):
+        self._name = name or (lambda run: f"{run:%Y/%m}/{file_name(run)}")
+        self.pattern = pattern
+        self.content_type = content_type
         if root.startswith("gs://"):
             from google.cloud import storage
 
@@ -82,14 +86,13 @@ class Archive:
         else:
             self.dir = Path(root)
 
-    @staticmethod
-    def name(run: datetime) -> str:
-        return f"{run:%Y/%m}/{file_name(run)}"
+    def name(self, run: datetime) -> str:
+        return self._name(run)
 
     def put(self, run: datetime, data: bytes) -> bool:
         """Write the run; False if it was already archived (the object exists and is never overwritten)."""
         name = self.name(run)
-        if not NAME.fullmatch(name):
+        if not self.pattern.fullmatch(name):
             raise ValueError(f"refusing to write {name}")
         if self.dir is not None:
             path = self.dir / name
@@ -102,7 +105,7 @@ class Archive:
 
         blob = self.bucket.blob(f"{self.prefix}/{name}" if self.prefix else name)
         try:
-            blob.upload_from_string(data, content_type="application/octet-stream", if_generation_match=0)
+            blob.upload_from_string(data, content_type=self.content_type, if_generation_match=0)
         except PreconditionFailed:
             return False
         return True

@@ -8,7 +8,7 @@ from lhzn_blue_jobs.build import WRITABLE
 SOUND = [
     *(f"v1/{n}.json" for n in (
         "history", "history-salinity", "history-oxygen", "history-waves", "history-turbidity", "history-met", "live",
-        "shore", "shore-history", "shore-tides", "rivers", "rivers-history", "usgs-tidal", "forecast-hrrr", "waves-nwps",
+        "shore", "shore-history", "shore-tides", "rivers", "rivers-history", "usgs-tidal", "forecast-hrrr", "waves-nwps", "waves-necofs",
         "advisories", "advisories-now", "panels", "forecast-verification", "current-phase", "asos",
     )),
     "v1/archive/WLIS_SFC.json", "v1/archive/EXRX_MET.json", "v1/archive/forecast-verification-sums.json",

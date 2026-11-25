@@ -30,7 +30,7 @@ import { stationReadouts } from "./readouts";
 import { openAbout, wireAbout } from "./about";
 import { configureData, onModelData, requestRedraw } from "./data";
 import { chooseRun, chosenRun, FCST, forecastAt, gfsAt, HRRR_HIST_LABEL, hrrrAsOf, hrrrHist, loadForecast, mountVintage, runForecastAt, unmountRunSlider } from "./forecast";
-import { loadNwps, mountNwpsVintage, NWPS, nwpsLabel, nwpsRunAt, nwpsRuns, nwpsSeries } from "./nwps";
+import { loadNecofsWaves, loadNwps, mountNwpsVintage, NECOFS_WAVES, necofsWavesLabel, necofsWavesRuns, necofsWavesSeries, NWPS, nwpsLabel, nwpsRunAt, nwpsRuns, nwpsSeries } from "./nwps";
 import { OUTLOOK, outlookHtml } from "./outlook";
 import { longRange, mountLongRange, NEXT48, onLongRange } from "./next48";
 import { mountRevisions, revisionsOn, setRevisionTime } from "./revisions";
@@ -102,7 +102,7 @@ interface Palette {
   advisoryStrip: [string, string]; // the same, as a thin strip along a forecast's time axis (stronger, being thin)
   levelStrip: [string, string]; // the hours a wind forecast reaches those levels, fainter than an advisory issued
   miss: string; // a forecast's typical miss, either side of it: faint lavender, apart from the forecast's own blue
-  gfs: string; // GFS past HRRR's reach, its line and (fainter) its typical miss: muted green, apart from HRRR's blue
+  gfs: string; // a second model beside the first: GFS past HRRR's reach and NECOFS beside NWPS's waves; muted green
   yearStops: { t: number; L: number; C: number; h: number }[];
 }
 
@@ -738,13 +738,13 @@ const FIGS: Record<Kind, Fig> = {
     depthTabs: false,
     seasonal: false,
     available: (d) => d.kind === "buoy" && !!A.wavesOf(d.meta.id)?.sensor,
-    // While the sensor is out, or the server is not publishing it (readings transcribed from the panel), open on the
-    // wave model's span (its runs reach about 4 days back and 6 ahead), so recent hours are not a sliver at the end.
-    window: (d) => {
-      const last = A.lastWave(d.meta.id);
-      const out = !last || obsState({ time: last.time } as LastObs) === "offline" || !A.WAVE_LIVE[d.meta.id]?.published;
-      return out && NWPS ? [d.now - 4 * DAY, d.now + 6 * DAY] : LEFT(d);
+    // As the Wind plot: 36 hours back to 48 ahead, or 7 days ahead with the shared "7 days" switch (NWPS reaches 6
+    // days, NECOFS about 4.5), so the two plots line up in time. Full record shows the measured past.
+    window: () => {
+      const now = Math.floor(Date.now() / 1000 / HOUR) * HOUR;
+      return [now - 36 * HOUR, now + (longRange() ? 7 * DAY : 48 * HOUR)];
     },
+    reach: () => Math.floor(Date.now() / 1000 / HOUR) * HOUR + 7 * DAY, // the zoom reaches the 7 days' end
     maxSpan: 2 * 366 * DAY,
     start: (d) => d.waves?.hs?.t0 ?? d.now,
     build: (d, _depth, x0, x1) => {
@@ -754,10 +754,15 @@ const FIGS: Record<Kind, Fig> = {
       const val = (m: number) => m * u.factor;
       const fmt = (v: number) => `${v.toFixed(u.digits)} ${u.label}`;
       if (!NWPS) void loadNwps();
+      if (!NECOFS_WAVES) void loadNecofsWaves();
       const model = nwpsSeries(d.meta.id, xs).map(val);
       const hasModel = model.some(Number.isFinite);
+      // NECOFS beside NWPS: its newest run, in the second model's green (as GFS beside HRRR on the wind plot); its
+      // period is a mean period, so it is given in the hover only, never drawn against the buoy's dominant period.
+      const necofs = necofsWavesSeries(d.meta.id, xs).map(val);
+      const hasNecofs = necofs.some(Number.isFinite);
       // Beside a model line, measurements take the measured gold (as in the next-48-hours plot); alone, the series colour.
-      const measured = hasModel ? P.now : P.line;
+      const measured = hasModel || hasNecofs ? P.now : P.line;
       const lines: Line[] = [
         ...(w
           ? [
@@ -767,6 +772,12 @@ const FIGS: Record<Kind, Fig> = {
             ]
           : []),
         ...(hasModel ? [{ ys: model, color: P.line, width: 1.2, dash: "5 3", label: "NWS wave model (NWPS)", fmt }] : []),
+        ...(hasNecofs
+          ? [
+              { ys: necofs, color: P.gfs, width: 1.2, dash: "2 3", label: "NECOFS wave model", fmt },
+              { ys: necofsWavesSeries(d.meta.id, xs, "tp"), color: P.gfs, label: "NECOFS mean period", hidden: true, fmt: (v: number) => `${v.toFixed(1)} s` },
+            ]
+          : []),
       ];
       // Earlier NWPS runs, faint and fainter with age (as the HRRR runs in the next-48-hours plot).
       const nruns = hasModel ? nwpsRuns(d.meta.id, x0, x1) : [];
@@ -779,14 +790,30 @@ const FIGS: Record<Kind, Fig> = {
         label: nwpsLabel(r),
         tip: false,
       })));
+      // With Revisions on (its run slider reaches NECOFS too), NECOFS's earlier runs in the same fine pen, as GFS's on
+      // the wind plot.
+      const necOlder = revisionsOn() && hasNecofs ? necofsWavesRuns(d.meta.id, x0, x1).slice(0, -1) : [];
+      lines.unshift(...necOlder.map((r) => ({
+        ys: xs.map((t) => val(nwpsRunAt(r, d.meta.id, t))),
+        color: P.gfs,
+        width: 0.8,
+        opacity: 0.3,
+        label: necofsWavesLabel(r),
+        tip: false,
+      })));
       // The run whose line is nearest the pointer at the hovered hour (the slider follows it).
       const pick = (i: number, yv: number) => {
         const vals = nruns.map((r) => ({ r, y: val(nwpsRunAt(r, d.meta.id, xs[i])) })).filter((x) => Number.isFinite(x.y));
         return vals.length ? nwpsLabel(vals.reduce((a, b) => (Math.abs(b.y - yv) < Math.abs(a.y - yv) ? b : a)).r) : null;
       };
       return {
-        opts: { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, pick: hasModel ? pick : undefined, marker: hasModel ? { x: Date.now() / 1000, label: "now" } : undefined, empty: `No wave readings in this window. ${A.wavesText(d.meta.id)} Full record shows what we hold.` },
-        legend: [["Significant height", measured, 1, "Height"], ["Highest wave", P.contrast, 0.35], ...(hasModel ? [["NWS wave model (NWPS)", P.line, 0.7, "NWPS model"] as [string, string, number, string]] : [])],
+        opts: { xs, lines, unit: ` ${u.label}`, zero: true, hoverDigits: u.digits, pick: hasModel ? pick : undefined, marker: hasModel || hasNecofs ? { x: Date.now() / 1000, label: "now" } : undefined, empty: `No wave readings in this window. ${A.wavesText(d.meta.id)} Full record shows what we hold.` },
+        legend: [
+          ["Significant height", measured, 1, "Height"],
+          ["Highest wave", P.contrast, 0.35],
+          ...(hasModel ? [["NWS wave model (NWPS)", P.line, 0.7, "NWPS model"] as [string, string, number, string]] : []),
+          ...(hasNecofs ? [["NECOFS wave model", P.gfs, 0.7, "NECOFS model"] as [string, string, number, string]] : []),
+        ],
       };
     },
   },
@@ -1649,7 +1676,13 @@ function drawInline(d: StationData, key: Kind): void {
     mountRevisions(d, $(`${d.meta.id}-${key}`), x0, x1);
   }
   if (key === "next48") mountLongRange($(`${d.meta.id}-${key}`)); // a virtual buoy's runs are pieces of one file: no run slider
-  if (key === "waves") mountNwpsVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
+  if (key === "waves") {
+    // As on the wind plot: the run slider (and its emphasized run) only while Revisions is on.
+    if (revisionsOn()) mountNwpsVintage(d, $(`${d.meta.id}-${key}`), x0, x1);
+    else unmountRunSlider($(`${d.meta.id}-${key}`));
+    mountRevisions(d, $(`${d.meta.id}-${key}`), x0, x1, "waves");
+    mountLongRange($(`${d.meta.id}-${key}`));
+  }
 }
 
 
@@ -2460,7 +2493,12 @@ async function main(): Promise<void> {
           }
           mountLongRange(plot);
         }
-        else if (k === "waves") mountNwpsVintage(d, plot, x0, x1);
+        else if (k === "waves") {
+          if (revisionsOn()) mountNwpsVintage(d, plot, x0, x1);
+          else unmountRunSlider(plot);
+          mountRevisions(d, plot, x0, x1, "waves");
+          mountLongRange(plot);
+        }
         else plot.querySelector(".vintage")?.remove();
       },
     });
@@ -2939,7 +2977,7 @@ function lineReading(d: StationData, key: Kind): string[] {
     if (!line) return prSlot(k, PR_NONE, `${k}: no value at this hour`);
     const j = lastAt(line.ys, i, back);
     const text = fmt(line, line.ys[j]);
-    const model = /HRRR|NWPS|model/.test(line.label) ? `<small class="pr-src">${/NWPS|wave model/.test(line.label) ? "NWPS" : "HRRR"}</small>` : "";
+    const model = /HRRR|NWPS|model/.test(line.label) ? `<small class="pr-src">${/NECOFS/.test(line.label) ? "NECOFS" : /NWPS|wave model/.test(line.label) ? "NWPS" : "HRRR"}</small>` : "";
     return prSlot(k, `${prVal(text, w)}${model}`, `${line.label}: ${text}${j < i ? `, at ${fmtAtHour.format(new Date(xs[j] * 1000))}` : ""}`);
   });
   // The departure page also states the water's level at the hour.

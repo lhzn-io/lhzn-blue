@@ -51,6 +51,11 @@ def _main() -> None:
         help="forecast: local directory or gs://bucket/prefix for the NWPS wave model archive (env LHZN_BLUE_NWPS)",
     )
     parser.add_argument(
+        "--necofs-waves",
+        default=os.environ.get("LHZN_BLUE_NECOFS_WAVES"),
+        help="forecast: local directory or gs://bucket/prefix for the NECOFS wave runs read (env LHZN_BLUE_NECOFS_WAVES)",
+    )
+    parser.add_argument(
         "--panels",
         default=os.environ.get("LHZN_BLUE_PANELS_ARCHIVE"),
         help="panels: local directory or gs://bucket/prefix for the panel images as fetched (env LHZN_BLUE_PANELS_ARCHIVE)",
@@ -145,7 +150,7 @@ def _main() -> None:
         _shore(lambda: __import__("lhzn_blue_jobs.hrrr_grid", fromlist=["publish"]).publish(store), "hrrr grid")
         _shore(lambda: __import__("lhzn_blue_jobs.model_grids", fromlist=["publish"]).publish(store), "model grids")
         _shore(lambda: __import__("lhzn_blue_jobs.nwps", fromlist=["publish"]).publish(store, args.nwps), "nwps")
-        _shore(lambda: __import__("lhzn_blue_jobs.wave_grids", fromlist=["publish"]).publish(store), "wave grids")
+        _shore(lambda: __import__("lhzn_blue_jobs.wave_grids", fromlist=["publish"]).publish(store, archive_root=args.necofs_waves), "wave grids")
         _shore(lambda: __import__("lhzn_blue_jobs.hrrr_history", fromlist=["update"]).update(store), "hrrr history")
         _shore(lambda: __import__("lhzn_blue_jobs.phase", fromlist=["publish"]).publish(store), "current phase")
         _shore(lambda: __import__("lhzn_blue_jobs.rips", fromlist=["publish"]).publish(store), "charted rips")

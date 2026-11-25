@@ -18,7 +18,7 @@ trigger() { # name, cron, job
 }
 
 for job in lhzn-blue-live lhzn-blue-latest lhzn-blue-history lhzn-blue-fields lhzn-blue-snapshot lhzn-blue-forecast lhzn-blue-panels \
-  lhzn-blue-region-live lhzn-blue-region-daily lhzn-blue-region-wind lhzn-blue-shelf; do
+  lhzn-blue-region-live lhzn-blue-region-daily lhzn-blue-region-wind lhzn-blue-shelf lhzn-blue-shelf-wind; do
   gcloud run jobs describe "$job" --project "$GCP_PROJECT" --region "$GCP_REGION" >/dev/null 2>&1 || continue  # shelf: only with R2
   gcloud run jobs add-iam-policy-binding "$job" --project "$GCP_PROJECT" --region "$GCP_REGION" \
     --member "serviceAccount:$SCHEDULER_SA" --role roles/run.invoker >/dev/null
@@ -49,4 +49,9 @@ trigger lhzn-blue-region-wind "10 */3 * * *" lhzn-blue-region-wind
 # The Northeast U.S. Shelf's currents to the R2 tile store, daily after the fields (both models' morning runs are up).
 if gcloud run jobs describe lhzn-blue-shelf --project "$GCP_PROJECT" --region "$GCP_REGION" >/dev/null 2>&1; then
   trigger lhzn-blue-shelf "50 8 * * *" lhzn-blue-shelf
+fi
+# Wind over the shelf every 6 hours, about 5 hours after each 00/06/12/18 UTC cycle (00:15 Eastern is 05:15 UTC in
+# winter, 04:15 in summer): HRRR's 48-hour run and GFS's leads to the window's end are posted by then.
+if gcloud run jobs describe lhzn-blue-shelf-wind --project "$GCP_PROJECT" --region "$GCP_REGION" >/dev/null 2>&1; then
+  trigger lhzn-blue-shelf-wind "15 0,6,12,18 * * *" lhzn-blue-shelf-wind
 fi

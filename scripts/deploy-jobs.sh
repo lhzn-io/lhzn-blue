@@ -18,7 +18,8 @@
 #                    (default: hfradar-usegc beside FORECAST_STORE)
 #   TILES_R2_BUCKET, TILES_R2_ENDPOINT  optional: the R2 bucket and S3 endpoint for the `shelf` job's tiles (shelf.py, tiles.py);
 #                    without them the `shelf` job is not deployed. Its keys are in Secret Manager (setup-gcp.sh).
-# `shelf` (daily): the Northeast U.S. Shelf's currents to the R2 tile store, only when R2 is configured.
+# `shelf` (daily): the Northeast U.S. Shelf's currents to the R2 tile store, only when R2 is configured;
+# `shelf-wind` (every 6 hours): HRRR and GFS wind over the same domain, to the same store.
 # Scheduling is separate (scripts/schedule-jobs.sh), so redeploying code does not touch triggers.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -82,8 +83,17 @@ if [ -n "${TILES_R2_BUCKET:-}" ] && [ -n "${TILES_R2_ENDPOINT:-}" ]; then
     --set-secrets "${SECRETS},TILES_R2_ACCESS_KEY_ID=lhzn-blue-r2-key-id:latest,TILES_R2_SECRET_ACCESS_KEY=lhzn-blue-r2-secret:latest" \
     --tasks 1 --max-retries 1 --task-timeout 60m \
     --cpu 1 --memory 4Gi
+  # Wind over the shelf (shelf_wind.py): HRRR and GFS every 6 hours, to the same tile store. About 300 MB of byte-range
+  # reads and under a minute of decoding a run; 2 GiB holds one lead at a time.
+  gcloud run jobs deploy "lhzn-blue-shelf-wind" \
+    --project "$GCP_PROJECT" --region "$GCP_REGION" --image "$IMAGE" \
+    --service-account "$JOB_SA" --args "shelf-wind" \
+    --set-env-vars "LHZN_BLUE_OUT=${DATA_STORE},LHZN_BLUE_TILES=r2://${TILES_R2_BUCKET},TILES_R2_ENDPOINT=${TILES_R2_ENDPOINT}" \
+    --set-secrets "${SECRETS},TILES_R2_ACCESS_KEY_ID=lhzn-blue-r2-key-id:latest,TILES_R2_SECRET_ACCESS_KEY=lhzn-blue-r2-secret:latest" \
+    --tasks 1 --max-retries 1 --task-timeout 20m \
+    --cpu 1 --memory 2Gi
 else
-  echo "TILES_R2_BUCKET or TILES_R2_ENDPOINT not set: lhzn-blue-shelf not deployed"
+  echo "TILES_R2_BUCKET or TILES_R2_ENDPOINT not set: lhzn-blue-shelf and lhzn-blue-shelf-wind not deployed"
 fi
 
 # The HRRR backfill: never scheduled; run by hand with its dates, e.g.

@@ -22,7 +22,8 @@ Published layout (``v1/fields/hrrr-wind.json``):
 The past beyond that window (``v1/fields/hrrr-wind-history.json``): the hours from ``HISTORY_DAYS`` back up to the
 main file's first frame, which the page loads only when its time bar goes back past the main file. Each run moves
 the frames that leave the main file's window into it and drops those older than ``HISTORY_DAYS``. Same ``box``,
-``encoding`` and frame format; ``mesh`` holds only ``version``, ``nx``, ``ny`` and ``block`` (the page draws the
+``encoding`` and frame format, without ``gust``: the map draws no gust, and with it 14 days of frames pass
+``MAX_OBJECT_BYTES``. ``mesh`` holds only ``version``, ``nx``, ``ny`` and ``block`` (the page draws the
 history on the main file's mesh, and checks that these match). ``cycles`` lists the runs its frames come from.
 ``backfill`` fills the missing hours once, each from the cycle 1 hour before it (2 or 3 hours where that cycle is
 not published), as the main file fills its past hours.
@@ -331,7 +332,10 @@ def history(prev_hist: dict | None, prev_main: dict | None, main: dict, end=None
 
 
 def _history_doc(frames, main: dict, lo: pd.Timestamp, hi: pd.Timestamp) -> dict:
-    kept = sorted((f for f in frames if lo <= _vtime(f) < hi), key=lambda f: f["valid_time"])
+    kept = sorted(
+        ({k: v for k, v in f.items() if k != "gust"} for f in frames if lo <= _vtime(f) < hi),
+        key=lambda f: f["valid_time"],
+    )
     m = main["mesh"]
     return {
         "schema": SCHEMA,
@@ -339,11 +343,11 @@ def _history_doc(frames, main: dict, lo: pd.Timestamp, hi: pd.Timestamp) -> dict
         "label": "model forecast, past hours",
         "source": SOURCE,
         "attribution": ATTRIBUTION,
-        "field": "10 m wind, east and north components; gust: surface wind gust, where present",
+        "field": "10 m wind, east and north components",
         "units": "m/s",
         "generated_at": iso(now_utc()),
         "box": list(BOX),
-        "encoding": {"type": "int8 base64", "step": STEP, "clip": round(127 * STEP, 2), "gust_step": STEP},
+        "encoding": {"type": "int8 base64", "step": STEP, "clip": round(127 * STEP, 2)},
         "cycles": sorted({f["cycle"] for f in kept}),
         "mesh": {"version": m.get("version"), "nx": m["nx"], "ny": m["ny"], "block": m["block"]},
         "frames": kept,

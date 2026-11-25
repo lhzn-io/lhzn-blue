@@ -35,7 +35,8 @@ def test_a_lead_without_gust_still_gives_the_wind():
     assert "gust" not in f and np.allclose(hg.decode(f["v"]), [1.0, 0.5])
 
 
-def test_history_keeps_gusts_and_frames_without_them():
+def test_history_drops_gusts():
+    """14 days of frames with the gust pass the 8 MB limit; the map and the virtual buoy read gusts from the main file."""
     mesh = {"version": hg.MESH_VERSION, "nx": 2, "ny": 1, "block": {"row0": 0, "col0": 0}, "centre_lon": [-73.0, -72.9]}
     enc = {"type": "int8 base64", "step": hg.STEP, "clip": round(127 * hg.STEP, 2), "gust_step": hg.STEP}
     old = hg._frame(CYCLE - pd.Timedelta(hours=40), 1, lead_data(None), np.array([-73.0, -72.9]))
@@ -44,6 +45,8 @@ def test_history_keeps_gusts_and_frames_without_them():
     main = {"box": list(hg.BOX), "encoding": enc, "mesh": mesh,
             "frames": [hg._frame(CYCLE, 1, lead_data([5.0, 5.0]), np.array([-73.0, -72.9]))]}
     h = hg.history(None, prev_main, main, end=CYCLE)
-    assert h["encoding"]["gust_step"] == hg.STEP
-    by = {f["valid_time"]: f for f in h["frames"]}
-    assert "gust" not in by[old["valid_time"]] and np.allclose(hg.decode(by[new["valid_time"]]["gust"]), 8.0)
+    assert "gust_step" not in h["encoding"] and len(h["frames"]) == 2
+    assert all("gust" not in f for f in h["frames"]) and "gust" in new  # the main file's frame keeps its gust
+    # A history written with gusts loses them on the next run.
+    with_gust = {**h, "frames": [*h["frames"][:1], new]}
+    assert all("gust" not in f for f in hg.history(with_gust, None, main, end=CYCLE)["frames"])

@@ -12,7 +12,7 @@ dependencies = [
     "boto3>=1.35",  # the tile store: an R2 bucket through its S3 API (tiles.py)
     # Surface fields (the `fields` job): satellite fetches and the NECOFS surface and full-depth readers; and HRDPS at
     # the stations (the `forecast` job).
-    "forcingkit>=0.23.1,<0.24",  # 0.19: the HF radar fetcher (hfradar.py); 0.21: DOPPIO on its own grid (shelf.py);
+    "forcingkit>=0.25,<0.26",  # 0.25: NECOFS waves (wave_grids.py); 0.19: the HF radar fetcher (hfradar.py); 0.21: DOPPIO on its own grid (shelf.py);
     # 0.23.1: NECOFS mesh coordinates from a matching mesh when a file's are zero
     "matplotlib>=3.8",  # point location on the model mesh (the shared coastline)
     "utide>=0.3",  # harmonic tide fits for the USGS tidal gauges (Codiga 2011)

@@ -14,7 +14,7 @@ SOUND = [
     "v1/archive/WLIS_SFC.json", "v1/archive/EXRX_MET.json", "v1/archive/forecast-verification-sums.json",
     "v1/archive/usgs-tidal-pred.json",
     *(f"v1/fields/{n}.json" for n in (
-        "sst", "chl", "kd490", "currents-mesh", "hrrr-wind", "hrrr-wind-history", "hrrr-wind-near", "model-grids",
+        "sst", "chl", "kd490", "currents-mesh", "hrrr-wind", "hrrr-wind-history", "hrrr-wind-near", "model-grids", "wave-grids",
         "nwps-waves", "nwps-waves-near", "wind-against-tide", "rips",
     )),
     "v1/forecast-gfs.json", "v1/forecast-verification-gfs.json", "v1/archive/forecast-verification-gfs-sums.json", "v1/fields/currents.bin",

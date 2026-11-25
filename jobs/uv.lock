@@ -1182,7 +1182,7 @@ wheels = [
 
 [[package]]
 name = "forcingkit"
-version = "0.23.1"
+version = "0.25.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bottleneck" },
@@ -1216,9 +1216,9 @@ dependencies = [
     { name = "zarr", version = "3.1.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "zarr", version = "3.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/01/22/08671f5e395950f15ea181b4637d9adef6e9f3e4865c930d6dd74e5d86a6/forcingkit-0.23.1.tar.gz", hash = "sha256:659e0ef590ff1ec4931936e45acc68a9cbcdfd17226eebd7f2e866f0bee6d986", size = 6330111, upload-time = "2026-11-22T21:48:02.701Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/49/98edead352582c376798f558b9c992d6b68dcbc39e5c5da0d0deffe8a51b/forcingkit-0.25.0.tar.gz", hash = "sha256:2bce1e4ebff7549279d1fa56af1767a91aac4c239941f71312a54799ad397648", size = 6352272, upload-time = "2026-11-25T04:38:52.863Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/d4/fc8ab5f144ecf43e0ba99a0c6be2af80df8be46d917f4960c3023bd60a37/forcingkit-0.23.1-py3-none-any.whl", hash = "sha256:4175f6feebc0e82321dd4d5c508cd341f325220ab52ccd522a0a27a46a5e5452", size = 206435, upload-time = "2026-11-22T21:48:00.613Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/b9/ef1fe1d61eb87b4920fccb6034dfd15c1d2f6a4d32359132c02a0b2f1228/forcingkit-0.25.0-py3-none-any.whl", hash = "sha256:4f4a5fd82a55cb7576f2cb71d87f64989f1c74c0d9a3a957273fef0b826c8858", size = 216794, upload-time = "2026-11-25T04:38:50.037Z" },
 ]
 
 [[package]]
@@ -1824,7 +1824,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.35" },
-    { name = "forcingkit", specifier = ">=0.23.1,<0.24" },
+    { name = "forcingkit", specifier = ">=0.25,<0.26" },
     { name = "google-cloud-storage", specifier = ">=2.18" },
     { name = "insitukit", specifier = ">=0.5,<0.6" },
     { name = "matplotlib", specifier = ">=3.8" },

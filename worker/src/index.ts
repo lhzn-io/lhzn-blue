@@ -78,6 +78,7 @@ const FILES: Record<string, number> = {
   // HRRR's last forecast before each hour, per station (from 2024).
   ...Object.fromEntries(["WLIS", "EXRX", "ARTG", "CLIS", "KPTN", "BRPT", "NWHV", "NLON", "KBDR", "KHVN"].flatMap((id) => [[`v1/hrrr-history/${id}.json`, 3600], [`v1/hrrr-history/${id}-recent.json`, 3600]])),
   "v1/fields/model-grids.json": 3600,
+  "v1/fields/wave-grids.json": 3600,
   "v1/fields/currents-mesh.json": 86400,
   "v1/fields/sst-90d.bin": 3600,
   "v1/fields/chl-90d.bin": 3600,

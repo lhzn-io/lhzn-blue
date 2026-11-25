@@ -53,6 +53,17 @@ const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 // ---------- Data ----------
 
 type Id = "necofs" | "doppio";
+/** Hours `from` to `to` (inclusive) of a model came from `url`: from a run (DOPPIO's best time series), or a file
+ * written at `written` (NECOFS, on the server's clock); `product` and `title` name the source. */
+interface Prov {
+  from: string;
+  to: string;
+  url: string;
+  product?: string;
+  title?: string;
+  run?: string;
+  written?: string;
+}
 interface Model {
   source: string;
   url: string | null;
@@ -67,6 +78,7 @@ interface Model {
   tiles?: Record<string, [number, number, number]>; // offset, length, elements
   depths?: Record<string, Partial<Model>>; // the same model at a fixed depth (m): its own files and counts
   ts?: { wide: string; pack?: string; tiles?: Record<string, [number, number, number]> }; // temperature and salinity
+  prov?: Prov[]; // the source of each hour (jobs: shelf.py, doppio_prov and necofs_prov)
 }
 type Models = Partial<Record<Id, Model>>;
 interface Latest {
@@ -822,12 +834,32 @@ function showValues(at: maplibregl.LngLat): void {
       const flow = `${(ms * MS_TO_KT).toFixed(2)} kt (${ms.toFixed(2)} m/s) toward ${Math.round(d)}&deg; ${COMPASS[Math.round(d / 22.5) % 16]}`;
       const head = x === null ? "" : field === "temp" ? `<b>${x.toFixed(1)} &deg;C</b><br>` : `<b>salinity ${x.toFixed(2)}</b><br>`;
       body = x === null ? `<b>${flow.replace(" kt", " kt</b>")}<br>${where}${avg}` : `${head}${flow}, ${where}${avg}`;
-      body += `<br>${cellPlace(p, Number(f.properties.b), Number(f.properties.i))}`;
+      body += `<br>${cellPlace(p, Number(f.properties.b), Number(f.properties.i))}${provenance(p)}`;
     } else body = stepOf(p) < 0 ? "no data for this hour" : `no cell here ${where}`;
     body += overlayAt(map, at);
     p.popup ??= new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "pin-pop hover-pop sh-val", offset: 12, maxWidth: "none" });
     p.popup.setLngLat(at).setHTML(`<span class="sh-val-model">${p.label}</span> ${body}`).addTo(map);
   }
+}
+
+const fmtStamp = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const stamp = (ms: number) => `${fmtStamp.format(new Date(ms))} UTC`;
+
+/** The model hour drawn (an instant of the output) and the run behind it with its lead, or when the file was written. */
+function provenance(p: Panel): string {
+  const m = modelAt(cur(), p.id);
+  const j = stepOf(p);
+  if (!m || j < 0) return "";
+  const t = Date.parse(m.t0) + j * m.step * 1000;
+  const seg = m.prov?.find((s) => Date.parse(s.from) <= t && t <= Date.parse(s.to));
+  let src = "";
+  if (seg?.run) {
+    const lead = Math.round((t - Date.parse(seg.run)) / 3_600_000);
+    src = ` &middot; run ${stamp(Date.parse(seg.run))}, ${lead >= 0 ? "+" : ""}${lead} h`;
+  } else if (seg?.written) {
+    src = ` &middot; file written ${esc(fmtStamp.format(new Date(`${seg.written}Z`)))} server time`;
+  }
+  return `<br><span class="sh-val-prov">${stamp(t)}, instant${src}</span>`;
 }
 
 const esc = (t: unknown) => String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);

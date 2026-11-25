@@ -57,6 +57,7 @@
 @media (max-width: 600px) {
   .sh-val .maplibregl-popup-content { white-space: normal; width: auto; max-width: min(300px, 76vw); }
 }
+.sh-val-prov { display: inline-block; margin-top: 3px; font-size: 0.86em; line-height: 1.35; color: var(--dim); }
 .sh-val-model { font: 700 9.5px/1.2 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
 .sh-note { margin: 0; font: 12px/1.4 var(--sans); color: var(--dim); }
 

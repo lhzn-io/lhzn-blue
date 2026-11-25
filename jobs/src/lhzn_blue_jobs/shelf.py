@@ -27,6 +27,10 @@ Published to the tile store (tiles.py: an R2 bucket, served from its own host), 
   days kept. Each run archives the previous UTC day, and retries the ARCHIVE_LOOKBACK days before it that are missing
   or incomplete (a model's server did not answer). Kept indefinitely.
 
+Each model's entry carries ``prov``: the hours it holds, in ranges, each naming the file read and, where the source
+says, the run behind it (DOPPIO's best time series, ``time_run``) or when the file was written (NECOFS's netCDF
+history). ``shelf-prov`` writes it into days archived before it was recorded.
+
 Each blob holds the 2-hourly forecast from 24 hours back to 72 hours ahead (DOPPIO's ends about 2 days ahead).
 """
 
@@ -36,6 +40,7 @@ import hashlib
 import io
 import json
 import logging
+import re
 import time
 from datetime import datetime
 
@@ -113,8 +118,8 @@ def quads(lon: np.ndarray, lat: np.ndarray, cells: np.ndarray) -> tuple[np.ndarr
     return nodes, local.reshape(corner.shape)
 
 
-def _header(source: str, url: str | None, times: pd.DatetimeIndex, run: str) -> dict:
-    return {
+def _header(source: str, url: str | None, times: pd.DatetimeIndex, run: str, prov: list[dict] | None = None) -> dict:
+    out = {
         "source": source,
         "url": url,
         "run": run,
@@ -122,6 +127,117 @@ def _header(source: str, url: str | None, times: pd.DatetimeIndex, run: str) -> 
         "step": STEP_HOURS * 3600,
         "steps": int(times.size),
     }
+    if prov:
+        out["prov"] = prov
+    return out
+
+
+# ---------- Provenance: the file, and the run or write time, behind each hour ----------
+
+_SOURCES: dict[str, dict] = {}  # url (and whether runs were asked) -> its title, history, and best-series runs
+_HISTORY = re.compile(r"[A-Z][a-z]{2} ([A-Z][a-z]{2}) +(\d{1,2}) (\d\d:\d\d:\d\d) (\d{4})")
+
+
+def _remote(url) -> bool:
+    return isinstance(url, str) and url.startswith(("http://", "https://"))
+
+
+def _decode_times(var) -> pd.DatetimeIndex:
+    unit, origin = var.attrs["units"].replace(" UTC", "").split(" since ")
+    step = {"seconds": "s", "hours": "h", "days": "D"}[unit.strip()]
+    values = np.asarray(var.values, dtype=np.float64)
+    return pd.DatetimeIndex(pd.Timestamp(origin.strip()) + pd.to_timedelta(values, unit=step)).round("s")
+
+
+def _source(url: str, runs: bool = False) -> dict:
+    """A source's global title and history, read once per job; with `runs`, also its hours and the run behind each
+    (an FMRC best time series' time_run)."""
+    key = f"{url}|{runs}"
+    if key not in _SOURCES:
+        from forcingkit.fetchers import doppio as dfk
+
+        ds = dfk._open(url)
+        got: dict = {k: str(ds.attrs[k]) for k in ("title", "history") if k in ds.attrs}
+        if runs and "time_run" in ds.variables:
+            _, hours = dfk._times(ds)
+            got["run_at"] = dict(zip(hours, _decode_times(ds["time_run"])))
+        _SOURCES[key] = got
+    return _SOURCES[key]
+
+
+def written(history: str | None) -> str | None:
+    """When a file was written, from the newest entry of its netCDF history ("Wed Aug 27 15:41:31 2025: ncrcat ..."),
+    as "2025-08-27T15:41:31": the writing server's clock, whose zone the file does not state."""
+    m = _HISTORY.search(history or "")
+    if not m:
+        return None
+    try:
+        return pd.Timestamp(f"{m[1]} {m[2]} {m[4]} {m[3]}").strftime("%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return None
+
+
+def _segments(times, keys) -> list[dict]:
+    """Consecutive hours with the same source as ranges: {"from", "to", and the key's non-empty fields}."""
+    out: list[dict] = []
+    last = None
+    for t, k in zip(times, keys):
+        at = iso(pd.Timestamp(t).tz_localize("UTC"))
+        if out and k == last:
+            out[-1]["to"] = at
+        else:
+            out.append({"from": at, "to": at, **{a: b for a, b in k if b}})
+            last = k
+    return out
+
+
+def doppio_prov(times, url: str | None) -> list[dict]:
+    """DOPPIO's hours by source: the product (forcingkit's name for it) and, for the real-time best time series,
+    the run each hour was taken from."""
+    if not _remote(url):
+        return []
+    from forcingkit.fetchers import doppio as dfk
+
+    product = dfk.doppio_product(url)
+    if url != dfk.REALTIME_URL:
+        return _segments(times, [(("url", url), ("product", product))] * len(times))
+    run_at = _source(url, runs=True).get("run_at", {})
+    keys = []
+    for t in times:
+        r = run_at.get(pd.Timestamp(t))
+        keys.append((("url", url), ("product", product), ("run", None if r is None or pd.isna(r) else iso(r.tz_localize("UTC")))))
+    return _segments(times, keys)
+
+
+def necofs_prov(times, url: str | None, live: bool = True) -> list[dict]:
+    """NECOFS's hours by file: from SMAST's archive, the file forcingkit reads each hour from (a daily GOM7 history
+    file holds the day before's 01:00 to its own 00:00), each with its title and when it was written; from the
+    rolling forecast, the one file. `live` (at read time) also records the forecast file's write time; after the
+    fact the file has been replaced, so it is left out."""
+    if not _remote(url):
+        return []
+    from forcingkit.fetchers import necofs as fk
+
+    archived = "/Archive/" in url
+    if archived:
+        by_day: dict = {}
+        urls = [fk.necofs_url_for_hour(pd.Timestamp(t), by_day) for t in times]
+    else:
+        urls = [url] * len(times)
+    keys = []
+    for u in urls:
+        src = _source(u) if live or archived else {}
+        keys.append((("url", u), ("title", src.get("title")), ("written", written(src.get("history")))))
+    return _segments(times, keys)
+
+
+def _prov(fn, *args, **kwargs) -> list[dict]:
+    """Provenance is best effort: a source that does not answer leaves it out, never the fields."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        log.warning("shelf provenance: %s", exc)
+        return []
 
 
 def doppio_read(end: datetime | None, deadline: float, start: pd.Timestamp | None = None, hours: int | None = None, every: int = STEP_HOURS):
@@ -840,7 +956,7 @@ def publish(store: Store, end: datetime | None = None, ts: tiles.TileStore | Non
         except Exception as exc:
             outages.record(failed, "shelf isobaths doppio", exc, log)
         ts.put(f"{BASE}/doppio-grid.npz", _grid_npz(lon, lat, wet), 86400)
-        models["doppio"] = {**_header(DOPPIO_SOURCE, url, times, run), "wide": f"runs/{run}/doppio.bin", "cells": int(wet.sum()), "ts": {"wide": f"runs/{run}/doppio-ts.bin"}}
+        models["doppio"] = {**_header(DOPPIO_SOURCE, url, times, run, _prov(doppio_prov, times, url)), "wide": f"runs/{run}/doppio.bin", "cells": int(wet.sum()), "ts": {"wide": f"runs/{run}/doppio-ts.bin"}}
         log.info("shelf doppio: %d cells, %d steps", wet.sum(), times.size)
     except Exception as exc:
         outages.record(failed, "shelf doppio", exc, log)
@@ -865,7 +981,7 @@ def publish(store: Store, end: datetime | None = None, ts: tiles.TileStore | Non
         except Exception as exc:
             outages.record(failed, "shelf isobaths necofs", exc, log)
         models["necofs"] = {
-            **_header(NECOFS_SOURCE, url, times, run),
+            **_header(NECOFS_SOURCE, url, times, run, _prov(necofs_prov, times, url)),
             "wide": f"runs/{run}/necofs-wide.bin",
             "pack": f"runs/{run}/necofs.bin",
             "cells": int(tri.shape[0]),
@@ -919,7 +1035,7 @@ def archive_day(ts: tiles.TileStore, day, deadline: float, grid=None, depths: bo
         grid = (lon, lat, wet)
         put("doppio.bin", _doppio_files(lon, lat, wet, u, v))
         put("doppio-ts.bin", tiles.encode_values(scal))
-        models["doppio"] = {**_header(DOPPIO_SOURCE, url, times, rel), "step": 3600, "wide": f"{rel}/doppio.bin", "cells": int(wet.sum()), "ts": {"wide": f"{rel}/doppio-ts.bin"}}
+        models["doppio"] = {**_header(DOPPIO_SOURCE, url, times, rel, _prov(doppio_prov, times, url)), "step": 3600, "wide": f"{rel}/doppio.bin", "cells": int(wet.sum()), "ts": {"wide": f"{rel}/doppio-ts.bin"}}
     except Exception as exc:
         outages.record(failed, f"shelf archive {start:%Y-%m-%d} doppio", exc, log)
     try:
@@ -933,7 +1049,7 @@ def archive_day(ts: tiles.TileStore, day, deadline: float, grid=None, depths: bo
         put("necofs-ts.bin", vpack)
         put("necofs-wide-ts.bin", vwide)
         models["necofs"] = {
-            **_header(NECOFS_SOURCE, url, times, rel),
+            **_header(NECOFS_SOURCE, url, times, rel, _prov(necofs_prov, times, url)),
             "step": 3600,
             "wide": f"{rel}/necofs-wide.bin",
             "pack": f"{rel}/necofs.bin",
@@ -1008,3 +1124,39 @@ def backfill(store: Store, first: str, last: str, ts: tiles.TileStore | None = N
         raise ValueError(f"shelf backfill: at most {BACKFILL_DEPTH_MAX_DAYS} days at depth at once")
     keys = [f"{d:%Y-%m-%d}" for d in pd.date_range(a, b, freq="D")]
     return _fill_days(ts, keys, lambda: time.monotonic() + BACKFILL_DAY_S, depths=depths)
+
+
+def refresh_prov(store: Store, first: str, last: str, ts: tiles.TileStore | None = None) -> list[str]:
+    """Provenance for days `first` to `last` already archived, written into each day's index.json without reading the
+    fields again. The hours' files follow from the index's own url (an archive file, or the rolling forecast, whose
+    write time is not known after the fact); DOPPIO's runs come from the best time series' time_run."""
+    ts = ts or tiles.store_for(store.root)
+    if ts is None:
+        return ["shelf prov: no tile store configured (LHZN_BLUE_TILES)"]
+    a, b = _utc_day(first), _utc_day(last)
+    if b < a or (b - a).days + 1 > BACKFILL_MAX_DAYS:
+        raise ValueError(f"shelf prov: {first} to {last} is not 1 to {BACKFILL_MAX_DAYS} days")
+    failed: list[str] = []
+    for d in pd.date_range(a, b, freq="D"):
+        key = f"{d:%Y-%m-%d}"
+        raw = ts.get(f"{BASE}/days/{key}/index.json")
+        if not raw:
+            continue
+        entry = json.loads(raw)
+        changed = False
+        for name, fn, kw in (("doppio", doppio_prov, {}), ("necofs", necofs_prov, {"live": False})):
+            m = entry.get("models", {}).get(name)
+            if not m:
+                continue
+            t0 = pd.Timestamp(m["t0"]).tz_convert("UTC").tz_localize(None)
+            times = pd.date_range(t0, periods=int(m["steps"]), freq=pd.Timedelta(seconds=int(m["step"])))
+            prov = _prov(fn, times, m.get("url"), **kw)
+            if not prov:
+                failed.append(f"shelf prov {key} {name}: not found")
+            elif prov != m.get("prov"):
+                m["prov"] = prov
+                changed = True
+        if changed:
+            ts.put(f"{BASE}/days/{key}/index.json", json.dumps(entry, separators=(",", ":")).encode(), LATEST_S, "application/json")
+            log.info("shelf prov %s: written", key)
+    return failed

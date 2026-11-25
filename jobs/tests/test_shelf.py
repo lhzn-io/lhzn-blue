@@ -138,6 +138,7 @@ def _fake_reads(monkeypatch, fail_doppio=False):
     monkeypatch.setattr(shelf, "necofs_read", necofs_read)
     monkeypatch.setattr(shelf, "doppio_depths", doppio_depths)
     monkeypatch.setattr(shelf, "necofs_depths", necofs_depths)
+    monkeypatch.setattr(shelf, "_source", lambda url, runs=False: {"title": "stand-in"})  # no server for provenance
     return wet
 
 
@@ -469,3 +470,63 @@ def test_wide_and_tile_values_hold_each_models_depth(monkeypatch):
     off, length, n = next(iter(index.values()))
     tile = tiles.decode_values(pack[off : off + length])
     assert sorted(np.round(tile["h"], 2)) == [10.0, 30.0, 50.0, 70.0]
+
+
+def test_written_reads_the_newest_history_entry():
+    h = "Wed Aug 27 15:41:31 2025: ncrcat -O -v x,y in.nc out.nc\nTue Aug 26 03:00:00 2025: older"
+    assert shelf.written(h) == "2025-08-27T15:41:31"
+    assert shelf.written("Wed Aug  6 09:05:00 2025: ncks") == "2025-08-06T09:05:00"
+    assert shelf.written("") is None and shelf.written(None) is None
+
+
+def test_necofs_prov_names_the_daily_file_behind_each_hour(monkeypatch):
+    from forcingkit.fetchers import necofs as fk
+
+    base = "http://smast/Archive/necofs_history/NECOFS_GOM7_"
+    monkeypatch.setattr(fk, "necofs_url_for_hour", lambda t, by_day=None: f"{base}{fk.necofs_archive_file_date(t):%Y_%m_%d}.nc")
+    monkeypatch.setattr(shelf, "_source", lambda url, runs=False: {"title": "HINDCAST UPDATE", "history": f"Wed Aug 27 15:41:31 2025: ncrcat {url[-6:]}"})
+    times = pd.date_range("2025-08-27", periods=24, freq="h")
+    prov = shelf.necofs_prov(times, f"{base}2025_08_27.nc")
+    assert [(p["from"], p["to"], p["url"][-13:]) for p in prov] == [
+        ("2025-08-27T00:00:00Z", "2025-08-27T00:00:00Z", "2025_08_27.nc"),
+        ("2025-08-27T01:00:00Z", "2025-08-27T23:00:00Z", "2025_08_28.nc"),
+    ]
+    assert prov[0]["title"] == "HINDCAST UPDATE" and prov[0]["written"] == "2025-08-27T15:41:31"
+    fc = "http://smast/Forecasts/NECOFS_GOM7_FORECAST.nc"
+    assert shelf.necofs_prov(times, fc, live=False) == [{"from": "2025-08-27T00:00:00Z", "to": "2025-08-27T23:00:00Z", "url": fc}]
+    assert shelf.necofs_prov(times, None) == []
+
+
+def test_doppio_prov_groups_hours_by_run(monkeypatch):
+    from forcingkit.fetchers import doppio as dfk
+
+    times = pd.date_range("2025-08-27", periods=6, freq="h")
+    runs = {t: pd.Timestamp("2025-08-26") if t.hour < 3 else pd.Timestamp("2025-08-27") for t in times}
+    monkeypatch.setattr(shelf, "_source", lambda url, runs_=False, **k: {"run_at": runs})
+    prov = shelf.doppio_prov(times, dfk.REALTIME_URL)
+    assert [(p["from"], p["to"], p["run"]) for p in prov] == [
+        ("2025-08-27T00:00:00Z", "2025-08-27T02:00:00Z", "2025-08-26T00:00:00Z"),
+        ("2025-08-27T03:00:00Z", "2025-08-27T05:00:00Z", "2025-08-27T00:00:00Z"),
+    ]
+    assert prov[0]["product"] == dfk.doppio_product(dfk.REALTIME_URL)
+    re = shelf.doppio_prov(times, dfk.REANALYSIS_URL)
+    assert len(re) == 1 and "run" not in re[0] and re[0]["product"].startswith("reanalysis")
+
+
+def test_refresh_prov_writes_archived_days_and_a_failure_leaves_them(tmp_path, monkeypatch):
+    _fake_reads(monkeypatch)
+    ts = tiles.TileStore(str(tmp_path / "tiles"))
+    store = Store(str(tmp_path / "out"))
+    shelf.backfill(store, "2025-08-27", "2025-08-27", ts)
+    key = f"{shelf.BASE}/days/2025-08-27/index.json"
+    idx = json.loads(ts.get(key))
+    for m in idx["models"].values():  # stand-in urls that the provenance does not follow
+        m["url"] = None
+    ts.put(key, json.dumps(idx).encode(), 60, "application/json")
+    assert sorted(shelf.refresh_prov(store, "2025-08-27", "2025-08-28", ts)) == ["shelf prov 2025-08-27 doppio: not found", "shelf prov 2025-08-27 necofs: not found"]
+    monkeypatch.setattr(shelf, "doppio_prov", lambda times, url: [{"from": "a", "to": "b", "url": "d"}])
+    monkeypatch.setattr(shelf, "necofs_prov", lambda times, url, live=True: [{"from": "a", "to": "b", "url": "n", "live": live}])
+    assert shelf.refresh_prov(store, "2025-08-27", "2025-08-27", ts) == []
+    got = json.loads(ts.get(key))["models"]
+    assert got["doppio"]["prov"][0]["url"] == "d" and got["necofs"]["prov"][0]["live"] is False
+    assert got["necofs"]["steps"] == 24  # the rest of the entry is kept

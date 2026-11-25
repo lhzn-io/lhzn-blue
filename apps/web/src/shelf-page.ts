@@ -1,5 +1,5 @@
 /**
- * "Ocean models compared" (/northeast-shelf/): two regional ocean models' currents side by side, each on its
+ * "Ocean models compared" (/northeast-shelf/ocean-models/): two regional ocean models' currents side by side, each on its
  * own cells, from Cape Hatteras to Nova Scotia: NECOFS (FVCOM, an unstructured triangle mesh, UMass Dartmouth)
  * and DOPPIO (ROMS, a 7 km curvilinear grid, Rutgers for MARACOOS). Each panel is a small MapLibre map, as on the
  * wind models page: the cells as a translucent fill colored by speed, thin cell outlines, and a light arrow per cell

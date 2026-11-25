@@ -110,7 +110,7 @@ export default defineConfig(({ mode }) => ({
         references: resolve(import.meta.dirname, "references/index.html"),
         about: resolve(import.meta.dirname, "about/index.html"),
         "comfort-index": resolve(import.meta.dirname, "about/comfort-index/index.html"),
-        "northeast-shelf": resolve(import.meta.dirname, "northeast-shelf/index.html"),
+        "northeast-shelf/ocean-models": resolve(import.meta.dirname, "northeast-shelf/ocean-models/index.html"),
         forecast: resolve(import.meta.dirname, "long-island-sound/forecast/index.html"),
         forecasts: resolve(import.meta.dirname, "long-island-sound/forecasts/index.html"),
         tides: resolve(import.meta.dirname, "long-island-sound/tides/index.html"),

@@ -174,8 +174,15 @@ export default {
 const MOVED = "https://aquafort.longhorizon.blue";
 const MOVED_PATH = /^\/(?:piscataqua|portsmouth-harbor)(\/currents)?(?:\/.*)?$/;
 
+/** The Northeast U.S. Shelf's own address, until the region has a page of its own: "Ocean models compared" moved
+ * from it to a page of its own. Temporary (302), so the address can take the region's page later; the query (a
+ * period, an hour, a box, a depth) goes along, and the browser keeps any hash. */
+const SHELF_PATH = /^\/northeast-shelf\/?$/;
+const SHELF_MODELS = "/northeast-shelf/ocean-models/";
+
 /** A page: a station's address serves its waterway's page; anything else, the static assets. */
 async function page(req: Request, env: Env, url: URL): Promise<Response> {
+  if (SHELF_PATH.test(url.pathname)) return Response.redirect(`${url.origin}${SHELF_MODELS}${url.search}`, 302);
   const moved = MOVED_PATH.exec(url.pathname.toLowerCase());
   if (moved) return Response.redirect(`${MOVED}${moved[1] ? "/currents/" : "/"}${url.search}`, 301);
   const pt = POINT_PATH.exec(url.pathname);

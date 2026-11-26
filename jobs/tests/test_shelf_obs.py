@@ -107,6 +107,9 @@ def test_backfill_writes_obs_and_its_index_entry_and_skips_unarchived_days(tmp_p
     doc = json.loads(ts.get(f"{shelf.BASE}/days/2022-08-12/obs.json"))
     assert doc["source"].startswith("Ocean Observatories Initiative") and doc["moorings"][0]["id"] == "AA"
     assert doc["moorings"][0]["uv"]["50"][0] == [0.2, -0.1]
+    got = doc["moorings"][0]["models"]  # each model's hours at the mooring, for the page's time series
+    assert sorted(got) == ["doppio", "necofs"] and list(got["necofs"]) == ["50"] and len(got["necofs"]["50"]) == 24
+    assert got["doppio"]["50"][7] == pytest.approx([0.2, -0.1], abs=0.02) and got["necofs"]["50"][7] == pytest.approx([0.6, 0.1], abs=0.02)
     assert doc["scores"]["50"]["doppio"]["rms"] == pytest.approx(0.0, abs=0.02)
     assert doc["scores"]["50"]["necofs"]["rms"] == pytest.approx(0.45, abs=0.03)
     idx = json.loads(ts.get(f"{shelf.BASE}/days/2022-08-12/index.json"))

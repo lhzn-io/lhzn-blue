@@ -3,8 +3,9 @@ day, into ``shelf/v1/days/<day>/obs.json`` (the R2 tile store) with an ``obs`` e
 
 Each profiler is screened (bins in the surface side-lobe band, speeds over MAX_SPEED, error velocity over EVL_MAX),
 averaged to the models' hours (centered, +-30 min), and interpolated to the page's depths inside the range of its good
-bins only. The day's score, per depth, is the vector RMS difference between each model and the moorings over the
-hours both hold, read from the day's own model files, so the page shows what it compares.
+bins only. Each model's hourly values at each mooring come from the day's own model files (the cell holding the
+mooring, as the page draws it) and are written beside the measurements, for the page's time series; the day's score,
+per depth, is the vector RMS difference between each model and the moorings over the hours both hold.
 
 The moorings live in stations/shelf-obs.json (LHZN_BLUE_SHELF_OBS): id, name, position and the span with data. A day
 outside every span is skipped; a day the models have not archived is skipped too (``shelf-days`` first).
@@ -201,12 +202,16 @@ def publish_day(ts: tiles.TileStore, day: pd.Timestamp, frames: dict[str, pd.Dat
         "url": ERDDAP_URL,
         "moorings": [
             {"id": i.upper(), "name": stations[i]["name"], "lon": stations[i]["lon"], "lat": stations[i]["lat"],
-             "uv": {str(k): _r(a) for k, a in m.items() if np.isfinite(a).any()}}
+             "uv": {str(k): _r(a) for k, a in m.items() if np.isfinite(a).any()},
+             "models": {model: {str(k): _r(a) for k, a in sorted(by_id[i].items())} for model, by_id in modeled.items() if i in by_id}}
             for i, m in measured.items()
         ],
         "scores": scores(measured, modeled),
     }
     ts.put(f"{shelf.BASE}/{rel}/obs.json", json.dumps(doc, separators=(",", ":")).encode(), shelf.DAY_S, "application/json")
+    for m in doc["moorings"]:
+        if not m["models"]:
+            del m["models"]
     held = sorted({int(k) for m in doc["moorings"] for k in m["uv"]})
     index["obs"] = {"file": f"{rel}/obs.json", "source": SOURCE, "moorings": len(doc["moorings"]), "depths": held}
     ts.put(f"{shelf.BASE}/{rel}/index.json", json.dumps(index, separators=(",", ":")).encode(), shelf.LATEST_S, "application/json")

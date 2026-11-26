@@ -48,6 +48,7 @@
           <summary aria-label="Period"><span id="period-now">Latest forecast</span></summary>
           <div class="sh-pop">
             <button class="tab" type="button" id="p-latest">Latest forecast</button>
+            <button class="tab" type="button" id="p-pioneer" hidden>Pioneer moorings, Aug 2022</button>
             <form id="p-form">
               <label>From <input type="date" id="p-from" required /></label>
               <label
@@ -98,9 +99,28 @@
           <label><input type="checkbox" value="depth" checked /> Depth lines</label>
           <label><input type="checkbox" value="names" /> Undersea names</label>
           <label><input type="checkbox" value="mpa" /> Protected areas</label>
+          <label id="layer-obs" hidden><input type="checkbox" value="obs" checked /> Moorings</label>
         </fieldset>
       </div>
       <div class="mg-grid sh-grid" id="panels"></div>
+      <figure class="sh-ts" id="sh-ts" hidden>
+        <figcaption>
+          <span class="cap-label" id="sh-ts-title"></span>
+          <span class="cap-sub">hourly, UTC; click the chart to show that hour on the maps</span>
+          <button class="tab sh-ts-close" type="button" id="sh-ts-close">Close</button>
+        </figcaption>
+        <p class="sh-ts-label">Along the shelf, m/s: + toward 260&deg; (west-southwest)</p>
+        <div class="plot sh-ts-plot" id="sh-ts-along"><svg role="img" aria-label="Current along the shelf at the mooring: measured, NECOFS and DOPPIO"></svg><div class="plot-labels" aria-hidden="true"></div></div>
+        <p class="sh-ts-label">Across the shelf, m/s: + toward 350&deg; (onshore)</p>
+        <div class="plot sh-ts-plot" id="sh-ts-across"><svg role="img" aria-label="Current across the shelf at the mooring: measured, NECOFS and DOPPIO"></svg><div class="plot-labels" aria-hidden="true"></div></div>
+        <div class="legend">
+          <span><i class="sh-ts-obs"></i>measured, hour mean</span>
+          <span><i style="background: var(--ink)"></i>NECOFS</span>
+          <span><i class="sh-ts-dash"></i>DOPPIO</span>
+        </div>
+        <p class="sh-ts-read" id="sh-ts-read" aria-live="polite"></p>
+        <p class="note" id="sh-ts-note"></p>
+      </figure>
 
       <dialog class="about-dialog" id="about-dialog" aria-labelledby="about-dialog-title">
         <div class="about-head">
@@ -139,11 +159,22 @@
             the period, hour and map area, so a copied link opens the same view.
           </p>
           <p>
+            <b>Measured.</b> On some past days, the <a href="/references/#ooi_pioneer_nes">OOI Pioneer Array</a>'s
+            moorings on the New England shelf break (2013 to 2022): gold rings filled by measured speed on the same
+            scale, with a gold arrow for the direction. Each is a velocity profiler: hour means at the page's depths,
+            interpolated between its bins and never beyond them, after dropping bins near the surface (where its echo
+            off the surface spoils them), speeds over 2.5 m/s and bins with high error velocity. None reaches the
+            models' top layer. Under each map: that model's vector RMS difference from the moorings over the day's
+            hours at the chosen depth, from the same cells the map draws. Click a mooring for its time series under
+            the maps: the current along the shelf (toward 260&deg;) and across it (toward 350&deg;, onshore), measured
+            and both models, hourly over the days shown. Period menu: Pioneer moorings, Aug 2022.
+          </p>
+          <p>
             <b>Zoom.</b> Below map zoom 7, NECOFS is the area-weighted mean of its elements in each DOPPIO cell; where its
             elements are larger than a cell (offshore), the elements themselves. From zoom 7, its own elements in view.
           </p>
           <p>
-            Model output, updated daily; not observations, not for navigation. The area overlaps the
+            Model output, updated daily, with measured currents on some past days; not for navigation. The area overlaps the
             <a href="/references/#neslter">NES-LTER</a> site; this page is not affiliated with it.
           </p>
         </div>
@@ -151,7 +182,8 @@
 
       <footer class="credits">
         <p>
-          <b>Data:</b> NECOFS/UMASSD (SMAST); DOPPIO (Rutgers, MARACOOS). Undersea names: Marine Regions (VLIZ, CC BY 4.0), from
+          <b>Data:</b> NECOFS/UMASSD (SMAST); DOPPIO (Rutgers, MARACOOS). Measured currents: Ocean Observatories
+          Initiative (OOI), Coastal Pioneer Array, funded by the U.S. National Science Foundation. Undersea names: Marine Regions (VLIZ, CC BY 4.0), from
           the US Board on Geographic Names (ACUF), the Canadian Geographical Names Database and the IHO-IOC GEBCO Gazetteer of Undersea
           Feature Names. Protected areas: NOAA
           Marine Protected Areas Inventory, a catalog, not the regulatory boundaries. Citations:

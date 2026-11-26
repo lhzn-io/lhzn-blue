@@ -18,12 +18,18 @@
  * indexes the NECOFS tiles; days.json lists the archived days, each with its own index.json. Each blob is gzip of
  * "LHZT", a uint32 header length, a JSON header, float32 node lon, lat pairs, the element node indices (uint16 or
  * uint32), a uint8 arrow level per element, then per step one int8 per element east and one north, in step_cms cm/s.
+ *
+ * Measured currents: on archived days that have them (jobs: shelf_obs.py), the OOI Pioneer Array's moorings as gold
+ * rings filled by measured speed with a gold arrow, the same on both maps, at the chosen depth; each caption gives its
+ * model's vector RMS difference from them that day. A mooring clicked opens its time series under the maps: the
+ * current along and across the shelf, measured and both models, hourly over the period shown.
  */
 import "./site.css";
 import "./away-links";
 import "./models-page.css";
 import "./shelf-page.css";
 import { setPlayButton, timeTrack } from "@lhzn-io/timecharts/time-axis";
+import { cssVar, markAsOf, renderLines, type Line, type Rendered } from "@lhzn-io/timecharts/chart";
 import { CURRENTS_RAMP, CURRENTS_RAMP_DARK } from "@lhzn-io/timecharts/currents-ramp";
 import "maplibre-gl/dist/maplibre-gl.css";
 import maplibregl from "maplibre-gl";
@@ -46,6 +52,7 @@ const MAX_NATIVE = window.matchMedia("(pointer: coarse)").matches ? 25_000 : 50_
 const CACHE_CELLS = 250_000; // NECOFS tile cells kept in memory, oldest dropped first
 const FETCHES = 6;
 const MAX_DAYS = 7; // archived days shown at once
+const PIONEER = { from: "2022-08-11", to: "2022-08-17", depth: 50 }; // the period menu's measured-currents week
 const DAY_MS = 86_400_000;
 const theme = (): Theme => (document.documentElement.dataset.theme === "light" ? "light" : "dark");
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -90,6 +97,29 @@ interface DayIndex {
   day: string;
   complete: boolean;
   models: Models;
+  obs?: ObsRef;
+}
+/** An archived day's measured currents (jobs: shelf_obs.py): the file, its source, and the depths it holds. */
+interface ObsRef {
+  file: string;
+  source: string;
+  moorings: number;
+  depths: number[];
+}
+type Score = { rms: number; n: number }; // m/s, vector RMS difference over n mooring hours
+interface ObsDay {
+  t0: string;
+  step: number;
+  source: string;
+  moorings: {
+    id: string;
+    name: string;
+    lon: number;
+    lat: number;
+    uv: Record<string, ([number, number] | null)[]>; // measured, by depth (m): hourly east and north, m/s
+    models?: Partial<Record<Id, Record<string, ([number, number] | null)[]>>>; // each model's cell holding the mooring
+  }[];
+  scores: Record<string, { moorings: number; necofs?: Score; doppio?: Score }>; // by depth (m)
 }
 /** One blob's cells and forecast. */
 interface Cells {
@@ -112,6 +142,9 @@ interface Source {
   loading: Record<number, Promise<void>>; // by depth
   vals: Record<string, Vals | null>; // temperature and salinity for the wide files, "<model>@<depth>"
   vloading: Record<number, Promise<void>>;
+  obsRef?: ObsRef; // measured currents, on archived days that have them
+  obs?: ObsDay | null;
+  obsLoading?: Promise<void>;
 }
 /** A value blob: scalar fields for the elements of the currents blob with the same key, in its order. */
 interface Vals {
@@ -266,6 +299,15 @@ function ensureWide(src: Source): Promise<void> {
   return src.loading[d];
 }
 
+/** A day's measured currents, fetched once (a few kilobytes). */
+function ensureObs(src: Source): Promise<void> {
+  if (!src.obsRef) return Promise.resolve();
+  src.obsLoading ??= getJson<ObsDay>(src.obsRef.file).then((d) => {
+    src.obs = d;
+  });
+  return src.obsLoading;
+}
+
 // ---------- Tiles in view ----------
 
 function tileBounds(key: string): [number, number, number, number] {
@@ -366,9 +408,10 @@ interface Panel {
 }
 type Period = { kind: "forecast" } | { kind: "days"; from: string; to: string };
 /** What each map draws, the same on both: the currents (cells by speed, arrows), the cell outlines, the depth lines. */
-type Layer = "color" | "arrows" | "grid" | "depth" | "names" | "mpa";
-const LAYERS: Layer[] = ["color", "arrows", "grid", "depth", "names", "mpa"];
-const DEFAULT_LAYERS: Layer[] = ["color", "arrows", "grid", "depth"]; // undersea names and protected areas are off until asked for
+type Layer = "color" | "arrows" | "grid" | "depth" | "names" | "mpa" | "obs";
+const LAYERS: Layer[] = ["color", "arrows", "grid", "depth", "names", "mpa", "obs"];
+// Undersea names and protected areas are off until asked for; the moorings are on, on the days that have them.
+const DEFAULT_LAYERS: Layer[] = ["color", "arrows", "grid", "depth", "obs"];
 const LAYER_IDS: Record<Layer, string[]> = {
   color: ["cells"],
   arrows: ["arrows"],
@@ -376,6 +419,7 @@ const LAYER_IDS: Record<Layer, string[]> = {
   depth: ["isobaths", "isobaths-50", "isobath-labels"],
   names: ["names"],
   mpa: ["mpa-hit", "mpa-line", "mpa-label"],
+  obs: ["obs-ring", "obs-arrow"],
 };
 /** The overlays' static files (scripts/fetch-marine-names.py), fetched the first time each is shown. */
 type Overlay = "names" | "mpa";
@@ -475,6 +519,145 @@ function features(p: Panel): { cells: FeatureCollection; arrows: FeatureCollecti
   return { cells: { type: "FeatureCollection", features: cells }, arrows: { type: "FeatureCollection", features: arrows } };
 }
 
+/** The moorings at the current hour and chosen depth, each with its hour mean (none at the surface or in a gap). */
+function obsAt(src: Source | null): { m: ObsDay["moorings"][number]; uv: [number, number] | null }[] {
+  const o = src?.obs;
+  if (!o || !frames.length || frame < 0) return [];
+  const j = Math.round((frames[frame].t - Date.parse(o.t0) / 1000) / o.step);
+  return o.moorings.map((m) => ({ m, uv: depth && j >= 0 ? (m.uv[String(depth)]?.[j] ?? null) : null }));
+}
+
+/** The moorings as points: filled by measured speed on the currents scale, empty (a ring only) where none. */
+function obsFeatures(): FeatureCollection {
+  if (field !== "currents") return EMPTY;
+  const features: Feature[] = obsAt(cur()).map(({ m, uv }, i) => {
+    const ms = uv ? Math.hypot(uv[0], uv[1]) : 0;
+    const dir = uv ? ((Math.atan2(uv[0], uv[1]) * 180) / Math.PI + 360) % 360 : 0;
+    return { type: "Feature", properties: { i, has: !!uv, c: uv ? speedColor(ms) : "rgba(0,0,0,0)", dir }, geometry: { type: "Point", coordinates: [m.lon, m.lat] } };
+  });
+  return { type: "FeatureCollection", features };
+}
+
+// ---------- Mooring time series ----------
+
+/** The along-shelf direction at the Pioneer moorings: the isobaths there run about 080 to 260 degrees, and the
+ * shelf-break current flows west-southwest. Across the shelf is 90 degrees to its right: onshore, toward 350. */
+const ALONG_DEG = 260;
+let seriesId: string | null = null; // the mooring whose time series is open
+let seriesPlots: Rendered[] = [];
+let seriesData: { xs: number[]; got: Record<"obs" | Id, ([number, number] | null)[]> } | null = null;
+const HOVER = window.matchMedia("(hover: hover)").matches;
+const HIT_PX = window.matchMedia("(pointer: coarse)").matches ? 22 : 9; // how far from a mooring a click or tap still counts
+
+/** The mooring nearest a point on the map, within HIT_PX. */
+function mooringAt(map: maplibregl.Map, at: maplibregl.LngLat): { m: ObsDay["moorings"][number]; uv: [number, number] | null } | undefined {
+  if (!shown.has("obs") || field !== "currents" || !map.getLayer("obs-ring")) return undefined;
+  const pt = map.project(at);
+  const near = map.queryRenderedFeatures([[pt.x - HIT_PX, pt.y - HIT_PX], [pt.x + HIT_PX, pt.y + HIT_PX]], { layers: ["obs-ring"] });
+  const f = near.sort((a, b) => {
+    const d = (g: typeof a) => {
+      const [x, y] = (g.geometry as GeoJSON.Point).coordinates;
+      const q = map.project([x, y]);
+      return (q.x - pt.x) ** 2 + (q.y - pt.y) ** 2;
+    };
+    return d(a) - d(b);
+  })[0];
+  return f ? obsAt(cur())[Number(f.properties.i)] : undefined;
+}
+
+/** The mooring under a click, if any: opens its time series. */
+function pickMooring(map: maplibregl.Map, at: maplibregl.LngLat): void {
+  const hit = mooringAt(map, at);
+  if (!hit) return;
+  seriesId = hit.m.id;
+  void drawSeries().then(() => $("sh-ts").scrollIntoView({ behavior: "smooth", block: "nearest" }));
+}
+
+/** A current's component toward `deg` (degrees clockwise from north), or NaN where there is none. */
+const toward = (uv: [number, number] | null | undefined, deg: number) =>
+  uv ? uv[0] * Math.sin((deg * Math.PI) / 180) + uv[1] * Math.cos((deg * Math.PI) / 180) : NaN;
+
+/** The open mooring's hours over the period at the chosen depth: measured and each model, along and across the shelf. */
+async function drawSeries(): Promise<void> {
+  const box = $("sh-ts");
+  if (!seriesId || period.kind !== "days" || !depth || field !== "currents" || !shown.has("obs")) {
+    box.hidden = true;
+    return;
+  }
+  await Promise.all(sources.map(ensureObs));
+  const k = String(depth);
+  const xs: number[] = [];
+  const got: Record<"obs" | Id, ([number, number] | null)[]> = { obs: [], necofs: [], doppio: [] };
+  let name = "";
+  for (const f of frames) {
+    const o = sources[f.s].obs;
+    const m = o?.moorings.find((x) => x.id === seriesId);
+    const j = o ? Math.round((f.t - Date.parse(o.t0) / 1000) / o.step) : -1;
+    xs.push(f.t);
+    if (m) name = m.name;
+    got.obs.push(m?.uv[k]?.[j] ?? null);
+    got.necofs.push(m?.models?.necofs?.[k]?.[j] ?? null);
+    got.doppio.push(m?.models?.doppio?.[k]?.[j] ?? null);
+  }
+  if (!name) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  $("sh-ts-title").textContent = `${name}, ${depth} m`;
+  const ink = cssVar("--ink");
+  const fmt = (v: number) => `${v.toFixed(2)} m/s`; // the tooltip's unit; the axis leaves it to the plot's title
+  const lines = (deg: number): Line[] => [
+    { ys: got.necofs.map((v) => toward(v, deg)), color: ink, width: 1.3, label: "NECOFS", fmt },
+    { ys: got.doppio.map((v) => toward(v, deg)), color: ink, width: 1.3, dash: "5 3", label: "DOPPIO", fmt },
+    { ys: got.obs.map((v) => toward(v, deg)), color: cssVar("--now"), width: 2.6, label: "Measured", fmt }, // on top
+  ];
+  const none = !got.obs.some(Boolean) && !got.necofs.some(Boolean) && !got.doppio.some(Boolean);
+  const opts = { xs: none ? [] : xs, unit: "", zero: true, hoverDigits: 2, timeZone: "UTC", asOfColor: cssVar("--chart-cursor"), empty: `Nothing at ${depth} m here in this period` };
+  seriesPlots = [
+    renderLines($("sh-ts-along"), { ...opts, lines: none ? [] : lines(ALONG_DEG) }),
+    renderLines($("sh-ts-across"), { ...opts, lines: none ? [] : lines(ALONG_DEG + 90) }),
+  ];
+  $("sh-ts-note").textContent = got.obs.some(Boolean) ? "" : `No measurement at ${depth} m at this mooring in this period; the models alone.`;
+  seriesData = { xs, got };
+  markAsOf(frames[frame]?.t ?? null);
+  seriesRead();
+}
+
+/** Under the chart: the three values at the page's hour, along and across the shelf. */
+function seriesRead(): void {
+  const el = $("sh-ts-read");
+  const d = seriesData;
+  const i = d && frames.length ? d.xs.indexOf(frames[frame].t) : -1;
+  if (!d || i < 0 || $("sh-ts").hidden) {
+    el.textContent = "";
+    return;
+  }
+  const v = (uv: [number, number] | null, deg: number) => (uv ? `${toward(uv, deg) >= 0 ? "+" : ""}${toward(uv, deg).toFixed(2)}` : "none");
+  const part = (label: string, deg: number) =>
+    `${label}: <span class="sh-val-obs">measured ${v(d.got.obs[i], deg)}</span>, NECOFS ${v(d.got.necofs[i], deg)}, DOPPIO ${v(d.got.doppio[i], deg)}`;
+  el.innerHTML = `<b>${stamp(d.xs[i] * 1000)}</b>, m/s<br>${part("Along", ALONG_DEG)}<br>${part("Across", ALONG_DEG + 90)}`;
+}
+
+/** The chart's controls: close, and a click on a plot moves both maps to that hour. */
+function wireSeries(): void {
+  $("sh-ts-close").addEventListener("click", () => {
+    seriesId = null;
+    $("sh-ts").hidden = true;
+  });
+  (["sh-ts-along", "sh-ts-across"] as const).forEach((id, n) =>
+    $(id).addEventListener("click", (e) => {
+      const r = seriesPlots[n];
+      if (!r || !frames.length) return;
+      const t = r.timeAt(e.clientX);
+      const k = frames.reduce((best, f, i) => (Math.abs(f.t - t) < Math.abs(frames[best].t - t) ? i : best), 0);
+      setPlaying(false);
+      userTime = true;
+      void setFrame(k).then(writeUrl);
+    }),
+  );
+}
+
 // ---------- Address bar ----------
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -567,6 +750,7 @@ function addLayers(p: Panel): void {
   map.addSource("isobaths", { type: "geojson", data: p.iso ?? EMPTY });
   map.addSource("names", { type: "geojson", data: overlay.names ?? EMPTY });
   map.addSource("mpa", { type: "geojson", data: overlay.mpa ?? EMPTY, tolerance: 0.5 });
+  map.addSource("obs", { type: "geojson", data: obsFeatures() });
   // Over the basemap's land, water and roads but under its labels.
   const layers = map.getStyle().layers;
   let last = -1;
@@ -672,6 +856,25 @@ function addLayers(p: Panel): void {
     },
     before,
   );
+  // Measured currents: the site's gold marks a measurement; the fill is the same speed scale as the cells.
+  const gold = getComputedStyle(document.documentElement).getPropertyValue("--now").trim() || "#d8a23a";
+  map.addLayer({ id: "obs-ring", type: "circle", source: "obs", paint: { "circle-radius": 7, "circle-color": ["get", "c"], "circle-stroke-color": gold, "circle-stroke-width": 2.5 } });
+  map.addLayer({
+    id: "obs-arrow",
+    type: "symbol",
+    source: "obs",
+    filter: ["get", "has"],
+    layout: {
+      "icon-image": "sh-arrow",
+      "icon-rotate": ["get", "dir"],
+      "icon-rotation-alignment": "map",
+      "icon-size": 0.8,
+      "icon-offset": [0, -25], // outside the ring, along the flow: the offset turns with the icon
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+    },
+    paint: { "icon-color": gold, "icon-halo-color": ink === "#ffffff" ? "#1c2a48" : "#ffffff", "icon-halo-width": 1.2 },
+  });
   applyLayers(map);
 }
 
@@ -710,6 +913,7 @@ function wireField(): void {
     frame = -1;
     inViewKeys = [];
     await setFrame(k);
+    void drawSeries();
   });
 }
 
@@ -726,6 +930,7 @@ function wireDepth(): void {
     frame = -1; // no current source: setFrame refreshes the level of detail and the counts
     inViewKeys = [];
     await setFrame(k);
+    void drawSeries();
   });
 }
 
@@ -742,6 +947,8 @@ function wireLayers(): void {
       else shown.delete(b.value as Layer);
       show();
       for (const p of panels) if (p.map) applyLayers(p.map);
+      for (const p of panels) p.cap.innerHTML = caption(p);
+      void drawSeries();
       if (valuesAt) showValues(valuesAt);
       writeUrl();
     });
@@ -790,7 +997,12 @@ function makeMap(p: Panel, bounds: [number, number, number, number]): void {
   if (window.matchMedia("(hover: hover)").matches) {
     map.on("mousemove", (e) => showValues(e.lngLat));
     map.getCanvas().addEventListener("mouseleave", hideValues);
-  } else map.on("click", (e) => showValues(e.lngLat));
+    map.on("click", (e) => pickMooring(map, e.lngLat));
+  } else
+    map.on("click", (e) => {
+      pickMooring(map, e.lngLat);
+      showValues(e.lngLat);
+    });
   if (p.id === "necofs") {
     map.on("moveend", () => {
       void updateLod();
@@ -836,6 +1048,7 @@ function showValues(at: maplibregl.LngLat): void {
       body = x === null ? `<b>${flow.replace(" kt", " kt</b>")}<br>${where}${avg}` : `${head}${flow}, ${where}${avg}`;
       body += `<br>${cellPlace(p, Number(f.properties.b), Number(f.properties.i))}${provenance(p)}`;
     } else body = stepOf(p) < 0 ? "no data for this hour" : `no cell here ${where}`;
+    body += obsLine(map, at);
     body += overlayAt(map, at);
     p.popup ??= new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "pin-pop hover-pop sh-val", offset: 12, maxWidth: "none" });
     p.popup.setLngLat(at).setHTML(`<span class="sh-val-model">${p.label}</span> ${body}`).addTo(map);
@@ -860,6 +1073,22 @@ function provenance(p: Panel): string {
     src = ` &middot; file written ${esc(fmtStamp.format(new Date(`${seg.written}Z`)))} server time`;
   }
   return `<br><span class="sh-val-prov">${stamp(t)}, instant${src}</span>`;
+}
+
+/** The mooring under the point: its measured hour mean at the chosen depth, or why there is none. */
+function obsLine(map: maplibregl.Map, at: maplibregl.LngLat): string {
+  const hit = mooringAt(map, at);
+  if (!hit) return "";
+  // Once its chart is open the chart's title names the mooring: a phone's popup leaves the name out and stays short.
+  const open = !!depth && hit.m.id === seriesId;
+  const hint = depth && !open ? ` &middot; ${HOVER ? "click" : "tap"} for its time series` : "";
+  const name = open && !HOVER ? "" : `<br><span class="sh-val-prov">${esc(hit.m.name)}${hint}</span>`;
+  const head = `<br><span class="sh-val-obs">Measured</span>`;
+  if (!depth) return `${head} below the surface only; choose a depth${name}`;
+  if (!hit.uv) return `${head}: none at ${depth} m this hour${name}`;
+  const ms = Math.hypot(hit.uv[0], hit.uv[1]);
+  const d = ((Math.atan2(hit.uv[0], hit.uv[1]) * 180) / Math.PI + 360) % 360;
+  return `${head} ${(ms * MS_TO_KT).toFixed(2)} kt (${ms.toFixed(2)} m/s) toward ${Math.round(d)}&deg; ${COMPASS[Math.round(d / 22.5) % 16]}, ${depth} m, hour mean${name}`;
 }
 
 const esc = (t: unknown) => String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -920,6 +1149,7 @@ function drawPanel(p: Panel): void {
   const d = features(p);
   cells.setData(d.cells);
   arrows.setData(d.arrows);
+  (p.map.getSource("obs") as maplibregl.GeoJSONSource | undefined)?.setData(obsFeatures());
   refreshValues(p);
 }
 
@@ -1034,7 +1264,19 @@ function caption(p: Panel): string {
     sub = `${p.unit}, ${nf.format(n)} in view${loading ? "; loading" : ""}`;
   } else if (lod === "native") sub = "averaged to DOPPIO cells; loading triangles";
   else sub = `averaged to DOPPIO cells; zoom in${tooMany ? " further" : ""} for triangles`;
-  return `<span class="cap-label">${p.label}</span><span class="cap-sub">${sub}</span>`;
+  return `<span class="cap-label">${p.label}</span><span class="cap-sub">${sub}</span>${scoreLine(p)}`;
+}
+
+/** The panel's model against the day's moorings at the chosen depth: its vector RMS difference over their hours. */
+function scoreLine(p: Panel): string {
+  const o = cur()?.obs;
+  if (!o || field !== "currents" || !shown.has("obs")) return "";
+  if (!depth) return `<span class="cap-sub sh-cap-score">Pioneer moorings this day: choose a depth</span>`;
+  const s = o.scores[String(depth)];
+  const r = s?.[p.id];
+  if (!s || !r) return "";
+  const n = `${s.moorings} Pioneer mooring${s.moorings === 1 ? "" : "s"}`;
+  return `<span class="cap-sub sh-cap-score">${r.rms.toFixed(2)} m/s RMS difference from ${n} at ${depth} m this day</span>`;
 }
 
 /** The forecast in Eastern time with the hours from now; archived days, which are UTC days, in UTC first. */
@@ -1059,12 +1301,14 @@ async function setFrame(i: number): Promise<void> {
   timeLabel();
   const src = cur()!;
   const run = ++frameRun;
-  await ensureWide(src);
+  await Promise.all([ensureWide(src), ensureObs(src)]);
   // Values hold the field drawn, so wait for them; for currents they hold only the readouts' depth, so not.
   if (field !== "currents") await ensureVals(src);
   else void ensureVals(src).then(() => valuesAt && showValues(valuesAt));
   if (run !== frameRun) return; // a later step won
   if (src !== before) {
+    $("layer-obs").hidden = !src.obsRef;
+    legend();
     countDoppio();
     void updateLod();
     // The next day's files while this one shows, so playing across midnight does not stall.
@@ -1072,6 +1316,8 @@ async function setFrame(i: number): Promise<void> {
     if (next) void ensureWide(next).then(() => ensureVals(next));
   }
   for (const p of panels) drawPanel(p);
+  markAsOf(frames[frame].t);
+  seriesRead();
 }
 
 let timer = 0;
@@ -1110,7 +1356,7 @@ async function loadPeriod(p: Period): Promise<{ sources: Source[]; frames: Frame
   idx.forEach((e, i) => {
     if (!e || !Object.keys(e.models).length) return;
     const s = out.sources.length;
-    out.sources.push({ key: `days/${days[i]}`, models: e.models, wide: {}, loading: {}, vals: {}, vloading: {} });
+    out.sources.push({ key: `days/${days[i]}`, models: e.models, obsRef: e.obs, wide: {}, loading: {}, vals: {}, vloading: {} });
     const t0 = dayMs(days[i]) / 1000;
     for (let h = 0; h < 24; h++) out.frames.push({ t: t0 + h * 3600, s });
   });
@@ -1135,6 +1381,7 @@ async function showPeriod(p: Period, t: number | null = null): Promise<boolean> 
   periodLabel();
   await setFrame(k);
   writeUrl();
+  void drawSeries();
   return true;
 }
 
@@ -1175,6 +1422,19 @@ function wirePeriod(): void {
     from.disabled = len.disabled = ($("p-show") as HTMLButtonElement).disabled = true;
     note.textContent = "No days archived yet.";
   }
+  // The Pioneer Array's last summer on the New England shelf, at a depth its moorings reach.
+  const pio = $("p-pioneer") as HTMLButtonElement;
+  pio.hidden = !(PIONEER.from in archived);
+  pio.addEventListener("click", async () => {
+    box.open = false;
+    userTime = false;
+    depth = PIONEER.depth;
+    field = "currents";
+    ($("depth") as HTMLSelectElement).value = String(depth);
+    ($("field") as HTMLSelectElement).value = field;
+    await showPeriod({ kind: "days", from: PIONEER.from, to: PIONEER.to });
+    legend();
+  });
   $("p-latest").addEventListener("click", async () => {
     box.open = false;
     userTime = false;
@@ -1210,8 +1470,11 @@ function legend(): void {
       steps.map((v) => `<span><i class="sq" style="background:${scalarColor(field as "temp" | "salt", v)}"></i>${v === r.hi ? `${v}+` : v}</span>`).join("");
     return;
   }
+  const moorings = cur()?.obsRef && shown.has("obs") ? `<span><b class="sh-obs-key" aria-hidden="true"></b>Pioneer mooring, measured</span>` : "";
   $("key").innerHTML =
-    `<span>${depth ? `current at ${depth} m` : "surface current"}, kt:</span>` + steps.map((v) => `<span><i class="sq" style="background:${speedColor(v / MS_TO_KT)}"></i>${v}</span>`).join("");
+    `<span>${depth ? `current at ${depth} m` : "surface current"}, kt:</span>` +
+    steps.map((v) => `<span><i class="sq" style="background:${speedColor(v / MS_TO_KT)}"></i>${v}</span>`).join("") +
+    moorings;
 }
 
 function wireTheme(redraw: () => void): void {
@@ -1256,7 +1519,9 @@ function failed(): void {
 async function main(): Promise<void> {
   wireTheme(() => {
     for (const p of panels) p.map?.setStyle(STYLES[theme()]);
+    void drawSeries(); // the chart's colors follow the theme
   });
+  wireSeries();
   const about = $("about-dialog") as HTMLDialogElement;
   $("sh-info").addEventListener("click", () => about.showModal());
   $("about-close").addEventListener("click", () => about.close());

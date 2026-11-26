@@ -43,9 +43,10 @@ WATERWAYS = [
     {
         "id": "northeast-shelf",
         "name": "Northeast U.S. Shelf",
-        "intro": "The two ocean models on the Northeast U.S. Shelf page, each shown on its own grid. FVCOM, which NECOFS runs, is listed under the methods above.",
+        "intro": "The two ocean models on the Northeast U.S. Shelf page, each shown on its own grid, and the moorings measured beside them on some past days. FVCOM, which NECOFS runs, is listed under the methods above.",
         "sections": [
             ("shelf-models", "The models"),
+            ("shelf-obs", "Measured currents"),
             ("shelf-names", "Place names and protected areas"),
             ("shelf-programs", "Research on the shelf"),
         ],

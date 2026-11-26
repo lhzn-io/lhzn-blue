@@ -1,0 +1,15 @@
+{
+  "comment": "OOI Coastal Pioneer Array, New England Shelf: velocity profilers on the OOI ERDDAP server (dataset ooi-<id>). first and last bound each record's data; positions from the server.",
+  "moorings": [
+    {"id": "cp03issm-mfd35-01-adcptf000", "name": "Pioneer inshore surface mooring", "lon": -70.88182, "lat": 40.36717, "first": "2014-12-14", "last": "2022-09-11"},
+    {"id": "cp02pmui-rii01-02-adcptg010", "name": "Pioneer upstream inshore profiler mooring", "lon": -70.78048, "lat": 40.36492, "first": "2013-11-23", "last": "2022-11-20"},
+    {"id": "cp02pmci-rii01-02-adcptg010", "name": "Pioneer central inshore profiler mooring", "lon": -70.88907, "lat": 40.22663, "first": "2014-04-16", "last": "2022-11-19"},
+    {"id": "cp02pmco-rii01-02-adcptg010", "name": "Pioneer central offshore profiler mooring", "lon": -70.87915, "lat": 40.09682, "first": "2014-04-13", "last": "2022-11-19"},
+    {"id": "cp02pmuo-rii01-02-adcpsl010", "name": "Pioneer upstream offshore profiler mooring", "lon": -70.77018, "lat": 39.93933, "first": "2013-11-23", "last": "2022-11-19"},
+    {"id": "cp04ospm-rii01-02-adcpsl010", "name": "Pioneer offshore profiler mooring", "lon": -70.87942, "lat": 39.93600, "first": "2017-11-09", "last": "2022-11-12"},
+    {"id": "cp01cnsm-mfd35-01-adcptf000", "name": "Pioneer central surface mooring", "lon": -70.77832, "lat": 40.13325, "first": "2015-05-07", "last": "2022-06-16"},
+    {"id": "cp04ossm-mfd35-01-adcpsj000", "name": "Pioneer offshore surface mooring", "lon": -70.88685, "lat": 39.93752, "first": "2014-12-12", "last": "2022-04-13"},
+    {"id": "cp01cnpm-rii01-02-adcptg010", "name": "Pioneer central profiler mooring", "lon": -70.77043, "lat": 40.13391, "first": "2017-11-06", "last": "2022-04-25"},
+    {"id": "cp03ispm-rii01-02-adcptg010", "name": "Pioneer inshore profiler mooring", "lon": -70.87850, "lat": 40.36201, "first": "2017-11-12", "last": "2022-04-26"}
+  ]
+}

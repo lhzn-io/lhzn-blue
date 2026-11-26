@@ -18,7 +18,7 @@ from . import build, merlin, outages, rivers, shore, tides, turbidity, usgs_tida
 
 def _main() -> None:
     parser = argparse.ArgumentParser(prog="lhzn-blue-jobs")
-    parser.add_argument("command", choices=["history", "live", "latest", "fields", "shelf", "shelf-wind", "shelf-days", "shelf-prov", "snapshot", "forecast", "forecast-backfill", "gfs-backfill", "hrdps-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "panels", "region-live", "region-daily", "region-wind", "import-verification", "import-archive", "import-waves", "import-weather", "hfradar"])
+    parser.add_argument("command", choices=["history", "live", "latest", "fields", "shelf", "shelf-wind", "shelf-days", "shelf-prov", "shelf-obs", "snapshot", "forecast", "forecast-backfill", "gfs-backfill", "hrdps-backfill", "hrrr-history-seed", "hrrr-wind-backfill", "panels", "region-live", "region-daily", "region-wind", "import-verification", "import-archive", "import-waves", "import-weather", "hfradar"])
     parser.add_argument(
         "--out",
         default=os.environ.get("LHZN_BLUE_OUT", "out"),
@@ -27,7 +27,7 @@ def _main() -> None:
     parser.add_argument("--with-depths", action="store_true", help="shelf-days: also at the shelf's fixed depths (at most 7 days)")
     parser.add_argument(
         "--span",
-        help="shelf-days, shelf-prov: past UTC days FIRST:LAST (YYYY-MM-DD:YYYY-MM-DD, inclusive) for the shelf's day archive",
+        help="shelf-days, shelf-prov, shelf-obs: past UTC days FIRST:LAST (YYYY-MM-DD:YYYY-MM-DD, inclusive) for the shelf's day archive",
     )
     parser.add_argument(
         "--archive-dir",
@@ -143,6 +143,12 @@ def _main() -> None:
             parser.error("shelf-prov needs --span FIRST:LAST")
         first, last = args.span.split(":", 1)
         _failed.extend(shelf.refresh_prov(store, first, last))
+    elif args.command == "shelf-obs":
+        from . import shelf_obs  # measured currents (OOI Pioneer) beside the archived days' models
+        if not args.span:
+            parser.error("shelf-obs needs --span FIRST:LAST")
+        first, last = args.span.split(":", 1)
+        _failed.extend(shelf_obs.backfill(store, first, last))
     elif args.command == "forecast":
         from . import forecast  # forcingkit's HRRR reader is needed only here
 

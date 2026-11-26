@@ -14,5 +14,6 @@ ENV LHZN_BLUE_STATIONS=/app/stations/stations.json \
     LHZN_BLUE_ASOS=/app/stations/asos.json \
     LHZN_BLUE_RIPS=/app/stations/rips-lis.json \
     LHZN_BLUE_REGION=/app/stations/piscataqua-region.json \
+    LHZN_BLUE_SHELF_OBS=/app/stations/shelf-obs.json \
     PYTHONUNBUFFERED=1
 ENTRYPOINT ["lhzn-blue-jobs"]

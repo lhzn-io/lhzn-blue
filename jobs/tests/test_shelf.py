@@ -550,3 +550,17 @@ def test_source_that_fails_to_open_is_not_tried_again(monkeypatch):
     assert calls == [url]
     with pytest.raises(RuntimeError, match="did not open earlier"):
         shelf._source(url)
+
+
+def test_archive_day_keeps_the_measured_currents_entry(tmp_path, monkeypatch):
+    _fake_reads(monkeypatch)
+    ts = tiles.TileStore(str(tmp_path / "tiles"))
+    store = Store(str(tmp_path / "out"))
+    shelf.backfill(store, "2025-08-27", "2025-08-27", ts)
+    key = f"{shelf.BASE}/days/2025-08-27/index.json"
+    idx = json.loads(ts.get(key))
+    idx["obs"] = {"file": "days/2025-08-27/obs.json", "moorings": 6}
+    ts.put(key, json.dumps(idx).encode(), 60, "application/json")
+    shelf.backfill(store, "2025-08-27", "2025-08-27", ts)  # the models rewritten
+    assert json.loads(ts.get(key))["obs"]["moorings"] == 6
+

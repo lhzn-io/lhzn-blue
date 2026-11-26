@@ -135,6 +135,7 @@ def _header(source: str, url: str | None, times: pd.DatetimeIndex, run: str, pro
 # ---------- Provenance: the file, and the run or write time, behind each hour ----------
 
 _SOURCES: dict[str, dict] = {}  # url (and whether runs were asked) -> its title, history, and best-series runs
+_UNREACHABLE: dict[str, Exception] = {}  # url -> why it failed to open; not asked again in this job
 _HISTORY = re.compile(r"[A-Z][a-z]{2} ([A-Z][a-z]{2}) +(\d{1,2}) (\d\d:\d\d:\d\d) (\d{4})")
 
 
@@ -151,12 +152,19 @@ def _decode_times(var) -> pd.DatetimeIndex:
 
 def _source(url: str, runs: bool = False) -> dict:
     """A source's global title and history, read once per job; with `runs`, also its hours and the run behind each
-    (an FMRC best time series' time_run)."""
+    (an FMRC best time series' time_run). A source that fails to open is not tried again in the same job, so an
+    outage costs one timeout, not one per day."""
     key = f"{url}|{runs}"
     if key not in _SOURCES:
         from forcingkit.fetchers import doppio as dfk
 
-        ds = dfk._open(url)
+        if url in _UNREACHABLE:
+            raise RuntimeError(f"{url} did not open earlier in this job: {_UNREACHABLE[url]}")
+        try:
+            ds = dfk._open(url)
+        except Exception as exc:
+            _UNREACHABLE[url] = exc
+            raise
         got: dict = {k: str(ds.attrs[k]) for k in ("title", "history") if k in ds.attrs}
         if runs and "time_run" in ds.variables:
             _, hours = dfk._times(ds)

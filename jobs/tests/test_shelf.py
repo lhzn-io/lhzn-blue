@@ -530,3 +530,23 @@ def test_refresh_prov_writes_archived_days_and_a_failure_leaves_them(tmp_path, m
     got = json.loads(ts.get(key))["models"]
     assert got["doppio"]["prov"][0]["url"] == "d" and got["necofs"]["prov"][0]["live"] is False
     assert got["necofs"]["steps"] == 24  # the rest of the entry is kept
+
+
+def test_source_that_fails_to_open_is_not_tried_again(monkeypatch):
+    from forcingkit.fetchers import doppio as dfk
+
+    calls = []
+
+    def down(url):
+        calls.append(url)
+        raise OSError("connect timeout")
+
+    monkeypatch.setattr(dfk, "_open", down)
+    monkeypatch.setattr(shelf, "_SOURCES", {})
+    monkeypatch.setattr(shelf, "_UNREACHABLE", {})
+    url = "https://example.test/thredds/dodsC/best"
+    for runs in (True, False, True):
+        assert shelf._prov(shelf._source, url, runs=runs) == []
+    assert calls == [url]
+    with pytest.raises(RuntimeError, match="did not open earlier"):
+        shelf._source(url)

@@ -1437,7 +1437,24 @@ function wirePeriod(): void {
     ($("depth") as HTMLSelectElement).value = String(depth);
     ($("field") as HTMLSelectElement).value = field;
     await showPeriod({ kind: "days", from: PIONEER.from, to: PIONEER.to });
+    // The moorings are what this period is for: on, even if the reader had turned them off.
+    const obs = document.querySelector<HTMLInputElement>("#layers input[value=obs]");
+    if (obs && !obs.checked) {
+      obs.checked = true;
+      obs.dispatchEvent(new Event("change"));
+    }
     legend();
+  });
+  // The date picker sits under "Custom period", folded until asked for.
+  const custom = $("p-custom") as HTMLButtonElement;
+  const form = $("p-form") as HTMLFormElement;
+  const fold = (open: boolean) => {
+    custom.setAttribute("aria-expanded", String(open));
+    form.hidden = note.hidden = !open;
+  };
+  custom.addEventListener("click", () => {
+    fold(custom.getAttribute("aria-expanded") !== "true");
+    if (!form.hidden && !from.disabled) from.focus();
   });
   $("p-latest").addEventListener("click", async () => {
     box.open = false;

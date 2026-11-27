@@ -49,7 +49,8 @@
           <div class="sh-pop">
             <button class="tab" type="button" id="p-latest">Latest forecast</button>
             <button class="tab" type="button" id="p-pioneer" hidden>Pioneer moorings, Aug 2022</button>
-            <form id="p-form">
+            <button class="tab" type="button" id="p-custom" aria-expanded="false" aria-controls="p-form">Custom period</button>
+            <form id="p-form" hidden>
               <label>From <input type="date" id="p-from" required /></label>
               <label
                 >Days
@@ -63,7 +64,7 @@
               >
               <button class="tab" type="submit" id="p-show">Show</button>
             </form>
-            <p class="sh-note" id="p-note"></p>
+            <p class="sh-note" id="p-note" hidden></p>
           </div>
         </details>
         <button class="fig-info" type="button" id="sh-info" aria-label="About this page" title="About this page">i</button>

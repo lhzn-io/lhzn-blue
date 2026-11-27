@@ -49,6 +49,9 @@
 }
 .sh-pop .tab { justify-self: start; }
 .sh-pop form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.sh-pop form[hidden], .sh-pop .sh-note[hidden] { display: none; }
+#p-custom::after { content: "\25B8"; margin-left: 6px; }
+#p-custom[aria-expanded="true"]::after { content: "\25BE"; }
 .sh-pop label { display: grid; gap: 3px; font: 11px/1.2 var(--sans); color: var(--dim); }
 .sh-pop input, .sh-pop select { padding: 4px 6px; font: 12px var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); }
 /* A cell's values on both maps (site.css's pin-pop and hover-pop). */

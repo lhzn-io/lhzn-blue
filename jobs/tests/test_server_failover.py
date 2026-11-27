@@ -68,6 +68,7 @@ def test_failover_reads_the_panels_only_while_the_server_is_not_current(monkeypa
     calls = []
     monkeypatch.setattr(panels, "publish", lambda store, root, **kw: calls.append(kw) or {"ok": 1})
     monkeypatch.setattr(panels, "server_current", lambda end: "2026-11-25T02:45:00Z")
+    monkeypatch.setattr(panels, "stale_panels", lambda store, end: {})
     assert panels.failover(None, None, END) is None and calls == []
     monkeypatch.setattr(panels, "server_current", lambda end: None)
     assert panels.failover(None, None, END) == {"ok": 1}
@@ -95,3 +96,74 @@ def test_other_jobs_have_no_cap(monkeypatch):
 
 def test_the_server_is_asked_over_https():
     assert merlin.BASE_URL.startswith("https://") and ":8080" not in merlin.BASE_URL
+
+
+class _LiveStore:
+    def __init__(self, live: dict):
+        self.live, self.written = live, []
+
+    def read_json(self, key):
+        return self.live if key == "v1/live.json" else None
+
+    def write_json(self, key, doc, **kw):
+        self.written.append(key)
+
+
+def _live(**datasets):
+    return {
+        "met": {s: {"dataset": f"{s}_MET"} for s in ("WLIS", "CLIS", "EXRX")},
+        "waves": {s: {"dataset": f"{s}_WAVE"} for s in ("WLIS", "CLIS", "EXRX")},
+        "series": {"WLIS_SFC": {"dataset": "WLIS_WQ_SFC"}, "WLIS_BTM": {"dataset": "WLIS_WQ_BTM"},
+                   "CLIS_SFC": {"dataset": "CLIS_WQ_SFC"}, "EXRX_MID": {"dataset": "XRX_WQ_MID"}},
+        "datasets": datasets,
+    }
+
+
+GOOD = {"last_ok": "2026-11-25T02:45:00Z", "rows": 4}
+
+
+def test_stale_panels_follow_each_station_dataset():
+    ds = {f"{s}_MET": GOOD for s in ("WLIS", "CLIS", "EXRX")}
+    ds |= {"CLIS_WAVE": GOOD, "WLIS_WQ_SFC": GOOD, "XRX_WQ_MID": GOOD}
+    # The waves at WLIS as on 2026-11-26: a week of HTTP 400 after the last good read.
+    ds["WLIS_WAVE"] = {"last_ok": "2026-11-17T19:21:43Z", "last_error": "2026-11-25T02:21:50Z Unavailable: HTTP 400"}
+    # EXRX's waves read once in the window but failed since; CLIS's water quality is gone from the server.
+    ds["EXRX_WAVE"] = {"last_ok": "2026-11-25T01:00:00Z", "last_error": "2026-11-25T02:00:00Z Unavailable: HTTP 400"}
+    ds["CLIS_WQ_SFC"] = {"last_error": "2026-11-25T02:45:00Z DatasetMissing: dataset not found"}
+    # One depth of WLIS water quality is enough (BTM missing from the log); ARTG has no datasets: left alone.
+    assert panels.stale_panels(_LiveStore(_live(**ds)), END) == {"WLIS": {"wav"}, "EXRX": {"wav"}, "CLIS": {"wq"}}
+
+
+def test_a_dataset_the_server_dropped_counts_as_stale():
+    assert not panels._dataset_fresh({"last_ok": "2026-11-25T02:45:00Z", "published": False}, END)
+    assert not panels._dataset_fresh({"last_ok": "2026-11-25T00:00:00Z"}, END)  # 3 h old
+    assert panels._dataset_fresh(GOOD, END)
+
+
+def test_failover_reads_only_the_stale_panels_while_the_server_is_current(monkeypatch):
+    calls = []
+    monkeypatch.setattr(panels, "publish", lambda store, root, **kw: calls.append(kw) or {"ok": 1})
+    monkeypatch.setattr(panels, "server_current", lambda end: "2026-11-25T02:45:00Z")
+    monkeypatch.setattr(panels, "stale_panels", lambda store, end: {"WLIS": {"wav"}})
+    assert panels.failover(None, None, END) == {"ok": 1}
+    assert calls == [{"run_index": int(END.timestamp() // 900), "check_server": False, "slow_every": 2,
+                      "only": {"WLIS": {"wav"}}}]
+
+
+def test_publish_with_only_fetches_just_those_and_skips_the_write_when_none_is_due(monkeypatch):
+    fetched = []
+
+    class Sess:
+        def get(self, url, **kw):
+            fetched.append(url)
+            raise panels.requests.ConnectionError("offline in tests")
+
+    monkeypatch.setattr(panels.requests, "Session", Sess)
+    monkeypatch.setattr(panels.time, "sleep", lambda s: None)
+    st = _LiveStore({})
+    panels.publish(st, None, run_index=2, check_server=False, slow_every=2, only={"WLIS": {"wav"}})
+    assert fetched == [f"{panels.BASE}/wlis_wav.png"] and st.written == [panels.KV_KEY]
+    fetched.clear()
+    st = _LiveStore({})
+    panels.publish(st, None, run_index=3, check_server=False, slow_every=2, only={"WLIS": {"wav"}})
+    assert fetched == [] and st.written == []

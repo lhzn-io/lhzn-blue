@@ -18,7 +18,12 @@ Only while the server is down. The ``latest`` and ``live`` runs (every 15 minute
 ``failover``: it asks the server for its newest weather reading (``server_current``) and reads the panels only when
 none is younger than ``SERVER_FRESH_HOURS``. The server is intermittent, so this is decided afresh every run: the
 panels take over within 15 minutes of an outage and stop within 15 minutes of the server's return, with no job of
-their own to schedule. A run that skips them writes nothing (no KV write). The ``panels`` command still runs the
+their own to schedule. A run that skips them writes nothing (no KV write).
+
+The server can also be current while some of its datasets are not: from 2026-11-17 its three wave datasets answered
+HTTP 400 while the weather kept coming, and the weather check alone left the waves unread through a gale on 11-26.
+So while the server is current, ``stale_panels`` reads live.json's dataset log and ``failover`` reads just the panels
+whose station datasets have had no good read for ``SERVER_FRESH_HOURS`` (a station's waves, weather or water quality). The ``panels`` command still runs the
 same check first, for a run by hand.
 
 Requests are polite: one at a time, a few seconds apart, with a User-Agent naming the site and a contact; weather every
@@ -370,22 +375,63 @@ def server_current(end: datetime) -> str | None:
     return None
 
 
+# Panel type -> the live.json section whose station entries name the dataset it stands in for ("wq": the series,
+# one per depth, keyed "<STN>_<depth>").
+PANEL_SECTIONS = {"wx": "met", "wav": "waves", "wq": "series"}
+
+
+def _dataset_fresh(status: dict | None, end: datetime) -> bool:
+    """A good read within SERVER_FRESH_HOURS, not followed by an error, of a dataset the server still publishes."""
+    if not status or status.get("published") is False or not status.get("last_ok"):
+        return False
+    ok = datetime.fromisoformat(status["last_ok"].replace("Z", "+00:00"))
+    err = (status.get("last_error") or "").split(" ")[0]
+    if err and err > status["last_ok"]:
+        return False
+    return end - ok < timedelta(hours=SERVER_FRESH_HOURS)
+
+
+def stale_panels(store: Store, end: datetime) -> dict[str, set[str]]:
+    """Per station, the panel types whose datasets have all gone without a good read for SERVER_FRESH_HOURS, from
+    the dataset log the live and latest runs keep in live.json. A panel with no dataset there is left alone."""
+    live = store.read_json("v1/live.json") or {}
+    log_ = live.get("datasets", {})
+    out: dict[str, set[str]] = {}
+    for stn, kinds in PANELS.items():
+        for panel in kinds:
+            section = live.get(PANEL_SECTIONS[panel], {})
+            if panel == "wq":
+                dss = [v.get("dataset") for k, v in section.items() if k.startswith(f"{stn}_") and v.get("dataset")]
+            else:
+                dss = [section[stn]["dataset"]] if section.get(stn, {}).get("dataset") else []
+            if dss and not any(_dataset_fresh(log_.get(d), end) for d in dss):
+                out.setdefault(stn, set()).add(panel)
+    return out
+
+
 def failover(store: Store, archive_root: str | None, end: datetime | None = None) -> dict | None:
-    """The panels for this run if the server is not current, else nothing (see the module notes). Called at the end
-    of the latest and live runs, which come every 15 minutes between them; waves and water quality every second one."""
+    """The panels for this run if the server is not current; while it is, just the panels whose own datasets are not;
+    else nothing (see the module notes). Called at the end of the latest and live runs, which come every 15 minutes
+    between them; waves and water quality every second one."""
     end = end or now_utc()
+    run = int(end.timestamp() // 900)
     newest = server_current(end)
-    if newest is not None:
+    if newest is None:
+        log.warning("panels: the server is not current; reading the panels")
+        return publish(store, archive_root, run_index=run, check_server=False, slow_every=2)
+    stale = stale_panels(store, end)
+    if not stale:
         log.info("panels: the server is current (newest weather reading %s); no panel read", newest)
         return None
-    log.warning("panels: the server is not current; reading the panels")
-    return publish(store, archive_root, run_index=int(end.timestamp() // 900), check_server=False, slow_every=2)
+    log.warning("panels: the server is current (newest weather reading %s) but these datasets are not; reading "
+                "their panels: %s", newest, {k: sorted(v) for k, v in sorted(stale.items())})
+    return publish(store, archive_root, run_index=run, check_server=False, slow_every=2, only=stale)
 
 
 def publish(store: Store, archive_root: str | None, run_index: int | None = None, check_server: bool = True,
-            slow_every: int = 3) -> dict:
+            slow_every: int = 3, only: dict[str, set[str]] | None = None) -> dict:
     """One run: unless the server is current, fetch the panels due, archive them, read and check them, and update
-    v1/panels.json."""
+    v1/panels.json. With ``only`` (station -> panel types), just those, and no write when none of them is due."""
     end = now_utc()
     if check_server:
         newest = server_current(end)
@@ -402,10 +448,14 @@ def publish(store: Store, archive_root: str | None, run_index: int | None = None
     arch = Archive(archive_root) if archive_root else None
     paused_until = None
     sess = requests.Session()
+    due = 0
     for stn, panels in PANELS.items():
         for panel in panels:
+            if only is not None and panel not in only.get(stn, ()):
+                continue
             if panel not in EVERY_RUN and run % slow_every:
                 continue
+            due += 1
             key = f"{stn}_{panel}"
             h = dict(health.get(key, {}))
             if h.get("skip", 0) > 0:
@@ -474,6 +524,8 @@ def publish(store: Store, archive_root: str | None, run_index: int | None = None
     }
     if paused_until:
         out["paused_until"] = paused_until
+    if only is not None and not due:
+        return prev  # nothing of ours was due this run: no KV write
     store.write_json(KV_KEY, out, max_age=300)
     return out
 

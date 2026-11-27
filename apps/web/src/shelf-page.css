@@ -52,7 +52,8 @@
 .sh-pop label { display: grid; gap: 3px; font: 11px/1.2 var(--sans); color: var(--dim); }
 .sh-pop input, .sh-pop select { padding: 4px 6px; font: 12px var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); }
 /* A cell's values on both maps (site.css's pin-pop and hover-pop). */
-.sh-val .maplibregl-popup-content { white-space: nowrap; width: max-content; }
+/* One line per item when it fits; wrapped to the width the map leaves (--sh-pop-max, set from the map's width). */
+.sh-val .maplibregl-popup-content { width: max-content; max-width: var(--sh-pop-max, 360px); }
 /* On a phone the lines wrap, so the box stays inside the map. */
 @media (max-width: 600px) {
   .sh-val .maplibregl-popup-content { white-space: normal; width: auto; max-width: min(300px, 76vw); }

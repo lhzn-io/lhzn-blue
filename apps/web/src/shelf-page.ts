@@ -1018,7 +1018,11 @@ function makeMap(p: Panel, bounds: [number, number, number, number]): void {
       void updateLod(); // a link may open zoomed in
     });
   }
-  new ResizeObserver(() => map.resize()).observe(box);
+  // A readout wider than about 0.6 of the map can fit neither beside nor centered on a point near the middle: wrap it there.
+  new ResizeObserver(() => {
+    map.resize();
+    box.style.setProperty("--sh-pop-max", `${Math.round(box.clientWidth * 0.6)}px`);
+  }).observe(box);
 }
 
 // ---------- Level of detail ----------

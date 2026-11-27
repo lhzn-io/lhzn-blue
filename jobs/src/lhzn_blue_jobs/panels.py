@@ -10,7 +10,8 @@ own with Tesseract (one line, upscaled, darkest channel) and checked before it i
 - ranges: each field has a plausible range; a reading outside it is rejected;
 - times: the panel's own time (local time on the header, "EST" on the water-quality sensor reads, taken literally as
   UTC-5 until the server's back-filled record settles it; the raw text is kept) must not run ahead of the fetch, and a
-  panel whose time has not moved for 3 hours is stale;
+  panel more than 3 hours behind the fetch is stale: a buoy that stopped reporting leaves its panel showing the last
+  reading, which is kept once, at its own time and flagged ``stale``, and never again until the time moves;
 - layout: boxes are found on each image and matched to the field map (images drawn larger are scaled to the reference
   size first); a field with no box is a sensor the buoy does not carry, not an error.
 
@@ -505,9 +506,12 @@ def publish(store: Store, archive_root: str | None, run_index: int | None = None
             h["flags"] = rd.flags
             h["absent"] = rd.absent
             recs = list(stations.get(stn, {}).get(panel, []))
-            if not h["stale"] and (not recs or recs[-1]["t"] < iso(rd.time)):
-                recs.append({"t": iso(rd.time), "fetched": iso(fetched), "img": sha[:12],
-                             "v": {k: round(v, 4) for k, v in rd.values.items()}})
+            if not recs or recs[-1]["t"] < iso(rd.time):
+                rec = {"t": iso(rd.time), "fetched": iso(fetched), "img": sha[:12],
+                       "v": {k: round(v, 4) for k, v in rd.values.items()}}
+                if h["stale"]:
+                    rec["stale"] = True  # a buoy's last reading before it went quiet
+                recs.append(rec)
             cutoff = iso(end - timedelta(days=KEEP_DAYS))
             stations.setdefault(stn, {})[panel] = [x for x in recs if x["t"] >= cutoff]
             health[key] = h

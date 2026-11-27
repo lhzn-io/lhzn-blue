@@ -167,3 +167,36 @@ def test_publish_with_only_fetches_just_those_and_skips_the_write_when_none_is_d
     st = _LiveStore({})
     panels.publish(st, None, run_index=3, check_server=False, slow_every=2, only={"WLIS": {"wav"}})
     assert fetched == [] and st.written == []
+
+
+def test_a_stale_panel_reading_is_kept_once_at_its_own_time(monkeypatch):
+    class Resp:
+        status_code = 200
+        headers = {"Content-Type": "image/png"}
+        content = b"png"
+
+    class Sess:
+        def get(self, url, **kw):
+            return Resp()
+
+    now = datetime(2026, 11, 27, 3, 2, tzinfo=timezone.utc)
+    reading = panels.Reading(datetime(2026, 11, 26, 23, 40, tzinfo=timezone.utc), "6:40 PM", {"hs_ft": 7.54}, {}, {}, [], {})
+    monkeypatch.setattr(panels.requests, "Session", Sess)
+    monkeypatch.setattr(panels.time, "sleep", lambda s: None)
+    monkeypatch.setattr(panels, "now_utc", lambda: now)
+    monkeypatch.setattr(panels, "read_panel", lambda content, panel, fetched: reading)
+    st = _LiveStore({})
+    st.read_json = lambda k: st.docs.get(k)
+    st.docs = {}
+
+    def write(k, doc, **kw):
+        st.written.append(k)
+        st.docs[k] = doc
+
+    st.write_json = write
+    for run in (2, 4):  # the same frozen panel read twice
+        out = panels.publish(st, None, run_index=run, check_server=False, slow_every=2, only={"WLIS": {"wav"}})
+    recs = out["stations"]["WLIS"]["wav"]
+    assert out["health"]["WLIS_wav"]["stale"] is True
+    assert recs == [{"t": "2026-11-26T23:40:00Z", "fetched": "2026-11-27T03:02:00Z", "img": panels.hashlib.sha256(b"png").hexdigest()[:12],
+                     "v": {"hs_ft": 7.54}, "stale": True}]

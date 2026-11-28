@@ -6,7 +6,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="canonical" href="https://longhorizon.blue/about/" />
     <title>About | longhorizon.blue</title>
-    <meta name="description" content="What longhorizon.blue shows, where each observation and forecast comes from, and how the comfort index, wind against tide and the other layers are worked out." />
+    <meta name="description" content="What longhorizon.blue is, whose data it shows, its limitations, and where to read its methods and sources." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -21,24 +21,21 @@
     <main>
       <h1>About</h1>
       <p class="prose">
-        longhorizon.blue gathers public observations and model forecasts of coastal water and shows each with its age, its source and
-        its recent history, so that present conditions and the next two days can be read against recent experience. The first waterway
-        is <a href="/long-island-sound/">Long Island Sound</a>. It is an early public version, curated locally by Long Horizon
-        Observatory. All data are provisional and may be revised; see the <a href="#limits">limitations</a>.
+        longhorizon.blue shows public coastal-water observations and model forecasts, each with its age, source and recent history,
+        so present conditions and the next two days read against recent weeks. The first waterway is
+        <a href="/long-island-sound/">Long Island Sound</a>. Long Horizon Observatory curates the site as an early public
+        demonstration, built from open data with open-source <a href="https://github.com/lhzn-io/lhzn-blue">code</a>.
       </p>
       <p class="prose">
-        The site is a demonstration. It joins classic marine datasets and forecasts in a few new views: a comfort index for the
-        reader's boat, wind against tide on the wave model's cells, and HRRR's last forecast
-        before each hour as a stand-in where a station is out. It is built in the open from open data, and its
-        <a href="https://github.com/lhzn-io/lhzn-blue">code</a> is open source, so each method here can be adapted and
-        rebuilt.
+        Every plot and map layer has an (i) note: what it shows, the computation, the sources. The
+        <a href="/docs/">methods and sources</a> pages collect those notes, plus data sources, processing and design principles.
       </p>
       <section class="about-limits" id="limits" aria-labelledby="limits-title">
         <h2 id="limits-title">Limitations and use</h2>
         <p class="prose">
           The observations on this site are provisional and may contain errors, gaps and delays. Model values are forecasts, not
           measurements. The comfort index and the wind-against-tide layer are indicative products derived from
-          those data; their thresholds are judgements, not standards. The site is a demonstration, provided for general
+          those data; their thresholds are judgments, not standards. The site is a demonstration, provided for general
           information, as is and without warranty of any kind.
         </p>
         <p class="prose">
@@ -47,66 +44,46 @@
           rests with the vessel's operator. Use of the site is subject to the <a href="/terms/">terms</a>.
         </p>
       </section>
-      <nav class="prose about-toc" aria-label="On this page">
-        <a href="#limits">Limitations and use</a> &middot; <a href="#sources">Where the data come from</a> &middot; <a href="#methods">How the page works</a> &middot;
-        <a href="#conventions">Conventions</a> &middot; <a href="#more">More</a>
-      </nav>
 
-      <h2 id="sources">Where the data come from</h2>
+      <h2 id="sources">Credits</h2>
       <ul class="prose terms-list">
         <li>
-          <b>Buoys:</b> <a href="https://lisicos.uconn.edu/">LISICOS</a>, Department of Marine Sciences, University of Connecticut:
-          water temperature, salinity, dissolved oxygen and turbidity at depth, weather and waves, through the
-          <a href="http://merlin.dms.uconn.edu:8080/erddap/">LISICOS ERDDAP server</a>. While that server is unreachable, the newest
-          readings are transcribed from the LISICOS station panels and marked as transcribed.
+          <b>Buoys and HF radar:</b> <a href="https://lisicos.uconn.edu/">LISICOS</a>, Department of Marine Sciences, University of
+          Connecticut, through the <a href="https://merlin.dms.uconn.edu/erddap/">LISICOS ERDDAP server</a>; HF radar totals from the
+          NOAA IOOS HF Radar National Network, served by NOAA NDBC.
         </li>
         <li>
-          <b>Shore stations:</b> <a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a> at Kings Point, Bridgeport, New Haven
-          and New London (water temperature, water level, tide predictions and weather), and
+          <b>Shore stations, tides and currents:</b> <a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a>, and
           <a href="https://waterdata.usgs.gov/">USGS</a> tidal gauges.
         </li>
         <li>
-          <b>Coastal airports:</b> NWS ASOS weather at Sikorsky (Stratford, KBDR) and Tweed (New Haven, KHVN), through the
-          <a href="https://mesonet.agron.iastate.edu/">Iowa Environmental Mesonet</a>: wind, gusts, air temperature and pressure.
+          <b>Coastal airports:</b> NWS ASOS, through the <a href="https://mesonet.agron.iastate.edu/">Iowa Environmental Mesonet</a>.
         </li>
-        <li><b>Rivers:</b> <a href="https://waterdata.usgs.gov/">USGS</a> stream gauges: flow and river turbidity.</li>
+        <li><b>Rivers:</b> <a href="https://waterdata.usgs.gov/">USGS</a> Water Data for the Nation.</li>
         <li>
-          <b>Forecasts and models:</b> NOAA's High-Resolution Rapid Refresh (HRRR) for wind, air and pressure; the NWS Nearshore Wave
-          Prediction System (NWPS) for waves; <a href="http://fvcom.smast.umassd.edu/necofs/">NECOFS</a> (FVCOM, UMass Dartmouth; NECOFS/UMASSD) for
-          currents, also <a href="/long-island-sound/currents-3d/">in 3D for the Sound</a>; Rutgers' DOPPIO (ROMS, for MARACOOS) beside
-          NECOFS across the <a href="/northeast-shelf/ocean-models/">Northeast U.S. Shelf</a>, each on its own cells; NOAA CO-OPS tidal current predictions.
+          <b>Forecasts and models:</b> NOAA HRRR and GFS; the NWS Nearshore Wave Prediction System;
+          <a href="http://fvcom.smast.umassd.edu/necofs/">NECOFS</a> (FVCOM, UMass Dartmouth; NECOFS/UMASSD); Rutgers' DOPPIO
+          (ROMS, for MARACOOS).
         </li>
         <li>
-          <b>Satellite:</b> the MUR sea surface temperature analysis (NASA JPL) and VIIRS chlorophyll-a and water clarity, through
+          <b>Satellite:</b> the MUR sea surface temperature analysis (NASA JPL); VIIRS chlorophyll-a and water clarity through
           <a href="https://coastwatch.noaa.gov/">NOAA NESDIS CoastWatch</a>.
         </li>
         <li>
-          <b>Advisories:</b> the <a href="https://www.weather.gov/okx/">National Weather Service</a> marine alerts for the Sound's zones,
-          each linked to its zone forecast.
+          <b>Advisories:</b> the <a href="https://www.weather.gov/okx/">National Weather Service</a> New York office.
         </li>
       </ul>
       <p class="prose">
-        The regional picture is on the <a href="https://mariners.neracoos.org/">NERACOOS Mariners' Dashboard</a>. Models are fetched
-        through <a href="https://github.com/lhzn-io/forcingkit">forcingkit</a>, our open-source forcing library. The papers and
-        monitoring programs behind the page are on the <a href="/references/">references</a> page.
+        Every series names its source beside the values it supplies. The regional picture is on the
+        <a href="https://mariners.neracoos.org/">NERACOOS Mariners' Dashboard</a>.
       </p>
 
-      <h2 id="methods">How the page works</h2>
+      <h2 id="methods">Methods</h2>
       <p class="prose">
-        Each plot's (i), and each map layer's, explains what it shows, how it is computed and where it comes from. The same text is
-        collected here, with references.
-      </p>
-      <div id="about-methods"></div>
-
-      <h2 id="conventions">Conventions</h2>
-      <p class="prose">
-        Times are stored in UTC and labelled in New York time. Each value carries its age; a value that fails a quality check is
-        flagged with the reason. Speeds, heights and temperatures follow the Units switch in the menu. Scales are fixed, so a colour
-        means the same value from one day to the next, and the heaviest marks are kept for unusual days. The plots owe their form to
-        Edward Tufte: data in line work, small multiples on shared axes, sparklines
-        (<a href="/references/#tufte2001visual">his books</a>). Currents are drawn as evenly spaced streamlines with marks heavier
-        at the head than the tail, after studies of how people read flow maps
-        (<a href="/references/#ware2014improving">Ware, Kelley and Pilar, 2014</a>).
+        <a href="/docs/layers/">What the pages show</a> (each layer and plot) &middot; <a href="/docs/sources/">Where the data come from</a>
+        &middot; <a href="/docs/processing/observations/">From readings to hourly series</a> &middot;
+        <a href="/docs/processing/forecasts/">Forecasts and model values</a> &middot; <a href="/docs/principles/">Design principles</a>
+        &middot; <a href="/about/comfort-index/">How the comfort index is computed</a>.
       </p>
 
       <h2 id="more">More</h2>
@@ -125,6 +102,6 @@
         <p><a href="/">longhorizon.blue</a> &middot; <a href="https://longhorizon.eco/observatory">Long Horizon Observatory</a></p>
       </footer>
     </main>
-    <script type="module" src="../src/about-page.ts"></script>
+    <script type="module" src="../src/landing.ts"></script>
   </body>
 </html>

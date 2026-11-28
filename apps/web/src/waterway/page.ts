@@ -1257,6 +1257,7 @@ function turbTable(): string {
  * far the costliest part to draw; its height is held from the column as drawn). */
 function statusHtml(all: StationData[], survey = false): string {
   if (VIRTUAL) return virtualSources(); // a virtual buoy has no row in the tables: where its values come from instead
+  if (VK === "currents") return ""; // the Currents view is the map alone
   const stations = all.filter(onStation);
   if (VK === "turbidity") return turbTable() + PARTS.shoreTable() + outlookHtml(STATIONS);
   if (VK === "rivers") return riverTable(A.RIVER_SECTIONS[0]) + outlookHtml(STATIONS);
@@ -1881,6 +1882,7 @@ const VIEW_LAYERS: Record<VarKey, { offer: FieldKind[]; def: FieldKind | "none";
   oxygen: { offer: ["chl"], def: "chl" },
   turbidity: { offer: ["kd490", "chl"], def: "kd490" },
   wind: { offer: ["comfort", "wind", "waves", "currents", "radar"], def: "comfort", overlay: true }, // the wind-against-tide overlay
+  currents: { offer: ["currents", "radar"], def: "currents", overlay: true }, // the map is the view; wind against tide on offer
   tides: { offer: [], def: "none" },
   rivers: { offer: [], def: "none" },
 };
@@ -1897,6 +1899,13 @@ let pendingOffset: { hours: number; scale: "hours" | "days" } | null = (() => {
   return m ? { hours: Number(m[1]) * (m[2] === "d" ? 24 : 1), scale: m[2] === "d" ? "days" : "hours" } : null;
 })();
 
+/** How the currents layer draws direction, as fields.ts last announced it (lhzn-flow): "flow=arrows" or "anim=1". */
+let flowLink: [string, string][] = LINK.get("flow") === "arrows" ? [["flow", "arrows"]] : LINK.get("anim") === "1" ? [["anim", "1"]] : [];
+document.addEventListener("lhzn-flow", (e) => {
+  flowLink = (e as CustomEvent<[string, string][]>).detail;
+  syncUrl(true);
+});
+
 /** The page's address for what is on screen: view, map layer, time, and optionally a plot ("WLIS-col"). */
 function linkUrl(plot?: string): string {
   const p = new URLSearchParams();
@@ -1904,6 +1913,7 @@ function linkUrl(plot?: string): string {
   if (fieldPick !== "none" && !EMBED) p.set("layer", fieldPick); // a plot page or an embed has no map
   const ovs = VIEW_LAYERS[VK].overlay ? [overlayWat && "wat", overlayHaz && "dz"].filter(Boolean) : [];
   if (ovs.length && !EMBED) p.set("ov", ovs.join(","));
+  if (fieldPick === "currents" && !EMBED) for (const [k, v] of flowLink) p.set(k, v);
   const tl = timelineModule?.position();
   if (tl && tl.offset !== 0) p.set("t", tl.scale === "days" ? `${Math.round(tl.offset / 24)}d` : `${tl.offset > 0 ? "+" : ""}${tl.offset}h`);
   if (PLOT_PAGE && PLOT_DEPTH) p.set("depth", PLOT_DEPTH.toLowerCase()); // a plot page's depth tab
@@ -2070,6 +2080,17 @@ function historyData(kind: FieldKind): Promise<RasterHistory | null> {
 
 function applyWide(): void {
   document.querySelector(".overview")?.classList.toggle("map-wide", mapWide);
+  // The Currents view is the map: no status column or station list, the map as tall as the window allows. The box
+  // changes height, so the map is fitted to the waterway again (a station's page keeps its own place).
+  const main = document.querySelector("main");
+  const only = VK === "currents";
+  if (main && main.classList.contains("map-only") !== only) {
+    main.classList.toggle("map-only", only);
+    if (!STATION_ID && !VIRTUAL) void import("../map").then(async (m) => {
+      m.refitMap();
+      await m.focusOn(null, true);
+    });
+  }
 }
 
 async function syncField(): Promise<void> {

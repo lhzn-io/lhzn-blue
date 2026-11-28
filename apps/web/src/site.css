@@ -1400,3 +1400,12 @@ body.plot-page .embed-credit a { color: inherit; text-underline-offset: 2px; }
 .legend .lg-static { padding: 1px 3px; cursor: default; }
 .about-plot-note { margin: 0 0 12px; padding-left: 10px; border-left: 2px solid var(--accent-line); color: var(--ink-soft); font-size: 13.5px; line-height: 1.5; }
 .about-plot-note .ver-tag { padding: 0; border: 0; font: inherit; white-space: normal; text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 2px; }
+
+/* Streamlets over the currents layer (streamlets.ts): a canvas over the map's own, under its markers. */
+.flow-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; transition: opacity 0.12s; }
+/* The Currents view: the map alone, as tall as the window allows. */
+main.map-only .overview { grid-template-columns: 1fr; }
+main.map-only .status, main.map-only #stations { display: none; }
+main.map-only .overview .map { min-height: 0; height: max(420px, calc(100svh - 230px)); }
+/* On a phone the Sound is as wide as the screen at most: a taller map would only add ocean. */
+@media (max-width: 560px) { main.map-only .overview .map { height: max(360px, 62svh); } }

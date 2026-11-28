@@ -97,6 +97,10 @@ export function prefetchVar(k: VarKey): void {
 const loaded = new Set<VarKey>(["temp"]);
 export async function ensureVar(k: VarKey, live: Live, stations: StationData[], sources: (html: string) => void): Promise<void> {
   if (loaded.has(k)) return;
+  if (k === "currents") {
+    loaded.add(k); // the map's own files: nothing for the stations
+    return;
+  }
   if (k === "tides") {
     await loadTides();
     loaded.add(k);

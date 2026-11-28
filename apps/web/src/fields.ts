@@ -17,6 +17,7 @@ import { CURRENTS_FLOOR, CURRENTS_KNOTS, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURR
 import { MEASURED_RAMP, MEASURED_RAMP_DARK, MEASURED_TOP } from "@lhzn-io/timecharts/measured-ramp";
 import { mapReady, mapTheme, onStyle } from "./map";
 import { compass as compass16, LIGHT_KT, windArrow } from "@lhzn-io/timecharts/wind-dir";
+import { Streamlets } from "./streamlets";
 
 export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "radar" | "wind" | "waves" | "wat" | "comfort";
 
@@ -492,6 +493,8 @@ const LAYER_IDS = ["field-raster", "sst-iso", "cur-fill", "cur-arrows", "radar-f
 const SOURCE_IDS = ["field-raster", "sst-iso", "cur-mesh", "cur-points", "radar-cells", "radar-points", "wind-cells", "wind-points", "comfort-cells", "comfort-edge", "wat-cells", "wat-points"];
 
 function clear(map: maplibregl.Map): void {
+  flow?.destroy();
+  flow = null;
   for (const id of LAYER_IDS) if (map.getLayer(id)) map.removeLayer(id);
   for (const id of SOURCE_IDS) if (map.getSource(id)) map.removeSource(id);
 }
@@ -619,6 +622,40 @@ function rasterValueAt(f: RasterField, lng: number, lat: number): { v: number; a
 
 /* ---------- Currents ---------- */
 
+/** How the currents' direction is drawn: streamlines with streamlets (streamlets.ts) or an arrow per element. A link's
+ * "flow=arrows" wins on load; the reader's choice is kept in this browser. Animation is off unless asked for. */
+type FlowMode = "lines" | "arrows";
+const FLOW_KEY = "lhzn-blue-cur-flow";
+let flowMode: FlowMode = (() => {
+  const q = new URLSearchParams(location.search).get("flow");
+  if (q === "lines" || q === "arrows") return q;
+  try {
+    return localStorage.getItem(FLOW_KEY) === "arrows" ? "arrows" : "lines";
+  } catch {
+    return "lines";
+  }
+})();
+let flowAnimate = new URLSearchParams(location.search).get("anim") === "1";
+let flow: Streamlets | null = null;
+
+/** Tell the page how the currents' direction is drawn, so its link carries the choice ("flow=arrows", "anim=1"). */
+function announceFlow(): void {
+  const params: [string, string][] = flowMode === "arrows" ? [["flow", "arrows"]] : flowAnimate ? [["anim", "1"]] : [];
+  document.dispatchEvent(new CustomEvent("lhzn-flow", { detail: params }));
+}
+
+function flowSwitch(): string {
+  const pick = (k: FlowMode, label: string, title: string) => `<button type="button" data-flow="${k}" aria-pressed="${flowMode === k}" title="${title}">${label}</button>`;
+  const anim = flowMode === "lines"
+    ? `<span class="field-range"><button type="button" data-anim aria-pressed="${flowAnimate}" title="Move the streamlets at the current's own speed">${flowAnimate ? "pause" : "animate"}</button></span>` : "";
+  return `<span class="field-range" role="group" aria-label="Direction">${pick("lines", "lines", "Streamlines: direction along evenly spaced lines")}${pick("arrows", "arrows", "An arrow at each model element")}</span>${anim}`;
+}
+
+const FLOW_NOTE = " Lines: streamlines of the hour shown, traced through the model's triangles, evenly spaced on screen and " +
+  "closer where the triangles are smaller. The marks along them point downstream and sit closer together where the water " +
+  "is slower; animated, they move at the current's speed. They show the flow at that instant, not where the water goes " +
+  "over a tide.";
+
 function arrowImage(map: maplibregl.Map): void {
   if (map.hasImage("cur-arrow")) return;
   const size = 32;
@@ -702,6 +739,14 @@ function addCurrents(map: maplibregl.Map, m: CurrentsMesh, c: CurrentsField): vo
       "icon-opacity": ["step", ["zoom"], shown(0), 8.6, shown(1), 9.4, shown(2), 10.2, shown(3), 11, shown(4), 11.8, shown(5), 12.6, shown(6)] as maplibregl.ExpressionSpecification,
     },
   });
+  if (flowMode === "lines") {
+    map.setLayoutProperty("cur-arrows", "visibility", "none");
+    flow = new Streamlets(map, m);
+    const light = mapTheme() === "light";
+    flow.setStyle(light ? "#1c2a48" : "#f4f1e8", light ? "#fbf8f1" : "#10182a");
+    flow.setAnimate(flowAnimate);
+  }
+  announceFlow();
   paintFrame(map);
 }
 
@@ -716,6 +761,7 @@ function paintFrame(map: maplibregl.Map): void {
     const v = c.v[frame];
     for (let i = 0; i < u.length; i++) map.setFeatureState({ source: "cur-mesh", id: i }, { s: Math.hypot(u[i], v[i]) });
   }
+  flow?.setField(frame >= 0 ? c.u[frame] : null, frame >= 0 ? c.v[frame] : null);
   (map.getSource("cur-points") as maplibregl.GeoJSONSource).setData(pointsGeoJSON(m, c, frame));
   refreshPopup();
 }
@@ -2661,9 +2707,9 @@ function renderPanel(fallback: HTMLElement): void {
     const in3d = c && !cm && !wt && !r && location.pathname.startsWith("/long-island-sound/")
       ? `<a class="field-3d" href="/long-island-sound/currents-3d/" title="The same model in 3D, below the surface">In 3D</a>` : "";
     body = `<div class="field-key"><span class="field-name" title="${meta.title}">${name}</span><span class="field-when">${when}</span>
-      ${active === "sst" && r ? rangeSwitch() : ""}<button type="button" class="field-info" aria-haspopup="dialog" aria-label="About this layer" title="About this layer">i</button>${in3d}</div>
+      ${active === "sst" && r ? rangeSwitch() : ""}${active === "currents" && c ? flowSwitch() : ""}<button type="button" class="field-info" aria-haspopup="dialog" aria-label="About this layer" title="About this layer">i</button>${in3d}</div>
       ${scaleHtml(meta)}
-      <p class="field-note" hidden><b>${meta.title}.</b> ${meta.note}${span}${run} <span class="field-credit">${credit}</span></p>`;
+      <p class="field-note" hidden><b>${meta.title}.</b> ${meta.note}${active === "currents" && flowMode === "lines" ? FLOW_NOTE : ""}${span}${run} <span class="field-credit">${credit}</span></p>`;
     if (overlay && !wt) {
       const of = watFrame >= 0 ? overlay.frames[watFrame] : null;
       body += `<div class="field-key field-overlay"><span class="field-name" title="${META.wat.title}">+ ${META.wat.short}</span><span class="field-when">${of ? `NWPS ${of.cycle.slice(11, 13)}Z run` : "no model hour"}</span>
@@ -2691,6 +2737,27 @@ function renderPanel(fallback: HTMLElement): void {
       void repaintRaster();
     }),
   );
+  panel.querySelectorAll<HTMLButtonElement>("[data-flow]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const k: FlowMode = b.dataset.flow === "arrows" ? "arrows" : "lines";
+      if (k === flowMode) return;
+      flowMode = k;
+      try {
+        localStorage.setItem(FLOW_KEY, k);
+      } catch {
+        /* private mode: the switch holds for this page */
+      }
+      void mapReady().then(draw);
+      renderPanel(fallback);
+      announceFlow();
+    }),
+  );
+  panel.querySelector<HTMLButtonElement>("[data-anim]")?.addEventListener("click", () => {
+    flowAnimate = !flowAnimate;
+    flow?.setAnimate(flowAnimate);
+    renderPanel(fallback);
+    announceFlow();
+  });
   panel.querySelectorAll<HTMLButtonElement>(".field-info").forEach((info) =>
     info.addEventListener("click", () => {
       if (!active) return;

@@ -1409,3 +1409,6 @@ main.map-only .status, main.map-only #stations { display: none; }
 main.map-only .overview .map { min-height: 0; height: max(420px, calc(100svh - 230px)); }
 /* On a phone the Sound is as wide as the screen at most: a taller map would only add ocean. */
 @media (max-width: 560px) { main.map-only .overview .map { height: max(360px, 62svh); } }
+/* A pin's dot sits on its station: the label hangs to its right outside the marker's box, so MapLibre's centre
+   anchor centres the dot (with the label in the box, every dot sat half a label west of its station). */
+.pin-id { position: absolute; left: 100%; top: 50%; margin: -5px 0 0 5px; white-space: nowrap; }

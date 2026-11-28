@@ -50,9 +50,13 @@ Context for AI developer agents working in `lhzn-io/lhzn-blue`. Human entry poin
     (SVG line charts with tooltips).
   - `map.ts` (MapLibre locator map, pins, river basins; loaded on demand), `fields.ts` (map layers: colour bar,
     rasters, currents), `timeline.ts` (the one time cursor for the map, the charts, the table and the pins).
-  - `methods.ts` (the text behind every (i) and the method notes in the prompt; `[[key]]` cites
+  - `methods.ts` (the text behind every (i), the method notes in the prompt and the docs' layer pages; `[[key]]` cites
     `docs/references.bib`), `waterway/prompt.ts` (the prompt, and Collect wired to `@lhzn-io/collect`), `hints.ts`,
     `suggest.ts`, `site.css` (layout; imports the tokens and Collect's styles from the packages).
+- `docs/src/`: the methods and sources site (Sphinx, MyST, `lhzn-sphinx-theme`), served at `/docs/`. `layers/map.md`,
+  `layers/plots.md` and `references.md` are generated (`scripts/build-docs-methods.mjs` from `methods.ts`,
+  `scripts/build-references.py` from the .bib): rerun them after editing either source. Build:
+  `scripts/build-docs.sh` (dirhtml, `-W`). Public: methods and sources only, no runbooks, quotas or budgets.
 - `apps/web/` pages: `/` (landing), `/long-island-sound/` with `forecast/`, `models/` and `tides/`, `/about/`,
   `/references/`, `/terms/`, and unlisted pages (any page not in `public/sitemap.xml`). `public/` holds
   `basins.geojson`, `references.bib`, `_headers`, `robots.txt` and `sitemap.xml`.

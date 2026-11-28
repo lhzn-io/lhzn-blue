@@ -11,6 +11,10 @@ cd "$REPO/apps/web"
 # Reinstall whenever the lockfile is newer than the installed tree.
 [ node_modules/.package-lock.json -nt package-lock.json ] || npm ci --no-audit --no-fund
 npm run build
+# The methods and sources site, served as static assets at /docs/ (Vite has just emptied dist/).
+bash "$REPO/scripts/build-docs.sh"
+cp -r "$REPO/docs/_build/html" dist/docs
+rm -f dist/docs/.buildinfo
 
 cd "$REPO/worker"
 npx --yes wrangler@4 deploy "$@"

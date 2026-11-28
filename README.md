@@ -49,7 +49,8 @@ flowchart LR
 | `/long-island-sound/forecast/` | forecast verification |
 | `/long-island-sound/models/` | wind models compared |
 | `/long-island-sound/tides/` | reading the tides |
-| `/about/`, `/references/`, `/terms/` | method and limitations, the sources cited, terms of use |
+| `/about/`, `/references/`, `/terms/` | credits and limitations, the sources cited, terms of use |
+| `/docs/` | methods and sources: each layer, the data and their processing, design principles (`docs/src/`) |
 | `/data/v1/*` | the pages' data files (same-origin, throttled) |
 
 Source types on a waterway page:
@@ -95,7 +96,7 @@ without notice. The underlying observations are available from the sources direc
 | `worker/` | Cloudflare Worker: static assets and the allow-listed `/data/v1/*` files from Workers KV |
 | `configs/prompts/` | The prompt template behind "Ask your AI" |
 | `scripts/` | Setup and deploy scripts; their settings live in `~/.config/lhzn-blue/env`, outside the repository |
-| `docs/` | `references.bib` (the References page) and the [roadmap](docs/planning/roadmap.md) |
+| `docs/` | The methods and sources site (`src/`, Sphinx), `references.bib` (the References page) and the [roadmap](docs/planning/roadmap.md) |
 
 ## Development
 
@@ -103,6 +104,7 @@ without notice. The underlying observations are available from the sources direc
 cd jobs && uv sync && uv run lhzn-blue-jobs history --out ../out && uv run lhzn-blue-jobs live --out ../out
 uv run lhzn-blue-jobs fields --out ../out                # optional: the map layers
 cd ../apps/web && npm ci && npm run dev                  # serves /data/v1/* from ../../out
+bash scripts/build-docs.sh --regen                       # methods site into docs/_build/html
 ```
 
 ## License

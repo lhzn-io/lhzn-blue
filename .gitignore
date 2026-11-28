@@ -6,6 +6,9 @@ node_modules/
 apps/web/dist/
 .wrangler/
 
+# Docs build (scripts/build-docs.sh)
+docs/_build/
+
 # Python
 __pycache__/
 *.pyc

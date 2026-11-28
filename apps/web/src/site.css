@@ -1421,3 +1421,5 @@ main.map-only .overview .map { min-height: 0; height: max(420px, calc(100svh - 2
 /* A pin's dot sits on its station: the label hangs to its right outside the marker's box, so MapLibre's centre
    anchor centres the dot (with the label in the box, every dot sat half a label west of its station). */
 .pin-id { position: absolute; left: 100%; top: 50%; margin: -5px 0 0 5px; white-space: nowrap; }
+.glyph-key { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; font-size: inherit; }
+.glyph-key svg { vertical-align: -1px; }

@@ -15,8 +15,12 @@
  * - Flow: streamlets sit evenly in travel time along a line, as particles released at a steady rate would: closer
  *   together where the flow is slow. Animated, they move at the flow's own speed, all at one speed-up, so relative
  *   speeds read true. They are the flow at one instant, not where the water (or air) goes over the following hours.
- * - Crests: the spacing says nothing about wavelength (a 4 s wave is about 25 m long, far below map scale). Animated,
- *   the crests drift toward where the waves travel at one even pace, not the waves' own speed.
+ * - Crests: still lines (Ware, Kelley and Pilar animate the wind, not the wave fronts), so they stay evenly spaced;
+ *   the spacing says nothing about wavelength (a 4 s wave is about 25 m long, far below map scale). Along each crest,
+ *   on the side the waves travel toward, a glyph gives the value at that point as a wind barb does: a bar per unit and
+ *   a triangle per five (their Fig. 11: feet of significant height). Without a glyph scale, a short tick instead.
+ * - Raw (setRaw): no interpolation in space. Each line follows its own triangle's value, so it turns at the edges of the
+ *   model's cells, and each glyph reads the cell it sits in.
  *
  * Drawn on a 2D canvas over the map, in one ink, and rebuilt when the frame, the view or the size changes.
  */
@@ -35,6 +39,8 @@ export interface StreamOptions {
   /** Flow, animated: one unit of the field per second crosses the view's width in this many seconds x 100 (the
    * default, 20, suits currents in cm/s: 1 m/s crosses the view in 20 s). */
   crossS?: number;
+  /** Crests: field units to glyph units (e.g. 3.28084 for feet from metres); without it, a plain tick. */
+  glyph?: number;
 }
 
 const SEP_PX = 44; // line spacing on screen
@@ -46,13 +52,16 @@ const MIN_POINTS = 8; // shorter lines are dropped
 const MAX_LINES = 900;
 const MARK_GAP_PX = 30; // streamlet spacing along a line at the view's median speed
 const MARK_MIN_GAP_PX = 14; // never closer than this, however slow the flow
-const HEAD_R = 1.8; // head radius, CSS px
+const HEAD_R = 1.4; // head radius, CSS px
 const TAIL_PX = 13; // the tail behind each head, thinning and fading to nothing
 const FADES = 4; // tail drawn in this many segments of rising width and opacity
 const TICK_GAP_PX = 34; // crests: a tick every this far along a crest
 const TICK_PX = 4; // crests: tick length, toward where the waves travel
-const DRIFT_PX = 22; // crests, animated: how far a crest drifts before it fades and the next takes its place
-const DRIFT_S = 2.5; // crests, animated: seconds per drift
+const GLYPH_GAP_PX = 70; // crests: a glyph every this far along a crest
+const BAR_PX = 4; // glyph: bar length, toward where the waves travel
+const BAR_STEP_PX = 3.2; // glyph: bars this far apart along the crest
+const TRI_BASE_PX = 6; // glyph: triangle base along the crest
+const TRI_PX = 7; // glyph: triangle height
 const MARGIN_PX = 24; // lines are traced this far past the edges, so none starts abruptly at the frame
 
 /** The mesh in Web Mercator units (conformal, so east and north scale alike), with a bin grid for point location. */
@@ -187,6 +196,7 @@ interface Line {
   tau: Float32Array; // flow: travel time from the upstream end, display seconds
   tx: Float32Array; // crest: the unit direction the waves travel, on screen
   ty: Float32Array;
+  h: Float32Array; // crest: the field's magnitude at each point (the glyph's value)
 }
 
 export class Streamlets {
@@ -198,6 +208,10 @@ export class Streamlets {
   private readonly crossS: number;
   private nu: Float32Array; // node values, the field's units
   private nv: Float32Array;
+  private tu: Float32Array; // triangle values, for raw mode
+  private tv: Float32Array;
+  private raw = false;
+  private readonly glyph: number;
   private hasField = false;
   private lines: Line[] = [];
   private gap = 1; // streamlet spacing in travel time
@@ -223,6 +237,9 @@ export class Streamlets {
     this.mode = opts.mode ?? "flow";
     this.floor = opts.floor ?? 1;
     this.crossS = opts.crossS ?? 20;
+    this.glyph = opts.glyph ?? 0;
+    this.tu = new Float32Array(mesh.triangles.length);
+    this.tv = new Float32Array(mesh.triangles.length);
     if (this.mode === "crest") this.lineAlpha = 0.5;
     this.nu = new Float32Array(mesh.nodes.length);
     this.nv = new Float32Array(mesh.nodes.length);
@@ -257,16 +274,25 @@ export class Streamlets {
   }
 
   setAnimate(on: boolean): void {
-    this.animate = on;
+    this.animate = on && this.mode === "flow"; // crests stay still
     cancelAnimationFrame(this.raf);
     if (on) this.loop();
     else this.paint();
+  }
+
+  /** Raw: no interpolation in space; each line and glyph reads its own triangle's value. */
+  setRaw(on: boolean): void {
+    if (on === this.raw) return;
+    this.raw = on;
+    this.schedule();
   }
 
   /** Each triangle's vector for the frame shown (east and north, in the field's units), or null when there is none. */
   setField(u: ArrayLike<number> | null, v: ArrayLike<number> | null): void {
     this.hasField = !!(u && v);
     if (u && v) {
+      this.tu.set(u);
+      this.tv.set(v);
       const { start, list } = this.ix.nodeTris;
       for (let i = 0; i < this.nu.length; i++) {
         let su = 0, sv = 0;
@@ -327,8 +353,8 @@ export class Streamlets {
       if (k < 0) return false;
       hint = k;
       const i0 = ix.tri[k * 3], i1 = ix.tri[k * 3 + 1], i2 = ix.tri[k * 3 + 2];
-      const u = w[0] * this.nu[i0] + w[1] * this.nu[i1] + w[2] * this.nu[i2];
-      const v = w[0] * this.nv[i0] + w[1] * this.nv[i1] + w[2] * this.nv[i2];
+      const u = this.raw ? this.tu[k] : w[0] * this.nu[i0] + w[1] * this.nu[i1] + w[2] * this.nu[i2];
+      const v = this.raw ? this.tv[k] : w[0] * this.nv[i0] + w[1] * this.nv[i1] + w[2] * this.nv[i2];
       vel.mag = Math.hypot(u, v);
       if (crest) {
         const l = vel.mag || 1;
@@ -464,7 +490,7 @@ export class Streamlets {
       const n = r.x.length;
       const L: Line = {
         x: Float32Array.from(r.x), y: Float32Array.from(r.y), s: new Float32Array(n), tau: new Float32Array(n),
-        tx: new Float32Array(crest ? n : 0), ty: new Float32Array(crest ? n : 0),
+        tx: new Float32Array(crest ? n : 0), ty: new Float32Array(crest ? n : 0), h: new Float32Array(crest ? n : 0),
       };
       for (let q = 0; q < n; q++) {
         if (q > 0) L.s[q] = L.s[q - 1] + Math.hypot(L.x[q] - L.x[q - 1], L.y[q] - L.y[q - 1]);
@@ -472,9 +498,11 @@ export class Streamlets {
           if (sample(L.x[q], L.y[q])) {
             L.tx[q] = vel.tx;
             L.ty[q] = vel.ty;
+            L.h[q] = vel.mag;
           } else if (q > 0) {
             L.tx[q] = L.tx[q - 1];
             L.ty[q] = L.ty[q - 1];
+            L.h[q] = L.h[q - 1];
           }
         } else if (q > 0) {
           sample((L.x[q] + L.x[q - 1]) / 2, (L.y[q] + L.y[q - 1]) / 2);
@@ -572,8 +600,7 @@ export class Streamlets {
     g.globalAlpha = 1;
   }
 
-  /** Crests: fine lines with a tick toward where the waves travel; animated, two sets drifting that way and fading in
-   * and out in turn, without ticks (the motion shows the direction). */
+  /** Crests: still, fine lines, with a glyph (or a tick) on the side the waves travel toward. */
   private paintCrests(): void {
     const g = this.g;
     g.lineWidth = 0.9;
@@ -586,11 +613,8 @@ export class Streamlets {
       }
       g.stroke();
     };
-    if (this.animate) {
-      const f = (((performance.now() - this.t0) / 1000) / DRIFT_S) % 1;
-      for (const c of [f, (f + 0.5) % 1]) stroke((c - 0.5) * DRIFT_PX, this.lineAlpha * Math.sin(Math.PI * c));
-    } else {
-      stroke(0, this.lineAlpha);
+    stroke(0, this.lineAlpha);
+    if (!this.glyph) {
       g.beginPath();
       for (const L of this.lines) {
         const end = L.s[L.s.length - 1];
@@ -602,7 +626,43 @@ export class Streamlets {
         }
       }
       g.stroke();
+      g.globalAlpha = 1;
+      return;
     }
+    // Glyphs (Ware, Kelley and Pilar's Fig. 11): bars and triangles in a row along the crest, centred on the point,
+    // standing on the side the waves travel toward. Bars in one path, triangles in another.
+    const bars = new Path2D();
+    const tris = new Path2D();
+    for (const L of this.lines) {
+      const end = L.s[L.s.length - 1];
+      for (let s = GLYPH_GAP_PX / 2; s < end; s += GLYPH_GAP_PX) {
+        const q = upper(L.s, s);
+        const n = Math.round(L.h[q] * this.glyph);
+        if (n < 1) continue;
+        const [x, y] = at(L, s);
+        const nx = L.tx[q], ny = L.ty[q]; // toward where the waves travel
+        const ax = -ny, ay = nx; // along the crest
+        const five = Math.floor(n / 5), ones = n % 5;
+        let o = -(five * (TRI_BASE_PX + 0.5) + ones * BAR_STEP_PX) / 2;
+        for (let i = 0; i < five; i++) {
+          tris.moveTo(x + ax * o, y + ay * o);
+          tris.lineTo(x + ax * (o + TRI_BASE_PX / 2) + nx * TRI_PX, y + ay * (o + TRI_BASE_PX / 2) + ny * TRI_PX);
+          tris.lineTo(x + ax * (o + TRI_BASE_PX), y + ay * (o + TRI_BASE_PX));
+          tris.closePath();
+          o += TRI_BASE_PX + 0.5;
+        }
+        for (let i = 0; i < ones; i++) {
+          bars.moveTo(x + ax * (o + 0.6), y + ay * (o + 0.6));
+          bars.lineTo(x + ax * (o + 0.6) + nx * BAR_PX, y + ay * (o + 0.6) + ny * BAR_PX);
+          o += BAR_STEP_PX;
+        }
+      }
+    }
+    g.globalAlpha = Math.min(1, this.lineAlpha + 0.35);
+    g.lineWidth = 1.2;
+    g.stroke(bars);
+    g.fillStyle = this.ink;
+    g.fill(tris);
     g.globalAlpha = 1;
   }
 }

@@ -657,15 +657,25 @@ let flowMode: FlowMode = (() => {
     return "lines";
   }
 })();
-let flowAnimate = new URLSearchParams(location.search).get("anim") === "1";
+/** Streamlets move by default ("anim=0" in the link stops them), unless the reader has asked for reduced motion. */
+let flowAnimate = ((): boolean => {
+  const a = new URLSearchParams(location.search).get("anim");
+  if (a === "0" || a === "1") return a === "1";
+  try {
+    return !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return true;
+  }
+})();
 let flow: Streamlets | null = null;
 
-/** Tell the page how the currents and waves are drawn, so its link carries the choice ("flow=arrows", "anim=1",
- * "wshade=period", "wl=1"). */
+/** Tell the page how the currents and waves are drawn, so its link carries the choice ("flow=arrows", "anim=0",
+ * "wshade=height", "wl=0", "raw=1"). */
 function announceFlow(): void {
-  const params: [string, string][] = flowMode === "arrows" ? [["flow", "arrows"]] : flowAnimate ? [["anim", "1"]] : [];
-  if (waveShade === "period") params.push(["wshade", "period"]);
-  if (windLines) params.push(["wl", "1"]);
+  const params: [string, string][] = flowMode === "arrows" ? [["flow", "arrows"]] : flowAnimate ? [] : [["anim", "0"]];
+  if (waveShade === "height") params.push(["wshade", "height"]);
+  if (!windLines) params.push(["wl", "0"]);
+  if (rawMode) params.push(["raw", "1"]);
   document.dispatchEvent(new CustomEvent("lhzn-flow", { detail: params }));
 }
 
@@ -673,8 +683,12 @@ function announceFlow(): void {
  * optionally HRRR wind as light streamlines over the dark crests, so the two read apart (Ware, Kelley and Pilar draw
  * waves black and wind white). A link's "wshade=period" and "wl=1" win on load. */
 type WaveShade = "height" | "period";
-let waveShade: WaveShade = new URLSearchParams(location.search).get("wshade") === "period" ? "period" : "height";
-let windLines = new URLSearchParams(location.search).get("wl") === "1";
+let waveShade: WaveShade = new URLSearchParams(location.search).get("wshade") === "height" ? "height" : "period";
+let windLines = new URLSearchParams(location.search).get("wl") !== "0";
+/** Raw: no smoothing or interpolation anywhere on the map ("raw=1"; off by default). Lines and glyphs read their own
+ * model cell's value rather than one interpolated between cells, and readouts give the model's nearest hour rather than
+ * one interpolated between its hours. The shading is always each cell's own value. */
+let rawMode = new URLSearchParams(location.search).get("raw") === "1";
 let waveFlow: Streamlets | null = null;
 let windFlow: Streamlets | null = null;
 let windLineField: WindField | null = null;
@@ -717,26 +731,23 @@ function cellMesh(m: WindField["mesh"], waves: boolean): ReturnType<typeof gridM
 /** Cell values onto the triangles that carry them. */
 const spread = (vals: ArrayLike<number>, cell: Int32Array) => Float32Array.from(cell, (c) => vals[c]);
 
+const GLYPH_KEY =
+  `<span class="glyph-key" title="Crest marks: significant height, a bar per foot and a triangle per 5 feet">` +
+  `<svg viewBox="0 0 12 10" width="12" height="10" aria-hidden="true"><path d="M1 9h10M6 9V4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>1 ft ` +
+  `<svg viewBox="0 0 12 10" width="12" height="10" aria-hidden="true"><path d="M1 9h10" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 9L6 2.5 8.5 9z" fill="currentColor"/></svg>5 ft</span>`;
+
 function waveSwitch(): string {
   const pick = (k: WaveShade, label: string, title: string) => `<button type="button" data-wshade="${k}" aria-pressed="${waveShade === k}" title="${title}">${label}</button>`;
   const wind = flowMode === "lines" && controls?.windField
     ? `<span class="field-range"><button type="button" data-wl aria-pressed="${windLines}" title="HRRR wind as light streamlines over the crests">wind</button></span>` : "";
-  return `<span class="field-range" role="group" aria-label="Shading">${pick("height", "height", "Shade the cells by significant wave height")}${pick("period", "period", "Shade the cells by peak wave period")}</span>${wind}`;
+  return `<span class="field-range" role="group" aria-label="Shading">${pick("height", "height", "Shade the cells by significant wave height")}${pick("period", "period", "Shade the cells by peak wave period")}</span>${wind}${flowMode === "lines" ? GLYPH_KEY : ""}`;
 }
 
 function waveNote(): string {
-  return (flowMode === "lines"
-    ? " Lines: wave crests of the hour shown, across the direction the waves travel, traced through the model's cells; " +
-      "the ticks point where they travel. The spacing is fixed on screen and says nothing about wavelength; animated, " +
-      "the crests drift at one even pace, not the waves' speed."
-    : "") +
-    (waveShade === "period" ? " Shading: peak wave period, in seconds; frames from older runs carry none." : "") +
-    (windLines && flowMode === "lines" ? " Light lines: HRRR 10 m wind at the same hour, as streamlines." : "") +
-    (controls?.measuredWaves?.().length
-      ? " Gold rings: measured at the LISICOS wave buoys (significant height, or dominant period), filled on the same " +
-        "scale, hollow when the reading is more than 90 minutes old; the buoys report no direction. Click one for its " +
-        "value, the model's in the same cell, and the buoy's plot."
-      : "");
+  return (flowMode === "lines" ? " Lines: crests, traced through the model's cells; marks give height (Ware et al. 2014)." : "") +
+    (waveShade === "period" ? " Shading: peak period, s." : "") +
+    (windLines && flowMode === "lines" ? " Light lines: HRRR wind, 3 km cells." : "") +
+    (controls?.measuredWaves?.().length ? " Gold rings: buoy readings, hollow after 90 min." : "");
 }
 
 /* Measured waves: a gold ring at each wave buoy (the site's colour for measurements), filled on the map's scale with
@@ -807,17 +818,19 @@ function paintWindLines(): void {
   windFlow.setField(spread(u, g.cell), spread(v, g.cell));
 }
 
+/** The no-smoothing switch: off by default, for a reader who wants every value exactly as the model has it. */
+function rawSwitch(): string {
+  return `<span class="field-range"><button type="button" data-raw aria-pressed="${rawMode}" title="No smoothing or interpolation: lines follow each model cell's own value, readouts give the model's nearest hour">raw</button></span>`;
+}
+
 function flowSwitch(): string {
   const pick = (k: FlowMode, label: string, title: string) => `<button type="button" data-flow="${k}" aria-pressed="${flowMode === k}" title="${title}">${label}</button>`;
   const anim = flowMode === "lines"
     ? `<span class="field-range"><button type="button" data-anim aria-pressed="${flowAnimate}" title="Move the streamlets at the current's own speed">${flowAnimate ? "pause" : "animate"}</button></span>` : "";
-  return `<span class="field-range" role="group" aria-label="Direction">${pick("lines", "lines", "Streamlines: direction along evenly spaced lines")}${pick("arrows", "arrows", "An arrow at each model element")}</span>${anim}`;
+  return `<span class="field-range" role="group" aria-label="Direction">${pick("lines", "lines", "Streamlines: direction along evenly spaced lines")}${pick("arrows", "arrows", "An arrow at each model element")}</span>${anim}${rawSwitch()}`;
 }
 
-const FLOW_NOTE = " Lines: streamlines of the hour shown, traced through the model's triangles, evenly spaced on screen and " +
-  "closer where the triangles are smaller. The marks along them point downstream and sit closer together where the water " +
-  "is slower; animated, they move at the current's speed. They show the flow at that instant, not where the water goes " +
-  "over a tide.";
+const FLOW_NOTE = " Lines: streamlines through the model's triangles; marks move at the current's speed.";
 
 function arrowImage(map: maplibregl.Map): void {
   if (map.hasImage("cur-arrow")) return;
@@ -905,6 +918,7 @@ function addCurrents(map: maplibregl.Map, m: CurrentsMesh, c: CurrentsField): vo
   if (flowMode === "lines") {
     map.setLayoutProperty("cur-arrows", "visibility", "none");
     flow = new Streamlets(map, m);
+    flow.setRaw(rawMode);
     const light = mapTheme() === "light";
     flow.setStyle(light ? "#1c2a48" : "#f4f1e8", light ? "#fbf8f1" : "#10182a");
     flow.setAnimate(flowAnimate);
@@ -1286,7 +1300,8 @@ function addWind(map: maplibregl.Map, w: WindField): void {
   if (isWaves() && flowMode === "lines") {
     map.setLayoutProperty("wind-arrows", "visibility", "none");
     const light = mapTheme() === "light";
-    const crests = new Streamlets(map, cellMesh(w.mesh, true).mesh, { mode: "crest", floor: 0.05 });
+    const crests = new Streamlets(map, cellMesh(w.mesh, true).mesh, { mode: "crest", floor: 0.05, glyph: 3.28084 });
+    crests.setRaw(rawMode);
     crests.setStyle(light ? "#1c2a48" : "#f4f1e8", light ? "#fbf8f1" : "#10182a", 0.5);
     crests.setAnimate(flowAnimate);
     waveFlow = crests;
@@ -1297,6 +1312,7 @@ function addWind(map: maplibregl.Map, w: WindField): void {
         windLineField = hw;
         // Light lines over the dark crests (and the reverse on the dark theme), so the two layers read apart.
         windFlow = new Streamlets(map, cellMesh(hw.mesh, false).mesh, { floor: 0.5, crossS: 2 });
+        windFlow.setRaw(rawMode);
         windFlow.setStyle(light ? "#ffffff" : "#0b1424", light ? "#1c2a48" : "#f4f1e8", 0.55);
         windFlow.setAnimate(flowAnimate);
         paintWindLines();
@@ -1778,7 +1794,8 @@ function speedsAt(w: WindField, t: number): Float32Array | null {
     const a = ts[i];
     const b = ts[i + 1];
     if (t < a.t || t > b.t) continue;
-    const r = (t - a.t) / (b.t - a.t || 1);
+    const r0 = (t - a.t) / (b.t - a.t || 1);
+    const r = rawMode ? Math.round(r0) : r0;
     const ua = windUV(w, a.k);
     const ub = windUV(w, b.k);
     const out = new Float32Array(ua.u.length);
@@ -1812,7 +1829,7 @@ function currentKtAt(c: CurrentsField, t: number): Float32Array | null {
   const x = (t - s0) / c.step;
   const k = Math.floor(x);
   if (k < 0 || k + 1 >= c.u.length) return k === c.u.length - 1 && x === k ? Float32Array.from(c.u[k], (u, e) => (Math.hypot(u, c.v[k][e]) / 100) * 1.943844) : null;
-  const r = x - k;
+  const r = rawMode ? Math.round(x - k) : x - k;
   return Float32Array.from(c.u[k], (u, e) => {
     const a = Math.hypot(u, c.v[k][e]);
     return ((a + (Math.hypot(c.u[k + 1][e], c.v[k + 1][e]) - a) * r) / 100) * 1.943844;
@@ -2161,7 +2178,7 @@ function valueAt(pts: [number, number][], t: number): number {
   for (let i = 0; i + 1 < pts.length; i++) {
     const [ta, a] = pts[i];
     const [tb, b] = pts[i + 1];
-    if (t >= ta && t <= tb) return a + ((b - a) * (t - ta)) / (tb - ta || 1);
+    if (t >= ta && t <= tb) return rawMode ? (t - ta <= tb - t ? a : b) : a + ((b - a) * (t - ta)) / (tb - ta || 1);
   }
   return NaN;
 }
@@ -2993,6 +3010,13 @@ function renderPanel(fallback: HTMLElement): void {
       announceFlow();
     }),
   );
+  panel.querySelector<HTMLButtonElement>("[data-raw]")?.addEventListener("click", () => {
+    rawMode = !rawMode;
+    for (const s of [flow, waveFlow, windFlow]) s?.setRaw(rawMode);
+    renderPanel(fallback);
+    announceFlow();
+    refreshPopup();
+  });
   panel.querySelector<HTMLButtonElement>("[data-wl]")?.addEventListener("click", () => {
     windLines = !windLines;
     void mapReady().then(draw);

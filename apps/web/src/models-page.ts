@@ -4,7 +4,9 @@
  * GFS (0.25 degree). The Waves view (?view=waves) shows significant wave height for the next 72 hours the same way on
  * two: NWPS (1.8 km cells) and NECOFS (its mesh nodes, each drawn as its median dual cell). Each
  * panel is a small MapLibre map: the model's cells as a translucent fill under the basemap's labels, thin cell
- * outlines and an arrow per cell (thinned by MapLibre's symbol collision, the coarse lattice first). One slider (and
+ * outlines and an arrow per cell (thinned by MapLibre's symbol collision, the coarse lattice first); in the Waves view,
+ * lines along the wave crests in place of the arrows, traced through each model's own cells as on the Sound's map
+ * (streamlets.ts, after Ware, Kelley and Pilar 2014). One slider (and
  * a play button) steps all five through the same 3-hourly frames; pan or zoom one map and the others follow.
  *
  * Data: v1/fields/model-grids.json, written by the jobs' model_grids module (a grid per model, frames of int8 u/v);
@@ -20,6 +22,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import maplibregl from "maplibre-gl";
 import type { Feature, FeatureCollection } from "geojson"; // types that come with maplibre-gl
 import { dualCells, pointLevels } from "./dual-cells";
+import { Streamlets, gridMesh, type FlowMesh } from "./streamlets";
 
 const DATA = "/data/v1";
 const $ = (id: string) => document.getElementById(id)!;
@@ -35,6 +38,11 @@ const ARROW = { light: "#1c2a48", dark: "#f4f1e8" };
 const PLAY_MS = 900;
 const VIEW_MODE: "wind" | "waves" = new URLSearchParams(location.search).get("view") === "waves" ? "waves" : "wind";
 const WAVES = VIEW_MODE === "waves";
+/** Raw ("raw=1"): the crests and their glyphs read each cell's own value, with no interpolation between cells. */
+let RAW = new URLSearchParams(location.search).get("raw") === "1";
+/** Waves: the cells shaded by wave period (default), on the Sound map's green period scale, or by significant height
+ * ("wshade=height"). NWPS gives the peak period and NECOFS the mean period. */
+let SHADE: "height" | "period" = new URLSearchParams(location.search).get("wshade") === "height" ? "height" : "period";
 
 // ---------- Data ----------
 
@@ -171,6 +179,22 @@ const WAVE_STOPS: Record<"light" | "dark", [number, string][]> = {
   light: [[0, "#eef6f8"], [0.3, "#cfe6ee"], [0.6, "#9dcbdc"], [1.0, "#5ea6c4"], [1.5, "#2d7aa3"], [2.5, "#16466e"]],
   dark: [[0, "#16242c"], [0.3, "#1f3a48"], [0.6, "#2d5d73"], [1.0, "#4b8aa4"], [1.5, "#7fb8d8"], [2.5, "#cfe8f3"]],
 };
+/** Wave period, s: the Sound map's scale, pale to deep green on the light basemap and the reverse on the dark one. */
+const PERIOD_STOPS: Record<Theme, [number, string][]> = {
+  light: [[0, "#fbfbe6"], [3, "#e4e9b8"], [5, "#b9d48a"], [7, "#7fb664"], [10, "#3f8a4a"], [14, "#1c5233"]],
+  dark: [[0, "#17261c"], [3, "#21422d"], [5, "#2f6440"], [7, "#4f8f5a"], [10, "#8fc27f"], [14, "#dfeec2"]],
+};
+function periodColour(t: number): string {
+  const stops = PERIOD_STOPS[theme()];
+  const k = Math.max(0, Math.min(14, t));
+  for (let i = 1; i < stops.length; i++) {
+    const [a, ca] = stops[i - 1];
+    const [b, cb] = stops[i];
+    if (k <= b) return mix(ca, cb, (k - a) / (b - a));
+  }
+  return stops[stops.length - 1][1];
+}
+
 const WAVE_TOP = 2.5;
 function waveColour(m: number): string {
   const stops = WAVE_STOPS[theme() === "light" ? "light" : "dark"];
@@ -199,6 +223,8 @@ interface Panel {
   box: HTMLElement;
   cap: HTMLElement;
   map: maplibregl.Map | null;
+  flow: CrestMesh | null; // waves: the model's cells as triangles for the crest lines
+  crest: Streamlets | null;
 }
 const panels: Panel[] = [];
 let MG: ModelGrids | null = null;
@@ -242,11 +268,68 @@ function waveFeatures(p: Panel, f: Frame): { cells: FeatureCollection; arrows: F
   const arrows: Feature[] = [];
   m.rings.forEach((ring, i) => {
     if (m.skip?.[i] || !Number.isFinite(hs[i]) || ring.length < 4) return;
-    cells.push({ type: "Feature", properties: { c: waveColour(hs[i]), hs: hs[i], tp: tp[i], dir: dir[i] }, geometry: { type: "Polygon", coordinates: [ring] } });
+    const c = SHADE === "height" ? waveColour(hs[i]) : Number.isFinite(tp[i]) ? periodColour(tp[i]) : "rgba(0,0,0,0)";
+    cells.push({ type: "Feature", properties: { c, hs: hs[i], tp: tp[i], dir: dir[i] }, geometry: { type: "Polygon", coordinates: [ring] } });
     if (hs[i] >= 0.05 && Number.isFinite(dir[i]))
       arrows.push({ type: "Feature", properties: { kt: Math.min(25, hs[i] * 10), dir: dir[i], lvl: m.level[i] }, geometry: { type: "Point", coordinates: m.centres[i] } });
   });
   return { cells: { type: "FeatureCollection", features: cells }, arrows: { type: "FeatureCollection", features: arrows } };
+}
+
+/** Waves: the model's cells as triangles for the crest lines, and how each triangle reads its values: NWPS cells (land
+ * left out) each as two triangles; NECOFS's own triangles, each the mean of its three nodes. */
+interface CrestMesh {
+  mesh: FlowMesh;
+  cell: Int32Array | null; // grid: the cell under each triangle
+  tri: ArrayLike<number> | null; // nodes: three node indices per triangle
+}
+function crestMesh(g: Grid): CrestMesh | null {
+  if (g.type === "quads") {
+    const { mesh, cell } = gridMesh(g.nx, g.ny, g.lon, g.lat, g.land);
+    return { mesh, cell, tri: null };
+  }
+  if (g.type === "nodes") {
+    const nodes: [number, number][] = g.lon.map((x, i) => [x, g.lat[i]]);
+    const triangles: [number, number, number][] = [];
+    for (let k = 0; k + 2 < g.tri.length; k += 3) triangles.push([g.tri[k], g.tri[k + 1], g.tri[k + 2]]);
+    return { mesh: { nodes, triangles }, cell: null, tri: g.tri };
+  }
+  return null;
+}
+
+/** The crest field at the current frame, per triangle: significant height along the direction the waves travel. */
+function crestField(p: Panel): { u: Float32Array; v: Float32Array } | null {
+  const f = MG && p.flow ? p.frames.get(MG.times[frame]) : undefined;
+  if (!f || !p.flow || !MG || !f.hs || !f.dir) return null;
+  const e = MG.encoding;
+  const none = e.none ?? 255;
+  const hs = decodeBytes(f.hs, e.hs_step!, none);
+  const dir = decodeBytes(f.dir, e.dir_step!, none);
+  const cu = new Float32Array(hs.length);
+  const cv = new Float32Array(hs.length);
+  for (let i = 0; i < hs.length; i++) {
+    if (!Number.isFinite(hs[i]) || !Number.isFinite(dir[i])) continue;
+    const r = (dir[i] * Math.PI) / 180;
+    cu[i] = hs[i] * Math.sin(r);
+    cv[i] = hs[i] * Math.cos(r);
+  }
+  const { cell, tri, mesh } = p.flow;
+  if (cell) return { u: Float32Array.from(cell, (c) => cu[c]), v: Float32Array.from(cell, (c) => cv[c]) };
+  const t = mesh.triangles.length;
+  const u = new Float32Array(t);
+  const v = new Float32Array(t);
+  for (let k = 0; k < t; k++) {
+    const a = tri![3 * k], b = tri![3 * k + 1], c = tri![3 * k + 2];
+    u[k] = (cu[a] + cu[b] + cu[c]) / 3;
+    v[k] = (cv[a] + cv[b] + cv[c]) / 3;
+  }
+  return { u, v };
+}
+
+function setCrests(p: Panel): void {
+  if (!p.crest) return;
+  const c = crestField(p);
+  p.crest.setField(c?.u ?? null, c?.v ?? null);
 }
 
 /** An arrow pointing north in the theme's color: a fine shaft and an open chevron head, drawn at ARROW_RATIO times
@@ -325,6 +408,16 @@ function addLayers(p: Panel): void {
     },
     before,
   );
+  if (WAVES && p.flow) {
+    // Crests in place of the arrows, in the theme's ink (rebuilt after a theme switch, which reloads the style).
+    p.crest?.destroy();
+    const light = theme() === "light";
+    p.crest = new Streamlets(map, p.flow.mesh, { mode: "crest", floor: 0.05, glyph: 3.28084 });
+    p.crest.setStyle(light ? "#1c2a48" : "#f4f1e8", light ? "#fbf8f1" : "#10182a", 0.5);
+    p.crest.setRaw(RAW);
+    setCrests(p);
+    map.setLayoutProperty("arrows", "visibility", "none");
+  }
 }
 
 function webglOk(): boolean {
@@ -405,6 +498,7 @@ function setFrame(i: number): void {
     const d = features(p);
     cells.setData(d.cells);
     arrows.setData(d.arrows);
+    setCrests(p);
   }
 }
 
@@ -417,11 +511,38 @@ function setPlaying(on: boolean): void {
 
 // ---------- Page ----------
 
+const GLYPH_KEY =
+  `<span class="glyph-key" title="Crest marks: significant height, a bar per foot and a triangle per 5 feet">` +
+  `<svg viewBox="0 0 12 10" width="12" height="10" aria-hidden="true"><path d="M1 9h10M6 9V4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>1 ft ` +
+  `<svg viewBox="0 0 12 10" width="12" height="10" aria-hidden="true"><path d="M1 9h10" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 9L6 2.5 8.5 9z" fill="currentColor"/></svg>5 ft</span>`;
+
+let rawButton: HTMLSpanElement | null = null; // the raw switch, kept across legend redraws
+
 function legend(): void {
   if (WAVES) {
-    const steps = [0, 0.3, 0.6, 1, 1.5, 2, 2.5];
+    const pick = (k: "height" | "period") =>
+      `<button type="button" data-wshade="${k}" aria-pressed="${SHADE === k}" title="Shade the cells by ${k === "height" ? "significant wave height" : "wave period (NWPS peak, NECOFS mean)"}">${k}</button>`;
+    const steps = SHADE === "height" ? [0, 0.3, 0.6, 1, 1.5, 2, 2.5] : [0, 3, 5, 7, 10, 14];
+    const swatch = (v: number) => (SHADE === "height" ? waveColour(v) : periodColour(v));
+    const top = SHADE === "height" ? 2.5 : 14;
     $("key").innerHTML =
-      `<span>significant wave height, m:</span>` + steps.map((v) => `<span><i class="sq" style="background:${waveColour(v)}"></i>${v === 2.5 ? "2.5+" : v}</span>`).join("");
+      `<span class="field-range" role="group" aria-label="Shading">${pick("height")}${pick("period")}</span>` +
+      `<span>${SHADE === "height" ? "height, m:" : "period, s:"}</span>` +
+      steps.map((v) => `<span><i class="sq" style="background:${swatch(v)}"></i>${v === top ? `${v}+` : v}</span>`).join("") +
+      GLYPH_KEY;
+    for (const b of $("key").querySelectorAll<HTMLButtonElement>("[data-wshade]"))
+      b.addEventListener("click", () => {
+        const k = b.dataset.wshade === "period" ? "period" : "height";
+        if (k === SHADE) return;
+        SHADE = k;
+        const u = new URL(location.href);
+        if (SHADE === "height") u.searchParams.set("wshade", "height");
+        else u.searchParams.delete("wshade");
+        history.replaceState(null, "", u);
+        legend();
+        setFrame(frame);
+      });
+    if (rawButton) $("key").append(rawButton);
     return;
   }
   const steps = [0, 5, 10, 15, 20, 25, 30, 35];
@@ -514,8 +635,7 @@ function viewText(): void {
   if (WAVES) {
     $("lede").textContent = "NWPS 1.8 km · NECOFS mesh nodes: each on its own grid, the next 72 hours over Long Island Sound.";
     $("foot").textContent =
-      "Arrows point where the waves travel. Each NECOFS node is drawn over its dual cell, the area the model holds its value over. " +
-      "NWPS gives the peak period and NECOFS the mean period, so the two periods differ by definition. NWPS runs without currents.";
+      "Crests traced through each model's cells; NECOFS nodes drawn over their dual cells. Period: NWPS peak, NECOFS mean. NWPS runs without currents.";
   }
   readout(null);
 }
@@ -523,6 +643,7 @@ function viewText(): void {
 async function main(): Promise<void> {
   wireTheme(() => {
     for (const p of panels) p.map?.setStyle(STYLES[theme()]);
+    legend(); // the swatches follow the theme
   });
   viewText();
   legend();
@@ -556,6 +677,28 @@ async function main(): Promise<void> {
       setFrame(Number(slider.value));
     });
     $("play").addEventListener("click", () => setPlaying($("play").getAttribute("aria-pressed") !== "true"));
+    if (WAVES) {
+      // The no-smoothing switch (off by default), carried in the link as "raw=1".
+      const raw = document.createElement("button");
+      raw.type = "button";
+      raw.id = "raw";
+      raw.textContent = "raw";
+      raw.title = "No smoothing or interpolation: the crests and glyphs read each model cell's own value";
+      raw.setAttribute("aria-pressed", String(RAW));
+      raw.addEventListener("click", () => {
+        RAW = !RAW;
+        raw.setAttribute("aria-pressed", String(RAW));
+        for (const p of panels) p.crest?.setRaw(RAW);
+        const u = new URL(location.href);
+        if (RAW) u.searchParams.set("raw", "1");
+        else u.searchParams.delete("raw");
+        history.replaceState(null, "", u);
+      });
+      rawButton = document.createElement("span");
+      rawButton.className = "field-range";
+      rawButton.append(raw);
+      $("key").append(rawButton);
+    }
     setPlaying(false);
   }
 
@@ -572,7 +715,7 @@ async function main(): Promise<void> {
     box.dataset.label = label;
     f.append(cap, box);
     host.append(f);
-    const p: Panel = { model: m, mesh: m ? mesh(m.grid) : null, frames: new Map((m?.frames ?? []).map((x) => [x.valid_time, x])), box, cap, map: null };
+    const p: Panel = { model: m, mesh: m ? mesh(m.grid) : null, frames: new Map((m?.frames ?? []).map((x) => [x.valid_time, x])), box, cap, map: null, flow: WAVES && m ? crestMesh(m.grid) : null, crest: null };
     panels.push(p);
     cap.innerHTML = `<span class="cap-label">${label}</span><span class="cap-sub">${gridLabel}</span>`;
     if (!gl) {

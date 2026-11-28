@@ -1902,12 +1902,13 @@ let pendingOffset: { hours: number; scale: "hours" | "days" } | null = (() => {
   return m ? { hours: Number(m[1]) * (m[2] === "d" ? 24 : 1), scale: m[2] === "d" ? "days" : "hours" } : null;
 })();
 
-/** How the currents and waves layers draw, as fields.ts last announced it (lhzn-flow): "flow=arrows" or "anim=1",
- * and for waves "wshade=period" and "wl=1" (wind lines). */
+/** How the currents and waves layers draw, as fields.ts last announced it (lhzn-flow): "flow=arrows" or "anim=0",
+ * and for waves "wshade=height" and "wl=0" (no wind lines); "raw=1" for no smoothing. */
 let flowLink: [string, string][] = [
-  ...(LINK.get("flow") === "arrows" ? [["flow", "arrows"]] : LINK.get("anim") === "1" ? [["anim", "1"]] : []),
-  ...(LINK.get("wshade") === "period" ? [["wshade", "period"]] : []),
-  ...(LINK.get("wl") === "1" ? [["wl", "1"]] : []),
+  ...(LINK.get("flow") === "arrows" ? [["flow", "arrows"]] : LINK.get("anim") === "0" ? [["anim", "0"]] : []),
+  ...(LINK.get("wshade") === "height" ? [["wshade", "height"]] : []),
+  ...(LINK.get("wl") === "0" ? [["wl", "0"]] : []),
+  ...(LINK.get("raw") === "1" ? [["raw", "1"]] : []),
 ] as [string, string][];
 document.addEventListener("lhzn-flow", (e) => {
   flowLink = (e as CustomEvent<[string, string][]>).detail;

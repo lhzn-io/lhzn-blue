@@ -36,7 +36,7 @@ const MAX_LINES = 900;
 const V_FLOOR_CMS = 1; // below this a line stops (slack water)
 const MARK_GAP_PX = 30; // streamlet spacing along a line at the view's median speed
 const MARK_MIN_GAP_PX = 14; // never closer than this, however slow the water
-const HEAD_R = 2.6; // head radius, CSS px
+const HEAD_R = 1.8; // head radius, CSS px
 const TAIL_PX = 13; // the tail behind each head, thinning and fading to nothing
 const FADES = 4; // tail drawn in this many segments of rising width and opacity
 const CROSS_S = 20; // animated: 1 m/s crosses the view's width in this many seconds
@@ -448,9 +448,9 @@ export class Streamlets {
     g.lineCap = "round";
     g.lineJoin = "round";
     // The lines: faint, one pixel.
-    g.globalAlpha = 0.22;
+    g.globalAlpha = 0.15;
     g.strokeStyle = this.ink;
-    g.lineWidth = 1;
+    g.lineWidth = 0.8;
     g.beginPath();
     for (const L of this.lines) {
       g.moveTo(L.x[0], L.y[0]);
@@ -471,8 +471,8 @@ export class Streamlets {
     });
     // Tails: FADES segments behind each head, thin and faint at the far end.
     for (let k = 0; k < FADES; k++) {
-      g.globalAlpha = 0.12 + (0.7 * (k + 1)) / FADES;
-      g.lineWidth = 0.6 + ((2 * HEAD_R - 0.8) * k) / FADES;
+      g.globalAlpha = 0.08 + (0.5 * (k + 1)) / FADES;
+      g.lineWidth = 0.4 + ((2 * HEAD_R - 0.6) * k) / FADES;
       g.beginPath();
       for (let h = 0; h < heads.length; h += 4) {
         const L = this.lines[heads[h + 3]];
@@ -487,7 +487,7 @@ export class Streamlets {
       g.stroke();
     }
     // Heads: solid, with a thin rim in the ground's colour so they read over any shade.
-    g.globalAlpha = 1;
+    g.globalAlpha = 0.75;
     g.beginPath();
     for (let h = 0; h < heads.length; h += 4) {
       g.moveTo(heads[h] + HEAD_R, heads[h + 1]);
@@ -495,8 +495,8 @@ export class Streamlets {
     }
     g.fillStyle = this.ink;
     g.fill();
-    g.globalAlpha = 0.5;
-    g.lineWidth = 0.8;
+    g.globalAlpha = 0.35;
+    g.lineWidth = 0.6;
     g.strokeStyle = this.ground;
     g.stroke();
     g.globalAlpha = 1;

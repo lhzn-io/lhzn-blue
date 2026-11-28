@@ -721,7 +721,7 @@ function addCurrents(map: maplibregl.Map, m: CurrentsMesh, c: CurrentsField): vo
     beneathLabels(map),
   );
   // Arrows: level 0 shows at the widest zoom; each zoom step lets the next level in, so spacing stays even.
-  const shown = (level: number): maplibregl.ExpressionSpecification => ["case", ["<=", ["get", "level"], level], 0.9, 0];
+  const shown = (level: number): maplibregl.ExpressionSpecification => ["case", ["<=", ["get", "level"], level], 0.6, 0];
   map.addLayer({
     id: "cur-arrows",
     type: "symbol",
@@ -732,7 +732,7 @@ function addCurrents(map: maplibregl.Map, m: CurrentsMesh, c: CurrentsField): vo
       "icon-rotation-alignment": "map",
       "icon-allow-overlap": true,
       "icon-ignore-placement": true,
-      "icon-size": ["interpolate", ["linear"], ["get", "s"], 0, 0.28, 40, 0.42, 120, 0.7],
+      "icon-size": ["interpolate", ["linear"], ["get", "s"], 0, 0.24, 40, 0.35, 120, 0.58],
     },
     paint: {
       "icon-color": mapTheme() === "light" ? "#1c2a48" : "#f4f1e8",

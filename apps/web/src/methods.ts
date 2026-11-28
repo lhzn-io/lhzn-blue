@@ -196,8 +196,8 @@ export const METHODS: Record<string, Method> = {
       "The advisory or warning NWS New York has in force for the station's forecast zone, and (shaded behind the wind plot) " +
       "the ones in force over the plotted days: small craft advisories lighter, gale and stronger warnings darker.",
     method:
-      "Each event is merged from the products that issued, extended or cancelled it, from its earliest start to its " +
-      "latest end. Each station takes the marine zone that contains it, or the nearest (harbour gauges lie inside the " +
+      "Each event is merged from the products that issued, extended or canceled it, from its earliest start to its " +
+      "latest end. Each station takes the marine zone that contains it, or the nearest (harbor gauges lie inside the " +
       "coastline). Before April 2021 the eastern Sound was one zone (ANZ330), and its events stand for both of today's.",
     sources: "NWS New York (OKX) VTEC products, from the Iowa Environmental Mesonet archive (2005 on); zone outlines from api.weather.gov.",
     caveats:
@@ -319,15 +319,15 @@ export const METHODS: Record<string, Method> = {
       "The MUR multi-sensor analysis, which fills gaps between satellite passes [[chin2017mur]] [[jpl2015mur]]. Every layer " +
       "covers one box (40.45 to 41.45°N, 73.9 to 71.8°W) and is cut to the currents model's water, so all layers share one coastline.",
     caveats:
-      "The skin of the water; buoy sensors sit about 1 m down. Three colour ranges, switched in the key under the map. " +
+      "The skin of the water; buoy sensors sit about 1 m down. Three color ranges, switched in the key under the map. " +
       "Day (the default) spans the lowest to the highest temperature on the day shown, the most detail across the water. " +
       "90 days spans the days the time bar covers, one scale as the time moves, so the season's change shows. In both, " +
-      "colours mean different temperatures from one range to the next. Year is one fixed scale all " +
+      "colors mean different temperatures from one range to the next. Year is one fixed scale all " +
       "year: even steps from 1.5 to " +
       "25.5 °C (about the 0.5th to 99.5th percentile of 2022 to 2026 over this box), compressed beyond out to -2 and " +
-      "28 °C. Both use cmocean thermal hues [[thyng2016cmocean]]; on the dark theme the coldest colours are lifted so cold " +
+      "28 °C. Both use cmocean thermal hues [[thyng2016cmocean]]; on the dark theme the coldest colors are lifted so cold " +
       "water stays visible. A typical day spans only about 2 °C across the box, so lines every 1 °C mark the fronts that " +
-      "colour alone would hide, with fainter half-degree lines from April to November, when the spread is narrowest.",
+      "color alone would hide, with fainter half-degree lines from April to November, when the spread is narrowest.",
   },
   "map-chl": {
     title: "Chlorophyll-a",
@@ -346,10 +346,10 @@ export const METHODS: Record<string, Method> = {
   "map-currents": {
     title: "Surface currents",
     shows:
-      "Modelled currents in the top layer, on the model's own triangles, shaded by speed, with arrows in the direction of flow; " +
+      "Modeled currents in the top layer, on the model's own triangles, shaded by speed, with arrows in the direction of flow; " +
       "24 hours back to 72 hours ahead.",
     method:
-      "The NECOFS FVCOM forecast (NECOFS/UMASSD), every 2 hours [[chen2003fvcom]] [[chen2006fvcom]]. Colours follow one " +
+      "The NECOFS FVCOM forecast (NECOFS/UMASSD), every 2 hours [[chen2003fvcom]] [[chen2006fvcom]]. Colors follow one " +
       "fixed scale on a logarithmic speed axis, from 0.02 to 3.1 m/s, with knots from 2026 NOAA CO-OPS current predictions " +
       "(0.494 m/s, the median daily maximum across Long Island and Block Island Sound; 2.418 and 3.097 m/s, the median and " +
       "annual daily maxima at Little Gull Island in the Race). The scale runs from near white through sage and teal to navy, " +
@@ -387,7 +387,7 @@ export const METHODS: Record<string, Method> = {
     method:
       "The NWS Nearshore Wave Prediction System, which runs the SWAN spectral wave model [[booij1999swan]], from the New York " +
       "forecast office at 00 and 12 UTC on its CG1 grid, forced by the office's forecast winds. Each hour comes from the " +
-      "newest run that covers it. Colours: an ordered ramp after cmocean [[thyng2016cmocean]].",
+      "newest run that covers it. Colors: an ordered ramp after cmocean [[thyng2016cmocean]].",
     caveats: "A model forecast, not a measurement. The runs exclude currents; steepening where the tide opposes the waves is not represented.",
   },
   "map-wat": {
@@ -425,7 +425,7 @@ export const METHODS: Record<string, Method> = {
       "NOAA's High-Resolution Rapid Refresh (HRRR) [[dowell2022hrrr]], read through forcingkit. Each hour comes from the newest run that covers " +
       "it: hourly runs reach 18 hours ahead, the 00, 06, 12 and 18 UTC runs 48 hours; a past hour comes from the run issued " +
       "1 hour before it (2 or 3 hours where that run is missing), and is kept for 14 days. Values are raw: no smoothing between " +
-      "cells. Cells HRRR counts as land are drawn fainter inland; land cells touching water (harbours, coves, the shore) are drawn like water, and a click there says it is a land cell.",
+      "cells. Cells HRRR counts as land are drawn fainter inland; land cells touching water (harbors, coves, the shore) are drawn like water, and a click there says it is a land cell.",
     caveats: "A model forecast, not a measurement; the past hours are short-lead forecasts, not observations. Speeds follow the Units switch.",
   },
 };
@@ -457,7 +457,7 @@ METHODS.mfan = {
   title: "Seen from above",
   shows:
     "The Groton current meter from above, north up, at the page's time, on NOAA's chart: land, piers, depth contours " +
-    "(metres below mean lower low water) and the dredged channel, faintly; the meter's beam out into the channel to scale; " +
+    "(meters below mean lower low water) and the dredged channel, faintly; the meter's beam out into the channel to scale; " +
     "and at each of its ten bins an arrow for the hour's current (gold), its length on the speed scale. The heavier arrow " +
     "is the bin NOAA predicts; NOAA's prediction for it is the dashed blue arrow, along NOAA's flood or ebb direction. A " +
     "hollow dot is a bin with no reading that hour. Move the time bar to watch the current turn across the channel.",
@@ -476,7 +476,7 @@ METHODS.mbins = {
   title: "Across the channel",
   shows:
     "Every bin of the Groton current meter, one line each: the current along the flood direction from 6 m out from the pier " +
-    "(strongest colour) to 42 m (palest). The heavy line is the bin NOAA predicts. Where the lines part, the current runs " +
+    "(strongest color) to 42 m (palest). The heavy line is the bin NOAA predicts. Where the lines part, the current runs " +
     "faster toward mid-channel or turns earlier near the pier.",
   method:
     "The meter is side-looking: mounted on the pier 5.2 m below the surface, it measures horizontally across the channel in " +
@@ -519,7 +519,7 @@ METHODS.comfort = {
     "Steps follow Beaufort, WMO sea states and the NWS small craft advisory; the 30% rule, post-Fastnet (1979) capsize tests.",
   caveats:
     "An indicative index derived from forecasts, not a determination of whether to go. Excludes gusts, visibility and " +
-    "thunderstorms. More than 24 hours back it rests on wind alone. The thresholds are judgements for typical boats of each length, not a standard; the code is open " +
+    "thunderstorms. More than 24 hours back it rests on wind alone. The thresholds are judgments for typical boats of each length, not a standard; the code is open " +
     "source (github.com/lhzn-io/lhzn-blue), so anyone can set their own and build an index on the same method.",
   more: { href: "/about/comfort-index/", text: "How the index is computed, with a worked example", on: ["/"] },
 };
@@ -530,7 +530,7 @@ METHODS["map-comfort"] = {
   method:
     "The comfort index of a click's readout, for every NWPS wave cell (1.8 km) at the time bar's hour: HRRR wind from the " +
     "nearest HRRR cell, NWPS waves, the wind-against-tide level and, for kayaks, the NECOFS current, by the steps for " +
-    "the boat set in the byline; for kayaks, air and water together under 120 °F (HRRR's air at the nearest forecast station) raise a level. Shore cells (harbours, coves) carry wind only. Shown as a " +
+    "the boat set in the byline; for kayaks, air and water together under 120 °F (HRRR's air at the nearest forecast station) raise a level. Shore cells (harbors, coves) carry wind only. Shown as a " +
     "score from 0 to 7: each factor runs linearly between its steps, so 1 is the Moderate step, 2 Uncomfortable and 3 " +
     "Discomfort; past Discomfort it gains a point for each half of that step again (for a center console, 30, 40 and " +
     "50 kt of wind, or 1.5, 2 and 2.5 m of waves), and the worst factor sets the score. The shading runs from clear at 0 " +
@@ -538,7 +538,7 @@ METHODS["map-comfort"] = {
     "NWS advisories keep their brick outline, apart from this scale. The Discomfort zones overlay marks where the score reaches 3, " +
     "crosshatched within a fine outline, over this field or over wind, waves or currents.",
   caveats:
-    "The score places a cell between fixed thresholds; it is not a probability, and its fractions are as much a judgement " +
+    "The score places a cell between fixed thresholds; it is not a probability, and its fractions are as much a judgment " +
     "as the steps. The shading excludes NWS advisories, which the masthead and the zone lines show and a click's readout includes. " +
     "No shading beyond HRRR's 48-hour forecast. The map reaches 14 days back once the HRRR history loads (on the first " +
     "step back past 24 hours); the wave, wind-against-tide and current models keep 24 hours back, so before that the " +
@@ -567,7 +567,7 @@ METHODS.trends = {
     "weather starts in 2024).",
 };
 
-/** Readout labels open the entry for the plot they summarise. */
+/** Readout labels open the entry for the plot they summarize. */
 export const READOUT_METHOD: Record<string, string> = { level: "tide", tendency: "pressure", stratification: "sb" };
 
 /** Short labels for the references a dialog cites (full entries on /references/). */
@@ -679,5 +679,5 @@ export function methodHtml(key: string, ctx: { variable: string; varKey: string;
     m.more && m.more.on.some((p) => location.pathname.startsWith(p))
       ? `<p class="about-more"><a href="${esc(m.more.href)}">${esc(m.more.text)}</a></p>`
       : "";
-  return `<dl class="about-list">${html}</dl>${more}${refList}<p class="about-foot">Times are stored in UTC and labelled in New York time. All data are provisional and may be revised.</p>`;
+  return `<dl class="about-list">${html}</dl>${more}${refList}<p class="about-foot">Times are stored in UTC and labeled in New York time. All data are provisional and may be revised.</p>`;
 }

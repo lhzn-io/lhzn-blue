@@ -17,7 +17,7 @@ import { CURRENTS_FLOOR, CURRENTS_KNOTS, CURRENTS_RAMP, CURRENTS_RAMP_DARK, CURR
 import { MEASURED_RAMP, MEASURED_RAMP_DARK, MEASURED_TOP } from "@lhzn-io/timecharts/measured-ramp";
 import { mapReady, mapTheme, onStyle } from "./map";
 import { compass as compass16, LIGHT_KT, windArrow } from "@lhzn-io/timecharts/wind-dir";
-import { Streamlets } from "./streamlets";
+import { gridMesh, Streamlets } from "./streamlets";
 
 export type FieldKind = "sst" | "chl" | "kd490" | "currents" | "radar" | "wind" | "waves" | "wat" | "comfort";
 
@@ -89,7 +89,8 @@ export interface WindField {
     arrow_level: number[];
     version?: number;
   };
-  frames: { valid_time: string; cycle: string; lead: number; u: string; v: string }[];
+  // tp (waves only): peak period as base64 int8 in steps of TP_STEP s; frames from older runs lack it.
+  frames: { valid_time: string; cycle: string; lead: number; u: string; v: string; tp?: string }[];
 }
 
 /** HRRR wind before the main file (hrrr-wind-history.json): the same frames and encoding, drawn on the main file's
@@ -201,6 +202,19 @@ function airPlaceOf(air: NonNullable<PointSources["air"]>, lng: number, lat: num
 }
 
 /** Controls the page passes in: the layer picker and the full-width toggle. */
+/** One wave buoy's measured waves: hourly significant height (m) and dominant period (s), its latest raw reading,
+ * and the link to its Waves plot (measured against the models). */
+export interface MeasuredWave {
+  id: string;
+  name: string;
+  lon: number;
+  lat: number;
+  hs: { at(t: number): number } | null;
+  tp: { at(t: number): number } | null;
+  last: { time: string; hs_m?: number | null; tp_s?: number | null } | null;
+  href: string;
+}
+
 export interface FieldControls {
   choices: { kind: FieldKind | "none"; label: string; more?: boolean }[];
   chosen: FieldKind | "none";
@@ -211,6 +225,10 @@ export interface FieldControls {
   point?: () => Promise<PointSources>;
   /** HRRR wind before the main file (Wind & waves): fetched once, when the time bar goes back past the main file. */
   windHistory?: () => Promise<WindHistory>;
+  /** HRRR wind for the streamlines over the wave crests: loaded when they are turned on. */
+  windField?: () => Promise<WindField | undefined>;
+  /** The wave buoys' measurements, for gold rings on the waves layer. */
+  measuredWaves?: () => MeasuredWave[];
   /** The boat class the comfort index is for (the menu's Boat setting). */
   boat?: Boat;
   /** The overlays the view offers (wind against tide; discomfort zones), whether each is on, and its switch. */
@@ -271,7 +289,7 @@ const goldFill = (): maplibregl.ExpressionSpecification => [
   ["/", ["coalesce", ["feature-state", "s"], 0], 100],
   ...goldRamp().flatMap((c, i, all) => [(i / (all.length - 1)) * MEASURED_TOP, c]),
 ] as maplibregl.ExpressionSpecification;
-const vecStops = () => (isWaves() ? waveStops() : windStops());
+const vecStops = () => (isWaves() ? (waveShade === "period" ? periodStops() : waveStops()) : windStops());
 
 interface Meta {
   title: string;
@@ -489,12 +507,16 @@ function historyRange(h: RasterHistory): [number, number] {
   return r;
 }
 
-const LAYER_IDS = ["field-raster", "sst-iso", "cur-fill", "cur-arrows", "radar-fill", "radar-arrows", "wind-fill", "wind-arrows", "comfort-fill", "comfort-hatch", "comfort-edge-casing", "comfort-edge", "wat-fill", "wat-arrows"];
-const SOURCE_IDS = ["field-raster", "sst-iso", "cur-mesh", "cur-points", "radar-cells", "radar-points", "wind-cells", "wind-points", "comfort-cells", "comfort-edge", "wat-cells", "wat-points"];
+const LAYER_IDS = ["field-raster", "sst-iso", "cur-fill", "cur-arrows", "radar-fill", "radar-arrows", "wind-fill", "wind-arrows", "wave-obs", "comfort-fill", "comfort-hatch", "comfort-edge-casing", "comfort-edge", "wat-fill", "wat-arrows"];
+const SOURCE_IDS = ["field-raster", "sst-iso", "cur-mesh", "cur-points", "radar-cells", "radar-points", "wind-cells", "wind-points", "wave-obs", "comfort-cells", "comfort-edge", "wat-cells", "wat-points"];
 
 function clear(map: maplibregl.Map): void {
   flow?.destroy();
   flow = null;
+  waveFlow?.destroy();
+  waveFlow = null;
+  windFlow?.destroy();
+  windFlow = null;
   for (const id of LAYER_IDS) if (map.getLayer(id)) map.removeLayer(id);
   for (const id of SOURCE_IDS) if (map.getSource(id)) map.removeSource(id);
 }
@@ -638,10 +660,151 @@ let flowMode: FlowMode = (() => {
 let flowAnimate = new URLSearchParams(location.search).get("anim") === "1";
 let flow: Streamlets | null = null;
 
-/** Tell the page how the currents' direction is drawn, so its link carries the choice ("flow=arrows", "anim=1"). */
+/** Tell the page how the currents and waves are drawn, so its link carries the choice ("flow=arrows", "anim=1",
+ * "wshade=period", "wl=1"). */
 function announceFlow(): void {
   const params: [string, string][] = flowMode === "arrows" ? [["flow", "arrows"]] : flowAnimate ? [["anim", "1"]] : [];
+  if (waveShade === "period") params.push(["wshade", "period"]);
+  if (windLines) params.push(["wl", "1"]);
   document.dispatchEvent(new CustomEvent("lhzn-flow", { detail: params }));
+}
+
+/* Waves: crests in place of the arrows (streamlets.ts, crest mode), the cells shaded by height or by peak period, and
+ * optionally HRRR wind as light streamlines over the dark crests, so the two read apart (Ware, Kelley and Pilar draw
+ * waves black and wind white). A link's "wshade=period" and "wl=1" win on load. */
+type WaveShade = "height" | "period";
+let waveShade: WaveShade = new URLSearchParams(location.search).get("wshade") === "period" ? "period" : "height";
+let windLines = new URLSearchParams(location.search).get("wl") === "1";
+let waveFlow: Streamlets | null = null;
+let windFlow: Streamlets | null = null;
+let windLineField: WindField | null = null;
+const TP_STEP = 0.125; // s per int8 unit (the jobs' FIELD_TP_STEP)
+const PERIOD_TOP = 14;
+/** Peak period, s: pale to deep green on the light basemap and the reverse on the dark one, a hue apart from the
+ * height scale's blue and wind's violet. */
+const periodStops = (): [number, string][] =>
+  mapTheme() === "light"
+    ? [[0, "#fbfbe6"], [3, "#e4e9b8"], [5, "#b9d48a"], [7, "#7fb664"], [10, "#3f8a4a"], [14, "#1c5233"]]
+    : [[0, "#17261c"], [3, "#21422d"], [5, "#2f6440"], [7, "#4f8f5a"], [10, "#8fc27f"], [14, "#dfeec2"]];
+const tpDecoded = new WeakMap<WindField["frames"][number], Float32Array | null>();
+/** A waves frame's peak period per cell, s (decoded once), or null for a frame without it. */
+function waveTp(w: WindField, k: number): Float32Array | null {
+  const f = w.frames[k];
+  if (!f) return null;
+  if (!tpDecoded.has(f)) {
+    let out: Float32Array | null = null;
+    if (f.tp) {
+      const b = atob(f.tp);
+      out = new Float32Array(b.length);
+      for (let i = 0; i < b.length; i++) out[i] = ((b.charCodeAt(i) << 24) >> 24) * TP_STEP;
+    }
+    tpDecoded.set(f, out);
+  }
+  return tpDecoded.get(f)!;
+}
+const waveMeshes = new WeakMap<WindField["mesh"], ReturnType<typeof gridMesh>>();
+const windMeshes = new WeakMap<WindField["mesh"], ReturnType<typeof gridMesh>>();
+/** A grid's cells as triangles for tracing: the waves without the model's land cells, the wind over everything. */
+function cellMesh(m: WindField["mesh"], waves: boolean): ReturnType<typeof gridMesh> {
+  const cache = waves ? waveMeshes : windMeshes;
+  let g = cache.get(m);
+  if (!g) {
+    g = gridMesh(m.nx, m.ny, m.corner_lon, m.corner_lat, waves ? m.land : undefined);
+    cache.set(m, g);
+  }
+  return g;
+}
+/** Cell values onto the triangles that carry them. */
+const spread = (vals: ArrayLike<number>, cell: Int32Array) => Float32Array.from(cell, (c) => vals[c]);
+
+function waveSwitch(): string {
+  const pick = (k: WaveShade, label: string, title: string) => `<button type="button" data-wshade="${k}" aria-pressed="${waveShade === k}" title="${title}">${label}</button>`;
+  const wind = flowMode === "lines" && controls?.windField
+    ? `<span class="field-range"><button type="button" data-wl aria-pressed="${windLines}" title="HRRR wind as light streamlines over the crests">wind</button></span>` : "";
+  return `<span class="field-range" role="group" aria-label="Shading">${pick("height", "height", "Shade the cells by significant wave height")}${pick("period", "period", "Shade the cells by peak wave period")}</span>${wind}`;
+}
+
+function waveNote(): string {
+  return (flowMode === "lines"
+    ? " Lines: wave crests of the hour shown, across the direction the waves travel, traced through the model's cells; " +
+      "the ticks point where they travel. The spacing is fixed on screen and says nothing about wavelength; animated, " +
+      "the crests drift at one even pace, not the waves' speed."
+    : "") +
+    (waveShade === "period" ? " Shading: peak wave period, in seconds; frames from older runs carry none." : "") +
+    (windLines && flowMode === "lines" ? " Light lines: HRRR 10 m wind at the same hour, as streamlines." : "") +
+    (controls?.measuredWaves?.().length
+      ? " Gold rings: measured at the LISICOS wave buoys (significant height, or dominant period), filled on the same " +
+        "scale, hollow when the reading is more than 90 minutes old; the buoys report no direction. Click one for its " +
+        "value, the model's in the same cell, and the buoy's plot."
+      : "");
+}
+
+/* Measured waves: a gold ring at each wave buoy (the site's colour for measurements), filled on the map's scale with
+ * the buoy's height or dominant period at the page's time, hollow when the reading is more than OBS_STALE_S old, and
+ * absent for hours ahead. The buoys report no direction, so the ring carries no crest. */
+const OBS_STALE_S = 90 * 60;
+const fmtObs = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" });
+
+/** A buoy's reading for the page's time: the hourly mean of this hour or the two before it, or the latest raw reading
+ * when it is newer; null for hours ahead or with nothing in reach. */
+function measuredAt(b: MeasuredWave): { t: number; hs: number; tp: number; stale: boolean } | null {
+  const now = Date.now() / 1000;
+  const t = fieldT ?? now;
+  if (t > now + 1800) return null;
+  const hour = Math.floor(t / 3600) * 3600;
+  let best: { t: number; hs: number; tp: number } | null = null;
+  for (let k = 0; k <= 2 && !best; k++) {
+    const h = hour - k * 3600;
+    const hs = b.hs?.at(h) ?? NaN;
+    if (Number.isFinite(hs)) best = { t: h + 1800, hs, tp: b.tp?.at(h) ?? NaN };
+  }
+  const lt = b.last ? Date.parse(b.last.time) / 1000 : NaN;
+  if (b.last?.hs_m != null && lt <= t + 600 && t - lt < 3 * 3600 && (!best || lt > best.t)) best = { t: lt, hs: b.last.hs_m, tp: b.last.tp_s ?? NaN };
+  return best ? { ...best, stale: t - best.t > OBS_STALE_S } : null;
+}
+
+function measuredFeatures() {
+  const list = isWaves() ? (controls?.measuredWaves?.() ?? []) : [];
+  const features = [];
+  for (const b of list) {
+    const m = measuredAt(b);
+    if (!m) continue;
+    const v = waveShade === "period" ? m.tp : m.hs;
+    features.push({
+      type: "Feature" as const,
+      properties: { id: b.id, v: Number.isFinite(v) ? v : 0, hollow: m.stale || !Number.isFinite(v) ? 1 : 0 },
+      geometry: { type: "Point" as const, coordinates: [b.lon, b.lat] },
+    });
+  }
+  return { type: "FeatureCollection" as const, features };
+}
+
+/** A ring's readout: the measurement, its time, the NWPS value in the buoy's cell, and the buoy's Waves plot. */
+function measuredText(w: WindField, id: string): string | null {
+  const b = controls?.measuredWaves?.().find((x) => x.id === id);
+  const m = b ? measuredAt(b) : null;
+  if (!b || !m) return null;
+  const ft = (h: number) => `${(h * 3.28084).toFixed(1)} ft`;
+  const sec = (s: number) => (Number.isFinite(s) && s > 0 ? `, ${s.toFixed(1)} s` : "");
+  const cell = nearestCell(w.mesh, b.lon, b.lat, 2);
+  let model = "";
+  if (cell >= 0 && windFrame >= 0 && !w.mesh.land[cell]) {
+    const { u, v } = windUV(w, windFrame);
+    const tp = waveTp(w, windFrame);
+    model = `<br><small>NWPS in this cell: ${ft(Math.hypot(u[cell], v[cell]))}${sec(tp ? tp[cell] : NaN)}</small>`;
+  }
+  return `<b>Measured at ${b.name}</b><br>${ft(m.hs)}${sec(m.tp)} at ${fmtObs.format(new Date(m.t * 1000))}${m.stale ? " (more than 90 minutes old)" : ""}` +
+    `${model}<br><small><a href="${b.href}">Waves plot: measured against the models</a></small>`;
+}
+
+/** The HRRR wind lines over the crests at the page's time. */
+function paintWindLines(): void {
+  if (!windFlow || !windLineField) return;
+  const k = windFrameAt(windLineField);
+  if (k < 0) return windFlow.setField(null, null);
+  const { u, v } = windUV(windLineField, k);
+  const g = cellMesh(windLineField.mesh, false);
+  windFlow.setField(spread(u, g.cell), spread(v, g.cell));
 }
 
 function flowSwitch(): string {
@@ -1120,6 +1283,44 @@ function addWind(map: maplibregl.Map, w: WindField): void {
       "icon-opacity": ["step", ["zoom"], shown(0), 8.6, shown(1), 9.4, shown(2), 10.2, shown(3), 11, shown(6)] as maplibregl.ExpressionSpecification,
     },
   });
+  if (isWaves() && flowMode === "lines") {
+    map.setLayoutProperty("wind-arrows", "visibility", "none");
+    const light = mapTheme() === "light";
+    const crests = new Streamlets(map, cellMesh(w.mesh, true).mesh, { mode: "crest", floor: 0.05 });
+    crests.setStyle(light ? "#1c2a48" : "#f4f1e8", light ? "#fbf8f1" : "#10182a", 0.5);
+    crests.setAnimate(flowAnimate);
+    waveFlow = crests;
+    const load = controls?.windField;
+    if (windLines && load) {
+      void load().then((hw) => {
+        if (!hw || waveFlow !== crests) return; // the layer was redrawn meanwhile
+        windLineField = hw;
+        // Light lines over the dark crests (and the reverse on the dark theme), so the two layers read apart.
+        windFlow = new Streamlets(map, cellMesh(hw.mesh, false).mesh, { floor: 0.5, crossS: 2 });
+        windFlow.setStyle(light ? "#ffffff" : "#0b1424", light ? "#1c2a48" : "#f4f1e8", 0.55);
+        windFlow.setAnimate(flowAnimate);
+        paintWindLines();
+      });
+    }
+  }
+  if (isWaves() && controls?.measuredWaves) {
+    const gold = getComputedStyle(document.documentElement).getPropertyValue("--now").trim() || "#d8a23a";
+    map.addSource("wave-obs", { type: "geojson", data: measuredFeatures() });
+    map.addLayer({
+      id: "wave-obs",
+      type: "circle",
+      source: "wave-obs",
+      paint: {
+        // Wide enough to show around the station's own pin, which sits on top.
+        "circle-radius": 13,
+        "circle-color": windColour(["get", "v"]),
+        "circle-opacity": ["case", ["==", ["get", "hollow"], 1], 0, 1] as maplibregl.ExpressionSpecification,
+        "circle-stroke-color": gold,
+        "circle-stroke-width": 2.5,
+      },
+    });
+  }
+  if (isWaves()) announceFlow();
   paintWind(map);
 }
 
@@ -1132,8 +1333,21 @@ function paintWind(map: maplibregl.Map): void {
     for (let i = 0; i < n; i++) map.setFeatureState({ source: "wind-cells", id: i }, { s: null });
   } else {
     const { u, v } = windUV(w, windFrame);
-    for (let i = 0; i < n; i++) map.setFeatureState({ source: "wind-cells", id: i }, { s: Math.hypot(u[i], v[i]) });
+    // Waves by period: the frame's peak period where it has one (none drawn for a frame from an older run).
+    const tp = isWaves() && waveShade === "period" ? waveTp(w, windFrame) : null;
+    const byPeriod = isWaves() && waveShade === "period";
+    for (let i = 0; i < n; i++) map.setFeatureState({ source: "wind-cells", id: i }, { s: byPeriod ? (tp ? tp[i] : null) : Math.hypot(u[i], v[i]) });
   }
+  if (waveFlow) {
+    if (windFrame < 0) waveFlow.setField(null, null);
+    else {
+      const { u, v } = windUV(w, windFrame);
+      const g = cellMesh(w.mesh, true);
+      waveFlow.setField(spread(u, g.cell), spread(v, g.cell));
+    }
+  }
+  paintWindLines();
+  (map.getSource("wave-obs") as maplibregl.GeoJSONSource | undefined)?.setData(measuredFeatures());
   (map.getSource("wind-points") as maplibregl.GeoJSONSource).setData(windPointsGeoJSON(w, windFrame));
   refreshPopup();
 }
@@ -1166,7 +1380,9 @@ function waveText(w: WindField, id: number): string {
   const { u, v } = windUV(w, windFrame);
   const h = Math.hypot(u[id], v[id]);
   const from = ((Math.atan2(-u[id], -v[id]) * 180) / Math.PI + 360) % 360;
-  return `${(h * 3.28084).toFixed(1)} ft (${h.toFixed(2)} m) from ${compass16(from)}<br><small>${fmtProbe.format(new Date(f.valid_time))}, NWPS ${f.cycle.slice(11, 13)}Z run, ${f.lead} h ahead, model</small>`;
+  const tp = waveTp(w, windFrame);
+  const period = tp && tp[id] > 0 ? `, ${tp[id].toFixed(1)} s` : "";
+  return `${(h * 3.28084).toFixed(1)} ft (${h.toFixed(2)} m)${period} from ${compass16(from)}<br><small>${fmtProbe.format(new Date(f.valid_time))}, NWPS ${f.cycle.slice(11, 13)}Z run, ${f.lead} h ahead, model</small>`;
 }
 
 /* ---------- Wind against tide ---------- */
@@ -2014,7 +2230,9 @@ function waveLine(w: WindField, lng: number, lat: number): string | null {
   const ht = (m: number) => (metric ? `${m.toFixed(2)} m` : `${(m * 3.28084).toFixed(1)} ft`);
   const pk = peakAhead(pts, t);
   const peak = pk ? `; peak ${ht(pk[1])} ${fmtProbe.format(new Date(pk[0] * 1000))}` : "";
-  return `<span class="pop-l1"><b>Waves</b> ${ht(h)} from ${compass16(from)}${sparkSvg(pts, 2.5, t, sparkColours().waves)}</span>` +
+  const tp = waveTp(w, k);
+  const period = tp && tp[id] > 0 ? `, ${tp[id].toFixed(1)} s` : "";
+  return `<span class="pop-l1"><b>Waves</b> ${ht(h)}${period} from ${compass16(from)}${sparkSvg(pts, 2.5, t, sparkColours().waves)}</span>` +
     `<br><small>${word}${peak}</small>`;
 }
 
@@ -2571,6 +2789,11 @@ function scaleHtml(meta: Meta, ripKey = false): string {
   if (ripKey || active === "wat") {
     return `<div class="field-scale wat-scale">${[1, 2, 3, 4].map((l) => `<span>${ripSwatch(l)}${WAT_SHORT[l]}</span>`).join("")}</div>`;
   }
+  if (isWaves() && waveShade === "period") {
+    const at = (s: number) => `${((s / PERIOD_TOP) * 100).toFixed(1)}%`;
+    const stops = periodStops().map(([s, c]) => `${c} ${at(s)}`);
+    return `<div class="field-scale"><span>0</span><i class="field-bar" style="background:linear-gradient(90deg,${stops.join(",")})"></i><span>${PERIOD_TOP} s</span></div>`;
+  }
   if (isWaves()) {
     const at = (m: number) => `${((m / WAVE_TOP) * 100).toFixed(1)}%`;
     const stops = waveStops().map(([m, c]) => `${c} ${at(m)}`);
@@ -2707,9 +2930,9 @@ function renderPanel(fallback: HTMLElement): void {
     const in3d = c && !cm && !wt && !r && location.pathname.startsWith("/long-island-sound/")
       ? `<a class="field-3d" href="/long-island-sound/currents-3d/" title="The same model in 3D, below the surface">In 3D</a>` : "";
     body = `<div class="field-key"><span class="field-name" title="${meta.title}">${name}</span><span class="field-when">${when}</span>
-      ${active === "sst" && r ? rangeSwitch() : ""}${active === "currents" && c ? flowSwitch() : ""}<button type="button" class="field-info" aria-haspopup="dialog" aria-label="About this layer" title="About this layer">i</button>${in3d}</div>
-      ${scaleHtml(meta)}
-      <p class="field-note" hidden><b>${meta.title}.</b> ${meta.note}${active === "currents" && flowMode === "lines" ? FLOW_NOTE : ""}${span}${run} <span class="field-credit">${credit}</span></p>`;
+      ${active === "sst" && r ? rangeSwitch() : ""}${active === "currents" && c ? flowSwitch() : ""}${isWaves() && w ? flowSwitch() + waveSwitch() : ""}<button type="button" class="field-info" aria-haspopup="dialog" aria-label="About this layer" title="About this layer">i</button>${in3d}</div>
+      ${scaleHtml(meta)}${isWaves() && controls?.measuredWaves?.().length ? `<span class="obs-key" title="Measured at the LISICOS wave buoys; click a ring">measured</span>` : ""}
+      <p class="field-note" hidden><b>${meta.title}.</b> ${meta.note}${active === "currents" && flowMode === "lines" ? FLOW_NOTE : ""}${isWaves() ? waveNote() : ""}${span}${run} <span class="field-credit">${credit}</span></p>`;
     if (overlay && !wt) {
       const of = watFrame >= 0 ? overlay.frames[watFrame] : null;
       body += `<div class="field-key field-overlay"><span class="field-name" title="${META.wat.title}">+ ${META.wat.short}</span><span class="field-when">${of ? `NWPS ${of.cycle.slice(11, 13)}Z run` : "no model hour"}</span>
@@ -2755,6 +2978,24 @@ function renderPanel(fallback: HTMLElement): void {
   panel.querySelector<HTMLButtonElement>("[data-anim]")?.addEventListener("click", () => {
     flowAnimate = !flowAnimate;
     flow?.setAnimate(flowAnimate);
+    waveFlow?.setAnimate(flowAnimate);
+    windFlow?.setAnimate(flowAnimate);
+    renderPanel(fallback);
+    announceFlow();
+  });
+  panel.querySelectorAll<HTMLButtonElement>("[data-wshade]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const k: WaveShade = b.dataset.wshade === "period" ? "period" : "height";
+      if (k === waveShade) return;
+      waveShade = k;
+      void mapReady().then(draw); // the fill's colour scale changes with it
+      renderPanel(fallback);
+      announceFlow();
+    }),
+  );
+  panel.querySelector<HTMLButtonElement>("[data-wl]")?.addEventListener("click", () => {
+    windLines = !windLines;
+    void mapReady().then(draw);
     renderPanel(fallback);
     announceFlow();
   });
@@ -2944,6 +3185,12 @@ export async function showField(kind: FieldKind | null, payload: FieldData, ctl:
         return;
       }
       const r = data.raster;
+      const obs = data.wind && map.getLayer("wave-obs") ? map.queryRenderedFeatures(e.point, { layers: ["wave-obs"] })[0] : undefined;
+      const obsText = obs && data.wind ? measuredText(data.wind, String(obs.properties?.id)) : null;
+      if (obsText) {
+        void showValue(map, e.lngLat, obsText, null, null, null, "260px", true);
+        return;
+      }
       if (controls?.point) {
         const load = controls.point;
         pointSrc ??= await load().catch(() => ({}));

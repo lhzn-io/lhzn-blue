@@ -1257,7 +1257,7 @@ function turbTable(): string {
  * far the costliest part to draw; its height is held from the column as drawn). */
 function statusHtml(all: StationData[], survey = false): string {
   if (VIRTUAL) return virtualSources(); // a virtual buoy has no row in the tables: where its values come from instead
-  if (VK === "currents") return ""; // the Currents view is the map alone
+  if (MAP_VIEWS.includes(VK)) return ""; // the Currents and Waves views are the map alone
   const stations = all.filter(onStation);
   if (VK === "turbidity") return turbTable() + PARTS.shoreTable() + outlookHtml(STATIONS);
   if (VK === "rivers") return riverTable(A.RIVER_SECTIONS[0]) + outlookHtml(STATIONS);
@@ -1875,6 +1875,8 @@ const FIELD_CHOICES: { kind: FieldKind | "none"; label: string }[] = [
   { kind: "wind", label: "Wind (HRRR)" },
   { kind: "waves", label: "Waves (NWS model)" },
 ];
+/** The views that are the map alone: no status column or station list. */
+const MAP_VIEWS: VarKey[] = ["currents", "waves"];
 /** The map layers each view offers, and the one it opens with; the others sit under "More layers". */
 const VIEW_LAYERS: Record<VarKey, { offer: FieldKind[]; def: FieldKind | "none"; overlay?: boolean }> = {
   temp: { offer: ["sst"], def: "sst" },
@@ -1883,6 +1885,7 @@ const VIEW_LAYERS: Record<VarKey, { offer: FieldKind[]; def: FieldKind | "none";
   turbidity: { offer: ["kd490", "chl"], def: "kd490" },
   wind: { offer: ["comfort", "wind", "waves", "currents", "radar"], def: "comfort", overlay: true }, // the wind-against-tide overlay
   currents: { offer: ["currents", "radar"], def: "currents", overlay: true }, // the map is the view; wind against tide on offer
+  waves: { offer: ["waves", "wind", "currents"], def: "waves", overlay: true }, // the map is the view, as Currents
   tides: { offer: [], def: "none" },
   rivers: { offer: [], def: "none" },
 };
@@ -1899,8 +1902,13 @@ let pendingOffset: { hours: number; scale: "hours" | "days" } | null = (() => {
   return m ? { hours: Number(m[1]) * (m[2] === "d" ? 24 : 1), scale: m[2] === "d" ? "days" : "hours" } : null;
 })();
 
-/** How the currents layer draws direction, as fields.ts last announced it (lhzn-flow): "flow=arrows" or "anim=1". */
-let flowLink: [string, string][] = LINK.get("flow") === "arrows" ? [["flow", "arrows"]] : LINK.get("anim") === "1" ? [["anim", "1"]] : [];
+/** How the currents and waves layers draw, as fields.ts last announced it (lhzn-flow): "flow=arrows" or "anim=1",
+ * and for waves "wshade=period" and "wl=1" (wind lines). */
+let flowLink: [string, string][] = [
+  ...(LINK.get("flow") === "arrows" ? [["flow", "arrows"]] : LINK.get("anim") === "1" ? [["anim", "1"]] : []),
+  ...(LINK.get("wshade") === "period" ? [["wshade", "period"]] : []),
+  ...(LINK.get("wl") === "1" ? [["wl", "1"]] : []),
+] as [string, string][];
 document.addEventListener("lhzn-flow", (e) => {
   flowLink = (e as CustomEvent<[string, string][]>).detail;
   syncUrl(true);
@@ -1913,7 +1921,7 @@ function linkUrl(plot?: string): string {
   if (fieldPick !== "none" && !EMBED) p.set("layer", fieldPick); // a plot page or an embed has no map
   const ovs = VIEW_LAYERS[VK].overlay ? [overlayWat && "wat", overlayHaz && "dz"].filter(Boolean) : [];
   if (ovs.length && !EMBED) p.set("ov", ovs.join(","));
-  if (fieldPick === "currents" && !EMBED) for (const [k, v] of flowLink) p.set(k, v);
+  if ((fieldPick === "currents" || fieldPick === "waves") && !EMBED) for (const [k, v] of flowLink) p.set(k, v);
   const tl = timelineModule?.position();
   if (tl && tl.offset !== 0) p.set("t", tl.scale === "days" ? `${Math.round(tl.offset / 24)}d` : `${tl.offset > 0 ? "+" : ""}${tl.offset}h`);
   if (PLOT_PAGE && PLOT_DEPTH) p.set("depth", PLOT_DEPTH.toLowerCase()); // a plot page's depth tab
@@ -2080,10 +2088,10 @@ function historyData(kind: FieldKind): Promise<RasterHistory | null> {
 
 function applyWide(): void {
   document.querySelector(".overview")?.classList.toggle("map-wide", mapWide);
-  // The Currents view is the map: no status column or station list, the map as tall as the window allows. The box
-  // changes height, so the map is fitted to the waterway again (a station's page keeps its own place).
+  // The Currents and Waves views are the map: no status column or station list, the map as tall as the window allows.
+  // The box changes height, so the map is fitted to the waterway again (a station's page keeps its own place).
   const main = document.querySelector("main");
-  const only = VK === "currents";
+  const only = MAP_VIEWS.includes(VK);
   if (main && main.classList.contains("map-only") !== only) {
     main.classList.toggle("map-only", only);
     if (!STATION_ID && !VIRTUAL) void import("../map").then(async (m) => {
@@ -2166,6 +2174,14 @@ function fieldControls(): import("../fields").FieldControls {
         }
       : undefined,
     windHistory: VIEW_LAYERS[VK].overlay ? windHistoryData : undefined,
+    // The wave buoys' measurements for the gold rings on the waves layer, and each buoy's Waves plot.
+    measuredWaves: () =>
+      STATIONS.filter((d) => d.kind === "buoy" && d.waves?.hs).map((d) => ({
+        id: d.meta.id, name: d.meta.name, lon: d.meta.lon, lat: d.meta.lat, hs: d.waves!.hs, tp: d.waves!.tp,
+        last: A.lastWave(d.meta.id), href: PAGES ? `${placePath(d.meta.id)}?view=wind#${d.meta.id}-waves` : `#${d.meta.id}-waves`,
+      })),
+    // HRRR wind for the light streamlines over the wave crests, loaded when they are turned on.
+    windField: async () => (await fieldData("wind").catch(() => ({}) as import("../fields").FieldData)).wind,
     overlays: VIEW_LAYERS[VK].overlay
       ? [
           {

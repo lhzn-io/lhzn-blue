@@ -97,8 +97,10 @@ export function prefetchVar(k: VarKey): void {
 const loaded = new Set<VarKey>(["temp"]);
 export async function ensureVar(k: VarKey, live: Live, stations: StationData[], sources: (html: string) => void): Promise<void> {
   if (loaded.has(k)) return;
-  if (k === "currents") {
-    loaded.add(k); // the map's own files: nothing for the stations
+  if (k === "currents" || k === "waves") {
+    // The Waves view's measured rings read each wave buoy's last 100 days from live.json (no extra file).
+    if (k === "waves") for (const d of stations) if (d.kind === "buoy" && !d.waves) d.waves = wavesFrom(undefined, live.waves?.[d.meta.id]);
+    loaded.add(k); // the map's own files
     return;
   }
   if (k === "tides") {

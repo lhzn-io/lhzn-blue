@@ -16,7 +16,7 @@ export type State = "live" | "delayed" | "offline";
  * column and surface-minus-bottom charts); temperature is the default. Salinity and oxygen histories
  * load on first use, so the first view costs the same two requests as before.
  */
-export type VarKey = "temp" | "salinity" | "oxygen" | "turbidity" | "wind" | "currents" | "rivers" | "tides";
+export type VarKey = "temp" | "salinity" | "oxygen" | "turbidity" | "wind" | "currents" | "waves" | "rivers" | "tides";
 export interface WaterVar {
   label: string;
   unit: string; // appended to values on axes and in tooltips
@@ -32,6 +32,8 @@ export const WATER_VARS: Record<VarKey, WaterVar> = {
   wind: { label: "Wind and waves", unit: "", digits: 1, file: "history-waves.json", obs: () => null },
   // The modelled surface currents across the waterway: the map is the whole view (no station variable).
   currents: { label: "Currents", unit: "", digits: 0, file: "", obs: () => null },
+  // The modelled waves across the waterway, the same way: the map is the whole view.
+  waves: { label: "Waves", unit: "", digits: 0, file: "", obs: () => null },
   // Turbidity: the buoys' point observations with their reliability, and the river input (see turbTable). The
   // home of the turbidity field to come: a surface map from satellite, then a modelled field.
   turbidity: { label: "Turbidity", unit: " NTU", digits: 1, file: "history-turbidity.json", obs: () => null },

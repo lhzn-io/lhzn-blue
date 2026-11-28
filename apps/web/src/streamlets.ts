@@ -1,23 +1,24 @@
 /**
- * Streamlines with streamlets over a model's surface currents, after Ware, Kelley and Pilar (2014, BAMS 95,
- * 1573-1581) and Pilar and Ware (2013): a dense pattern of evenly spaced streamlines (Jobard and Lefer 1997), and along
- * each line small elements with a much stronger head than tail, which show the direction of flow more clearly than a
- * grid of arrows.
+ * Streamlines with streamlets over a model's surface currents or wind, and wave crests over its waves, after Ware,
+ * Kelley and Pilar (2014, BAMS 95, 1573-1581) and Pilar and Ware (2013): a dense pattern of evenly spaced lines
+ * (Jobard and Lefer 1997), with marks along each line that have a much stronger head than tail, which show the
+ * direction of flow more clearly than a grid of arrows; and for waves, lines along the crests (across the direction of
+ * travel, as a sailor sees them) with a short tick on the side the waves travel toward.
  *
  * What is drawn, and how it stays faithful to the model:
- * - The lines are traced through the model's own triangles. Element velocities are averaged to the nodes and
- *   interpolated linearly inside each triangle, so a line bends smoothly; it stops at the edge of the model's water and
- *   never crosses land or a gap.
+ * - The lines are traced through the model's own cells (triangles, or each grid cell as two triangles). Cell values
+ *   are averaged to the nodes and interpolated linearly inside each triangle, so a line bends smoothly; it stops at the
+ *   edge of the model's water and never crosses land or a gap.
  * - Lines are SEP_PX apart on screen (the paper: the spacing has an optimum on screen, so the drawing changes with
- *   scale), and closer, down to SEP_MIN_PX, where the model's own elements are smaller than that on screen. Dense lines
- *   therefore mean a finer mesh; the triangles' speed shading underneath still shows each element as the model has it.
- * - Streamlets sit evenly in travel time along a line, as particles released at a steady rate would: closer together
- *   where the water is slow, further apart where it is fast. Animated, they move at the current's own speed, all at one
- *   speed-up (1 m/s crosses the view's width in CROSS_S seconds), so relative speeds read true.
- * - They are the flow at one instant, not where the water goes over a tide that reverses about every 6 hours.
+ *   scale), and closer, down to SEP_MIN_PX, where the model's own cells are smaller than that on screen. Dense lines
+ *   therefore mean a finer mesh; the cells' shading underneath still shows each cell as the model has it.
+ * - Flow: streamlets sit evenly in travel time along a line, as particles released at a steady rate would: closer
+ *   together where the flow is slow. Animated, they move at the flow's own speed, all at one speed-up, so relative
+ *   speeds read true. They are the flow at one instant, not where the water (or air) goes over the following hours.
+ * - Crests: the spacing says nothing about wavelength (a 4 s wave is about 25 m long, far below map scale). Animated,
+ *   the crests drift toward where the waves travel at one even pace, not the waves' own speed.
  *
- * Drawn on a 2D canvas over the map, in the map's ink (speed is the shading's job, direction the streamlets'), and
- * rebuilt when the frame, the view or the size changes.
+ * Drawn on a 2D canvas over the map, in one ink, and rebuilt when the frame, the view or the size changes.
  */
 import type maplibregl from "maplibre-gl";
 
@@ -26,20 +27,32 @@ export interface FlowMesh {
   triangles: [number, number, number][];
 }
 
+export interface StreamOptions {
+  /** "flow": streamlines with streamlets; "crest": lines across the direction of travel, with ticks. */
+  mode?: "flow" | "crest";
+  /** Below this magnitude (the field's own units) a line stops: slack water, calm air, no waves. */
+  floor?: number;
+  /** Flow, animated: one unit of the field per second crosses the view's width in this many seconds x 100 (the
+   * default, 20, suits currents in cm/s: 1 m/s crosses the view in 20 s). */
+  crossS?: number;
+}
+
 const SEP_PX = 44; // line spacing on screen
-const SEP_MIN_PX = 22; // the closest lines come, where the model's elements are smaller than SEP_PX on screen
+const SEP_MIN_PX = 22; // the closest lines come, where the model's cells are smaller than SEP_PX on screen
 const TEST = 0.5; // a line stops when it comes within TEST x the local spacing of another
 const STEP_PX = 2; // integration step on screen
 const MAX_STEPS = 700; // per direction
 const MIN_POINTS = 8; // shorter lines are dropped
 const MAX_LINES = 900;
-const V_FLOOR_CMS = 1; // below this a line stops (slack water)
 const MARK_GAP_PX = 30; // streamlet spacing along a line at the view's median speed
-const MARK_MIN_GAP_PX = 14; // never closer than this, however slow the water
+const MARK_MIN_GAP_PX = 14; // never closer than this, however slow the flow
 const HEAD_R = 1.8; // head radius, CSS px
 const TAIL_PX = 13; // the tail behind each head, thinning and fading to nothing
 const FADES = 4; // tail drawn in this many segments of rising width and opacity
-const CROSS_S = 20; // animated: 1 m/s crosses the view's width in this many seconds
+const TICK_GAP_PX = 34; // crests: a tick every this far along a crest
+const TICK_PX = 4; // crests: tick length, toward where the waves travel
+const DRIFT_PX = 22; // crests, animated: how far a crest drifts before it fades and the next takes its place
+const DRIFT_S = 2.5; // crests, animated: seconds per drift
 const MARGIN_PX = 24; // lines are traced this far past the edges, so none starts abruptly at the frame
 
 /** The mesh in Web Mercator units (conformal, so east and north scale alike), with a bin grid for point location. */
@@ -93,7 +106,7 @@ function buildIndex(m: FlowMesh): Index {
     area += a;
   }
   // Bins about two triangles across on average, so a lookup tests a handful.
-  const cell = Math.sqrt((area / t) * 2) || 1e-4;
+  const cell = Math.sqrt((area / Math.max(1, t)) * 2) || 1e-4;
   const nx = Math.max(1, Math.ceil((maxX - minX) / cell));
   const ny = Math.max(1, Math.ceil((maxY - minY) / cell));
   const count = new Int32Array(nx * ny + 1);
@@ -117,7 +130,7 @@ function buildIndex(m: FlowMesh): Index {
     const [bx0, bx1, by0, by1] = span(k);
     for (let j = by0; j <= by1; j++) for (let i = bx0; i <= bx1; i++) list[fill[j * nx + i]++] = k;
   }
-  // Each node's triangles, for averaging element velocities to the nodes.
+  // Each node's triangles, for averaging cell values to the nodes.
   const nc = new Int32Array(n + 1);
   for (let k = 0; k < t * 3; k++) nc[tri[k] + 1]++;
   for (let i = 0; i < n; i++) nc[i + 1] += nc[i];
@@ -150,24 +163,47 @@ function locate(ix: Index, px: number, py: number, hint: number, w: Float64Array
   return -1;
 }
 
+/** A regular grid's cells (corners shared, (nx+1) x (ny+1) of them) as two triangles each, leaving out the cells
+ * `skip` marks (land in the wave model); `cell[k]` is triangle k's cell, for spreading cell values onto triangles. */
+export function gridMesh(nx: number, ny: number, cornerLon: number[], cornerLat: number[], skip?: ArrayLike<number>): { mesh: FlowMesh; cell: Int32Array } {
+  const nodes: [number, number][] = cornerLon.map((x, i) => [x, cornerLat[i]]);
+  const triangles: [number, number, number][] = [];
+  const cells: number[] = [];
+  const c = (j: number, i: number) => j * (nx + 1) + i;
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) {
+      const id = j * nx + i;
+      if (skip?.[id]) continue;
+      triangles.push([c(j, i), c(j, i + 1), c(j + 1, i + 1)], [c(j, i), c(j + 1, i + 1), c(j + 1, i)]);
+      cells.push(id, id);
+    }
+  return { mesh: { nodes, triangles }, cell: Int32Array.from(cells) };
+}
+
 interface Line {
-  x: Float32Array; // screen positions, CSS px, upstream to downstream
+  x: Float32Array; // screen positions, CSS px, upstream to downstream (flow) or along the crest
   y: Float32Array;
-  s: Float32Array; // arc length from the upstream end
-  tau: Float32Array; // travel time from the upstream end, display seconds
+  s: Float32Array; // arc length from the first point
+  tau: Float32Array; // flow: travel time from the upstream end, display seconds
+  tx: Float32Array; // crest: the unit direction the waves travel, on screen
+  ty: Float32Array;
 }
 
 export class Streamlets {
   private readonly canvas: HTMLCanvasElement;
   private readonly g: CanvasRenderingContext2D;
   private readonly ix: Index;
-  private nu: Float32Array; // node velocities, cm/s
+  private readonly mode: "flow" | "crest";
+  private readonly floor: number;
+  private readonly crossS: number;
+  private nu: Float32Array; // node values, the field's units
   private nv: Float32Array;
   private hasField = false;
   private lines: Line[] = [];
   private gap = 1; // streamlet spacing in travel time
   private ink = "#1c2a48";
   private ground = "#ffffff";
+  private lineAlpha = 0.15;
   private animate = false;
   private raf = 0;
   private t0 = performance.now();
@@ -177,20 +213,26 @@ export class Streamlets {
   };
   private readonly onSettle = () => this.schedule();
 
-  constructor(private readonly map: maplibregl.Map, mesh: FlowMesh) {
+  constructor(private readonly map: maplibregl.Map, mesh: FlowMesh, opts: StreamOptions = {}) {
     let ix = indexCache.get(mesh);
     if (!ix) {
       ix = buildIndex(mesh);
       indexCache.set(mesh, ix);
     }
     this.ix = ix;
+    this.mode = opts.mode ?? "flow";
+    this.floor = opts.floor ?? 1;
+    this.crossS = opts.crossS ?? 20;
+    if (this.mode === "crest") this.lineAlpha = 0.5;
     this.nu = new Float32Array(mesh.nodes.length);
     this.nv = new Float32Array(mesh.nodes.length);
     this.canvas = document.createElement("canvas");
     this.canvas.className = "flow-canvas";
     this.canvas.setAttribute("aria-hidden", "true");
-    // Over the map's own canvas, under its markers and popups.
-    map.getCanvas().after(this.canvas);
+    // Over the map's own canvas (and any earlier set of lines), under its markers and popups.
+    const box = map.getCanvasContainer();
+    const prev = [...box.querySelectorAll<HTMLCanvasElement>(":scope > .flow-canvas")].pop() ?? map.getCanvas();
+    prev.after(this.canvas);
     this.g = this.canvas.getContext("2d")!;
     map.on("movestart", this.onMoveStart);
     map.on("moveend", this.onSettle);
@@ -206,9 +248,11 @@ export class Streamlets {
     this.canvas.remove();
   }
 
-  setStyle(ink: string, ground: string): void {
+  /** The ink for lines and marks, the ground for the marks' thin rim, and optionally the lines' opacity. */
+  setStyle(ink: string, ground: string, lineAlpha?: number): void {
     this.ink = ink;
     this.ground = ground;
+    if (lineAlpha != null) this.lineAlpha = lineAlpha;
     this.paint();
   }
 
@@ -219,7 +263,7 @@ export class Streamlets {
     else this.paint();
   }
 
-  /** The element velocities for the frame shown (cm/s, east and north), or null outside the model run. */
+  /** Each triangle's vector for the frame shown (east and north, in the field's units), or null when there is none. */
   setField(u: ArrayLike<number> | null, v: ArrayLike<number> | null): void {
     this.hasField = !!(u && v);
     if (u && v) {
@@ -258,6 +302,7 @@ export class Streamlets {
     }
     this.lines = [];
     if (!this.hasField || !W || !H) return;
+    const crest = this.mode === "crest";
     // Mercator to screen is affine for a north-up, unpitched map: fix it from three projected points.
     const c = this.map.getCenter();
     const p0 = this.map.project([c.lng, c.lat]);
@@ -273,8 +318,10 @@ export class Streamlets {
     const w = new Float64Array(3);
     let hint = -1;
     let sepHere = SEP_PX;
-    /** Screen velocity (px per display second) at a screen point, or false off the model's water. */
-    const vel = { x: 0, y: 0, cms: 0 };
+    const pxPerUnit = W / this.crossS / 100; // flow: one field unit (x 100) crosses the width in crossS seconds
+    /** At a screen point: the traced direction on screen (the flow, or along the crest) in vel.x/y, its magnitude in
+     * the field's units, and the travel direction on screen (crests); false off the model's water. */
+    const vel = { x: 0, y: 0, mag: 0, tx: 0, ty: 0 };
     const sample = (X: number, Y: number): boolean => {
       const k = locate(ix, toMx(X), toMy(Y), hint, w);
       if (k < 0) return false;
@@ -282,10 +329,17 @@ export class Streamlets {
       const i0 = ix.tri[k * 3], i1 = ix.tri[k * 3 + 1], i2 = ix.tri[k * 3 + 2];
       const u = w[0] * this.nu[i0] + w[1] * this.nu[i1] + w[2] * this.nu[i2];
       const v = w[0] * this.nv[i0] + w[1] * this.nv[i1] + w[2] * this.nv[i2];
-      vel.cms = Math.hypot(u, v);
-      const pxPerCms = W / CROSS_S / 100; // 1 m/s crosses the width in CROSS_S
-      vel.x = u * pxPerCms;
-      vel.y = -v * pxPerCms;
+      vel.mag = Math.hypot(u, v);
+      if (crest) {
+        const l = vel.mag || 1;
+        vel.tx = u / l;
+        vel.ty = -v / l;
+        vel.x = -vel.ty; // along the crest: the travel direction turned a quarter
+        vel.y = vel.tx;
+      } else {
+        vel.x = u * pxPerUnit;
+        vel.y = -v * pxPerUnit;
+      }
       sepHere = Math.min(SEP_PX, Math.max(SEP_MIN_PX, ix.size[k] * scale));
       return true;
     };
@@ -325,15 +379,16 @@ export class Streamlets {
       ptsIdx.push(idx);
     };
     const inside = (X: number, Y: number) => X >= -MARGIN_PX && Y >= -MARGIN_PX && X <= W + MARGIN_PX && Y <= H + MARGIN_PX;
+    const ok = () => vel.mag >= this.floor;
 
-    /** One direction from the seed: midpoint steps of STEP_PX along the flow (dir -1: against it). */
+    /** One direction from the seed: midpoint steps of STEP_PX along the traced direction (dir -1: the other way). */
     const half = (X0: number, Y0: number, dir: number, line: number, out: number[]) => {
       let X = X0, Y = Y0;
       for (let n = 1; n <= MAX_STEPS; n++) {
-        if (!sample(X, Y) || vel.cms < V_FLOOR_CMS) return;
+        if (!sample(X, Y) || !ok()) return;
         let l = Math.hypot(vel.x, vel.y);
         const mx = X + (dir * vel.x * STEP_PX) / (2 * l), my = Y + (dir * vel.y * STEP_PX) / (2 * l);
-        if (!sample(mx, my) || vel.cms < V_FLOOR_CMS) return;
+        if (!sample(mx, my) || !ok()) return;
         l = Math.hypot(vel.x, vel.y);
         const nx = X + (dir * vel.x * STEP_PX) / l, ny = Y + (dir * vel.y * STEP_PX) / l;
         if (!inside(nx, ny) || !sample(nx, ny)) return;
@@ -348,7 +403,7 @@ export class Streamlets {
 
     const raw: { x: number[]; y: number[] }[] = [];
     const trace = (X: number, Y: number): number => {
-      if (raw.length >= MAX_LINES || !inside(X, Y) || !sample(X, Y) || vel.cms < V_FLOOR_CMS) return -1;
+      if (raw.length >= MAX_LINES || !inside(X, Y) || !sample(X, Y) || !ok()) return -1;
       const id = raw.length;
       if (!free(X, Y, sepHere, -1, 0)) return -1;
       add(X, Y, id, 0);
@@ -401,26 +456,40 @@ export class Streamlets {
         if (id >= 0) grow(id);
       }
 
-    // Arc length and travel time along each line, and the streamlet spacing from the view's median speed.
+    // Arc length along each line; for flow the travel time and the streamlet spacing from the view's median speed,
+    // for crests the travel direction at each point.
     const speeds: number[] = [];
     for (const r of raw) {
       if (r.x.length < MIN_POINTS) continue;
       const n = r.x.length;
-      const L: Line = { x: Float32Array.from(r.x), y: Float32Array.from(r.y), s: new Float32Array(n), tau: new Float32Array(n) };
-      for (let q = 1; q < n; q++) {
-        const ds = Math.hypot(L.x[q] - L.x[q - 1], L.y[q] - L.y[q - 1]);
-        L.s[q] = L.s[q - 1] + ds;
-        sample((L.x[q] + L.x[q - 1]) / 2, (L.y[q] + L.y[q - 1]) / 2);
-        const v = Math.max(Math.hypot(vel.x, vel.y), 1e-3);
-        if (q % 8 === 0) speeds.push(v);
-        L.tau[q] = L.tau[q - 1] + ds / v;
+      const L: Line = {
+        x: Float32Array.from(r.x), y: Float32Array.from(r.y), s: new Float32Array(n), tau: new Float32Array(n),
+        tx: new Float32Array(crest ? n : 0), ty: new Float32Array(crest ? n : 0),
+      };
+      for (let q = 0; q < n; q++) {
+        if (q > 0) L.s[q] = L.s[q - 1] + Math.hypot(L.x[q] - L.x[q - 1], L.y[q] - L.y[q - 1]);
+        if (crest) {
+          if (sample(L.x[q], L.y[q])) {
+            L.tx[q] = vel.tx;
+            L.ty[q] = vel.ty;
+          } else if (q > 0) {
+            L.tx[q] = L.tx[q - 1];
+            L.ty[q] = L.ty[q - 1];
+          }
+        } else if (q > 0) {
+          sample((L.x[q] + L.x[q - 1]) / 2, (L.y[q] + L.y[q - 1]) / 2);
+          const v = Math.max(Math.hypot(vel.x, vel.y), 1e-3);
+          if (q % 8 === 0) speeds.push(v);
+          L.tau[q] = L.tau[q - 1] + (L.s[q] - L.s[q - 1]) / v;
+        }
       }
       this.lines.push(L);
     }
+    if (crest) return;
     speeds.sort((a, b) => a - b);
     const median = speeds.length ? speeds[Math.floor(speeds.length / 2)] : 1;
     this.gap = MARK_GAP_PX / median;
-    // Where the water is slow, travel time piles up: hold the streamlets at least MARK_MIN_GAP_PX apart.
+    // Where the flow is slow, travel time piles up: hold the streamlets at least MARK_MIN_GAP_PX apart.
     for (const L of this.lines) {
       let shift = 0;
       for (let q = 1; q < L.tau.length; q++) {
@@ -447,9 +516,10 @@ export class Streamlets {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.lineCap = "round";
     g.lineJoin = "round";
-    // The lines: faint, one pixel.
-    g.globalAlpha = 0.15;
     g.strokeStyle = this.ink;
+    if (this.mode === "crest") return this.paintCrests();
+    // The lines: faint and fine.
+    g.globalAlpha = this.lineAlpha;
     g.lineWidth = 0.8;
     g.beginPath();
     for (const L of this.lines) {
@@ -499,6 +569,40 @@ export class Streamlets {
     g.lineWidth = 0.6;
     g.strokeStyle = this.ground;
     g.stroke();
+    g.globalAlpha = 1;
+  }
+
+  /** Crests: fine lines with a tick toward where the waves travel; animated, two sets drifting that way and fading in
+   * and out in turn, without ticks (the motion shows the direction). */
+  private paintCrests(): void {
+    const g = this.g;
+    g.lineWidth = 0.9;
+    const stroke = (off: number, alpha: number) => {
+      g.globalAlpha = alpha;
+      g.beginPath();
+      for (const L of this.lines) {
+        g.moveTo(L.x[0] + off * L.tx[0], L.y[0] + off * L.ty[0]);
+        for (let q = 1; q < L.x.length; q++) g.lineTo(L.x[q] + off * L.tx[q], L.y[q] + off * L.ty[q]);
+      }
+      g.stroke();
+    };
+    if (this.animate) {
+      const f = (((performance.now() - this.t0) / 1000) / DRIFT_S) % 1;
+      for (const c of [f, (f + 0.5) % 1]) stroke((c - 0.5) * DRIFT_PX, this.lineAlpha * Math.sin(Math.PI * c));
+    } else {
+      stroke(0, this.lineAlpha);
+      g.beginPath();
+      for (const L of this.lines) {
+        const end = L.s[L.s.length - 1];
+        for (let s = TICK_GAP_PX / 2; s < end; s += TICK_GAP_PX) {
+          const q = upper(L.s, s);
+          const [x, y] = at(L, s);
+          g.moveTo(x, y);
+          g.lineTo(x + TICK_PX * L.tx[q], y + TICK_PX * L.ty[q]);
+        }
+      }
+      g.stroke();
+    }
     g.globalAlpha = 1;
   }
 }
